@@ -121,9 +121,32 @@ export function useRelayGroups(relayUrl: string | undefined) {
     // and rely on explicit invalidation for the rare real change.
     staleTime: 60 * 60 * 1000,
     gcTime: 24 * 60 * 60 * 1000,
-    refetchOnMount: false,
+    // An all-reads-AUTH relay (zooid) can CLOSE the first REQ with
+    // `auth-required` before NIP-42 AUTH settles, so the very first fetch on a
+    // cold connection may resolve empty. nostrify re-subscribes after AUTH, but
+    // the initial query() promise can already have resolved on the CLOSED/EOSE.
+    // Don't let that transient empty result freeze for the hour-long staleTime:
+    // retry a few times (this only re-runs while the result is empty, since a
+    // populated cache satisfies the query), and allow a refetch on mount.
+    retry: (failureCount) => failureCount < 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
+    refetchOnMount: true,
     refetchOnReconnect: false,
   });
+
+  // The first fetch against an all-reads-AUTH relay can win EOSE before AUTH
+  // completes and come back empty (zooid CLOSES the pre-AUTH REQ). react-query
+  // treats an empty array as success, so a one-shot empty wouldn't otherwise be
+  // retried. Schedule a single delayed refetch when we have a logged-in user, a
+  // resolved relay key, and an empty result — by then AUTH is warm and the
+  // retried subscription yields the metadata.
+  const emptyResult = query.data?.length === 0;
+  useEffect(() => {
+    if (!relayUrl || !emptyResult || !relaySelf) return;
+    const t = setTimeout(() => void query.refetch(), 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [relayUrl, emptyResult, relaySelf]);
 
   // The remembered ids (private/closed channels from the kind-10009 list) are
   // not part of the query key — that list churns constantly and we don't want it
