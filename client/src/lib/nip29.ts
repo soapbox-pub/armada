@@ -295,9 +295,20 @@ export function buildRelayGroups(events: NostrEvent[], relay: string): Nip29Grou
 /** Parse a kind 39001 group-admins event into a list of admins with roles. */
 export function parseGroupAdmins(event: NostrEvent): Nip29Admin[] {
   if (event.kind !== KIND_GROUP_ADMINS) return [];
-  return event.tags
-    .filter(([n, v]) => n === "p" && HEX64.test(v ?? ""))
-    .map(([, pubkey, ...roles]) => ({ pubkey, roles: roles.filter(Boolean) }));
+  const byPubkey = new Map<string, Nip29Admin>();
+  for (const [n, pubkey, ...roles] of event.tags) {
+    if (n !== "p" || !HEX64.test(pubkey ?? "")) continue;
+    const existing = byPubkey.get(pubkey);
+    const cleaned = roles.filter(Boolean);
+    if (existing) {
+      // A relay may list the same pubkey twice (e.g. owner + a can_manage
+      // role); merge their roles instead of rendering the admin twice.
+      existing.roles = [...new Set([...existing.roles, ...cleaned])];
+    } else {
+      byPubkey.set(pubkey, { pubkey, roles: cleaned });
+    }
+  }
+  return [...byPubkey.values()];
 }
 
 /** Parse a kind 39002 group-members event into a list of pubkeys. */

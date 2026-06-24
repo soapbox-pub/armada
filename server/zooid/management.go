@@ -134,13 +134,24 @@ func (m *ManagementStore) PubkeyIsBanned(pubkey nostr.PubKey) bool {
 
 func (m *ManagementStore) GetAdmins() []nostr.PubKey {
 	members := make([]nostr.PubKey, 0)
+	seen := make(map[nostr.PubKey]struct{})
 
-	members = append(members, m.Config.GetOwner())
+	add := func(pubkey nostr.PubKey) {
+		if _, ok := seen[pubkey]; ok {
+			return
+		}
+		seen[pubkey] = struct{}{}
+		members = append(members, pubkey)
+	}
+
+	// The owner is an admin, and may also appear in a can_manage role; dedupe so
+	// the published admins list (kind 39001) never lists the same pubkey twice.
+	add(m.Config.GetOwner())
 
 	for _, role := range m.Config.Roles {
 		if role.CanManage {
 			for _, pubkey := range role.Pubkeys {
-				members = append(members, nostr.MustPubKeyFromHex(pubkey))
+				add(nostr.MustPubKeyFromHex(pubkey))
 			}
 		}
 	}
