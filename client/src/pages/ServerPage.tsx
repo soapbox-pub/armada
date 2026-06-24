@@ -1,4 +1,4 @@
-import { Hash, IdCard, Link2, MoreVertical, Trash2, Volume2 } from "lucide-react";
+import { Hash, IdCard, Link2, MoreVertical, Plus, Trash2, Volume2 } from "lucide-react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useState } from "react";
 
@@ -6,6 +6,7 @@ import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { ServerRail } from "@/components/layout/ServerRail";
 import { ServerScopeProvider } from "@/components/ServerScopeProvider";
 import { ServerProfileDialog } from "@/components/dialogs/ServerProfileDialog";
+import { CreateGroupDialog } from "@/components/dialogs/CreateGroupDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +37,7 @@ export function ServerPage() {
   const { mutateAsync: updateList } = useUpdateUserGroupList();
   const relayUrl = server ? routeParamToRelay(server) : undefined;
   const [profileOpen, setProfileOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const { data: groups, isLoading, isError, relayInfo } = useRelayGroups(relayUrl);
 
@@ -187,11 +189,17 @@ export function ServerPage() {
               </Card>
             ) : (
               <Card className="border-dashed">
-                <CardContent className="py-12 px-8 text-center">
+                <CardContent className="py-12 px-8 text-center space-y-4">
                   <p className="text-muted-foreground max-w-sm mx-auto">
-                    No channels on this server yet. Create one from the sidebar, or wait a
-                    moment for the relay to respond.
+                    No channels on this server yet.
+                    {user ? " Create the first one to get started." : " Sign in to create one."}
                   </p>
+                  {user && (
+                    <Button onClick={() => setCreateOpen(true)} className="gap-2">
+                      <Plus className="size-4" />
+                      Create your first channel
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -205,6 +213,10 @@ export function ServerPage() {
           open={profileOpen}
           onOpenChange={setProfileOpen}
         />
+      )}
+
+      {relayUrl && (
+        <CreateGroupDialog relayUrl={relayUrl} open={createOpen} onOpenChange={setCreateOpen} />
       )}
     </ServerScopeProvider>
   );

@@ -1,4 +1,4 @@
-import { Hash, Headphones, Loader2, Lock, RefreshCw, Volume2 } from "lucide-react";
+import { Hash, Headphones, Loader2, Lock, Plus, RefreshCw, Volume2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 
@@ -217,8 +217,16 @@ export function ChannelSidebar({ relayUrl, onNavigate, className }: ChannelSideb
           </Button>
         </div>
       ) : (
-        <div className="px-2 py-8 text-center text-sm text-muted-foreground">
-          No channels yet.
+        <div className="px-3 py-8 text-center text-sm text-muted-foreground space-y-3">
+          <p>No channels yet.</p>
+          {user ? (
+            <Button size="sm" onClick={() => setCreateOpen(true)} className="gap-2">
+              <Plus className="size-3.5" />
+              Create your first channel
+            </Button>
+          ) : (
+            <p className="text-xs">Sign in to create one.</p>
+          )}
         </div>
       )}
     </ChannelSidebarView>
