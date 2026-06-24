@@ -1,4 +1,4 @@
-import { Hash, IdCard, Link2, MoreVertical, Plus, Trash2, Volume2 } from "lucide-react";
+import { Hash, IdCard, Link2, MoreVertical, Plus, Shield, Trash2, Volume2 } from "lucide-react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useState } from "react";
 
@@ -7,6 +7,7 @@ import { ServerRail } from "@/components/layout/ServerRail";
 import { ServerScopeProvider } from "@/components/ServerScopeProvider";
 import { ServerProfileDialog } from "@/components/dialogs/ServerProfileDialog";
 import { CreateGroupDialog } from "@/components/dialogs/CreateGroupDialog";
+import { CommunityRolesDialog } from "@/components/dialogs/CommunityRolesDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +39,7 @@ export function ServerPage() {
   const relayUrl = server ? routeParamToRelay(server) : undefined;
   const [profileOpen, setProfileOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [rolesOpen, setRolesOpen] = useState(false);
 
   const { data: groups, isLoading, isError, relayInfo } = useRelayGroups(relayUrl);
 
@@ -117,6 +119,12 @@ export function ServerPage() {
                   <DropdownMenuItem className="gap-3 px-3 py-2.5" onClick={() => setProfileOpen(true)}>
                     <IdCard className="size-4" />
                     Server identity
+                  </DropdownMenuItem>
+                )}
+                {user && (
+                  <DropdownMenuItem className="gap-3 px-3 py-2.5" onClick={() => setRolesOpen(true)}>
+                    <Shield className="size-4" />
+                    Manage roles
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem className="gap-3 px-3 py-2.5" onClick={handleCopyLink}>
@@ -217,6 +225,10 @@ export function ServerPage() {
 
       {relayUrl && (
         <CreateGroupDialog relayUrl={relayUrl} open={createOpen} onOpenChange={setCreateOpen} />
+      )}
+
+      {relayUrl && (
+        <CommunityRolesDialog relayUrl={relayUrl} open={rolesOpen} onOpenChange={setRolesOpen} />
       )}
     </ServerScopeProvider>
   );

@@ -1,6 +1,8 @@
-import { ArrowLeft, Loader2, Server, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Loader2, Server, ShieldCheck, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { generateSecretKey } from "nostr-tools/pure";
+import { bytesToHex } from "@noble/hashes/utils.js";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -15,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAppContext } from "@/hooks/useAppContext";
+import { useCommunityAdmin, communityAdminEnabled } from "@/hooks/useCommunityAdmin";
 import { useConcordActions } from "@/hooks/useConcordActions";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { toast } from "@/hooks/useToast";
@@ -32,6 +35,7 @@ interface AddDialogProps {
 type Step =
   | { name: "choose" }
   | { name: "nip29" }
+  | { name: "create-community" }
   | { name: "concord-choose" }
   | { name: "concord-start" }
   | { name: "concord-join" };
@@ -57,6 +61,9 @@ export function AddDialog({ open, onOpenChange }: AddDialogProps) {
         {step.name === "choose" && <ChooseStep onPick={setStep} />}
         {step.name === "nip29" && (
           <Nip29Step onBack={() => setStep({ name: "choose" })} onDone={close} />
+        )}
+        {step.name === "create-community" && (
+          <CreateCommunityStep onBack={() => setStep({ name: "choose" })} onDone={close} />
         )}
         {step.name === "concord-choose" && (
           <ConcordChooseStep onBack={() => setStep({ name: "choose" })} onPick={setStep} />
@@ -120,6 +127,14 @@ function ChooseStep({ onPick }: { onPick: (s: Step) => void }) {
           blurb="Connect to a relay that hosts channels. Fast, searchable, voice-capable — the server can read messages."
           onClick={() => onPick({ name: "nip29" })}
         />
+        {communityAdminEnabled() && (
+          <ChoiceCard
+            icon={Sparkles}
+            title="Create a community"
+            blurb="Provision a brand-new server (virtual relay) on this platform. Operator-only."
+            onClick={() => onPick({ name: "create-community" })}
+          />
+        )}
         <ChoiceCard
           icon={ShieldCheck}
           title="Start or join an encrypted chat"
@@ -244,7 +259,130 @@ function Nip29Step({ onBack, onDone }: { onBack: () => void; onDone: () => void 
   );
 }
 
-// ── Step 2b: Concord — start vs join ────────────────────────────────────────
+// ── Step 2b: create a community (tenant CRUD via API_HOST) ──────────────────
+
+/** Derive a default schema id from a host (lowercase identifier). */
+function schemaFromHost(host: string): string {
+  const base = host.split(":")[0].split(".")[0].toLowerCase().replace(/[^a-z0-9_]/g, "_");
+  return /^[a-z_]/.test(base) ? base : `c_${base}`;
+}
+
+function CreateCommunityStep({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
+  const { user } = useCurrentUser();
+  const { config, updateConfig } = useAppContext();
+  const { mutateAsync: updateList } = useUpdateUserGroupList();
+  // The management API is served by any already-loaded community (path-mounted
+  // mode) or a dedicated host. Target the first platform relay's origin — the
+  // brand-new community's own host doesn't exist yet, so we can't post there.
+  const apiRelay = PLATFORM_RELAYS[0] ?? config.addedRelays[0];
+  const { createCommunity } = useCommunityAdmin(apiRelay);
+
+  const [name, setName] = useState("");
+  const [host, setHost] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCreate = async () => {
+    setError(null);
+    if (!user) {
+      setError("You must be signed in.");
+      return;
+    }
+    const cleanHost = host.trim().toLowerCase();
+    if (!cleanHost || !/^[a-z0-9.-]+(:\d+)?$/.test(cleanHost)) {
+      setError("Enter a valid host, e.g. community.example.com.");
+      return;
+    }
+
+    const secret = bytesToHex(generateSecretKey());
+    const id = cleanHost; // zooid config basename == host by convention
+    try {
+      await createCommunity.mutateAsync({
+        id,
+        config: {
+          host: cleanHost,
+          schema: schemaFromHost(cleanHost),
+          secret,
+          info: { name: name.trim() || cleanHost, pubkey: user.pubkey },
+          policy: { public_join: true },
+          groups: { enabled: true },
+          management: { enabled: true },
+        },
+      });
+    } catch {
+      return; // toast handled in hook
+    }
+
+    // Add the new community to the user's server list and open it. Assume
+    // wss:// (the API host serves HTTPS, so the community is reachable over TLS).
+    const relayUrl = normalizeRelayUrl(cleanHost);
+    if (relayUrl) {
+      if (!PLATFORM_RELAYS.includes(relayUrl) && !config.addedRelays.includes(relayUrl)) {
+        updateConfig((current) => ({ ...current, addedRelays: [...current.addedRelays, relayUrl] }));
+        updateList({ type: "add-server", url: relayUrl }).catch(() => undefined);
+      }
+    }
+    onDone();
+  };
+
+  return (
+    <>
+      <StepHeader
+        onBack={onBack}
+        title="Create a community"
+        description="Provision a new virtual relay on this platform. You'll be its owner."
+      />
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleCreate();
+        }}
+        className="space-y-4"
+      >
+        <div className="space-y-2">
+          <Label htmlFor="community-name">Community name</Label>
+          <Input
+            id="community-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="My Community"
+            autoFocus
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="community-host">Host</Label>
+          <Input
+            id="community-host"
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+            placeholder="community.example.com"
+            autoComplete="off"
+          />
+          <p className="text-xs text-muted-foreground">
+            DNS for this host must already point at the platform edge.
+          </p>
+        </div>
+
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <DialogFooter>
+          <Button type="submit" disabled={createCommunity.isPending || !host.trim()}>
+            {createCommunity.isPending ? (
+              <><Loader2 className="size-4 mr-2 animate-spin" /> Creating…</>
+            ) : (
+              "Create community"
+            )}
+          </Button>
+        </DialogFooter>
+      </form>
+    </>
+  );
+}
+
+// ── Step 2c: Concord — start vs join ────────────────────────────────────────
 
 function ConcordChooseStep({ onBack, onPick }: { onBack: () => void; onPick: (s: Step) => void }) {
   return (

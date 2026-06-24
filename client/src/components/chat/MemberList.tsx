@@ -1,4 +1,4 @@
-import { AtSign, Copy, Crown, IdCard, MoreVertical, Shield, ShieldOff, UserMinus, X } from "lucide-react";
+import { AtSign, Check, Copy, Crown, IdCard, MoreVertical, Shield, ShieldOff, Tag, UserMinus, X } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
@@ -9,6 +9,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuthor } from "@/hooks/useAuthor";
@@ -19,7 +22,7 @@ import { getAvatarShape } from "@/lib/avatarShape";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { cn } from "@/lib/utils";
 
-import type { Nip29Admin } from "@/lib/nip29";
+import type { CommunityRole, Nip29Admin } from "@/lib/nip29";
 
 const ROLE_ADMIN = "admin";
 const ROLE_MODERATOR = "moderator";
@@ -36,6 +39,12 @@ interface MemberRowProps {
   onSetRole?: (pubkey: string, roles: string[]) => void;
   /** Open the per-server nickname/label editor (shown only on the viewer's own row). */
   onEditProfile?: () => void;
+  /** Community-wide dynamic role catalog (zooid kind-33534), for the assign submenu. */
+  communityRoles?: CommunityRole[];
+  /** Role ids currently assigned to this member (from the kind-13534 list). */
+  assignedRoleIds?: string[];
+  /** Toggle a community role on/off for a member (NIP-86 assign/unassign). */
+  onToggleCommunityRole?: (pubkey: string, roleId: string, assigned: boolean) => void;
 }
 
 function MemberRow({
@@ -47,6 +56,9 @@ function MemberRow({
   onRemove,
   onSetRole,
   onEditProfile,
+  communityRoles,
+  assignedRoleIds,
+  onToggleCommunityRole,
 }: MemberRowProps) {
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
@@ -58,6 +70,9 @@ function MemberRow({
   const isSelf = currentUserPubkey === pubkey;
   // Moderation acts on others only; everyone gets the basic items.
   const canActOnUser = canModerate && !isSelf;
+  const assigned = new Set(assignedRoleIds ?? []);
+  const showCommunityRoles =
+    canModerate && Boolean(onToggleCommunityRole) && (communityRoles?.length ?? 0) > 0;
 
   const copyNpub = () => {
     const npub = tryNpubEncode(pubkey);
@@ -117,7 +132,7 @@ function MemberRow({
             </DropdownMenuItem>
           )}
 
-          {canActOnUser && (onSetRole || onRemove) && (
+          {canActOnUser && (onSetRole || onRemove || showCommunityRoles) && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="px-2 pb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground/80">
@@ -161,6 +176,30 @@ function MemberRow({
                 </DropdownMenuItem>
               )}
 
+              {showCommunityRoles && (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="gap-3 px-3 py-2.5">
+                    <Tag className="size-4" />
+                    Community roles
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="p-1">
+                    {communityRoles!.map((role) => {
+                      const has = assigned.has(role.id);
+                      return (
+                        <DropdownMenuItem
+                          key={role.id}
+                          className="gap-3 px-3 py-2"
+                          onClick={() => onToggleCommunityRole!(pubkey, role.id, has)}
+                        >
+                          <Check className={cn("size-4", has ? "opacity-100" : "opacity-0")} />
+                          {role.label || role.id}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
+
               {onRemove && (
                 <DropdownMenuItem
                   className="gap-3 px-3 py-2.5 text-destructive focus:text-destructive"
@@ -194,6 +233,12 @@ interface MemberListProps {
   onEditProfile?: () => void;
   /** Override the default desktop panel chrome (e.g. for the mobile drawer). */
   className?: string;
+  /** Community-wide dynamic role catalog (zooid kind-33534). */
+  communityRoles?: CommunityRole[];
+  /** pubkey → assigned community role ids (kind-13534). */
+  communityAssignments?: Map<string, string[]>;
+  /** Toggle a community role for a member (NIP-86). */
+  onToggleCommunityRole?: (pubkey: string, roleId: string, assigned: boolean) => void;
 }
 
 /** Right-hand member panel: admins (with roles) first, then regular members. */
@@ -208,6 +253,9 @@ export function MemberList({
   onClose,
   onEditProfile,
   className,
+  communityRoles,
+  communityAssignments,
+  onToggleCommunityRole,
 }: MemberListProps) {
   const adminMap = new Map(admins.map((a) => [a.pubkey, a.roles] as const));
   // NIP-29 relays don't guarantee a stable order for the `p` tags in the
@@ -254,6 +302,9 @@ export function MemberList({
               onRemove={onRemove}
               onSetRole={onSetRole}
               onEditProfile={onEditProfile}
+              communityRoles={communityRoles}
+              assignedRoleIds={communityAssignments?.get(admin.pubkey)}
+              onToggleCommunityRole={onToggleCommunityRole}
             />
           ))}
         </>
@@ -277,6 +328,9 @@ export function MemberList({
             onRemove={onRemove}
             onSetRole={onSetRole}
             onEditProfile={onEditProfile}
+            communityRoles={communityRoles}
+            assignedRoleIds={communityAssignments?.get(pubkey)}
+            onToggleCommunityRole={onToggleCommunityRole}
           />
         ))
       )}

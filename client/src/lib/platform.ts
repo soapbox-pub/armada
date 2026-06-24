@@ -51,6 +51,44 @@ export function routeParamToRelay(param: string): string | undefined {
 export const APP_NAME: string = import.meta.env.VITE_APP_NAME || "Armada";
 
 /**
+ * zooid's tenant-management REST API location. The API lets whitelisted
+ * operators create/edit/delete whole communities (virtual relays) from the
+ * client, via NIP-98-authed requests to `<base>/relay/{id}`.
+ *
+ * Two ways to point at it (the relay must enable the matching mode):
+ *   - `VITE_RELAY_API_BASE` — an explicit absolute HTTP origin (optionally with
+ *     a path), e.g. `https://api.example.com`. Used as-is when set.
+ *   - `VITE_RELAY_API_PATH` — a path the API is mounted under on EVERY community
+ *     origin (single-origin deploy), e.g. `/api`. The effective base is then
+ *     the viewed community's HTTP origin + this path.
+ *
+ * `communityApiBase(relayUrl)` resolves the base for a given community. When
+ * neither env is set, the management UI stays hidden.
+ */
+export const RELAY_API_BASE: string = (import.meta.env.VITE_RELAY_API_BASE || "").trim().replace(/\/$/, "");
+export const RELAY_API_PATH: string = (() => {
+  const raw = (import.meta.env.VITE_RELAY_API_PATH || "").trim().replace(/\/$/, "");
+  if (!raw) return "";
+  return raw.startsWith("/") ? raw : `/${raw}`;
+})();
+
+/** Whether any tenant-management API is configured for this build. */
+export function communityApiEnabled(): boolean {
+  return Boolean(RELAY_API_BASE || RELAY_API_PATH);
+}
+
+/**
+ * Resolve the management API base URL for a community relay. Prefers an
+ * explicit `VITE_RELAY_API_BASE`; otherwise mounts `VITE_RELAY_API_PATH` on the
+ * community's own HTTP origin. Returns undefined when the API isn't configured.
+ */
+export function communityApiBase(relayUrl?: string): string | undefined {
+  if (RELAY_API_BASE) return RELAY_API_BASE;
+  if (RELAY_API_PATH && relayUrl) return `${relayToHttpUrl(relayUrl)}${RELAY_API_PATH}`;
+  return undefined;
+}
+
+/**
  * Pinned platform relays. Always present; not user-removable.
  *
  * `VITE_PLATFORM_RELAYS` is treated three ways, and the distinction matters:

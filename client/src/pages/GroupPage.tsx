@@ -29,6 +29,7 @@ import { useCall } from "@/hooks/useCall";
 import { useGroup } from "@/hooks/useGroup";
 import { useGroupMembership, useJoinGroup, useLeaveGroup } from "@/hooks/useGroupMembership";
 import { useGroupModeration } from "@/hooks/useGroupModeration";
+import { useCommunityRoles } from "@/hooks/useCommunityRoles";
 import { useRelayLivekitSupport } from "@/hooks/useLivekit";
 import { usePinnedMessages } from "@/hooks/usePinnedMessages";
 import { useUpdateUserGroupList } from "@/hooks/useUserGroupList";
@@ -104,6 +105,7 @@ export function GroupPage() {
   const { data: relayHasLivekit } = useRelayLivekitSupport(relayUrl);
   const leave = useLeaveGroup(relayUrl ?? "", groupId ?? "");
   const { removeUser, putUser, deleteGroup } = useGroupModeration(relayUrl ?? "", groupId ?? "");
+  const { data: communityRolesData, assignRole, unassignRole } = useCommunityRoles(relayUrl);
   const { mutateAsync: updateList } = useUpdateUserGroupList();
   const { activeCall, joinCall } = useCall();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -498,6 +500,13 @@ export function GroupPage() {
                 onSetRole={(pubkey, roles) => putUser.mutate({ pubkey, roles })}
                 onEditProfile={() => setServerProfileOpen(true)}
                 onClose={() => setMembersOpen(false)}
+                communityRoles={communityRolesData?.roles}
+                communityAssignments={communityRolesData?.assignments}
+                onToggleCommunityRole={(pubkey, roleId, assigned) =>
+                  assigned
+                    ? unassignRole.mutate({ pubkey, roleId })
+                    : assignRole.mutate({ pubkey, roleId })
+                }
               />
             </div>
           </div>

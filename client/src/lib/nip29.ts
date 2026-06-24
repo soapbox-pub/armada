@@ -83,6 +83,25 @@ export const KIND_RELAY_INVITE = 28935;
 /** User: ephemeral request to leave the *relay*. */
 export const KIND_RELAY_LEAVE = 28936;
 
+/**
+ * Relay-signed: a community's relay-level member list (zooid). Addressable;
+ * one per relay. Each member is a `member` tag whose extra values are the ids
+ * of the dynamic roles assigned to that member:
+ * `["member", <pubkey>, <roleId>, ...]`.
+ */
+export const KIND_RELAY_MEMBERS = 13534;
+/**
+ * Relay-signed: a dynamic relay-level role *definition* (zooid). Addressable
+ * (`d` = role id). These are cosmetic/organizational labels (label, color,
+ * order) — they carry no permission semantics on the relay; real privileges
+ * come from the relay's TOML `[roles]`. Created/edited via NIP-86
+ * `createrole`/`editrole`/`deleterole` and assigned with `assignrole`.
+ */
+export const KIND_RELAY_ROLE = 33534;
+
+/** NIP-98 HTTP auth event (also the NIP-86 RPC auth event). */
+export const KIND_HTTP_AUTH = 27235;
+
 /** Relay-signed: group metadata (addressable, `d` = group id). */
 export const KIND_GROUP_METADATA = 39000;
 /** Relay-signed: group admins. */
@@ -171,6 +190,20 @@ export interface Nip29Admin {
 export interface Nip29Role {
   name: string;
   description?: string;
+}
+
+/**
+ * A zooid dynamic relay-level role (kind 33534). Cosmetic only: `id` is the
+ * stable key (the event's `d` tag), the rest are display attributes.
+ */
+export interface CommunityRole {
+  id: string;
+  label?: string;
+  description?: string;
+  /** Hue 0–255 (zooid stores a single hue int), or undefined when unset. */
+  color?: number;
+  /** Sort order; lower first. */
+  order?: number;
 }
 
 /** A group reference stored in the user's kind 10009 list. */
@@ -325,6 +358,41 @@ export function parseGroupRoles(event: NostrEvent): Nip29Role[] {
   return event.tags
     .filter(([n, v]) => n === "role" && Boolean(v))
     .map(([, name, description]) => ({ name, description }));
+}
+
+/** Parse a kind 33534 zooid dynamic-role definition event. */
+export function parseCommunityRole(event: NostrEvent): CommunityRole | undefined {
+  if (event.kind !== KIND_RELAY_ROLE) return undefined;
+  const id = tag(event, "d")?.[1];
+  if (!id) return undefined;
+  const label = tag(event, "label")?.[1];
+  const description = tag(event, "description")?.[1];
+  const colorRaw = tag(event, "color")?.[1];
+  const orderRaw = tag(event, "order")?.[1];
+  const color = colorRaw !== undefined ? Number(colorRaw) : undefined;
+  const order = orderRaw !== undefined ? Number(orderRaw) : undefined;
+  return {
+    id,
+    label: label || undefined,
+    description: description || undefined,
+    color: Number.isFinite(color) ? color : undefined,
+    order: Number.isFinite(order) ? order : undefined,
+  };
+}
+
+/**
+ * Parse the role ids assigned to each member from a kind 13534 relay members
+ * list. Returns a map of pubkey → assigned role ids
+ * (`["member", <pubkey>, <roleId>, ...]`).
+ */
+export function parseCommunityMemberRoles(event: NostrEvent): Map<string, string[]> {
+  const byPubkey = new Map<string, string[]>();
+  if (event.kind !== KIND_RELAY_MEMBERS) return byPubkey;
+  for (const [n, pubkey, ...roleIds] of event.tags) {
+    if (n !== "member" || !HEX64.test(pubkey ?? "")) continue;
+    byPubkey.set(pubkey, roleIds.filter(Boolean));
+  }
+  return byPubkey;
 }
 
 /** Parse a kind 39004 livekit-participants event into a list of pubkeys. */

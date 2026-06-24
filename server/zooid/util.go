@@ -1,6 +1,7 @@
 package zooid
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,24 @@ import (
 
 	"fiatjaf.com/nostr"
 )
+
+// originalPathKey carries the un-stripped request path through the context when
+// the management API is mounted under a path prefix (API_PATH). The NIP-98
+// u-tag check must validate against the URL the client actually signed, not the
+// prefix-stripped path the mux sees.
+type originalPathCtxKey struct{}
+
+// WithOriginalPath records the original (un-stripped) request path on the context.
+func WithOriginalPath(ctx context.Context, path string) context.Context {
+	return context.WithValue(ctx, originalPathCtxKey{}, path)
+}
+
+func originalPath(r *http.Request) string {
+	if p, ok := r.Context().Value(originalPathCtxKey{}).(string); ok && p != "" {
+		return p
+	}
+	return r.URL.Path
+}
 
 const (
 	RELAY_ADD_MEMBER    = 8000
@@ -190,7 +209,7 @@ func validateNIP98Auth(r *http.Request) (nostr.PubKey, error) {
 		scheme = scheme + "s"
 	}
 
-	expectedURL := fmt.Sprintf("%s://%s%s", scheme, r.Host, r.URL.Path)
+	expectedURL := fmt.Sprintf("%s://%s%s", scheme, r.Host, originalPath(r))
 	var hasURL, hasMethod bool
 
 	for _, tag := range event.Tags {

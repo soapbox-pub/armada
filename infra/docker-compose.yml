@@ -21,10 +21,15 @@ services:
       CONFIG: /config
       DATA: /data
       MEDIA: /media
-      # Management REST API (NIP-98 authed). When API_HOST is set, virtual
-      # relays can be created/updated/deleted at runtime by whitelisted
-      # pubkeys. Leave API_HOST empty to disable the API entirely.
+      # Management REST API (NIP-98 authed). Two ways to expose it:
+      #   - API_HOST: serve it on a dedicated host (whole-Host match).
+      #   - API_PATH: mount it under a path prefix (e.g. /api) on EVERY community
+      #     host, keeping the relay+client+API on one origin. The client's
+      #     VITE_RELAY_API_BASE should then be "<community origin>/api".
+      # Whitelisted pubkeys may create/update/delete virtual relays at runtime.
+      # Leave both empty to disable the API entirely.
       API_HOST: ${RELAY_API_HOST:-}
+      API_PATH: ${RELAY_API_PATH:-}
       API_WHITELIST: ${RELAY_API_WHITELIST:-}
       # Web Push VAPID keys (optional, shared across tenants on this process).
       # Leave empty to auto-generate + persist a per-tenant keypair on first
@@ -94,6 +99,11 @@ services:
         VITE_DEFAULT_NOISE_SUPPRESSION: ${DEFAULT_NOISE_SUPPRESSION:-true}
         VITE_DEFAULT_ECHO_CANCELLATION: ${DEFAULT_ECHO_CANCELLATION:-true}
         VITE_DEFAULT_AUTO_GAIN_CONTROL: ${DEFAULT_AUTO_GAIN_CONTROL:-true}
+        # Tenant-management API for the client's "Create a community" flow.
+        # Set RELAY_API_PATH (e.g. /api) for the single-origin path mount, or
+        # RELAY_API_BASE for a dedicated API host. Both empty hides the UI.
+        VITE_RELAY_API_PATH: ${RELAY_API_PATH:-}
+        VITE_RELAY_API_BASE: ${RELAY_API_CLIENT_BASE:-}
     restart: unless-stopped
     ports:
       - "${CLIENT_PORT:-8080}:80"

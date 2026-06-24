@@ -15,6 +15,54 @@ import (
 	"fiatjaf.com/nostr"
 )
 
+// validateNIP98Auth must accept a request whose path was stripped of an
+// API_PATH prefix, as long as the signed "u" tag matches the ORIGINAL
+// (un-stripped) URL carried on the request context. This is how the
+// path-mounted management API (RELAY_API_PATH=/api on a community origin) keeps
+// the NIP-98 u-tag check valid after main.go strips the prefix for the mux.
+func TestValidateNIP98Auth_OriginalPath(t *testing.T) {
+	secretKey := nostr.Generate()
+
+	event := nostr.Event{
+		Kind:      nostr.KindHTTPAuth,
+		CreatedAt: nostr.Now(),
+		Tags: nostr.Tags{
+			{"u", "https://armada.example.com/api/relay/test"},
+			{"method", "POST"},
+		},
+	}
+	event.Sign(secretKey)
+
+	jevt, _ := json.Marshal(event)
+	authHeader := "Nostr " + base64.StdEncoding.EncodeToString(jevt)
+
+	// The request reaching validateNIP98Auth has the prefix stripped (the mux
+	// sees /relay/test), but the original path is preserved on the context.
+	req := httptest.NewRequest(http.MethodPost, "/relay/test", strings.NewReader("{}"))
+	req.Host = "armada.example.com"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("Authorization", authHeader)
+	req = req.WithContext(WithOriginalPath(req.Context(), "/api/relay/test"))
+
+	pubkey, err := validateNIP98Auth(req)
+	if err != nil {
+		t.Fatalf("expected auth to succeed against original path, got: %v", err)
+	}
+	if pubkey != secretKey.Public() {
+		t.Errorf("returned pubkey mismatch")
+	}
+
+	// Without the original-path context, the stripped path wouldn't match the
+	// signed u tag, so auth must fail.
+	req2 := httptest.NewRequest(http.MethodPost, "/relay/test", strings.NewReader("{}"))
+	req2.Host = "armada.example.com"
+	req2.Header.Set("X-Forwarded-Proto", "https")
+	req2.Header.Set("Authorization", authHeader)
+	if _, err := validateNIP98Auth(req2); err == nil {
+		t.Error("expected auth to fail when u tag doesn't match the request path")
+	}
+}
+
 func TestAPIHandler_Authentication(t *testing.T) {
 	useTestConfigDir(t)
 

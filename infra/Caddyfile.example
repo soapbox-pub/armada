@@ -55,6 +55,15 @@ armada.example.com {
 		reverse_proxy RELAY_HOST:5577
 	}
 
+	# zooid management REST API, when mounted on-origin via RELAY_API_PATH=/api.
+	# This is how the client's "Create a community" flow provisions new virtual
+	# relays (NIP-98 authed, whitelisted pubkeys). Keeps the API on the same
+	# origin — no dedicated subdomain. Drop this block if you don't enable the
+	# management API (or if you serve it on a dedicated RELAY_API_HOST instead).
+	handle /api/* {
+		reverse_proxy RELAY_HOST:5577
+	}
+
 	# Relay Nostr websocket + NIP-11: requests that upgrade to a websocket, or
 	# ask for the relay information document, go to the relay at the root path.
 	@relay {
