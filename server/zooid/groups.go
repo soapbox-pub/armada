@@ -1,9 +1,11 @@
 package zooid
 
 import (
+	"log"
+	"slices"
+
 	"fiatjaf.com/nostr"
 	"fiatjaf.com/nostr/nip29"
-	"slices"
 )
 
 // Utils
@@ -248,6 +250,44 @@ func (g *GroupStore) UpdateMembersList(h string) error {
 }
 
 // Other stuff
+
+// GroupIDs returns the d-tag of every group that has a metadata (kind 39000)
+// event stored on this relay.
+func (g *GroupStore) GroupIDs() []string {
+	filter := nostr.Filter{Kinds: []nostr.Kind{nostr.KindSimpleGroupMetadata}}
+
+	seen := make(map[string]struct{})
+	ids := make([]string, 0)
+	for event := range g.Events.QueryEvents(filter, 0) {
+		h := event.Tags.GetD()
+		if h == "" {
+			continue
+		}
+		if _, ok := seen[h]; ok {
+			continue
+		}
+		seen[h] = struct{}{}
+		ids = append(ids, h)
+	}
+
+	return ids
+}
+
+// HealManagedLists re-publishes the relay-derived admins (kind 39001) and
+// members (kind 39002) lists for every existing group. It's idempotent and
+// safe to run at startup: it repairs groups whose lists were lost to the
+// same-second ReplaceEvent self-delete bug (groups created before that fix) and
+// is a no-op for groups whose lists are already correct.
+func (g *GroupStore) HealManagedLists() {
+	for _, h := range g.GroupIDs() {
+		if err := g.UpdateAdminsList(h); err != nil {
+			log.Printf("heal: UpdateAdminsList(%s) failed: %v", h, err)
+		}
+		if err := g.UpdateMembersList(h); err != nil {
+			log.Printf("heal: UpdateMembersList(%s) failed: %v", h, err)
+		}
+	}
+}
 
 func (g *GroupStore) HasAccess(h string, pubkey nostr.PubKey) bool {
 	return g.Config.CanManage(pubkey) || g.IsAdmin(h, pubkey) || g.IsMember(h, pubkey)

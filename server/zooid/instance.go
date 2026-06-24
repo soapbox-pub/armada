@@ -160,6 +160,10 @@ func makeInstance(config *Config, source string) (*Instance, error) {
 
 	if config.Groups.Enabled {
 		instance.Groups.Enable(instance)
+		// Repair any group whose relay-derived admins/members list was lost to
+		// the same-second ReplaceEvent self-delete bug (groups created before
+		// that fix). Idempotent; a no-op for already-correct groups.
+		instance.Groups.HealManagedLists()
 	}
 
 	if config.Push.Enabled {
