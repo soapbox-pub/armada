@@ -12,29 +12,52 @@ routing, and getting LiveKit voice to work behind an edge.
 | `client/` | React 19 + Vite web client (nginx-served static build)          |
 | `client/android/`  | Capacitor Android project (signed APK/AAB built in CI) |
 | `client/electron/` | Electron desktop shell (loads the hosted client over HTTPS; Linux/Windows/macOS installers built in CI) |
-| `server/` | Go relay: khatru + relay29 + badger + LiveKit token endpoint    |
-| `infra/`  | `docker-compose.yml` + `.env.example` for the full stack        |
+| `server/` | Multi-tenant Nostr relay (vendored [zooid](https://github.com/coracle-social/zooid): khatru + SQLite, one virtual relay per host) with Armada voice/push extensions ported in (`zooid/voice.go`, `zooid/push_vapid.go`, `zooid/pins.go`) |
+| `infra/`  | `docker-compose.yml` + `.env.example` + per-community `config/*.toml` for the full stack |
 | `start.sh`| Turnkey wrapper around `docker compose` in `infra/`             |
 
-Three containers: `relay` (:5577), `livekit` (:7880 signaling, :7881 TCP,
-50000-50100/udp media, optional TURN/TLS), `client` (nginx on :80 → host
-`CLIENT_PORT`).
+Three containers: `relay` (:5577, multi-tenant zooid), `livekit` (:7880 signaling, :7881 TCP, 50000-50100/udp media, optional TURN/TLS), `client` (nginx on :80 → host `CLIENT_PORT`).
+
+## Multi-tenant relay model
+
+The relay is **zooid**: one process serves **any number of communities**, one
+per HTTP `Host`. Each community is a TOML file under `infra/config/<host>.toml`
+(`host`, `schema`, relay `secret`, `[info]`/`[policy]`/`[roles]`/`[livekit]`,
+etc.). zooid dispatches by the inbound `Host` header (so reverse proxies MUST
+forward the original Host — Caddy's `reverse_proxy` does by default), gates
+reads/writes on relay membership, and supports NIP-29 groups, NIP-86 management,
+dynamic roles, and NIP-9a push out of the box. Configs are hot-reloaded
+(fsnotify) and can be CRUD'd at runtime via zooid's NIP-98-authed management API
+when `API_HOST` is set. `start.sh` seeds one default community
+(`infra/config/localhost:5577.toml`) for the localhost quickstart.
+
+Armada's relay-specific extensions are ported into the vendored zooid package:
+LiveKit DM voice (`/.well-known/nip29/livekit-dm/<dm:a:b>`), the Concord blind
+voice broker (`/.well-known/concord/voice`), VAPID Web Push
+(`/.well-known/armada/push`, per-tenant keys + subscriptions in zooid's kv), and
+admin-gated pinned messages (kind 39041). Group voice + NIP-29 kind-39004
+presence are zooid-native; the LiveKit webhook lives at
+`/.well-known/nip29/livekit/webhook`.
 
 ## Build / test
 
 - Client: `cd client && npm install && npm run test` (tsc + eslint + vitest +
   production build).
-- Relay: `cd server && RELAY_PRIVKEY=$(openssl rand -hex 32) go run .` —
-  or just build the image via `docker compose build relay`.
-- Full stack: `./start.sh` (generates `infra/.env` on first run, builds, starts,
-  health-checks).
+- Relay: `cd server && go build ./...` (or run it with a `config/` dir of
+  community TOMLs: `CONFIG=./config DATA=./data MEDIA=./media go run ./cmd/relay`).
+  The relay needs the Go 1.25 toolchain (`go.mod` pins it). Just build the image
+  via `docker compose build relay` if your local Go is older.
+- Full stack: `./start.sh` (generates `infra/.env` + a default community config
+  on first run, builds, starts, health-checks).
 
 ## Secrets
 
-`infra/.env` holds `RELAY_PRIVKEY` and `LIVEKIT_API_SECRET`. It is **gitignored**
-(`.gitignore` matches `.env`) — never commit it, never paste its contents into
-docs or commits. `RELAY_PRIVKEY` is the relay's Nostr identity; rotating it
-orphans all existing groups.
+`infra/.env` holds `LIVEKIT_API_SECRET` (and optional VAPID keys). Each
+community's relay `secret` (its Nostr identity) lives in
+`infra/config/<host>.toml`. Both `.env` and `infra/config/` are **gitignored** —
+never commit them, never paste their contents into docs or commits. A
+community's `secret` is its relay identity; rotating it orphans that community's
+groups.
 
 ---
 

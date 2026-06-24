@@ -1,0 +1,153 @@
+package zooid
+
+import (
+	"log"
+	"os"
+	"path/filepath"
+	"sync"
+
+	"github.com/fsnotify/fsnotify"
+)
+
+var (
+	instancesByHost map[string]*Instance
+	instancesByName map[string]*Instance
+	instancesOnce   sync.Once
+	instancesMux    sync.RWMutex
+)
+
+func Dispatch(hostname string) (*Instance, bool) {
+	instancesMux.RLock()
+	defer instancesMux.RUnlock()
+
+	instance, exists := instancesByHost[hostname]
+	if !exists || instance.Config.Inactive {
+		return nil, false
+	}
+
+	return instance, exists
+}
+
+func DispatchBySchema(schema string) (*Instance, bool) {
+	instancesMux.RLock()
+	defer instancesMux.RUnlock()
+
+	for _, instance := range instancesByName {
+		if instance.Config.Schema == schema && !instance.Config.Inactive {
+			return instance, true
+		}
+	}
+
+	return nil, false
+}
+
+func Start() {
+	dataDir := Env("DATA")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		log.Fatalf("Failed to create data directory: %v", err)
+	}
+
+	mediaDir := Env("MEDIA")
+	if err := os.MkdirAll(mediaDir, 0755); err != nil {
+		log.Fatalf("Failed to create media directory: %v", err)
+	}
+
+	configDir := Env("CONFIG")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		log.Fatalf("Failed to create config directory: %v", err)
+	}
+
+	instancesOnce.Do(func() {
+		instancesByHost = make(map[string]*Instance)
+		instancesByName = make(map[string]*Instance)
+	})
+
+	entries, err := os.ReadDir(configDir)
+	if err != nil {
+		log.Fatalf("Failed to scan config directory: %v", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		instance, err := MakeInstance(entry.Name())
+
+		if err != nil {
+			log.Printf("Failed to make instance for %s: %v", entry.Name(), err)
+		} else if instance.Config.Inactive {
+			instance.Cleanup()
+			log.Printf("Skipped inactive %s", entry.Name())
+		} else {
+			instancesByHost[instance.Config.Host] = instance
+			instancesByName[entry.Name()] = instance
+			log.Printf("Loaded %s", entry.Name())
+		}
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Printf("Failed to create file watcher: %v", err)
+		return
+	}
+
+	defer watcher.Close()
+
+	if err := watcher.Add(configDir); err != nil {
+		log.Printf("Failed to watch config directory: %v", err)
+		return
+	}
+
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+
+			filename := filepath.Base(event.Name)
+
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) {
+				instancesMux.Lock()
+
+				if instance, exists := instancesByName[filename]; exists {
+					instance.Cleanup()
+
+					delete(instancesByHost, instance.Config.Host)
+					delete(instancesByName, filename)
+				}
+
+				if event.Has(fsnotify.Remove) {
+					log.Printf("Unloaded %s", filename)
+				} else {
+					instance, err := MakeInstance(filename)
+					if err != nil {
+						log.Printf("Failed to reload %s: %v", filename, err)
+					} else if instance.Config.Inactive {
+						instance.Cleanup()
+						log.Printf("Skipped inactive %s", filename)
+					} else {
+						instancesByHost[instance.Config.Host] = instance
+						instancesByName[filename] = instance
+
+						if event.Has(fsnotify.Write) {
+							log.Printf("Reloaded %v", filename)
+						} else {
+							log.Printf("Loaded %v", filename)
+						}
+					}
+				}
+
+				instancesMux.Unlock()
+			}
+
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+
+			log.Printf("File watcher error: %v", err)
+		}
+	}
+}

@@ -56,4 +56,4 @@ services:
         webhook:
           api_key: ${LIVEKIT_API_KEY:-armada}
           urls:
-            - http://127.0.0.1:5577/livekit/webhook
+            - http://127.0.0.1:5577/.well-known/nip29/livekit/webhook

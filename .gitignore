@@ -5,6 +5,8 @@ dist/
 .env
 data/
 server/armada-relay
+# Per-community zooid configs contain relay secret keys — never commit.
+infra/config/
 .tsbuildinfo
 
 # Android signing material — never commit. Injected via CI/CD variables.

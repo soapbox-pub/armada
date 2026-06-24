@@ -9,13 +9,16 @@ from [Flotilla](https://gitea.coracle.social/coracle/flotilla).
 ```
 ┌────────────┐  wss (NIP-42 AUTH)   ┌──────────────────┐  webhooks  ┌─────────┐
 │   client   │ ───────────────────► │   armada relay   │ ◄───────── │ LiveKit │
-│ (React 19) │  http (NIP-98 JWT)   │ (khatru/relay29) │            │   SFU   │
+│ (React 19) │  http (NIP-98 JWT)   │ (zooid, multi-   │            │   SFU   │
+│            │                      │  tenant by host) │            │         │
 └────────────┘ ───────────────────► └──────────────────┘            └─────────┘
        └──────────────────── WebRTC audio ──────────────────────────────┘
 ```
 
 - **Servers** = relays. The rail is pinned to your platform relays
-  (`VITE_PLATFORM_RELAYS`); users can add more internal relays.
+  (`VITE_PLATFORM_RELAYS`); users can add more internal relays. The relay is
+  [zooid](https://github.com/coracle-social/zooid): one process hosts many
+  communities, one per HTTP `Host` (each a TOML under `infra/config/`).
 - **Channels** = NIP-29 groups (kind 39000 metadata, kind 9 chat, 9000-9009
   moderation, 9021/9022 join/leave, kind 10009 personal group list).
 - **Auth** = NIP-42 relay auth (kind 22242), signed by nsec, NIP-07 extension,
@@ -33,8 +36,8 @@ from [Flotilla](https://gitea.coracle.social/coracle/flotilla).
 | Path      | What                                                            |
 |-----------|-----------------------------------------------------------------|
 | `client/` | React 19 + Vite + Tailwind + shadcn/ui + Nostrify web client    |
-| `server/` | Go relay: khatru + relay29 + badger + LiveKit token endpoint    |
-| `infra/`  | docker-compose for the full stack (relay + LiveKit + client)    |
+| `server/` | Multi-tenant relay (vendored zooid: khatru + SQLite, one virtual relay per host) + Armada voice/push extensions |
+| `infra/`  | docker-compose + per-community `config/*.toml` for the full stack |
 
 ## Quick start (full stack)
 
@@ -42,9 +45,11 @@ from [Flotilla](https://gitea.coracle.social/coracle/flotilla).
 ./start.sh
 ```
 
-That's it. On first run it generates secrets into `infra/.env` (relay key,
-LiveKit API secret), picks a free client port if 8080 is taken, builds the
-three containers, starts them, and health-checks every endpoint.
+That's it. On first run it generates the LiveKit API secret into `infra/.env`,
+prompts for the community owner pubkey, seeds a default community config at
+`infra/config/localhost:5577.toml` (with a fresh relay key), picks a free client
+port if 8080 is taken, builds the three containers, starts them, and
+health-checks every endpoint.
 
 - Client: http://localhost:8080 (or the port `start.sh` prints)
 - Relay:  ws://localhost:5577 (NIP-11 at http://localhost:5577)
@@ -85,27 +90,35 @@ Configuration (build-time env):
 
 ```sh
 cd server
-RELAY_PRIVKEY=$(openssl rand -hex 32) go run .
+# Run with a config dir of community TOMLs (see infra/config/ or zooid's README).
+CONFIG=./config DATA=./data MEDIA=./media go run ./cmd/relay
 ```
 
-Env vars: see `infra/.env.example`. Without `LIVEKIT_*` set, the relay runs
-chat-only and voice is hidden in the client.
+The relay needs the Go 1.25 toolchain (pinned in `server/go.mod`); if your local
+Go is older, build the container instead (`docker compose build relay`). Env
+vars: see `infra/.env.example`. LiveKit credentials are per-community in each
+`config/<host>.toml` `[livekit]` block; without them a community runs chat-only
+and voice is hidden in the client.
 
 ### Server behavior notes
 
-- Built on relay29 v0.5.1; **only group members can write** into a group.
-  Open groups auto-admit kind 9021 join requests (unless the user was
-  previously removed); closed groups require an invite code minted by an
-  admin/moderator (kind 9009 — implemented in `server/invites.go`, on top of
-  upstream relay29).
-- Kinds `0` (profiles) and `10009` (user group lists) are accepted as
-  "unmanaged" kinds so the deployment works with a single relay; writing them
-  requires NIP-42 auth as the same pubkey, reading requires an `authors`
-  filter (`server/unmanaged.go`).
-- Kind 39004 (voice presence) is generated from LiveKit webhooks and served
-  from memory; it is not persisted (`server/livekit.go`).
-- Roles: `admin` (everything) and `moderator` (remove users, delete messages,
-  invite). The group creator becomes `admin`.
+- The relay is **zooid**, multi-tenant by HTTP `Host`. Each community is a TOML
+  config (`infra/config/<host>.toml`) with its own relay key, owner, roles,
+  policy, and LiveKit creds; configs are hot-reloaded and CRUD-able via zooid's
+  NIP-98 management API (`API_HOST`).
+- **Relay-level membership** gates reads/writes: zooid requires NIP-42 AUTH and
+  membership. A community joins via kind 28934 (with a `claim` invite minted as
+  kind 28935) or, when `public_join` is set, openly. NIP-29 group membership
+  (kind 9000/9001, join/leave 9021/9022) layers on top.
+- **Roles** are dynamic: relay-level roles are kind 33534 definitions + role IDs
+  in the members list, managed over NIP-86 (`createrole`/`assignrole`/…). NIP-29
+  group admins/moderators continue to work via kind 9000/39003.
+- Armada extensions ported into zooid: LiveKit DM voice
+  (`/.well-known/nip29/livekit-dm/<dm:a:b>`), the Concord blind voice broker
+  (`/.well-known/concord/voice`), VAPID Web Push (`/.well-known/armada/push`),
+  and admin-gated pinned messages (kind 39041).
+- Kind 39004 (voice presence) is generated from LiveKit webhooks
+  (`/.well-known/nip29/livekit/webhook`) for groups and DM rooms.
 
 ## Security model
 

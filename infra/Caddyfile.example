@@ -1,16 +1,20 @@
 # Armada — single-domain reverse proxy (Caddy reference).
 #
-# The relay (NIP-29 Nostr websocket + NIP-11 + LiveKit/Concord token endpoints)
-# and the web client SPA share ONE origin (e.g. armada.example.com), split by
-# request path and by WebSocket upgrade. This mirrors the production deployment;
-# see AGENTS.md for the full hosting story (LiveKit/TURN, SNI passthrough, etc.).
+# The relay (multi-tenant zooid: NIP-29 Nostr websocket + NIP-11 + LiveKit /
+# Concord / push endpoints) and the web client SPA share ONE origin per
+# community (e.g. armada.example.com), split by request path and by WebSocket
+# upgrade. zooid routes to a community by the inbound Host header, which MUST
+# equal that community's TOML `host` field — Caddy's reverse_proxy preserves the
+# inbound Host by default, so no extra header config is needed. Each community
+# gets its own site block (or use a wildcard + one config TOML per host).
+# See AGENTS.md for the full hosting story (LiveKit/TURN, SNI passthrough, etc.).
 #
 # Copy this file, replace the placeholders, and either drop it in your Caddy
 # sites directory or `import` it from your main Caddyfile:
 #
-#   armada.example.com   → your domain
+#   armada.example.com   → a community host (must match its config TOML `host`)
 #   you@example.com      → ACME contact email
-#   RELAY_HOST:5577      → the relay (khatru) HTTP/WS endpoint
+#   RELAY_HOST:5577      → the zooid relay HTTP/WS endpoint
 #   SFU_HOST:7880        → the LiveKit SFU signaling endpoint
 #   CLIENT_HOST:8080     → the web client's nginx container
 #
@@ -28,6 +32,8 @@ armada.example.com {
 	}
 
 	# Relay NIP-29 AV-space LiveKit token + capability endpoints (NIP-98 authed).
+	# This also covers zooid's LiveKit webhook (/.well-known/nip29/livekit/webhook),
+	# normally reached internally by the SFU rather than the public edge.
 	handle /.well-known/nip29/* {
 		reverse_proxy RELAY_HOST:5577
 	}
@@ -46,12 +52,6 @@ armada.example.com {
 	# route above, otherwise the request hits the SPA and the client gets HTML
 	# instead of JSON when fetching the VAPID key.
 	handle /.well-known/armada/* {
-		reverse_proxy RELAY_HOST:5577
-	}
-
-	# Relay LiveKit webhook path (defensive; normally reached internally by the
-	# SFU, not the public edge).
-	handle /livekit/* {
 		reverse_proxy RELAY_HOST:5577
 	}
 

@@ -1,10 +1,15 @@
-# Armada internal stack: NIP-29 relay + LiveKit SFU + web client.
+# Armada internal stack: multi-tenant zooid relay + LiveKit SFU + web client.
 #
-# 1. cp .env.example .env  (and fill in keys; see README)
+# 1. cp .env.example .env  (and fill in keys; see README) — or just run
+#    ../start.sh, which generates .env and a default community config.
 # 2. docker compose up -d --build
 #
 # Everything binds to the host only; put your internal reverse proxy / TLS in
 # front if you serve beyond localhost.
+#
+# The relay is zooid (../server): a multi-tenant Nostr relay. Each community is
+# a TOML file under ./config (one per host). Add/remove communities by dropping
+# files there (hot-reloaded) or via zooid's management REST API (API_HOST).
 
 services:
   relay:
@@ -12,27 +17,27 @@ services:
     restart: unless-stopped
     environment:
       PORT: "5577"
-      DOMAIN: ${RELAY_DOMAIN:-localhost:5577}
-      PUBLIC_BASE_URL: ${RELAY_PUBLIC_BASE_URL:-http://localhost:5577}
-      RELAY_NAME: ${RELAY_NAME:-Armada Relay}
-      RELAY_DESCRIPTION: ${RELAY_DESCRIPTION:-Internal NIP-29 group relay}
-      RELAY_PRIVKEY: ${RELAY_PRIVKEY:?set RELAY_PRIVKEY in .env (64-char hex)}
-      RELAY_CONTACT: ${RELAY_CONTACT:-}
-      GROUP_ID: ${GROUP_ID:-armada}
-      GROUP_NAME: ${GROUP_NAME:-Armada}
-      ADMIN_PUBKEY: ${ADMIN_PUBKEY:?set ADMIN_PUBKEY in .env (npub or hex, comma-separated)}
-      DATABASE_PATH: /data/db
-      LIVEKIT_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
-      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-armada}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env (32+ chars)}
-      # Web Push VAPID keys (optional). Leave empty to auto-generate + persist
-      # on first run; pin them to keep the public key stable across DB wipes.
+      # zooid storage roots (inside the container).
+      CONFIG: /config
+      DATA: /data
+      MEDIA: /media
+      # Management REST API (NIP-98 authed). When API_HOST is set, virtual
+      # relays can be created/updated/deleted at runtime by whitelisted
+      # pubkeys. Leave API_HOST empty to disable the API entirely.
+      API_HOST: ${RELAY_API_HOST:-}
+      API_WHITELIST: ${RELAY_API_WHITELIST:-}
+      # Web Push VAPID keys (optional, shared across tenants on this process).
+      # Leave empty to auto-generate + persist a per-tenant keypair on first
+      # run; pin them to keep public keys stable across DB wipes.
       PUSH_VAPID_PUBLIC_KEY: ${PUSH_VAPID_PUBLIC_KEY:-}
       PUSH_VAPID_PRIVATE_KEY: ${PUSH_VAPID_PRIVATE_KEY:-}
     ports:
       - "5577:5577"
     volumes:
+      # Per-community TOML configs. start.sh seeds a default one here.
+      - ./config:/config
       - relay-data:/data
+      - relay-media:/media
 
   livekit:
     # Pin an exact patch: the server's signaling protocol must match the
@@ -50,21 +55,11 @@ services:
           udp_port: 50000
           port_range_start: 50000
           port_range_end: 50100
-          # By default LiveKit auto-discovers the public IP via STUN
-          # (use_external_ip). For deployments behind a reverse proxy / split
-          # network, set LIVEKIT_NODE_IP to the address clients should send
-          # media to (e.g. the SFU host's LAN IP) and it takes precedence.
           use_external_ip: ${LIVEKIT_USE_EXTERNAL_IP:-true}
           node_ip: ${LIVEKIT_NODE_IP:-}
           interfaces:
             includes:
               - ${LIVEKIT_IFACE:-eth0}
-        # Embedded TURN/TLS relay. Off by default (localhost quickstart needs no
-        # TURN). Enable for production so clients on networks that block/mangle
-        # UDP (mobile, CGNAT, corporate firewalls) relay media over TLS/443.
-        # Requires a real cert for LIVEKIT_TURN_DOMAIN mounted at LIVEKIT_CERT_DIR
-        # and the edge to deliver turn.<domain>:443 to this container (SNI
-        # passthrough). See AGENTS.md ("Voice / LiveKit") for the full setup.
         turn:
           enabled: ${LIVEKIT_TURN_ENABLED:-false}
           domain: ${LIVEKIT_TURN_DOMAIN:-turn.localhost}
@@ -77,7 +72,9 @@ services:
         webhook:
           api_key: ${LIVEKIT_API_KEY:-armada}
           urls:
-            - http://relay:5577/livekit/webhook
+            # zooid's NIP-29 LiveKit webhook path (per-tenant routing is by the
+            # room metadata zooid stamps with the owning relay's schema).
+            - http://relay:5577/.well-known/nip29/livekit/webhook
     volumes:
       - ${LIVEKIT_CERT_DIR:-./certs/turn}:/certs:ro
     ports:
@@ -105,3 +102,4 @@ services:
 
 volumes:
   relay-data:
+  relay-media:
