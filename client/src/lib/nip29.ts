@@ -271,7 +271,21 @@ export function buildRelayGroups(events: NostrEvent[], relay: string): Nip29Grou
     const group = parseGroupMetadata(event, relay);
     if (!group) continue;
     const existing = groups.get(group.id);
-    if (!existing || existing.event.created_at < event.created_at) {
+    if (!existing) {
+      groups.set(group.id, group);
+      continue;
+    }
+    // Newest wins. On a created_at TIE, prefer the event that actually carries
+    // a name: a create-group (kind 9007) and its follow-up edit-metadata (kind
+    // 9002) can produce two kind-39000 events in the same second, one nameless
+    // (id-only) and one named. Picking by created_at alone can otherwise keep
+    // the nameless one and show the raw group id in the UI.
+    const newer = event.created_at > existing.event.created_at;
+    const tieButNamed =
+      event.created_at === existing.event.created_at &&
+      group.name !== group.id &&
+      existing.name === existing.id;
+    if (newer || tieButNamed) {
       groups.set(group.id, group);
     }
   }

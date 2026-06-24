@@ -437,7 +437,11 @@ func (instance *Instance) OnEventSaved(ctx context.Context, event nostr.Event) {
 	}
 
 	if event.Kind == nostr.KindSimpleGroupCreateGroup {
-		instance.Groups.UpdateMetadata(event)
+		// A create-group with no name/about would broadcast a nameless 39000;
+		// clients that also receive the follow-up edit-metadata in the same
+		// second can cache the nameless one and show the group id instead of its
+		// name. Store it (so the group exists) but don't broadcast bare metadata.
+		instance.Groups.updateMetadata(event, !metadataIsBare(event))
 		instance.Groups.UpdateAdminsList(h)
 	}
 

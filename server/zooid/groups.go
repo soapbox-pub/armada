@@ -52,6 +52,16 @@ func (g *GroupStore) GetMetadata(h string) (nostr.Event, bool) {
 }
 
 func (g *GroupStore) UpdateMetadata(event nostr.Event) error {
+	return g.updateMetadata(event, true)
+}
+
+// updateMetadata builds the relay-signed kind-39000 metadata from a create/edit
+// event. When broadcast is false the event is stored but not pushed to live
+// subscribers — used for the bare metadata derived from a create-group (kind
+// 9007) that carries no name/about, so clients don't cache a nameless 39000 that
+// can shadow the named one published by the follow-up edit-metadata (kind 9002)
+// when the two share a created_at second.
+func (g *GroupStore) updateMetadata(event nostr.Event, broadcast bool) error {
 	tags := nostr.Tags{}
 
 	for _, tag := range event.Tags {
@@ -68,7 +78,24 @@ func (g *GroupStore) UpdateMetadata(event nostr.Event) error {
 		Tags:      tags,
 	}
 
-	return g.Events.SignAndStoreEvent(&metadataEvent, true)
+	return g.Events.SignAndStoreEvent(&metadataEvent, broadcast)
+}
+
+// metadataIsBare reports whether a create/edit event carries no human-facing
+// metadata (name/about/picture) — i.e. only structural tags (h/d, client,
+// access flags). Such metadata is stored so the group exists, but not broadcast.
+func metadataIsBare(event nostr.Event) bool {
+	for _, tag := range event.Tags {
+		if len(tag) >= 2 {
+			switch tag[0] {
+			case "name", "about", "picture":
+				if tag[1] != "" {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 
 // Deletion
