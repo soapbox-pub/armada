@@ -426,6 +426,44 @@ func TestEventStore_ReplaceEvent(t *testing.T) {
 	}
 }
 
+// Re-storing the exact same addressable event (same id) must keep it, not
+// delete it. UpdateAdminsList/UpdateMembersList can fire twice in the same
+// second with identical tags (e.g. group create 9007 + edit-metadata 9002),
+// producing the same event id; a naive ReplaceEvent would match the just-saved
+// event as "previous" and delete it, leaving the group with no 39001/39002.
+func TestEventStore_ReplaceEvent_IdenticalEventNotDeleted(t *testing.T) {
+	store := createTestEventStore()
+	store.Init()
+
+	secret := nostr.Generate()
+	build := func() nostr.Event {
+		e := nostr.Event{
+			Kind:      nostr.KindSimpleGroupAdmins,
+			CreatedAt: nostr.Timestamp(1000000),
+			Tags:      nostr.Tags{{"-"}, {"d", "group1"}, {"p", secret.Public().Hex()}},
+		}
+		e.Sign(secret)
+		return e
+	}
+
+	if _, err := store.ReplaceEvent(build()); err != nil {
+		t.Fatalf("first ReplaceEvent() error = %v", err)
+	}
+	// Identical event (same id) stored again in the "same second".
+	if _, err := store.ReplaceEvent(build()); err != nil {
+		t.Fatalf("second ReplaceEvent() error = %v", err)
+	}
+
+	filter := nostr.Filter{Kinds: []nostr.Kind{nostr.KindSimpleGroupAdmins}, Authors: []nostr.PubKey{secret.Public()}}
+	count := 0
+	for range store.QueryEvents(filter, 0) {
+		count++
+	}
+	if count != 1 {
+		t.Errorf("re-storing an identical addressable event should leave 1 event, got %d", count)
+	}
+}
+
 func TestEventStore_ReplaceEvent_OlderEvent(t *testing.T) {
 	store := createTestEventStore()
 	store.Init()

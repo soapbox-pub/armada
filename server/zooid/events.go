@@ -303,6 +303,13 @@ func (events *EventStore) ReplaceEvent(evt nostr.Event) ([]nostr.Event, error) {
 	shouldSave := true
 	shouldDelete := make([]nostr.Event, 0)
 	for previous := range events.QueryEvents(filter, 1) {
+		if previous.ID == evt.ID {
+			// The "previous" event IS this event (e.g. two identical
+			// UpdateAdminsList/UpdateMembersList calls in the same second produce
+			// the same id). SaveEvent will no-op with ErrDupEvent; deleting it
+			// here would wipe the event we just (re)stored.
+			continue
+		}
 		if previous.CreatedAt <= evt.CreatedAt {
 			shouldDelete = append(shouldDelete, previous)
 		} else {
