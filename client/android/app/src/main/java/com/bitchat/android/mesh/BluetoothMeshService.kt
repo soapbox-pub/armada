@@ -518,6 +518,17 @@ class BluetoothMeshService(private val context: Context) {
                 serviceScope.launch { messageHandler.handleLeave(routed) }
             }
 
+            override fun handleMeshFrame(routed: RoutedPacket) {
+                // Armada opaque mesh frame (private channels). The body is sealed
+                // by the app layer; we just surface the raw UTF-8 frame + sender
+                // peer id to the delegate, which opens it against held keys. Not
+                // tracked for gossip sync (ephemeral; foreign relays don't sync it).
+                val pkt = routed.packet
+                val content = try { String(pkt.payload, Charsets.UTF_8) } catch (_: Exception) { return }
+                val senderPeerID = routed.peerID ?: pkt.senderID.toHexString()
+                delegate?.didReceiveMeshFrame(content, senderPeerID)
+            }
+
             override fun handleFragment(packet: BitchatPacket): BitchatPacket? {
                 // Track broadcast fragments for gossip sync
                 try {
@@ -697,6 +708,37 @@ class BluetoothMeshService(private val context: Context) {
             Log.d(TAG, "isReusable=false (terminated=$terminated, scopeActive=${serviceScope.isActive}, connReusable=${connectionManager.isReusable()})")
         }
         return reusable
+    }
+
+    /**
+     * Send an Armada opaque mesh frame as a broadcast (private mesh channels).
+     *
+     * The body is already sealed + framed by the app layer; here it rides as an
+     * ARMADA_FRAME-typed broadcast. Every nearby device relays it by TTL, but
+     * unmodified bitchat treats the type as unknown and never displays it (its
+     * PacketProcessor has no handler for the byte), so non-members route the
+     * opaque blob invisibly. Armada peers recognize the type and surface it to
+     * the app. We still sign it (so signature-enforcing relays are happy) even
+     * though this type requires no signature on receipt.
+     */
+    fun sendMeshFrame(content: String) {
+        if (content.isEmpty()) return
+
+        serviceScope.launch {
+            val packet = BitchatPacket(
+                version = 1u,
+                type = MessageType.ARMADA_FRAME.value,
+                senderID = hexStringToByteArray(myPeerID),
+                recipientID = SpecialRecipients.BROADCAST,
+                timestamp = System.currentTimeMillis().toULong(),
+                payload = content.toByteArray(Charsets.UTF_8),
+                signature = null,
+                ttl = MAX_TTL
+            )
+
+            val signedPacket = signPacketBeforeBroadcast(packet)
+            connectionManager.broadcastPacket(RoutedPacket(signedPacket))
+        }
     }
 
     /**
@@ -1412,6 +1454,7 @@ class BluetoothMeshService(private val context: Context) {
  */
 interface BluetoothMeshDelegate {
     fun didReceiveMessage(message: BitchatMessage)
+    fun didReceiveMeshFrame(content: String, senderPeerID: String)
     fun didUpdatePeerList(peers: List<String>)
     fun didReceiveChannelLeave(channel: String, fromPeer: String)
     fun didReceiveDeliveryAck(messageID: String, recipientPeerID: String)

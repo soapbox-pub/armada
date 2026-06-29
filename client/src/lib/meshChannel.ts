@@ -13,16 +13,19 @@
  *
  * # What's on the wire vs what's hidden
  *
- * A channel message rides as an ordinary signed broadcast `MESSAGE` packet so
- * that UNMODIFIED bitchat will route it (bitchat drops broadcasts from
- * unknown/unsigned senders, so we must keep our real, announced mesh peer id as
- * the packet sender — see AGENTS-level investigation). Therefore:
+ * A channel message rides as an `ARMADA_FRAME`-typed signed broadcast packet.
+ * Unmodified bitchat sees an UNKNOWN top-level type byte: its packet processor
+ * has no handler for it, so it NEVER displays the frame as a chat message, yet
+ * it still relays the packet by TTL like any other broadcast (relay is decided
+ * on the packet header alone, independent of type). So non-member bitchat peers
+ * route the opaque blob INVISIBLY, and only Armada key-holders open it.
+ * Therefore:
  *
  *   - HIDDEN from relayers: the message content, the author's in-channel
  *     identity, and the channel's human name (all sealed in the payload).
  *   - HIDDEN by routing: which channel a blob belongs to — the on-wire tag is an
  *     opaque, per-epoch ROTATING pseudonym (`channelTag`), not a `#name`. bitchat
- *     has no key for it, so it relays-but-never-displays it.
+ *     has no handler for the type, so it relays-but-never-displays it.
  *   - VISIBLE to a passive BLE sniffer: that a given mesh peer id emitted an
  *     encrypted broadcast (traffic pattern). Mesh peer ids are NOT Nostr pubkeys
  *     (they're a device Noise fingerprint), and with global mesh incognito ON the
@@ -325,12 +328,12 @@ export function openAgainstChannels(
 
 // ── Wire framing ─────────────────────────────────────────────────────────────
 //
-// A private-channel message rides as the TEXT `content` of an ordinary bitchat
-// broadcast MESSAGE (so unmodified bitchat routes it as opaque text). We frame
-// `{ tag, ciphertext }` into a single self-describing string with control-char
-// separators that won't occur in normal chat text. bitchat clients will render
-// this as gibberish text in their own UI (unavoidable — they relay it either
-// way); the Armada client detects the marker and never shows the raw frame.
+// A private-channel message rides as the UTF-8 payload of an `ARMADA_FRAME`
+// broadcast packet (a type unmodified bitchat relays but never displays). We
+// frame `{ tag, ciphertext }` into a single self-describing string with
+// control-char separators that won't occur in normal chat text. The Armada
+// client detects the marker and opens it against held keys; non-members (and
+// unmodified bitchat) never render it.
 
 /** Marker that identifies an Armada mesh-channel frame. `\x01` = SOH. */
 const FRAME_MARKER = "\x01mc1\x01";

@@ -209,28 +209,9 @@ export function useMeshTransportState(): MeshContextType {
         return;
       }
 
-      // Private-channel frame: try to open against held keys. Openable → route
-      // to that channel. Not openable (someone else's channel) → drop from the
-      // UI entirely (it was already relayed natively; never show in broadcast).
-      if (isChannelFrame(m.content)) {
-        const frame = decodeChannelFrame(m.content);
-        if (!frame) return;
-        const hit = openAgainstChannels(channelsRef.current, frame.tag, frame.ciphertext);
-        if (!hit) return;
-        appendChannelMessage(
-          hit.channel.id,
-          channelToEvent(
-            hit.message.id,
-            hit.message.senderPeerID,
-            hit.message.content,
-            hit.message.timestamp,
-            hit.message.reveal,
-          ),
-        );
-        return;
-      }
-
-      // Ordinary public broadcast.
+      // Ordinary public broadcast. (Private-channel frames no longer arrive on
+      // this path — they ride a distinct ARMADA_FRAME packet and surface via the
+      // "meshFrame" listener; see `appendMeshFrame`.)
       if (seenIds.current.has(m.id)) return;
       seenIds.current.add(m.id);
       setMessages((prev) => {
@@ -239,7 +220,32 @@ export function useMeshTransportState(): MeshContextType {
         return next;
       });
     },
-    [addChannel, appendChannelMessage],
+    [addChannel],
+  );
+
+  // Open an incoming Armada mesh frame (ARMADA_FRAME broadcast) against held
+  // channel keys. Openable → route to that channel. Not openable (someone
+  // else's channel, or a stray frame) → drop entirely; bitchat already relayed
+  // it natively without showing it, and we never surface it in the public room.
+  const appendMeshFrame = useCallback(
+    (data: { content: string; senderPeerID: string }) => {
+      if (!isChannelFrame(data.content)) return;
+      const frame = decodeChannelFrame(data.content);
+      if (!frame) return;
+      const hit = openAgainstChannels(channelsRef.current, frame.tag, frame.ciphertext);
+      if (!hit) return;
+      appendChannelMessage(
+        hit.channel.id,
+        channelToEvent(
+          hit.message.id,
+          hit.message.senderPeerID,
+          hit.message.content,
+          hit.message.timestamp,
+          hit.message.reveal,
+        ),
+      );
+    },
+    [appendChannelMessage],
   );
 
   const start = useCallback(async () => {
@@ -282,6 +288,7 @@ export function useMeshTransportState(): MeshContextType {
         setAvailable(avail);
         if (avail) {
           handles.push(await BluetoothMesh.addListener("message", appendMessage));
+          handles.push(await BluetoothMesh.addListener("meshFrame", appendMeshFrame));
           handles.push(
             await BluetoothMesh.addListener("peers", (d) => setPeers(d.peers)),
           );
@@ -296,7 +303,7 @@ export function useMeshTransportState(): MeshContextType {
       cancelled = true;
       for (const h of handles) void h.remove();
     };
-  }, [appendMessage]);
+  }, [appendMessage, appendMeshFrame]);
 
   // Auto-start once available. Incognito doesn't need a nickname up front (the
   // native anon default covers the gap until our peer id resolves); otherwise

@@ -31,6 +31,20 @@ export interface MeshMessage {
   isPrivate: boolean;
 }
 
+/**
+ * An Armada opaque mesh frame received off the wire (a private-channel message).
+ * The `content` is the still-sealed, framed channel blob (see
+ * {@link encodeChannelFrame}); the JS layer opens it against held channel keys.
+ * Carried natively as an `ARMADA_FRAME`-typed broadcast that unmodified bitchat
+ * relays but never displays, so it never appears in the public mesh room.
+ */
+export interface MeshFrameEvent {
+  /** The sealed, framed channel blob. */
+  content: string;
+  /** 16-hex mesh peer id of the sender. */
+  senderPeerID: string;
+}
+
 export interface MeshPeer {
   peerID: string;
   nickname: string;
@@ -61,8 +75,9 @@ export interface BluetoothMeshPlugin {
   /**
    * Send an Armada private-channel message. `content` is an already-sealed,
    * framed channel blob (see {@link encodeChannelFrame}); it rides as an
-   * ordinary signed broadcast so unmodified bitchat relays it without being
-   * able to read it. Channel membership/decryption is entirely in the JS layer.
+   * `ARMADA_FRAME`-typed broadcast. Unmodified bitchat sees an unknown type and
+   * relays the opaque blob by TTL WITHOUT displaying it, so non-members route it
+   * invisibly. Channel membership/decryption is entirely in the JS layer.
    */
   sendChannelMessage(options: { content: string }): Promise<void>;
   /** Send an encrypted 1:1 mesh direct message using bitchat Noise sessions. */
@@ -79,6 +94,15 @@ export interface BluetoothMeshPlugin {
   addListener(
     eventName: "message",
     listener: (data: MeshMessage) => void,
+  ): Promise<PluginListenerHandle>;
+  /**
+   * An Armada opaque mesh frame (private channel) arrived. Carried as an
+   * `ARMADA_FRAME` broadcast that bitchat relays but never displays; the JS
+   * layer opens it against held channel keys and drops frames it can't open.
+   */
+  addListener(
+    eventName: "meshFrame",
+    listener: (data: MeshFrameEvent) => void,
   ): Promise<PluginListenerHandle>;
   /** The peer roster changed. */
   addListener(

@@ -174,10 +174,10 @@ public class BluetoothMeshPlugin extends Plugin implements BluetoothMeshDelegate
     /**
      * Send an Armada private-channel message. The web layer has already sealed
      * the body and framed it as opaque text ({@code content}); we broadcast it
-     * as an ordinary signed MESSAGE so UNMODIFIED bitchat relays it (it can't
-     * read it and won't recognize it as one of its own channels). The opaque
-     * rotating channel tag lives inside the frame, so nothing identifying the
-     * channel is exposed on the wire beyond an encrypted text blob.
+     * as an ARMADA_FRAME-typed packet. Unmodified bitchat sees an unknown type
+     * byte: it relays the blob by TTL like any broadcast but NEVER displays it
+     * (its PacketProcessor has no handler for the type), so non-members route it
+     * invisibly. Only Armada key-holders recognize the type and open the body.
      */
     @PluginMethod
     public void sendChannelMessage(PluginCall call) {
@@ -190,8 +190,7 @@ public class BluetoothMeshPlugin extends Plugin implements BluetoothMeshDelegate
             call.reject("mesh not started");
             return;
         }
-        // Broadcast path (no mentions, no bitchat channel): the frame is the body.
-        meshService.sendMessage(content, Collections.<String>emptyList(), null);
+        meshService.sendMeshFrame(content);
         call.resolve();
     }
 
@@ -253,6 +252,20 @@ public class BluetoothMeshPlugin extends Plugin implements BluetoothMeshDelegate
         data.put("channel", message.getChannel());
         data.put("isPrivate", message.isPrivate());
         notifyListeners("message", data);
+    }
+
+    /**
+     * An Armada opaque mesh frame (private channel). The body is sealed by the
+     * web layer; we forward the raw frame text + sender peer id so JS can open it
+     * against held channel keys. Frames we can't open are dropped in JS and never
+     * shown — and unmodified bitchat never showed them at all (unknown type).
+     */
+    @Override
+    public void didReceiveMeshFrame(String content, String senderPeerID) {
+        JSObject data = new JSObject();
+        data.put("content", content);
+        data.put("senderPeerID", senderPeerID);
+        notifyListeners("meshFrame", data);
     }
 
     @Override

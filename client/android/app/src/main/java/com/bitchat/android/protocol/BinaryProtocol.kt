@@ -17,7 +17,14 @@ enum class MessageType(val value: UByte) {
     NOISE_ENCRYPTED(0x11u),  // Noise encrypted transport message
     FRAGMENT(0x20u), // Fragmentation for large packets
     REQUEST_SYNC(0x21u), // GCS-based sync request
-    FILE_TRANSFER(0x22u); // New: File transfer packet (BLE voice notes, etc.)
+    FILE_TRANSFER(0x22u), // File transfer packet (BLE voice notes, etc.)
+    // Armada extension: an opaque, end-to-end-encrypted broadcast frame (private
+    // mesh channels). Unmodified bitchat peers see an UNKNOWN type byte: their
+    // PacketProcessor routes it to the no-op `else` branch (never shown in chat)
+    // but still relays it by TTL like any broadcast — so non-members route the
+    // opaque blob invisibly while only Armada key-holders open it. Armada's own
+    // PacketProcessor recognizes this type and forwards it to the app layer.
+    ARMADA_FRAME(0x24u);
 
     companion object {
         fun fromValue(value: UByte): MessageType? {
