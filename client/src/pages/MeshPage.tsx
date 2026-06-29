@@ -8,6 +8,7 @@ import {
   Loader2,
   Lock,
   MessageCircle,
+  Plus,
   Radio,
   Send,
   UserPlus,
@@ -26,15 +27,16 @@ import { ServerRail } from "@/components/layout/ServerRail";
 import { SwipeReveal } from "@/components/layout/SwipeReveal";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useInsertText } from "@/hooks/useInsertText";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -83,9 +85,11 @@ export function MeshPage() {
   // Per-channel "reveal myself" state, keyed by channel id. Default off
   // (incognito), forward-only by construction (each message self-describes).
   const [revealByChannel, setRevealByChannel] = useState<Record<string, boolean>>({});
-  // Create-channel + invite-to-channel dialog state.
-  const [createOpen, setCreateOpen] = useState(false);
-  const [inviteChannelId, setInviteChannelId] = useState<string | null>(null);
+  // Inline create-channel form state (mirrors Concord's sidebar add flow).
+  const [creatingChannel, setCreatingChannel] = useState(false);
+  const [newChannelName, setNewChannelName] = useState("");
+  // Channel pending a "leave?" confirmation (the destructive forget action).
+  const [leaveChannelId, setLeaveChannelId] = useState<string | null>(null);
   // Nearby-members panel beside the broadcast room (mirrors Concord's member
   // pane): desktop shows/hides it inline; mobile slides it over.
   const [membersVisible, setMembersVisible] = useState(false);
@@ -172,6 +176,17 @@ export function MeshPage() {
 
   // Open the Noise XX DM with a peer — the author popover's "Message" action.
   const openDM = useCallback((peerID: string) => setView({ type: "dm", peerID }), []);
+
+  // Create a private channel from the inline sidebar form, then open it.
+  const submitCreateChannel = useCallback(() => {
+    const name = newChannelName.trim();
+    if (!name) return;
+    const color = CHANNEL_COLORS[mesh.channels.length % CHANNEL_COLORS.length];
+    const channel = mesh.createChannel(name, color);
+    setNewChannelName("");
+    setCreatingChannel(false);
+    setView({ type: "channel", channelId: channel.id });
+  }, [newChannelName, mesh]);
 
   if (!user) {
     return <Navigate to="/" replace />;
@@ -279,7 +294,14 @@ export function MeshPage() {
             onOpenBroadcast={() => setView({ type: "broadcast" })}
             onOpenDM={(peerID) => setView({ type: "dm", peerID })}
             onOpenChannel={(channelId) => setView({ type: "channel", channelId })}
-            onAddChannel={() => setCreateOpen(true)}
+            creatingChannel={creatingChannel}
+            newChannelName={newChannelName}
+            onToggleCreate={() => {
+              setCreatingChannel((v) => !v);
+              setNewChannelName("");
+            }}
+            onChangeNewChannelName={setNewChannelName}
+            onSubmitCreate={submitCreateChannel}
             className="flex-1 sidebar:flex-none sidebar:w-60"
           />
         </>
@@ -309,16 +331,8 @@ export function MeshPage() {
                       }))
                   : undefined
               }
-              onInvite={
-                selectedChannel ? () => setInviteChannelId(selectedChannel.id) : undefined
-              }
               onLeaveChannel={
-                selectedChannel
-                  ? () => {
-                      mesh.removeChannel(selectedChannel.id);
-                      setView(null);
-                    }
-                  : undefined
+                selectedChannel ? () => setLeaveChannelId(selectedChannel.id) : undefined
               }
               onBack={() => setView(null)}
               peerCount={mesh.peers.length}
@@ -462,40 +476,14 @@ export function MeshPage() {
         )}
       </main>
 
-      <CreateChannelDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        existingCount={mesh.channels.length}
-        onCreate={(name) => {
-          const color = CHANNEL_COLORS[mesh.channels.length % CHANNEL_COLORS.length];
-          const channel = mesh.createChannel(name, color);
-          setCreateOpen(false);
-          setView({ type: "channel", channelId: channel.id });
-        }}
-      />
-
-      <InviteToChannelDialog
-        open={inviteChannelId !== null}
-        onOpenChange={(o) => !o && setInviteChannelId(null)}
-        channel={mesh.channels.find((c) => c.id === inviteChannelId) ?? null}
-        peers={mesh.peers}
-        onInvite={(peer) => {
-          if (!inviteChannelId) return;
-          const ch = mesh.channels.find((c) => c.id === inviteChannelId);
-          void mesh.inviteToChannel(inviteChannelId, peer).then(
-            () =>
-              toast({
-                title: "Invite sent",
-                description: `Shared "${ch?.name ?? "channel"}" with ${peer.nickname || "peer"}.`,
-              }),
-            () =>
-              toast({
-                title: "Invite failed",
-                description: "Couldn't reach that peer.",
-                variant: "destructive",
-              }),
-          );
-          setInviteChannelId(null);
+      <LeaveChannelDialog
+        channel={mesh.channels.find((c) => c.id === leaveChannelId) ?? null}
+        onOpenChange={(o) => !o && setLeaveChannelId(null)}
+        onConfirm={() => {
+          if (!leaveChannelId) return;
+          mesh.removeChannel(leaveChannelId);
+          setLeaveChannelId(null);
+          setView(null);
         }}
       />
     </SwipeReveal>
@@ -520,7 +508,11 @@ function MeshSidebar({
   onOpenBroadcast,
   onOpenDM,
   onOpenChannel,
-  onAddChannel,
+  creatingChannel,
+  newChannelName,
+  onToggleCreate,
+  onChangeNewChannelName,
+  onSubmitCreate,
   className,
 }: {
   view: MeshView;
@@ -534,7 +526,11 @@ function MeshSidebar({
   onOpenBroadcast: () => void;
   onOpenDM: (peerID: string) => void;
   onOpenChannel: (channelId: string) => void;
-  onAddChannel: () => void;
+  creatingChannel: boolean;
+  newChannelName: string;
+  onToggleCreate: () => void;
+  onChangeNewChannelName: (name: string) => void;
+  onSubmitCreate: () => void;
   className?: string;
 }) {
   return (
@@ -549,7 +545,39 @@ function MeshSidebar({
           : "Unavailable here"
       }
       addChannelLabel="New private channel"
-      onAddChannel={onAddChannel}
+      onAddChannel={onToggleCreate}
+      channelsHeaderExtra={
+        creatingChannel ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              onSubmitCreate();
+            }}
+            className="px-2 py-1 flex items-center gap-1"
+          >
+            <Input
+              value={newChannelName}
+              onChange={(e) => onChangeNewChannelName(e.target.value)}
+              placeholder="weekend trip"
+              autoFocus
+              maxLength={48}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") onToggleCreate();
+              }}
+              className="h-7 text-sm"
+            />
+            <Button
+              type="submit"
+              size="icon"
+              className="size-7 shrink-0"
+              disabled={!newChannelName.trim()}
+              aria-label="Create private channel"
+            >
+              <Plus className="size-3.5" />
+            </Button>
+          </form>
+        ) : undefined
+      }
       footer={
         <div className="px-3 pb-safe shrink-0">
           <LoginArea className="w-full flex" />
@@ -692,7 +720,6 @@ function ChatHeader({
   onToggleIncognito,
   reveal,
   onToggleReveal,
-  onInvite,
   onLeaveChannel,
   onBack,
   peerCount,
@@ -708,7 +735,6 @@ function ChatHeader({
   onToggleIncognito: () => void;
   reveal: boolean;
   onToggleReveal?: () => void;
-  onInvite?: () => void;
   onLeaveChannel?: () => void;
   onBack: () => void;
   peerCount: number;
@@ -750,30 +776,18 @@ function ChatHeader({
       {dmIdentity && (
         <span className="text-[11px] text-muted-foreground/60 shrink-0">#{dmIdentity.suffix}</span>
       )}
+      {/* Bluetooth status sits next to the conversation name. */}
+      {started ? (
+        <Bluetooth className="size-4 text-success shrink-0" />
+      ) : (
+        <BluetoothOff className="size-4 text-muted-foreground shrink-0" />
+      )}
       {isChannel && (
         <span className="text-[11px] text-muted-foreground/60 shrink-0 hidden sidebar:inline">
           end-to-end encrypted
         </span>
       )}
       <span className="flex-1" />
-
-      {/* Channel: invite a nearby peer (key handoff over the Noise DM). */}
-      {isChannel && onInvite && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Add someone to this channel"
-              className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-              onClick={onInvite}
-            >
-              <UserPlus className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Add a nearby peer (shares the key)</TooltipContent>
-        </Tooltip>
-      )}
 
       {/* Nearby-members toggle (broadcast room + channels). */}
       {!isDm && (
@@ -846,7 +860,8 @@ function ChatHeader({
         </Tooltip>
       )}
 
-      {/* Channel: leave/forget (drops the key + local history). */}
+      {/* Channel: leave/forget (drops the key + local history). Destructive,
+          so it's red and gated behind a confirmation dialog. */}
       {isChannel && onLeaveChannel && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -854,7 +869,7 @@ function ChatHeader({
               variant="ghost"
               size="icon"
               aria-label="Leave channel"
-              className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+              className="size-8 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
               onClick={onLeaveChannel}
             >
               <X className="size-4" />
@@ -862,12 +877,6 @@ function ChatHeader({
           </TooltipTrigger>
           <TooltipContent>Leave channel (forgets the key)</TooltipContent>
         </Tooltip>
-      )}
-
-      {started ? (
-        <Bluetooth className="size-4 text-success shrink-0" />
-      ) : (
-        <BluetoothOff className="size-4 text-muted-foreground shrink-0" />
       )}
     </header>
   );
@@ -1029,7 +1038,7 @@ function EmptyChannel({ channel }: { channel: MeshChannel | null }) {
         {channel ? `"${channel.name}" is a private channel` : "Channel unavailable"}
       </p>
       <p className="text-xs text-muted-foreground/60 mt-1 max-w-xs">
-        Messages are end-to-end encrypted and relayed by every nearby device — only members holding the key can read them. Use the <UserPlus className="inline size-3" /> button to add a nearby peer.
+        Messages are end-to-end encrypted and relayed by every nearby device — only members holding the key can read them. Open the <Users className="inline size-3" /> nearby list to share the key and add people.
       </p>
     </div>
   );
@@ -1047,110 +1056,45 @@ function composerPlaceholder(
   return "Message nearby devices…";
 }
 
-/** Dialog to create a new private channel (local key generation). */
-function CreateChannelDialog({
-  open,
-  onOpenChange,
-  existingCount,
-  onCreate,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  existingCount: number;
-  onCreate: (name: string) => void;
-}) {
-  const [name, setName] = useState("");
-  useEffect(() => {
-    if (open) setName("");
-  }, [open]);
-  const submit = () => {
-    const trimmed = name.trim();
-    if (trimmed) onCreate(trimmed);
-  };
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>New private channel</DialogTitle>
-          <DialogDescription>
-            A private channel is end-to-end encrypted over the mesh. A random key is generated on
-            this device; share it with nearby people to add them. Nobody else can read it — but every
-            nearby device still helps relay it.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2">
-          <Label htmlFor="mesh-channel-name">Channel name</Label>
-          <Input
-            id="mesh-channel-name"
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                submit();
-              }
-            }}
-            placeholder="weekend trip"
-            maxLength={48}
-          />
-          <p className="text-[11px] text-muted-foreground/70">
-            The name stays on your device and is shared only with members — it never appears on the wire.
-          </p>
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={!name.trim()}>
-            Create{existingCount === 0 ? " first channel" : ""}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/** Dialog to share a channel key with a nearby peer over the Noise DM. */
-function InviteToChannelDialog({
-  open,
-  onOpenChange,
+/**
+ * Confirmation before leaving a private channel. Leaving forgets the channel
+ * key and local history irreversibly, so this guards against an accidental tap
+ * on the (red) leave button in the header.
+ */
+function LeaveChannelDialog({
   channel,
-  peers,
-  onInvite,
+  onOpenChange,
+  onConfirm,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   channel: MeshChannel | null;
-  peers: MeshPeer[];
-  onInvite: (peer: MeshPeer) => void;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
 }) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add to {channel?.name ?? "channel"}</DialogTitle>
-          <DialogDescription>
-            Pick a nearby device to share this channel's key with. The key is sent over an encrypted
-            (Noise XX) direct message, so only they receive it.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="max-h-72 overflow-y-auto -mx-2">
-          {peers.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-muted-foreground text-center">
-              No nearby devices in range.
-            </p>
-          ) : (
-            peers.map((peer) => (
-              <MemberRow
-                key={peer.peerID}
-                peer={peer}
-                trailing={<UserPlus className="size-3.5 text-muted-foreground" />}
-                onClick={() => onInvite(peer)}
-              />
-            ))
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+    <AlertDialog open={channel !== null} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Leave “{channel?.name ?? "channel"}”?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This forgets the channel key and its local history on this device. You won't be able to
+            read new messages unless someone shares the key with you again. Other members are
+            unaffected.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={(e) => {
+              e.preventDefault();
+              onConfirm();
+            }}
+          >
+            Leave channel
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
