@@ -171,6 +171,30 @@ public class BluetoothMeshPlugin extends Plugin implements BluetoothMeshDelegate
         call.resolve();
     }
 
+    /**
+     * Send an Armada private-channel message. The web layer has already sealed
+     * the body and framed it as opaque text ({@code content}); we broadcast it
+     * as an ordinary signed MESSAGE so UNMODIFIED bitchat relays it (it can't
+     * read it and won't recognize it as one of its own channels). The opaque
+     * rotating channel tag lives inside the frame, so nothing identifying the
+     * channel is exposed on the wire beyond an encrypted text blob.
+     */
+    @PluginMethod
+    public void sendChannelMessage(PluginCall call) {
+        String content = call.getString("content");
+        if (content == null || content.isEmpty()) {
+            call.reject("content required");
+            return;
+        }
+        if (meshService == null || !started) {
+            call.reject("mesh not started");
+            return;
+        }
+        // Broadcast path (no mentions, no bitchat channel): the frame is the body.
+        meshService.sendMessage(content, Collections.<String>emptyList(), null);
+        call.resolve();
+    }
+
     @PluginMethod
     public void sendPrivateMessage(PluginCall call) {
         String content = call.getString("content");

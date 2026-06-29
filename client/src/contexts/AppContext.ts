@@ -82,6 +82,15 @@ export interface AppConfig {
    * Toggling it off announces the real display name. Persisted per-device.
    */
   meshIncognito: boolean;
+  /**
+   * Private Bluetooth-mesh channels the user has created or joined, persisted
+   * per-device. Each entry holds the shared channel key — the membership secret
+   * — so anyone with this device can read/post that channel. The mesh has no
+   * history replay, so this local list is the only record a channel exists.
+   * Stored locally only (never synced to a relay): the keys must not leave the
+   * device through the Nostr account.
+   */
+  meshChannels: import("@/lib/meshChannel").MeshChannel[];
 }
 
 export interface AppContextType {
@@ -100,6 +109,7 @@ export const defaultConfig: AppConfig = {
   dmRelays: [...APP_RELAYS],
   lastChannelByServer: {},
   meshIncognito: true,
+  meshChannels: [],
 };
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);

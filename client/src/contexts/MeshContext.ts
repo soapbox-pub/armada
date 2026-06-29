@@ -2,6 +2,7 @@ import { createContext } from "react";
 
 import type { ChatMsg, ChatTransport } from "@/components/chat/transport";
 import type { MeshPeer } from "@/lib/bluetoothMesh";
+import type { MeshChannel } from "@/lib/meshChannel";
 
 /**
  * The live Bluetooth-mesh state, exposed app-wide via {@link MeshContext}.
@@ -24,6 +25,10 @@ export interface MeshState {
   peers: MeshPeer[];
   /** Direct-message histories keyed by mesh peer id. */
   directMessages: Record<string, ChatMsg[]>;
+  /** Private-channel message histories keyed by channel id. */
+  channelMessages: Record<string, ChatMsg[]>;
+  /** The private channels this device holds keys for. */
+  channels: MeshChannel[];
   /** A startup/permission error, if any. */
   error: string | null;
   /**
@@ -39,6 +44,12 @@ export interface MeshState {
   stop: () => Promise<void>;
   /** Toggle incognito mode (persisted) and re-announce under the new name. */
   setIncognito: (incognito: boolean) => void;
+  /** Create a new private channel (random id + key) and persist it. */
+  createChannel: (name: string, color: string) => MeshChannel;
+  /** Leave/forget a private channel (drops the key + local history). */
+  removeChannel: (channelId: string) => void;
+  /** Hand a channel's key to a specific nearby peer over the Noise DM. */
+  inviteToChannel: (channelId: string, peer: MeshPeer) => Promise<void>;
 }
 
 export interface MeshContextType {
@@ -50,6 +61,11 @@ export interface MeshContextType {
   send: (content: string) => Promise<void>;
   /** Send an encrypted 1:1 mesh direct message. */
   sendPrivate: (peer: MeshPeer, content: string) => Promise<void>;
+  /**
+   * Send a message to a private channel. `revealSelf` attaches a Nostr-signed
+   * in-channel reveal (members-only); otherwise the sender posts incognito.
+   */
+  sendChannel: (channelId: string, content: string, revealSelf?: boolean) => Promise<void>;
 }
 
 export const MeshContext = createContext<MeshContextType | undefined>(undefined);

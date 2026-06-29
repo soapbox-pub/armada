@@ -39,6 +39,17 @@ export const AppConfigSchema = z.object({
   dmRelays: z.array(z.string()).catch(defaultConfig.dmRelays),
   lastChannelByServer: z.record(z.string(), z.string()).catch({}),
   meshIncognito: z.boolean().catch(defaultConfig.meshIncognito),
+  meshChannels: z
+    .array(
+      z.object({
+        id: z.string(),
+        key: z.string(),
+        name: z.string(),
+        color: z.string(),
+        createdAt: z.number(),
+      }),
+    )
+    .catch([]),
 });
 
 /**

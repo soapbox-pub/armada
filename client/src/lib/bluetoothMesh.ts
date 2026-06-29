@@ -58,6 +58,13 @@ export interface BluetoothMeshPlugin {
   stop(): Promise<void>;
   /** Send a public (broadcast) mesh message, flooded over BLE with TTL. */
   sendMessage(options: { content: string }): Promise<void>;
+  /**
+   * Send an Armada private-channel message. `content` is an already-sealed,
+   * framed channel blob (see {@link encodeChannelFrame}); it rides as an
+   * ordinary signed broadcast so unmodified bitchat relays it without being
+   * able to read it. Channel membership/decryption is entirely in the JS layer.
+   */
+  sendChannelMessage(options: { content: string }): Promise<void>;
   /** Send an encrypted 1:1 mesh direct message using bitchat Noise sessions. */
   sendPrivateMessage(options: {
     content: string;

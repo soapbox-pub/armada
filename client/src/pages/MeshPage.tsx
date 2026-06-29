@@ -6,9 +6,11 @@ import {
   ChevronLeft,
   Hash,
   Loader2,
+  Lock,
   MessageCircle,
   Radio,
   Send,
+  UserPlus,
   Users,
   VenetianMask,
   X,
@@ -23,12 +25,23 @@ import { ChannelSidebarView } from "@/components/layout/ChannelSidebarView";
 import { ServerRail } from "@/components/layout/ServerRail";
 import { SwipeReveal } from "@/components/layout/SwipeReveal";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useInsertText } from "@/hooks/useInsertText";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useMeshTransport } from "@/hooks/useMeshTransport";
 import { toast } from "@/hooks/useToast";
 import { meshIdentity, meshMentionToken, type MeshIdentity } from "@/lib/meshIdentity";
+import { type MeshChannel } from "@/lib/meshChannel";
 import { isMeshSlashCommand } from "@/lib/meshSlashCommands";
 import {
   executeSlashCommand,
@@ -48,7 +61,13 @@ import type { MeshPeer } from "@/lib/bluetoothMesh";
 type MeshView =
   | { type: "broadcast" }
   | { type: "dm"; peerID: string }
+  | { type: "channel"; channelId: string }
   | null;
+
+/** A small palette for new private channels (deterministic accent colors). */
+const CHANNEL_COLORS = [
+  "#f97316", "#22c55e", "#3b82f6", "#a855f7", "#ec4899", "#eab308", "#14b8a6",
+];
 
 /**
  * Bluetooth mesh chat for nearby bitchat-compatible devices. Mirrors the
@@ -58,9 +77,15 @@ type MeshView =
  */
 export function MeshPage() {
   const { user } = useCurrentUser();
-  const { transport, mesh, send, sendPrivate } = useMeshTransport();
+  const { transport, mesh, send, sendPrivate, sendChannel } = useMeshTransport();
   const [view, setView] = useState<MeshView>(null);
   const [draft, setDraft] = useState("");
+  // Per-channel "reveal myself" state, keyed by channel id. Default off
+  // (incognito), forward-only by construction (each message self-describes).
+  const [revealByChannel, setRevealByChannel] = useState<Record<string, boolean>>({});
+  // Create-channel + invite-to-channel dialog state.
+  const [createOpen, setCreateOpen] = useState(false);
+  const [inviteChannelId, setInviteChannelId] = useState<string | null>(null);
   // Nearby-members panel beside the broadcast room (mirrors Concord's member
   // pane): desktop shows/hides it inline; mobile slides it over.
   const [membersVisible, setMembersVisible] = useState(false);
@@ -76,8 +101,19 @@ export function MeshPage() {
     }
   }, [view, mesh.peers]);
 
+  // If the selected channel is removed, fall back to the landing state.
+  useEffect(() => {
+    if (view?.type === "channel" && !mesh.channels.some((c) => c.id === view.channelId)) {
+      setView(null);
+    }
+  }, [view, mesh.channels]);
+
   const selectedPeer = view?.type === "dm"
     ? mesh.peers.find((peer) => peer.peerID === view.peerID) ?? null
+    : null;
+
+  const selectedChannel = view?.type === "channel"
+    ? mesh.channels.find((c) => c.id === view.channelId) ?? null
     : null;
 
   const directTransport = useMemo<ChatTransport>(
@@ -88,6 +124,16 @@ export function MeshPage() {
       canModerate: false,
     }),
     [mesh.directMessages, mesh.started, selectedPeer, transport.isLoading],
+  );
+
+  const channelTransport = useMemo<ChatTransport>(
+    () => ({
+      messages: selectedChannel ? mesh.channelMessages[selectedChannel.id] ?? [] : [],
+      isLoading: transport.isLoading,
+      canWrite: mesh.started && !!selectedChannel,
+      canModerate: false,
+    }),
+    [mesh.channelMessages, mesh.started, selectedChannel, transport.isLoading],
   );
 
   // Resolve a mesh message author (its `pubkey` is the sender's peer id) to a
@@ -131,14 +177,19 @@ export function MeshPage() {
     return <Navigate to="/" replace />;
   }
 
-  const activeTransport = view?.type === "dm" ? directTransport : transport;
+  const activeTransport =
+    view?.type === "dm" ? directTransport : view?.type === "channel" ? channelTransport : transport;
 
-  // Send already-resolved text over the active channel (broadcast or this DM).
+  // Send already-resolved text over the active conversation (broadcast / DM /
+  // private channel). Channels carry the per-channel "reveal myself" choice.
   const sendText = async (content: string) => {
     if (!content || !mesh.started || !view) return;
     if (view.type === "dm") {
       if (!selectedPeer) throw new Error("Peer unavailable");
       await sendPrivate(selectedPeer, content);
+    } else if (view.type === "channel") {
+      if (!selectedChannel) throw new Error("Channel unavailable");
+      await sendChannel(selectedChannel.id, content, !!revealByChannel[selectedChannel.id]);
     } else {
       await send(content);
     }
@@ -223,9 +274,12 @@ export function MeshPage() {
             error={mesh.error}
             peers={mesh.peers}
             peerCount={mesh.peers.length}
+            channels={mesh.channels}
             onRetry={() => void mesh.start()}
             onOpenBroadcast={() => setView({ type: "broadcast" })}
             onOpenDM={(peerID) => setView({ type: "dm", peerID })}
+            onOpenChannel={(channelId) => setView({ type: "channel", channelId })}
+            onAddChannel={() => setCreateOpen(true)}
             className="flex-1 sidebar:flex-none sidebar:w-60"
           />
         </>
@@ -241,9 +295,31 @@ export function MeshPage() {
             <ChatHeader
               view={view}
               peer={selectedPeer}
+              channel={selectedChannel}
               started={mesh.started}
               incognito={mesh.incognito}
               onToggleIncognito={() => mesh.setIncognito(!mesh.incognito)}
+              reveal={selectedChannel ? !!revealByChannel[selectedChannel.id] : false}
+              onToggleReveal={
+                selectedChannel
+                  ? () =>
+                      setRevealByChannel((m) => ({
+                        ...m,
+                        [selectedChannel.id]: !m[selectedChannel.id],
+                      }))
+                  : undefined
+              }
+              onInvite={
+                selectedChannel ? () => setInviteChannelId(selectedChannel.id) : undefined
+              }
+              onLeaveChannel={
+                selectedChannel
+                  ? () => {
+                      mesh.removeChannel(selectedChannel.id);
+                      setView(null);
+                    }
+                  : undefined
+              }
               onBack={() => setView(null)}
               peerCount={mesh.peers.length}
               membersVisible={membersVisible}
@@ -260,10 +336,24 @@ export function MeshPage() {
                   // Remount per conversation so the timeline's "had messages"
                   // skeleton guard resets on switch — otherwise leaving the
                   // populated broadcast for an empty DM looks perpetually loading.
-                  key={view.type === "dm" ? `dm:${view.peerID}` : "broadcast"}
+                  key={
+                    view.type === "dm"
+                      ? `dm:${view.peerID}`
+                      : view.type === "channel"
+                        ? `ch:${view.channelId}`
+                        : "broadcast"
+                  }
                   transport={activeTransport}
                   className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain scrollbar-stable px-3 py-4"
-                  emptyState={view.type === "dm" ? <EmptyDM peer={selectedPeer} /> : <EmptyBroadcast />}
+                  emptyState={
+                    view.type === "dm" ? (
+                      <EmptyDM peer={selectedPeer} />
+                    ) : view.type === "channel" ? (
+                      <EmptyChannel channel={selectedChannel} />
+                    ) : (
+                      <EmptyBroadcast />
+                    )
+                  }
                   renderMessage={(msg, continuation) => (
                     <MeshMessage
                       key={msg.id}
@@ -310,14 +400,14 @@ export function MeshPage() {
                         }
                       }}
                       rows={1}
-                      placeholder={composerPlaceholder(view, mesh.started, selectedPeer)}
-                      disabled={!mesh.started || (view.type === "dm" && !selectedPeer)}
+                      placeholder={composerPlaceholder(view, mesh.started, selectedPeer, selectedChannel)}
+                      disabled={!mesh.started || (view.type === "dm" && !selectedPeer) || (view.type === "channel" && !selectedChannel)}
                       className="block w-full resize-none bg-transparent border-0 outline-none px-1 py-2 leading-5 text-base md:text-sm placeholder:text-muted-foreground disabled:opacity-50 max-h-40 overflow-y-auto"
                     />
                     <Button
                       size="icon"
                       aria-label="Send"
-                      disabled={!mesh.started || !draft.trim() || (view.type === "dm" && !selectedPeer)}
+                      disabled={!mesh.started || !draft.trim() || (view.type === "dm" && !selectedPeer) || (view.type === "channel" && !selectedChannel)}
                       onClick={() => void onSend()}
                       className="size-9 shrink-0"
                     >
@@ -327,9 +417,9 @@ export function MeshPage() {
                 </div>
               </div>
 
-              {/* Nearby-members panel (broadcast room only). Width-animated on
-                  desktop, slide overlay on mobile — mirrors Concord. */}
-              {view.type === "broadcast" && (
+              {/* Nearby-members panel (broadcast room + channels). In a channel,
+                  rows offer "add to channel" (key handoff over the Noise DM). */}
+              {(view.type === "broadcast" || view.type === "channel") && (
                 <MeshMemberPanel
                   peers={mesh.peers}
                   activePeerID={null}
@@ -337,10 +427,30 @@ export function MeshPage() {
                   open={membersOpen}
                   available={mesh.available}
                   started={mesh.started}
+                  inviteMode={view.type === "channel"}
                   onOpenDM={(peerID) => {
                     setMembersOpen(false);
                     openDM(peerID);
                   }}
+                  onInvitePeer={
+                    view.type === "channel" && selectedChannel
+                      ? (peer) => {
+                          void mesh.inviteToChannel(selectedChannel.id, peer).then(
+                            () =>
+                              toast({
+                                title: "Invite sent",
+                                description: `Shared "${selectedChannel.name}" with ${peer.nickname || "peer"} over an encrypted DM.`,
+                              }),
+                            () =>
+                              toast({
+                                title: "Invite failed",
+                                description: "Couldn't reach that peer. They must be in range with a Noise session.",
+                                variant: "destructive",
+                              }),
+                          );
+                        }
+                      : undefined
+                  }
                   onClose={() => {
                     setMembersOpen(false);
                     setMembersVisible(false);
@@ -351,6 +461,43 @@ export function MeshPage() {
           </>
         )}
       </main>
+
+      <CreateChannelDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        existingCount={mesh.channels.length}
+        onCreate={(name) => {
+          const color = CHANNEL_COLORS[mesh.channels.length % CHANNEL_COLORS.length];
+          const channel = mesh.createChannel(name, color);
+          setCreateOpen(false);
+          setView({ type: "channel", channelId: channel.id });
+        }}
+      />
+
+      <InviteToChannelDialog
+        open={inviteChannelId !== null}
+        onOpenChange={(o) => !o && setInviteChannelId(null)}
+        channel={mesh.channels.find((c) => c.id === inviteChannelId) ?? null}
+        peers={mesh.peers}
+        onInvite={(peer) => {
+          if (!inviteChannelId) return;
+          const ch = mesh.channels.find((c) => c.id === inviteChannelId);
+          void mesh.inviteToChannel(inviteChannelId, peer).then(
+            () =>
+              toast({
+                title: "Invite sent",
+                description: `Shared "${ch?.name ?? "channel"}" with ${peer.nickname || "peer"}.`,
+              }),
+            () =>
+              toast({
+                title: "Invite failed",
+                description: "Couldn't reach that peer.",
+                variant: "destructive",
+              }),
+          );
+          setInviteChannelId(null);
+        }}
+      />
     </SwipeReveal>
   );
 }
@@ -368,9 +515,12 @@ function MeshSidebar({
   error,
   peers,
   peerCount,
+  channels,
   onRetry,
   onOpenBroadcast,
   onOpenDM,
+  onOpenChannel,
+  onAddChannel,
   className,
 }: {
   view: MeshView;
@@ -379,9 +529,12 @@ function MeshSidebar({
   error: string | null;
   peers: MeshPeer[];
   peerCount: number;
+  channels: MeshChannel[];
   onRetry: () => void;
   onOpenBroadcast: () => void;
   onOpenDM: (peerID: string) => void;
+  onOpenChannel: (channelId: string) => void;
+  onAddChannel: () => void;
   className?: string;
 }) {
   return (
@@ -395,14 +548,15 @@ function MeshSidebar({
             : "Starting Bluetooth mesh…"
           : "Unavailable here"
       }
-      addChannelDisabled
+      addChannelLabel="New private channel"
+      onAddChannel={onAddChannel}
       footer={
         <div className="px-3 pb-safe shrink-0">
           <LoginArea className="w-full flex" />
         </div>
       }
     >
-      {/* Channels: the single broadcast room. */}
+      {/* Channels: the always-on broadcast room, then private channels. */}
       <ChannelRow
         icon={<Hash className="size-4 shrink-0" />}
         label="nearby mesh"
@@ -415,6 +569,15 @@ function MeshSidebar({
           </span>
         }
       />
+      {channels.map((channel) => (
+        <ChannelRow
+          key={channel.id}
+          icon={<Lock className="size-3.5 shrink-0" style={{ color: channel.color }} />}
+          label={channel.name}
+          active={view?.type === "channel" && view.channelId === channel.id}
+          onClick={() => onOpenChannel(channel.id)}
+        />
+      ))}
 
       {error && (
         <div className="px-4 py-2 text-xs text-destructive">
@@ -486,10 +649,12 @@ function ChannelRow({
 function MemberRow({
   peer,
   active,
+  trailing,
   onClick,
 }: {
   peer: MeshPeer;
   active?: boolean;
+  trailing?: React.ReactNode;
   onClick: () => void;
 }) {
   const identity = meshIdentity(peer.peerID, peer.nickname);
@@ -510,18 +675,25 @@ function MemberRow({
         {identity.name.slice(0, 1).toUpperCase() || "?"}
       </span>
       <span className="truncate flex-1" style={{ color: identity.color }}>{identity.name}</span>
-      <span className="shrink-0 text-[10px] text-muted-foreground/60">#{identity.suffix}</span>
+      {trailing ?? (
+        <span className="shrink-0 text-[10px] text-muted-foreground/60">#{identity.suffix}</span>
+      )}
     </button>
   );
 }
 
-/** Chat-pane header (broadcast room or a peer DM). */
+/** Chat-pane header (broadcast room, a peer DM, or a private channel). */
 function ChatHeader({
   view,
   peer,
+  channel,
   started,
   incognito,
   onToggleIncognito,
+  reveal,
+  onToggleReveal,
+  onInvite,
+  onLeaveChannel,
   onBack,
   peerCount,
   membersVisible,
@@ -530,9 +702,14 @@ function ChatHeader({
 }: {
   view: NonNullable<MeshView>;
   peer: MeshPeer | null;
+  channel: MeshChannel | null;
   started: boolean;
   incognito: boolean;
   onToggleIncognito: () => void;
+  reveal: boolean;
+  onToggleReveal?: () => void;
+  onInvite?: () => void;
+  onLeaveChannel?: () => void;
   onBack: () => void;
   peerCount: number;
   membersVisible: boolean;
@@ -540,8 +717,9 @@ function ChatHeader({
   onToggleMembers: () => void;
 }) {
   const isDm = view.type === "dm";
+  const isChannel = view.type === "channel";
   const dmIdentity = isDm && peer ? meshIdentity(peer.peerID, peer.nickname) : null;
-  const title = isDm ? dmIdentity?.name ?? "Mesh DM" : "nearby mesh";
+  const title = isDm ? dmIdentity?.name ?? "Mesh DM" : isChannel ? channel?.name ?? "Channel" : "nearby mesh";
   const membersShown = membersVisible || membersOpen;
 
   return (
@@ -563,6 +741,8 @@ function ChatHeader({
         >
           {dmIdentity?.name.slice(0, 1).toUpperCase() || <MessageCircle className="size-4" />}
         </span>
+      ) : isChannel ? (
+        <Lock className="size-4 shrink-0" style={channel ? { color: channel.color } : undefined} />
       ) : (
         <Hash className="size-5 text-muted-foreground shrink-0" />
       )}
@@ -570,9 +750,32 @@ function ChatHeader({
       {dmIdentity && (
         <span className="text-[11px] text-muted-foreground/60 shrink-0">#{dmIdentity.suffix}</span>
       )}
+      {isChannel && (
+        <span className="text-[11px] text-muted-foreground/60 shrink-0 hidden sidebar:inline">
+          end-to-end encrypted
+        </span>
+      )}
       <span className="flex-1" />
-      {/* Nearby-members toggle (broadcast room only) — shows/hides the peer
-          roster panel, mirroring Concord's members button. */}
+
+      {/* Channel: invite a nearby peer (key handoff over the Noise DM). */}
+      {isChannel && onInvite && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Add someone to this channel"
+              className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={onInvite}
+            >
+              <UserPlus className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Add a nearby peer (shares the key)</TooltipContent>
+        </Tooltip>
+      )}
+
+      {/* Nearby-members toggle (broadcast room + channels). */}
       {!isDm && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -593,28 +796,74 @@ function ChatHeader({
           <TooltipContent>{membersShown ? "Hide nearby" : `Nearby · ${peerCount}`}</TooltipContent>
         </Tooltip>
       )}
-      {/* Incognito toggle: ON (default) announces an anon name; OFF reveals the
-          Armada display name to nearby devices. */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={incognito ? "Incognito on — showing an anonymous name" : "Incognito off — showing your name"}
-            aria-pressed={incognito}
-            className={cn(
-              "size-8 shrink-0",
-              incognito ? "text-primary" : "text-muted-foreground hover:text-foreground",
-            )}
-            onClick={onToggleIncognito}
-          >
-            <VenetianMask className="size-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {incognito ? "Incognito on · tap to show your name" : "Incognito off · tap to go anonymous"}
-        </TooltipContent>
-      </Tooltip>
+
+      {/* Identity toggle. In a private channel this is the PER-CHANNEL reveal
+          (sealed, members-only, forward-only); elsewhere it's the global mesh
+          incognito announce. */}
+      {isChannel && onToggleReveal ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={reveal ? "Revealing yourself in this channel" : "Posting anonymously in this channel"}
+              aria-pressed={!reveal}
+              className={cn(
+                "size-8 shrink-0",
+                reveal ? "text-muted-foreground hover:text-foreground" : "text-primary",
+              )}
+              onClick={onToggleReveal}
+            >
+              <VenetianMask className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {reveal
+              ? "Showing your name to this channel · tap to go anonymous"
+              : "Anonymous in this channel · tap to reveal yourself to members"}
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={incognito ? "Incognito on — showing an anonymous name" : "Incognito off — showing your name"}
+              aria-pressed={incognito}
+              className={cn(
+                "size-8 shrink-0",
+                incognito ? "text-primary" : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={onToggleIncognito}
+            >
+              <VenetianMask className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {incognito ? "Incognito on · tap to show your name" : "Incognito off · tap to go anonymous"}
+          </TooltipContent>
+        </Tooltip>
+      )}
+
+      {/* Channel: leave/forget (drops the key + local history). */}
+      {isChannel && onLeaveChannel && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Leave channel"
+              className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+              onClick={onLeaveChannel}
+            >
+              <X className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Leave channel (forgets the key)</TooltipContent>
+        </Tooltip>
+      )}
+
       {started ? (
         <Bluetooth className="size-4 text-success shrink-0" />
       ) : (
@@ -636,7 +885,9 @@ function MeshMemberPanel({
   open,
   available,
   started,
+  inviteMode = false,
   onOpenDM,
+  onInvitePeer,
   onClose,
 }: {
   peers: MeshPeer[];
@@ -645,7 +896,9 @@ function MeshMemberPanel({
   open: boolean;
   available: boolean;
   started: boolean;
+  inviteMode?: boolean;
   onOpenDM: (peerID: string) => void;
+  onInvitePeer?: (peer: MeshPeer) => void;
   onClose: () => void;
 }) {
   return (
@@ -675,15 +928,20 @@ function MeshMemberPanel({
         <aside className="flex flex-col h-full w-full sidebar:w-[16.5rem] mx-2 mt-3 mb-2 clip-corner-lg bg-chrome overflow-hidden">
           {/* Mobile-only header with a close button. */}
           <div className="flex items-center justify-between px-4 h-12 shrink-0 sidebar:hidden">
-            <span className="text-sm font-semibold">Nearby</span>
+            <span className="text-sm font-semibold">{inviteMode ? "Add to channel" : "Nearby"}</span>
             <Button variant="ghost" size="icon" aria-label="Close nearby" className="size-8" onClick={onClose}>
               <X className="size-4" />
             </Button>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto scrollbar-stable pb-safe">
             <h3 className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Nearby{peers.length > 0 ? ` · ${peers.length}` : ""}
+              {inviteMode ? "Add nearby" : "Nearby"}{peers.length > 0 ? ` · ${peers.length}` : ""}
             </h3>
+            {inviteMode && (
+              <p className="px-4 pb-1 text-[11px] text-muted-foreground/70">
+                Tap a peer to share this channel's key over an encrypted DM.
+              </p>
+            )}
             {peers.length === 0 ? (
               <p className="px-4 py-1 text-xs text-muted-foreground/70">
                 {available
@@ -698,7 +956,8 @@ function MeshMemberPanel({
                   key={peer.peerID}
                   peer={peer}
                   active={activePeerID === peer.peerID}
-                  onClick={() => onOpenDM(peer.peerID)}
+                  trailing={inviteMode ? <UserPlus className="size-3.5 text-muted-foreground" /> : undefined}
+                  onClick={() => (inviteMode ? onInvitePeer?.(peer) : onOpenDM(peer.peerID))}
                 />
               ))
             )}
@@ -762,10 +1021,137 @@ function EmptyDM({ peer }: { peer: MeshPeer | null }) {
   );
 }
 
-function composerPlaceholder(view: NonNullable<MeshView>, started: boolean, peer: MeshPeer | null) {
+function EmptyChannel({ channel }: { channel: MeshChannel | null }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+      <Lock className="size-10 text-muted-foreground/40 mb-3" style={channel ? { color: `${channel.color}99` } : undefined} />
+      <p className="text-sm text-muted-foreground">
+        {channel ? `"${channel.name}" is a private channel` : "Channel unavailable"}
+      </p>
+      <p className="text-xs text-muted-foreground/60 mt-1 max-w-xs">
+        Messages are end-to-end encrypted and relayed by every nearby device — only members holding the key can read them. Use the <UserPlus className="inline size-3" /> button to add a nearby peer.
+      </p>
+    </div>
+  );
+}
+
+function composerPlaceholder(
+  view: NonNullable<MeshView>,
+  started: boolean,
+  peer: MeshPeer | null,
+  channel: MeshChannel | null,
+) {
   if (!started) return "Starting mesh…";
   if (view.type === "dm") return peer ? `Message ${peer.nickname}…` : "Participant unavailable";
+  if (view.type === "channel") return channel ? `Message ${channel.name}…` : "Channel unavailable";
   return "Message nearby devices…";
+}
+
+/** Dialog to create a new private channel (local key generation). */
+function CreateChannelDialog({
+  open,
+  onOpenChange,
+  existingCount,
+  onCreate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  existingCount: number;
+  onCreate: (name: string) => void;
+}) {
+  const [name, setName] = useState("");
+  useEffect(() => {
+    if (open) setName("");
+  }, [open]);
+  const submit = () => {
+    const trimmed = name.trim();
+    if (trimmed) onCreate(trimmed);
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>New private channel</DialogTitle>
+          <DialogDescription>
+            A private channel is end-to-end encrypted over the mesh. A random key is generated on
+            this device; share it with nearby people to add them. Nobody else can read it — but every
+            nearby device still helps relay it.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="mesh-channel-name">Channel name</Label>
+          <Input
+            id="mesh-channel-name"
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder="weekend trip"
+            maxLength={48}
+          />
+          <p className="text-[11px] text-muted-foreground/70">
+            The name stays on your device and is shared only with members — it never appears on the wire.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={submit} disabled={!name.trim()}>
+            Create{existingCount === 0 ? " first channel" : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Dialog to share a channel key with a nearby peer over the Noise DM. */
+function InviteToChannelDialog({
+  open,
+  onOpenChange,
+  channel,
+  peers,
+  onInvite,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  channel: MeshChannel | null;
+  peers: MeshPeer[];
+  onInvite: (peer: MeshPeer) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add to {channel?.name ?? "channel"}</DialogTitle>
+          <DialogDescription>
+            Pick a nearby device to share this channel's key with. The key is sent over an encrypted
+            (Noise XX) direct message, so only they receive it.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-72 overflow-y-auto -mx-2">
+          {peers.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-muted-foreground text-center">
+              No nearby devices in range.
+            </p>
+          ) : (
+            peers.map((peer) => (
+              <MemberRow
+                key={peer.peerID}
+                peer={peer}
+                trailing={<UserPlus className="size-3.5 text-muted-foreground" />}
+                onClick={() => onInvite(peer)}
+              />
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export default MeshPage;
