@@ -22,6 +22,9 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.messaging.FirebaseMessaging;
+
 import org.json.JSONArray;
 
 /**
@@ -347,6 +350,56 @@ public class ArmadaNotificationPlugin extends Plugin {
                 call.reject("Unable to open battery optimization settings", e2);
             }
         }
+    }
+
+    /**
+     * Return this device's FCM registration token and the Firebase project ID.
+     *
+     * Called by the JS layer (useFcmNotifications) to register the token with
+     * the shared nostr-push server for battery-free OS-delivered push. Rejects
+     * if Firebase is not configured (no google-services.json) or Google Play
+     * Services is unavailable — the caller then falls back to the persistent
+     * relay service.
+     */
+    @PluginMethod
+    public void getFcmToken(PluginCall call) {
+        final String projectId;
+        try {
+            FirebaseApp app = FirebaseApp.getInstance();
+            projectId = app.getOptions().getProjectId();
+        } catch (IllegalStateException e) {
+            // FirebaseApp not initialized — google-services.json missing or the
+            // google-services Gradle plugin was not applied.
+            call.reject("Firebase is not configured on this build", e);
+            return;
+        }
+
+        if (projectId == null || projectId.isEmpty()) {
+            call.reject("Firebase project ID is unavailable");
+            return;
+        }
+
+        FirebaseMessaging.getInstance().getToken()
+                .addOnCompleteListener(task -> {
+                    if (!task.isSuccessful()) {
+                        Exception ex = task.getException();
+                        Log.w(TAG, "Failed to fetch FCM token", ex);
+                        call.reject("Failed to fetch FCM token: " + (ex != null ? ex.getMessage() : "unknown"), ex);
+                        return;
+                    }
+
+                    String token = task.getResult();
+                    if (token == null || token.isEmpty()) {
+                        call.reject("FCM returned an empty token");
+                        return;
+                    }
+
+                    Log.d(TAG, "Fetched FCM token (len=" + token.length() + "), project=" + projectId);
+                    JSObject result = new JSObject();
+                    result.put("token", token);
+                    result.put("projectId", projectId);
+                    call.resolve(result);
+                });
     }
 
     @PluginMethod

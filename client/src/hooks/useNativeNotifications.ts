@@ -16,6 +16,7 @@ import { useConcord2Subs } from "@/concord-v2/hooks/useConcord2Subs";
 import { signStreamAuths } from "@/concord-v2/lib/streamAuth";
 import { effectiveDmRelays } from "@/contexts/AppContext";
 import { normalizeRelayUrl } from "@/lib/platform";
+import { loadNotificationStyle, saveNotificationStyle, type NotificationStyle } from "@/lib/notificationStyle";
 
 /** localStorage key for the native background-notification intent (toggle). */
 const NATIVE_INTENT_KEY = "armada:native-notif-intent";
@@ -67,12 +68,16 @@ export interface UseNativeNotificationsReturn {
   busy: boolean;
   /** Current per-type prefs. */
   prefs: PushPrefs;
+  /** Current delivery style. The persistent service only runs when "persistent". */
+  style: NotificationStyle;
   /** Request notification permission, then start the background service. */
   enable: () => Promise<void>;
   /** Stop the background service. */
   disable: () => Promise<void>;
   /** Update per-type prefs (re-configures the running service). */
   setPrefs: (next: PushPrefs) => Promise<void>;
+  /** Switch delivery style; tears the persistent service down when "push". */
+  setStyle: (next: NotificationStyle) => void;
 }
 
 /**
@@ -100,6 +105,7 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
   const [enabled, setEnabled] = useState<boolean>(false);
   const [busy, setBusy] = useState(false);
   const [prefs, setPrefsState] = useState<PushPrefs>(loadPrefs);
+  const [style, setStyleState] = useState<NotificationStyle>(loadNotificationStyle);
 
   // The relays to hold open. A standalone Armada client has no host, so the
   // source of truth is the user's own kind 10009 list: the relays that host
@@ -185,6 +191,9 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
 
     const loggedOut = !user;
     const turnedOff = !enabled;
+    // When the user chose FCM ("push"), the persistent foreground service must
+    // NOT run — FCM delivers instead. Tear it down.
+    const pushStyle = style === "push";
     const nothingToWatch =
       relayUrls.length === 0 &&
       concordSubs.length === 0 &&
@@ -192,7 +201,7 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
       dmRelays.length === 0;
 
     let payload: Parameters<typeof ArmadaNotification.configure>[0];
-    if (turnedOff || loggedOut) {
+    if (turnedOff || loggedOut || pushStyle) {
       payload = { enabled: false };
     } else if (nothingToWatch) {
       // Still loading the user's groups/communities — keep whatever's running.
@@ -219,7 +228,7 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
     ArmadaNotification.configure(payload).catch((err) => {
       console.warn("[native-notif] configure failed:", err);
     });
-  }, [supported, enabled, user, relayUrls, groupIds, prefsRecord, concordSubs, concord2Subs, dmRelays, dmFollows]);
+  }, [supported, enabled, user, relayUrls, groupIds, prefsRecord, concordSubs, concord2Subs, dmRelays, dmFollows, style]);
 
   // Auto-enable on launch (opt-out, like Ditto): if the user hasn't turned it
   // off, start the background service. Android lets us request the OS
@@ -360,5 +369,10 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
     }
   }, []);
 
-  return { supported, enabled, busy, prefs, enable, disable, setPrefs };
+  const setStyle = useCallback((next: NotificationStyle) => {
+    setStyleState(next);
+    saveNotificationStyle(next);
+  }, []);
+
+  return { supported, enabled, busy, prefs, style, enable, disable, setPrefs, setStyle };
 }

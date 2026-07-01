@@ -4,7 +4,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 import { KeyboardResize } from '@capacitor/keyboard';
 
 const config: CapacitorConfig = {
-  appId: 'pub.armada.app',
+  appId: 'pub.armadatastic.app',
   appName: 'Armada',
   webDir: 'dist',
   server: {

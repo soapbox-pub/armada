@@ -73,6 +73,27 @@
             android:name=".MeshForegroundService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|dataSync" />
+
+        <!-- FCM push receiver (battery-free, OS-delivered path via the shared
+             nostr-push server). Handles foreground display + data-payload
+             messages. Only active when google-services.json is present. -->
+        <service
+            android:name=".ArmadaFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Channel + small icon for FCM notifications auto-displayed by the OS
+             when the app is backgrounded. Reuses the persistent path's channel
+             and icon so both delivery methods look identical. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="armada_notifications_v2" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_armada" />
     </application>
 
     <!-- Permissions -->

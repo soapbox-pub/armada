@@ -12,7 +12,7 @@ android {
     namespace = "pub.armada.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "pub.armada.app"
+        applicationId "pub.armadatastic.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -70,6 +70,12 @@ dependencies {
     // okhttp powers the background notification service's persistent relay
     // WebSocket (instant Nostr push without FCM/Google).
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    // Firebase Cloud Messaging: the battery-free, OS-delivered push path via
+    // the shared nostr-push server (alternative to the persistent service).
+    // Requires google-services.json + the com.google.gms.google-services plugin
+    // (applied conditionally at the bottom of this file).
+    implementation platform('com.google.firebase:firebase-bom:33.7.0')
+    implementation 'com.google.firebase:firebase-messaging'
     implementation project(':capacitor-android')
     // --- Bitchat Bluetooth mesh layer (com.bitchat.android.*) runtime deps ---
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2"

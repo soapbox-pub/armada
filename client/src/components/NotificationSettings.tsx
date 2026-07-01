@@ -3,26 +3,34 @@ import { AlertTriangle } from "lucide-react";
 
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useNativeNotifications } from "@/hooks/useNativeNotifications";
+import { useFcmNotifications } from "@/hooks/useFcmNotifications";
 import { usePushNotifications, type PushPrefs } from "@/hooks/usePushNotifications";
 import {
   isIgnoringBatteryOptimizations,
   requestIgnoreBatteryOptimizations,
 } from "@/lib/nativeNotifications";
+import type { NotificationStyle } from "@/lib/notificationStyle";
 
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 
 /**
  * Notification settings.
  *
  * Two delivery paths, picked by runtime:
- *  - Native APK: a foreground service holds a persistent relay connection and
- *    fires local notifications instantly (no FCM/Google). See
- *    useNativeNotifications.
- *  - Web / PWA: Web Push via the Armada relay's VAPID gateway. See
- *    usePushNotifications.
+ *  - Native APK: the user chooses between two styles —
+ *      • "Persistent": a foreground service holds a persistent relay connection
+ *        and fires notifications instantly (no Google). Covers groups, Concord
+ *        and DMs, at a small battery cost. (useNativeNotifications)
+ *      • "Push": FCM via the shared nostr-push server — battery-free and
+ *        OS-delivered, but only covers DMs + Concord (generic "New message");
+ *        requires Firebase configured in the build. (useFcmNotifications)
+ *  - Web / PWA: Web Push via the Armada relay's VAPID gateway.
+ *    (usePushNotifications)
  *
- * Both expose the same Discord-style per-type toggles.
+ * All paths share the same Discord-style per-type toggles.
  */
 export function NotificationSettings() {
   const { user } = useCurrentUser();
@@ -32,23 +40,9 @@ export function NotificationSettings() {
     return <p className="text-sm text-muted-foreground">Log in to enable notifications.</p>;
   }
 
-  // Native APK: instant background notifications via the relay connection.
+  // Native APK: background notifications, with a delivery-style choice.
   if (native.supported) {
-    return (
-      <div className="space-y-4">
-        <NotificationToggles
-          title="Background notifications"
-          description="Armada stays connected in the background and notifies you instantly — no Google services."
-          enabled={native.enabled}
-          busy={native.busy}
-          blocked={false}
-          prefs={native.prefs}
-          onToggle={(v) => (v ? native.enable() : native.disable())}
-          onSetPrefs={(p) => native.setPrefs(p).catch(() => {})}
-        />
-        {native.enabled && <BatteryOptimizationWarning />}
-      </div>
-    );
+    return <NativeNotificationSettings native={native} userPubkey={user.pubkey} />;
   }
 
   return <WebPushSettings />;
@@ -110,6 +104,124 @@ function BatteryOptimizationWarning() {
         </div>
       </div>
     </div>
+  );
+}
+
+function NativeNotificationSettings(props: {
+  native: ReturnType<typeof useNativeNotifications>;
+  userPubkey: string;
+}) {
+  const { native } = props;
+  const fcm = useFcmNotifications();
+
+  // Switching to "push" registers FCM; switching to "persistent" unregisters it.
+  // The persistent foreground service is driven by useNativeNotifications, which
+  // already tears itself down whenever the style is "push".
+  const onStyleChange = async (style: NotificationStyle) => {
+    native.setStyle(style);
+    if (!fcm.supported) return;
+    try {
+      if (style === "push") {
+        if (!native.enabled) await native.enable(); // ensure OS permission
+        await fcm.enable();
+      } else {
+        await fcm.disable();
+      }
+    } catch (err) {
+      console.error("[notif] failed to apply style change:", err);
+    }
+  };
+
+  const onToggle = async (v: boolean) => {
+    if (native.style === "push" && fcm.supported) {
+      if (v) {
+        await native.enable(); // OS permission
+        await fcm.enable().catch((err) => console.error("[fcm] enable failed:", err));
+      } else {
+        await fcm.disable().catch((err) => console.error("[fcm] disable failed:", err));
+        await native.disable();
+      }
+      return;
+    }
+    // Persistent style: the foreground service handles everything.
+    return v ? native.enable() : native.disable();
+  };
+
+  const busy = native.busy || fcm.busy;
+
+  return (
+    <div className="space-y-5">
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold">Delivery method</h3>
+        <RadioGroup
+          value={native.style}
+          onValueChange={(v) => onStyleChange(v as NotificationStyle)}
+          className="space-y-2"
+        >
+          <StyleOption
+            id="style-persistent"
+            value="persistent"
+            title="Persistent (no Google)"
+            description="Armada stays connected in the background and notifies you instantly. Covers channels, communities and DMs. Uses a little more battery."
+          />
+          <StyleOption
+            id="style-push"
+            value="push"
+            title="Push (battery-saving)"
+            description={
+              fcm.supported
+                ? "Delivered by the OS via the push server. Best battery life. Covers DMs and community messages; NIP-29 channels stay on Persistent."
+                : "Unavailable on this build (Firebase not configured)."
+            }
+            disabled={!fcm.supported}
+          />
+        </RadioGroup>
+      </div>
+
+      <div className="border-t border-border pt-4">
+        <NotificationToggles
+          title="Enable notifications"
+          description={
+            native.style === "push"
+              ? "Battery-free push for DMs and community messages."
+              : "Instant background notifications — no Google services."
+          }
+          enabled={native.enabled}
+          busy={busy}
+          blocked={false}
+          prefs={native.prefs}
+          onToggle={onToggle}
+          onSetPrefs={(p) => native.setPrefs(p).catch(() => {})}
+        />
+      </div>
+
+      {native.enabled && native.style !== "push" && <BatteryOptimizationWarning />}
+    </div>
+  );
+}
+
+function StyleOption(props: {
+  id: string;
+  value: string;
+  title: string;
+  description: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label
+      htmlFor={props.id}
+      className={`flex items-start gap-3 rounded-md border border-border p-3 ${
+        props.disabled ? "opacity-50" : "cursor-pointer"
+      }`}
+    >
+      <RadioGroupItem id={props.id} value={props.value} disabled={props.disabled} className="mt-0.5" />
+      <span className="min-w-0">
+        <Label htmlFor={props.id} className="block text-sm font-medium">
+          {props.title}
+        </Label>
+        <span className="block text-xs text-muted-foreground">{props.description}</span>
+      </span>
+    </label>
   );
 }
 
