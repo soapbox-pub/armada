@@ -1,7 +1,9 @@
 import { MeshContent } from "@/components/chat/MeshContent";
+import { MeshPostMessage } from "@/components/chat/MeshPostMessage";
 import { MessageRow, type MessageIdentity } from "@/components/chat/MessageRow";
 import { isMeAction, meActionText } from "@/lib/slashCommands";
 import { meshMentionsMe } from "@/lib/meshIdentity";
+import { REBROADCAST_KIND } from "@/lib/rebroadcast";
 import { cn } from "@/lib/utils";
 
 import type { ChatMsg } from "@/components/chat/transport";
@@ -35,6 +37,14 @@ interface MeshMessageProps {
  * avatar/name open a mesh profile popover (Message / Mention) via `meshActions`.
  */
 export function MeshMessage({ event, identity, peers, myPeerID, continuation, onMessage, onMention }: MeshMessageProps) {
+  // A rebroadcastable post carries a real, signature-verified Nostr event
+  // (kind 1 with a non-empty sig), unlike ordinary mesh messages whose `pubkey`
+  // is a mesh peer id and whose sig is empty. Render it with the author's real
+  // Nostr identity + a Rebroadcast button instead of the mesh-peer chrome.
+  if (event.kind === REBROADCAST_KIND && event.sig) {
+    return <MeshPostMessage event={event} continuation={continuation} />;
+  }
+
   const mentionsMe = meshMentionsMe(event.content, myPeerID);
   const isSelf = !!myPeerID && event.pubkey === myPeerID;
 

@@ -31,9 +31,11 @@ import { useMeshTransport } from "@/hooks/useMeshTransport";
 import { toast } from "@/hooks/useToast";
 import { meshIdentity, meshMentionToken, type MeshIdentity } from "@/lib/meshIdentity";
 import { isMeshSlashCommand } from "@/lib/meshSlashCommands";
+import { encodeRebroadcast, REBROADCAST_KIND } from "@/lib/rebroadcast";
 import {
   executeSlashCommand,
   parseSlashCommand,
+  type SlashAction,
   type SlashCommand,
   type SlashCommandHandlers,
 } from "@/lib/slashCommands";
@@ -145,6 +147,47 @@ export function MeshPage() {
     }
   };
 
+  // `/post <message>`: sign a real kind-1 Nostr note locally and ship the whole
+  // signed event over the active mesh transport, wrapped in a rebroadcast
+  // envelope. A nearby peer with internet can then relay it verbatim. Signing
+  // must work fully offline, so this is gated to local-key (nsec) logins —
+  // bunker (NIP-46) and extension (NIP-07) signers need the network and would
+  // hang/fail with no internet, which defeats the offline-first point.
+  const createAndSendPost = async (text: string) => {
+    if (!user || !mesh.started || !view) return;
+    if (user.method !== "nsec") {
+      toast({
+        title: "Can't post offline",
+        description:
+          "Rebroadcastable posts must be signed locally. Log in with a private key (nsec) to use /post over the mesh.",
+        variant: "destructive",
+      });
+      return;
+    }
+    let event;
+    try {
+      event = await user.signer.signEvent({
+        kind: REBROADCAST_KIND,
+        content: text,
+        tags: [],
+        created_at: Math.floor(Date.now() / 1000),
+      });
+    } catch (e) {
+      toast({
+        title: "Couldn't sign post",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+      return;
+    }
+    setDraft("");
+    try {
+      await sendText(encodeRebroadcast(event));
+    } catch {
+      setDraft(`/post ${text}`);
+    }
+  };
+
   const focusComposer = () => {
     requestAnimationFrame(() => textareaRef.current?.focus());
   };
@@ -155,9 +198,9 @@ export function MeshPage() {
     focusComposer();
   };
 
-  // How the mesh dispatches a slash command's result. The mesh supports only
-  // text rewrites + `/mention` (gated by `isMeshSlashCommand`), so it provides
-  // no `onAction`; the shared runner reports any other action as unavailable.
+  // How the mesh dispatches a slash command's result. The mesh supports text
+  // rewrites, `/mention`, and `/post` (a rebroadcastable Nostr note); any other
+  // action is reported as unavailable by the shared runner.
   const slashHandlers: SlashCommandHandlers = {
     send: async (text) => {
       setDraft("");
@@ -172,6 +215,10 @@ export function MeshPage() {
     clearDraft: () => setDraft(""),
     onError: (message) =>
       toast({ title: "Command unavailable", description: message, variant: "destructive" }),
+    onAction: (action: SlashAction) => {
+      if (action.kind === "post") return createAndSendPost(action.text);
+      toast({ title: "Command unavailable", description: `/${action.kind} isn't available here.`, variant: "destructive" });
+    },
     isAllowed: isMeshSlashCommand,
   };
 

@@ -5,6 +5,7 @@ import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { BluetoothMesh, type MeshMessage, type MeshPeer } from "@/lib/bluetoothMesh";
 import { meshAnonName } from "@/lib/meshIdentity";
+import { parseRebroadcast } from "@/lib/rebroadcast";
 
 import type { ChatMsg, ChatTransport } from "@/components/chat/transport";
 
@@ -19,8 +20,24 @@ const MESH_KIND = 9;
  * Concord. Mesh peers are NOT Nostr pubkeys, so `pubkey` carries the mesh peer
  * id (or sender nickname) purely as a stable author key; rendering never
  * re-verifies the (empty) signature.
+ *
+ * Exception: a **rebroadcastable post** (`/post`) carries a *full signed Nostr
+ * event* in its content. Those are unwrapped and verified here, then surfaced
+ * AS-IS (real pubkey + sig + kind 1) — so they render with the author's actual
+ * Nostr identity and can be relayed verbatim. The event MUST NOT be mutated:
+ * its id/signature is computed over its exact fields (including `tags`), so
+ * appending even a single tag would invalidate the signature and make every
+ * relay reject the rebroadcast with "signature verification failed". A failed
+ * verification falls through to the plain mesh-message form (the literal
+ * envelope text), which is harmless and makes tampering visible rather than
+ * silently trusted.
  */
 function meshToEvent(m: MeshMessage): ChatMsg {
+  const post = parseRebroadcast(m.content);
+  if (post) {
+    // Pass the signed event through unchanged — see the warning above.
+    return post;
+  }
   return {
     id: m.id,
     pubkey: m.senderPeerID ?? m.sender,
@@ -87,14 +104,21 @@ export function useMeshTransportState(): MeshContextType {
   );
 
   // De-dupe incoming messages by id (the mesh floods, so the same packet can
-  // surface more than once) and keep ascending (oldest-first) order.
+  // surface more than once) and keep ascending (oldest-first) order. Rebroadcast
+  // posts are additionally de-duped by their Nostr event id, since the same
+  // signed note can arrive inside different mesh packets (different carriers
+  // relaying it) — collapsing them keeps a single post with one author/button.
   const seenIds = useRef<Set<string>>(new Set());
   const seenPrivateIds = useRef<Set<string>>(new Set());
+  const seenEventIds = useRef<Set<string>>(new Set());
   const appendMessage = useCallback((m: MeshMessage) => {
+    const post = parseRebroadcast(m.content);
     if (m.isPrivate) {
       const peerID = m.senderPeerID;
       if (!peerID || seenPrivateIds.current.has(m.id)) return;
+      if (post && seenEventIds.current.has(post.id)) return;
       seenPrivateIds.current.add(m.id);
+      if (post) seenEventIds.current.add(post.id);
       setDirectMessages((prev) => {
         const nextMessages = [...(prev[peerID] ?? []), meshToEvent(m)];
         nextMessages.sort((a, b) => a.created_at - b.created_at);
@@ -103,7 +127,9 @@ export function useMeshTransportState(): MeshContextType {
       return;
     }
     if (seenIds.current.has(m.id)) return;
+    if (post && seenEventIds.current.has(post.id)) return;
     seenIds.current.add(m.id);
+    if (post) seenEventIds.current.add(post.id);
     setMessages((prev) => {
       const next = [...prev, meshToEvent(m)];
       next.sort((a, b) => a.created_at - b.created_at);

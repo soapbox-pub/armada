@@ -48,6 +48,7 @@ export type SlashAction =
   | { kind: "clearDraft" }
   | { kind: "openMention"; prefix?: string }
   | { kind: "openThread" }
+  | { kind: "post"; text: string }
   | { kind: "kick"; pubkey: string }
   | { kind: "ban"; pubkey: string; reason?: string };
 
@@ -134,6 +135,17 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     requires: ["poll"],
     runsOnSelect: true,
     run: () => ({ type: "action", action: { kind: "openPoll" } }),
+  },
+  {
+    name: "post",
+    description: "Create a rebroadcastable Nostr post",
+    usage: "/post <message>",
+    kind: "action",
+    run: (arg) => {
+      const text = arg.trim();
+      if (!text) return { type: "error", message: "Usage: /post <message>" };
+      return { type: "action", action: { kind: "post", text } };
+    },
   },
   {
     name: "mention",
