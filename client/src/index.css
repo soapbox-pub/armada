@@ -419,4 +419,36 @@
     animation: terminal-expand 0.16s ease-out;
     will-change: transform, opacity;
   }
+
+  /* Pulsing "you are here" GPS beacon for the location map. A solid themed dot
+     with an expanding, fading ring behind it (::after). GPU-composited
+     transform + opacity only. */
+  .map-beacon {
+    position: relative;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: hsl(var(--primary));
+    border: 2px solid hsl(var(--background));
+    box-shadow: 0 0 12px hsl(var(--primary) / 0.8);
+  }
+  .map-beacon::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: 9999px;
+    background: hsl(var(--primary) / 0.45);
+    animation: map-beacon-pulse 1.8s ease-out infinite;
+    will-change: transform, opacity;
+  }
+  @keyframes map-beacon-pulse {
+    from {
+      transform: scale(1);
+      opacity: 0.7;
+    }
+    to {
+      transform: scale(3);
+      opacity: 0;
+    }
+  }
 }
