@@ -326,16 +326,16 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
       </button>
 
       {/* Locate — recenter on the user's current position. Only when we have a
-          fix; takes the map accent so it reads as "your" control. */}
+          fix. */}
       {position && (
         <button
           type="button"
           aria-label="Center on my location"
           title="Center on my location"
-          className="absolute top-safe-28 right-4 pointer-events-auto p-2 rounded-full bg-black/60 backdrop-blur hover:bg-white/10 transition-colors"
+          className="absolute top-safe-28 right-4 pointer-events-auto p-2 rounded-full bg-black/60 backdrop-blur text-white/80 hover:text-white hover:bg-white/10 transition-colors"
           onClick={locate}
         >
-          <Locate className="size-6" style={{ color: accent }} />
+          <Locate className="size-6" />
         </button>
       )}
 

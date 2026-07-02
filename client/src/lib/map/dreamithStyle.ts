@@ -124,7 +124,7 @@ export function moonPalette(): MapPalette {
  */
 export function mapAccentColor(theme: MapTheme): string {
   if (theme === "moon") return moonPalette().glow;
-  if (theme === "sun") return "#e11d48"; // rose — pops on light OSM streets
+  if (theme === "sun") return "#2563eb"; // blue — reads on light OSM streets
   // sparkle: the app's --primary.
   if (typeof document === "undefined") return "#3b82f6";
   const v = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim();
@@ -140,7 +140,7 @@ export function mapAccentForeground(theme: MapTheme): string {
       .trim();
     return v ? `hsl(${v})` : "#ffffff";
   }
-  return "#ffffff"; // sun rose + moon blue both take white text
+  return "#ffffff"; // sun blue + moon blue both take white text
 }
 
 // ─── Recolor ──────────────────────────────────────────────────────────
