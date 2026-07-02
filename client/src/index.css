@@ -250,6 +250,11 @@
     top: calc(4rem + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
   }
 
+  /* Third stacked control (below top-safe-16). */
+  .top-safe-28 {
+    top: calc(7rem + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
+  }
+
   /* Bottom-anchored control that clears the home indicator in a fullscreen
      overlay (mirrors top-safe-4). */
   .bottom-safe-4 {

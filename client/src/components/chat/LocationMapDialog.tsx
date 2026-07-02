@@ -1,6 +1,6 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Moon, Navigation, Sparkles, Sun, X } from "lucide-react";
+import { Locate, Moon, Navigation, Sparkles, Sun, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -288,6 +288,14 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
     setTheme((t) => THEME_ORDER[(THEME_ORDER.indexOf(t) + 1) % THEME_ORDER.length]);
   };
 
+  // Recenter on the user's current position (if we have a fix).
+  const locate = () => {
+    const map = mapRef.current;
+    const you = posRef.current;
+    if (!map || !you) return;
+    map.easeTo({ center: [you.lon, you.lat], zoom: Math.max(map.getZoom(), 16), duration: 500 });
+  };
+
   const ThemeIcon = THEME_META[theme].icon;
   const accent = mapAccentColor(theme);
   const accentFg = mapAccentForeground(theme);
@@ -306,18 +314,30 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
         <X className="size-6" />
       </button>
 
-      {/* Look toggle — under the close button. Cycles sparkle → sun → moon.
-          The icon takes the current look's accent so it signals the active map
-          coloring. */}
+      {/* Look toggle — under the close button. Cycles sparkle → sun → moon. */}
       <button
         type="button"
         aria-label={`Map look: ${THEME_META[theme].label} (tap to change)`}
         title={THEME_META[theme].label}
-        className="absolute top-safe-16 right-4 pointer-events-auto p-2 rounded-full bg-black/60 backdrop-blur transition-colors hover:bg-white/10"
+        className="absolute top-safe-16 right-4 pointer-events-auto p-2 rounded-full bg-black/60 backdrop-blur text-white/80 hover:text-white hover:bg-white/10 transition-colors"
         onClick={cycleTheme}
       >
-        <ThemeIcon className="size-5" style={{ color: accent }} />
+        <ThemeIcon className="size-6" />
       </button>
+
+      {/* Locate — recenter on the user's current position. Only when we have a
+          fix; takes the map accent so it reads as "your" control. */}
+      {position && (
+        <button
+          type="button"
+          aria-label="Center on my location"
+          title="Center on my location"
+          className="absolute top-safe-28 right-4 pointer-events-auto p-2 rounded-full bg-black/60 backdrop-blur hover:bg-white/10 transition-colors"
+          onClick={locate}
+        >
+          <Locate className="size-6" style={{ color: accent }} />
+        </button>
+      )}
 
       {/* Navigate — pill in the map's accent, bottom center, opens the compass. */}
       {onNavigate && (
