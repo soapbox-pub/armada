@@ -1,6 +1,6 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Moon, Sparkles, Sun, X } from "lucide-react";
+import { Moon, Navigation, Sparkles, Sun, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -11,6 +11,8 @@ import type { GeoPoint } from "@/lib/location";
 interface LocationMapDialogProps {
   point: GeoPoint;
   onClose: () => void;
+  /** Switch to the fullscreen compass navigating to this point. */
+  onNavigate?: () => void;
 }
 
 const THEME_STORAGE_KEY = "armada:map-theme";
@@ -42,7 +44,7 @@ function readMapTheme(): MapTheme {
  * sparkle (matches the app's live theme — including Nostr theme events), sun
  * (light OSM streets), and moon (dark streets). The choice is remembered.
  */
-export function LocationMapDialog({ point, onClose }: LocationMapDialogProps) {
+export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDialogProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [theme, setTheme] = useState<MapTheme>(readMapTheme);
@@ -166,6 +168,18 @@ export function LocationMapDialog({ point, onClose }: LocationMapDialogProps) {
       >
         <ThemeIcon className="size-5" />
       </button>
+
+      {/* Navigate — themed pill, bottom center, opens the compass. */}
+      {onNavigate && (
+        <button
+          type="button"
+          onClick={onNavigate}
+          className="absolute bottom-safe-4 left-1/2 -translate-x-1/2 pointer-events-auto inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg hover:opacity-90 transition-opacity"
+        >
+          <Navigation className="size-4" />
+          Navigate
+        </button>
+      )}
     </div>,
     document.body,
   );

@@ -1,6 +1,7 @@
 import { MapPin } from "lucide-react";
 import { useState } from "react";
 
+import { CompassNavigationDialog } from "@/components/chat/CompassNavigationDialog";
 import { LocationMapDialog } from "@/components/chat/LocationMapDialog";
 import { formatCoords } from "@/lib/location";
 import { cn } from "@/lib/utils";
@@ -12,24 +13,29 @@ interface LocationCardProps {
   className?: string;
 }
 
+/** Which fullscreen viewer (if any) is open for this shared location. */
+type View = "none" | "map" | "compass";
+
 /**
  * Lightweight in-timeline card for a shared location. Deliberately renders NO
  * map (a live MapLibre instance per bubble would exhaust the browser's WebGL
  * context budget and hit the network for every message); it's a tappable card
  * showing a pin glyph + coordinates. Tapping opens the fullscreen
- * {@link LocationMapDialog}, which loads the one interactive map on demand.
+ * {@link LocationMapDialog}, which loads the one interactive map on demand; from
+ * there "Navigate" swaps to the fullscreen {@link CompassNavigationDialog}
+ * (offline GPS + magnetometer). Only one viewer is mounted at a time.
  *
  * Works identically across every transport (groups, DMs, Concord, mesh) since
  * it derives only from a parsed {@link GeoPoint}.
  */
 export function LocationCard({ point, className }: LocationCardProps) {
-  const [open, setOpen] = useState(false);
+  const [view, setView] = useState<View>("none");
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => setView("map")}
         className={cn(
           "mt-1 flex items-center gap-3 w-full max-w-xs rounded-xl border border-border bg-secondary/40 px-3 py-2.5 text-left transition-colors hover:bg-secondary/70",
           className,
@@ -48,7 +54,20 @@ export function LocationCard({ point, className }: LocationCardProps) {
         <span className="shrink-0 text-xs font-medium text-primary">View map</span>
       </button>
 
-      {open && <LocationMapDialog point={point} onClose={() => setOpen(false)} />}
+      {view === "map" && (
+        <LocationMapDialog
+          point={point}
+          onClose={() => setView("none")}
+          onNavigate={() => setView("compass")}
+        />
+      )}
+      {view === "compass" && (
+        <CompassNavigationDialog
+          target={point}
+          onClose={() => setView("none")}
+          onOpenMap={() => setView("map")}
+        />
+      )}
     </>
   );
 }

@@ -250,6 +250,12 @@
     top: calc(4rem + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
   }
 
+  /* Bottom-anchored control that clears the home indicator in a fullscreen
+     overlay (mirrors top-safe-4). */
+  .bottom-safe-4 {
+    bottom: calc(1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  }
+
   /* Bottom padding so content clears the fixed bottom nav + home-indicator. */
   .pb-mobile-nav {
     padding-bottom: calc(var(--bottom-nav-height) + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
