@@ -115,6 +115,34 @@ export function moonPalette(): MapPalette {
   };
 }
 
+/**
+ * The accent color for overlay chrome (the "you" beacon, the route line, and the
+ * map's own buttons) *for the current map look* — so these track the map, not
+ * the app. "sparkle" uses the app's live `--primary` (the map matches the app,
+ * so the accent should too); "sun"/"moon" use a fixed accent that reads on that
+ * look's streets. Returns a concrete color string usable by CSS and MapLibre.
+ */
+export function mapAccentColor(theme: MapTheme): string {
+  if (theme === "moon") return moonPalette().glow;
+  if (theme === "sun") return "#e11d48"; // rose — pops on light OSM streets
+  // sparkle: the app's --primary.
+  if (typeof document === "undefined") return "#3b82f6";
+  const v = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim();
+  return v ? `hsl(${v})` : "#3b82f6";
+}
+
+/** A readable foreground (text) color to place *on* {@link mapAccentColor}. */
+export function mapAccentForeground(theme: MapTheme): string {
+  if (theme === "sparkle") {
+    if (typeof document === "undefined") return "#ffffff";
+    const v = getComputedStyle(document.documentElement)
+      .getPropertyValue("--primary-foreground")
+      .trim();
+    return v ? `hsl(${v})` : "#ffffff";
+  }
+  return "#ffffff"; // sun rose + moon blue both take white text
+}
+
 // ─── Recolor ──────────────────────────────────────────────────────────
 
 /** Rewrite one layer's paint colors from the palette (mirrors yonder). */

@@ -6,7 +6,13 @@ import { createPortal } from "react-dom";
 
 import { useGeoWatch } from "@/hooks/useGeoWatch";
 import { haversine } from "@/lib/location";
-import { fallbackMapStyle, loadMapStyle, type MapTheme } from "@/lib/map/dreamithStyle";
+import {
+  fallbackMapStyle,
+  loadMapStyle,
+  mapAccentColor,
+  mapAccentForeground,
+  type MapTheme,
+} from "@/lib/map/dreamithStyle";
 
 import type { GeoPoint } from "@/lib/location";
 
@@ -43,13 +49,6 @@ function readMapTheme(): MapTheme {
   return "sparkle";
 }
 
-/** Read the app's --primary as a concrete hsl() string for the map layer. */
-function primaryColor(): string {
-  if (typeof document === "undefined") return "#3b82f6";
-  const v = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim();
-  return v ? `hsl(${v})` : "#3b82f6";
-}
-
 /**
  * Fullscreen interactive map centered on a shared location, rendered over a
  * portal (like {@link Lightbox}). Uses MapLibre GL with Dreamith's OpenFreeMap
@@ -69,6 +68,7 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const youMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const targetMarkerRef = useRef<maplibregl.Marker | null>(null);
   // Set true on a user gesture (pan/zoom/rotate). Once set, the auto-fit never
   // runs — the user's camera choice is final.
   const userInteractedRef = useRef(false);
@@ -104,8 +104,6 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
 
-    new maplibregl.Marker({ color: "#3b82f6" }).setLngLat([point.lon, point.lat]).addTo(map);
-
     // A real user gesture (pan/zoom/rotate) carries an `originalEvent`;
     // programmatic camera moves (fitBounds/easeTo) don't. Only the former
     // should cancel the auto-fit, so the initial fit doesn't disable itself.
@@ -131,6 +129,7 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
       map.remove();
       mapRef.current = null;
       youMarkerRef.current = null;
+      targetMarkerRef.current = null;
     };
   }, [point.lat, point.lon]);
 
@@ -199,10 +198,11 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
 
     const install = () => {
       const feature = routeGeoJSON();
+      const accent = mapAccentColor(theme);
       const existing = map.getSource(ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined;
       if (existing) {
         existing.setData(feature ?? { type: "FeatureCollection", features: [] });
-        if (map.getLayer(ROUTE_LAYER)) map.setPaintProperty(ROUTE_LAYER, "line-color", primaryColor());
+        if (map.getLayer(ROUTE_LAYER)) map.setPaintProperty(ROUTE_LAYER, "line-color", accent);
         return;
       }
       if (!feature) return; // no fix yet — nothing to draw until one arrives
@@ -213,7 +213,7 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
         source: ROUTE_SOURCE,
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": primaryColor(),
+          "line-color": accent,
           "line-width": 3,
           "line-dasharray": [1.5, 1.5],
           "line-opacity": 0.9,
@@ -230,21 +230,36 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
     };
   }, [point.lat, point.lon, position, theme]);
 
+  // The target (destination) pin. Recreated when the look changes so its color
+  // tracks the map accent (MapLibre's default Marker color is fixed at build).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    targetMarkerRef.current?.remove();
+    targetMarkerRef.current = new maplibregl.Marker({ color: mapAccentColor(theme) })
+      .setLngLat([point.lon, point.lat])
+      .addTo(map);
+  }, [point.lat, point.lon, theme]);
+
   // The pulsing "you" beacon marker (a DOM Marker, so it survives setStyle).
-  // Created on first fix, then just repositioned as the position updates.
+  // Created on first fix, then just repositioned as the position updates. Its
+  // color tracks the current map look via the --beacon-color custom property.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !position) return;
+    const accent = mapAccentColor(theme);
     if (!youMarkerRef.current) {
       const el = document.createElement("div");
       el.className = "map-beacon";
+      el.style.setProperty("--beacon-color", accent);
       youMarkerRef.current = new maplibregl.Marker({ element: el })
         .setLngLat([position.lon, position.lat])
         .addTo(map);
     } else {
       youMarkerRef.current.setLngLat([position.lon, position.lat]);
+      youMarkerRef.current.getElement().style.setProperty("--beacon-color", accent);
     }
-  }, [position]);
+  }, [position, theme]);
 
   // Fit both points into view exactly once, on the first fix — unless the user
   // has already grabbed the camera. Never re-fits after (the beacon/line keep
@@ -274,6 +289,8 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
   };
 
   const ThemeIcon = THEME_META[theme].icon;
+  const accent = mapAccentColor(theme);
+  const accentFg = mapAccentForeground(theme);
 
   return createPortal(
     <div className="fixed inset-0 z-[200] bg-black" role="dialog" aria-modal="true">
@@ -289,23 +306,26 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
         <X className="size-6" />
       </button>
 
-      {/* Look toggle — under the close button. Cycles sparkle → sun → moon. */}
+      {/* Look toggle — under the close button. Cycles sparkle → sun → moon.
+          The icon takes the current look's accent so it signals the active map
+          coloring. */}
       <button
         type="button"
         aria-label={`Map look: ${THEME_META[theme].label} (tap to change)`}
         title={THEME_META[theme].label}
-        className="absolute top-safe-16 right-4 pointer-events-auto p-2 rounded-full bg-black/60 backdrop-blur text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+        className="absolute top-safe-16 right-4 pointer-events-auto p-2 rounded-full bg-black/60 backdrop-blur transition-colors hover:bg-white/10"
         onClick={cycleTheme}
       >
-        <ThemeIcon className="size-5" />
+        <ThemeIcon className="size-5" style={{ color: accent }} />
       </button>
 
-      {/* Navigate — themed pill, bottom center, opens the compass. */}
+      {/* Navigate — pill in the map's accent, bottom center, opens the compass. */}
       {onNavigate && (
         <button
           type="button"
           onClick={onNavigate}
-          className="absolute bottom-safe-4 left-1/2 -translate-x-1/2 pointer-events-auto inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg hover:opacity-90 transition-opacity"
+          style={{ backgroundColor: accent, color: accentFg }}
+          className="absolute bottom-safe-4 left-1/2 -translate-x-1/2 pointer-events-auto inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold shadow-lg hover:opacity-90 transition-opacity"
         >
           <Navigation className="size-4" />
           Navigate
