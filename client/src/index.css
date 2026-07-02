@@ -244,6 +244,12 @@
     top: calc(1rem + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
   }
 
+  /* Stacked below a top-safe-4 button (e.g. a secondary control under a close
+     button in a fullscreen overlay). */
+  .top-safe-16 {
+    top: calc(4rem + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
+  }
+
   /* Bottom padding so content clears the fixed bottom nav + home-indicator. */
   .pb-mobile-nav {
     padding-bottom: calc(var(--bottom-nav-height) + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
