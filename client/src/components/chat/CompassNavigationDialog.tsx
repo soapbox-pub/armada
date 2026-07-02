@@ -103,18 +103,18 @@ export function CompassNavigationDialog({ target, onClose, onOpenMap }: CompassN
 
         {/* The dial — dominant element. */}
         <div className="flex flex-1 items-center justify-center py-4">
-          <div className="relative aspect-square w-full max-w-[20rem]">
-            <CompassFace className="absolute inset-0 size-full" />
+          <div className="relative aspect-square w-full max-w-[26rem]">
+            <CompassFace className="absolute inset-0 size-full" heading={heading} />
             <div
-              className="absolute left-1/2 top-1/2 flex aspect-square w-[58%] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border"
+              className="absolute left-1/2 top-1/2 flex aspect-square w-[68%] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border"
               style={{
                 background: "hsl(var(--primary) / 0.08)",
                 borderColor: "hsl(var(--primary) / 0.26)",
               }}
             >
               <Navigation
-                className="size-[38%] transition-transform duration-300 ease-out"
-                strokeWidth={1.75}
+                className="size-[62%] transition-transform duration-300 ease-out"
+                strokeWidth={1.25}
                 style={{
                   color: "hsl(var(--primary))",
                   transform: `rotate(${arrow}deg)`,
