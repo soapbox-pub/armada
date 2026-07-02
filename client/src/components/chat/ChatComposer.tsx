@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   BarChart3,
   Loader2,
+  MapPin,
   Mic,
   MonitorPlay,
   Paperclip,
@@ -44,6 +45,8 @@ import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import { formatTime } from "@/lib/formatTime";
 import { extractHashtags } from "@/lib/hashtag";
 import { encryptFileForUpload } from "@/lib/encryptedMedia";
+import { getCurrentLocation, GeolocationError, geolocationErrorMessage } from "@/lib/geolocation";
+import { encodeLocationContent } from "@/lib/location";
 import { IMETA_MEDIA_URL_REGEX, IMETA_MEDIA_URL_TEST_REGEX, mimeFromExt } from "@/lib/mediaUrls";
 import { KIND_GROUP_CHAT, relayRejectionMessage } from "@/lib/nip29";
 import { resizeImage } from "@/lib/resizeImage";
@@ -305,6 +308,7 @@ export function ChatComposer({ relayUrl, groupId, messages, replyTo, onCancelRep
   const { mounted: pickerMounted, visible: pickerVisible } = useMountedTransition(pickerOpen);
   const [pickerTab, setPickerTab] = useState<"emoji" | "gif" | "stickers">("emoji");
   const [plusOpen, setPlusOpen] = useState(false);
+  const [isSendingLocation, setIsSendingLocation] = useState(false);
   const [removedEmbeds, setRemovedEmbeds] = useState<Set<string>>(new Set());
   /** Maps uploaded file URLs to their NIP-94 tags (grouped per upload). */
   const [uploadedFileGroups, setUploadedFileGroups] = useState<Map<string, string[][]>>(
@@ -826,6 +830,30 @@ export function ChatComposer({ relayUrl, groupId, messages, replyTo, onCancelRep
     }
   }, [user, isSending, sendOverride, createEvent, buildMessageTags, relayUrl, resetComposeState, onSent, toast, onOptimisticInsert, onOptimisticSent, onOptimisticFailed]);
 
+  /**
+   * Acquire the device's current position and publish it as a location
+   * message. Reuses {@link publishMessage} so it flows through whichever send
+   * path this composer uses (group optimistic, DM/Concord override, …) and
+   * renders as a `LocationCard` on every transport.
+   */
+  const sendLocation = useCallback(async () => {
+    if (isSendingLocation) return;
+    setIsSendingLocation(true);
+    try {
+      const point = await getCurrentLocation();
+      await publishMessage(encodeLocationContent(point));
+    } catch (err) {
+      const message =
+        err instanceof GeolocationError
+          ? geolocationErrorMessage(err.kind)
+          : "Couldn't determine your location. Try again.";
+      toast({ title: "Location not shared", description: message, variant: "destructive" });
+    } finally {
+      setIsSendingLocation(false);
+    }
+  }, [isSendingLocation, publishMessage, toast]);
+
+
   /** Execute a parsed slash command's result (run action / send rewritten text). */
   const executeSlash = useCallback(async (command: SlashCommand, arg: string) => {
     // Guard commands that need a capability this composer lacks (e.g. a literally
@@ -863,6 +891,11 @@ export function ChatComposer({ relayUrl, groupId, messages, replyTo, onCancelRep
             textareaRef.current?.focus();
             return;
           }
+          if (action.kind === "sendLocation") {
+            resetComposeState();
+            await sendLocation();
+            return;
+          }
           // Delegated actions (moderation, open thread) handled by the parent.
           try {
             await onSlashAction?.(action);
@@ -873,7 +906,7 @@ export function ChatComposer({ relayUrl, groupId, messages, replyTo, onCancelRep
         },
       },
     );
-  }, [canModerate, onSlashAction, resetComposeState, toast, publishMessage, slashCapabilities]);
+  }, [canModerate, onSlashAction, resetComposeState, toast, publishMessage, slashCapabilities, sendLocation]);
 
   /** Run a command picked from the autocomplete menu (Tab/Enter/click). */
   const runSlashFromMenu = useCallback((command: SlashCommand) => {
@@ -1207,6 +1240,22 @@ export function ChatComposer({ relayUrl, groupId, messages, replyTo, onCancelRep
                     >
                       <Paperclip className="size-4" />
                       <span className="font-medium">Attach file</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isSendingLocation}
+                      onClick={() => {
+                        setPlusOpen(false);
+                        void sendLocation();
+                      }}
+                      className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50"
+                    >
+                      {isSendingLocation ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <MapPin className="size-4" />
+                      )}
+                      <span className="font-medium">Send location</span>
                     </button>
                     {appScope && (
                       <button

@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   Hash,
   Loader2,
+  MapPin,
   MessageCircle,
   Power,
   Radio,
@@ -31,6 +32,8 @@ import { useMeshTransport } from "@/hooks/useMeshTransport";
 import { toast } from "@/hooks/useToast";
 import { meshIdentity, meshMentionToken, type MeshIdentity } from "@/lib/meshIdentity";
 import { isMeshSlashCommand } from "@/lib/meshSlashCommands";
+import { getCurrentLocation, GeolocationError, geolocationErrorMessage } from "@/lib/geolocation";
+import { encodeLocationContent } from "@/lib/location";
 import {
   executeSlashCommand,
   parseSlashCommand,
@@ -62,6 +65,7 @@ export function MeshPage() {
   const { transport, mesh, send, sendPrivate } = useMeshTransport();
   const [view, setView] = useState<MeshView>(null);
   const [draft, setDraft] = useState("");
+  const [isSharingLocation, setIsSharingLocation] = useState(false);
   // Nearby-members panel beside the broadcast room (mirrors Concord's member
   // pane): desktop shows/hides it inline; mobile slides it over.
   const [membersVisible, setMembersVisible] = useState(false);
@@ -155,9 +159,28 @@ export function MeshPage() {
     focusComposer();
   };
 
-  // How the mesh dispatches a slash command's result. The mesh supports only
-  // text rewrites + `/mention` (gated by `isMeshSlashCommand`), so it provides
-  // no `onAction`; the shared runner reports any other action as unavailable.
+  // Acquire the device position and broadcast it as a location message over
+  // the mesh (plain-text content marker, decoded by MeshContent/LocationCard).
+  const shareLocation = async () => {
+    if (!mesh.started || !view || isSharingLocation) return;
+    setIsSharingLocation(true);
+    try {
+      const point = await getCurrentLocation();
+      await sendText(encodeLocationContent(point));
+    } catch (err) {
+      const message =
+        err instanceof GeolocationError
+          ? geolocationErrorMessage(err.kind)
+          : "Couldn't determine your location. Try again.";
+      toast({ title: "Location not shared", description: message, variant: "destructive" });
+    } finally {
+      setIsSharingLocation(false);
+    }
+  };
+
+  // How the mesh dispatches a slash command's result. The mesh supports text
+  // rewrites, `/mention` (gated by `isMeshSlashCommand`), and `/location`
+  // (broadcasts the current position); other actions are reported unavailable.
   const slashHandlers: SlashCommandHandlers = {
     send: async (text) => {
       setDraft("");
@@ -172,6 +195,12 @@ export function MeshPage() {
     clearDraft: () => setDraft(""),
     onError: (message) =>
       toast({ title: "Command unavailable", description: message, variant: "destructive" }),
+    onAction: async (action) => {
+      if (action.kind === "sendLocation") {
+        setDraft("");
+        await shareLocation();
+      }
+    },
     isAllowed: isMeshSlashCommand,
   };
 
@@ -319,6 +348,20 @@ export function MeshPage() {
                       disabled={!mesh.started || (view.type === "dm" && !selectedPeer)}
                       className="block w-full resize-none bg-transparent border-0 outline-none px-1 py-2 leading-5 text-base md:text-sm placeholder:text-muted-foreground disabled:opacity-50 max-h-40 overflow-y-auto"
                     />
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label="Send location"
+                      disabled={!mesh.started || isSharingLocation || (view.type === "dm" && !selectedPeer)}
+                      onClick={() => void shareLocation()}
+                      className="size-9 shrink-0 text-muted-foreground hover:text-foreground"
+                    >
+                      {isSharingLocation ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <MapPin className="size-4" />
+                      )}
+                    </Button>
                     <Button
                       size="icon"
                       aria-label="Send"

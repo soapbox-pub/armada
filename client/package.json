@@ -72,6 +72,7 @@
     "input-otp": "^1.2.4",
     "livekit-client": "^2.17.2",
     "lucide-react": "^1.8.0",
+    "maplibre-gl": "^4.7.1",
     "nostr-tools": "^2.13.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.4",

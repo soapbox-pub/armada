@@ -3,6 +3,7 @@ import { nip19 } from "nostr-tools";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { ChatContent } from "@/components/chat/ChatContent";
+import { LocationCard } from "@/components/chat/LocationCard";
 import { MessageRow, type MessageIdentity } from "@/components/chat/MessageRow";
 import { PollCard } from "@/components/chat/PollCard";
 import { ReactionBar, ReactionPicker } from "@/components/chat/ReactionBar";
@@ -22,6 +23,7 @@ import { useIsTouch } from "@/hooks/useIsMobile";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { dittoEventUrl } from "@/lib/dittoUrl";
 import { KIND_GROUP_CHAT } from "@/lib/nip29";
+import { isLocationMessage, LOCATION_PREFIX, parseLocationEvent } from "@/lib/location";
 import { isMeAction, meActionText } from "@/lib/slashCommands";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +47,7 @@ export function getReplyToId(event: ChatMsg): string | undefined {
  * back to 📎. Shared so NIP-29 and Concord previews read identically.
  */
 export function replyPreviewText(content: string): string {
+  if (content.startsWith(LOCATION_PREFIX)) return "📍 Location";
   return content.replace(/https?:\/\/\S+/g, "📎").trim() || "📎";
 }
 
@@ -417,6 +420,15 @@ const ChatMessageInner = memo(function ChatMessageInner({
             noMentionAtPrefix
           />
         </div>
+      ) : isLocationMessage(event) ? (
+        (() => {
+          const point = parseLocationEvent(event);
+          return point ? (
+            <LocationCard point={point} />
+          ) : (
+            <ChatContent event={event} className="text-[15px]" highlight={highlight} />
+          );
+        })()
       ) : (
         <ChatContent event={event} className="text-[15px]" highlight={highlight} />
       )}

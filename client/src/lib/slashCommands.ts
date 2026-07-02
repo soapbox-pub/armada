@@ -48,6 +48,7 @@ export type SlashAction =
   | { kind: "clearDraft" }
   | { kind: "openMention"; prefix?: string }
   | { kind: "openThread" }
+  | { kind: "sendLocation" }
   | { kind: "kick"; pubkey: string }
   | { kind: "ban"; pubkey: string; reason?: string };
 
@@ -134,6 +135,13 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     requires: ["poll"],
     runsOnSelect: true,
     run: () => ({ type: "action", action: { kind: "openPoll" } }),
+  },
+  {
+    name: "location",
+    description: "Share your current location",
+    kind: "action",
+    runsOnSelect: true,
+    run: () => ({ type: "action", action: { kind: "sendLocation" } }),
   },
   {
     name: "mention",

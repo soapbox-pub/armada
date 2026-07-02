@@ -1,5 +1,7 @@
+import { LocationCard } from "@/components/chat/LocationCard";
 import { MeshContent } from "@/components/chat/MeshContent";
 import { MessageRow, type MessageIdentity } from "@/components/chat/MessageRow";
+import { isLocationMessage, parseLocationEvent } from "@/lib/location";
 import { isMeAction, meActionText } from "@/lib/slashCommands";
 import { meshMentionsMe } from "@/lib/meshIdentity";
 import { cn } from "@/lib/utils";
@@ -50,6 +52,15 @@ export function MeshMessage({ event, identity, peers, myPeerID, continuation, on
         className="inline italic"
       />
     </div>
+  ) : isLocationMessage(event) ? (
+    (() => {
+      const point = parseLocationEvent(event);
+      return point ? (
+        <LocationCard point={point} />
+      ) : (
+        <MeshContent content={event.content} peers={peers} myPeerID={myPeerID} className="text-[15px]" />
+      );
+    })()
   ) : (
     <MeshContent content={event.content} peers={peers} myPeerID={myPeerID} className="text-[15px]" />
   );
