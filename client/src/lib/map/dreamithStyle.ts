@@ -25,6 +25,23 @@ export const DREAMITH_STYLE_URL = "https://maps.dreamith.to/styles/liberty";
 /** The three selectable map looks. */
 export type MapTheme = "sun" | "moon" | "sparkle";
 
+/** localStorage key remembering the user's last map look across dialogs. */
+export const MAP_THEME_STORAGE_KEY = "armada:map-theme";
+
+/** Cycle order for the look toggle (sparkle → sun → moon → …). */
+export const MAP_THEME_ORDER: MapTheme[] = ["sparkle", "sun", "moon"];
+
+/** Read the remembered map look from localStorage, defaulting to "sparkle". */
+export function readMapTheme(): MapTheme {
+  try {
+    const v = localStorage.getItem(MAP_THEME_STORAGE_KEY);
+    if (v === "sun" || v === "moon" || v === "sparkle") return v;
+  } catch {
+    // ignore (private mode / no storage)
+  }
+  return "sparkle";
+}
+
 /** Role palette a recolor paints the vector layers with. */
 export interface MapPalette {
   /** Deepest background (behind everything). */

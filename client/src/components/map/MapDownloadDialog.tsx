@@ -1,12 +1,15 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Download, Loader2, Locate, Moon, Sparkles, Sun, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Download, Loader2, Locate, X } from "lucide-react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { MapControlButton, MapThemeToggle } from "@/components/map/MapControls";
 import { Button } from "@/components/ui/button";
+import { useEscape } from "@/hooks/useEscape";
+import { useMapTheme } from "@/hooks/useMapTheme";
+import { useOfflineMap } from "@/hooks/useOfflineMap";
 import { getCurrentLocation } from "@/lib/geolocation";
-import { fallbackMapStyle, type MapTheme } from "@/lib/map/dreamithStyle";
 import { reverseGeocodeName } from "@/lib/map/reverseGeocode";
 import { downloadRegion, type DownloadProgress } from "@/lib/map/regionDownloader";
 import {
@@ -16,7 +19,6 @@ import {
   MAX_TILE_ZOOM,
   type BBox,
 } from "@/lib/map/tileMath";
-import { ensureOfflineProtocol, loadOfflineAwareStyle } from "@/lib/map/tileProtocol";
 
 interface MapDownloadDialogProps {
   /** Called after a region finishes downloading (to refresh the list). */
@@ -30,24 +32,6 @@ interface MapDownloadDialogProps {
  * this the download button is disabled with a "zoom in" hint.
  */
 const MAX_TILES = 20_000;
-
-const THEME_STORAGE_KEY = "armada:map-theme";
-const THEME_ORDER: MapTheme[] = ["sparkle", "sun", "moon"];
-const THEME_META: Record<MapTheme, { icon: typeof Sun; label: string }> = {
-  sparkle: { icon: Sparkles, label: "Match app theme" },
-  sun: { icon: Sun, label: "Light streets" },
-  moon: { icon: Moon, label: "Dark streets" },
-};
-
-function readMapTheme(): MapTheme {
-  try {
-    const v = localStorage.getItem(THEME_STORAGE_KEY);
-    if (v === "sun" || v === "moon" || v === "sparkle") return v;
-  } catch {
-    // ignore
-  }
-  return "sparkle";
-}
 
 /** Convert MapLibre's LngLatBounds into our BBox. */
 function boundsToBBox(b: maplibregl.LngLatBounds): BBox {
@@ -63,13 +47,13 @@ function boundsToBBox(b: maplibregl.LngLatBounds): BBox {
  */
 export function MapDownloadDialog({ onDownloaded, onClose }: MapDownloadDialogProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   /** Last known location (from the initial fix), for the locate button. */
   const locatedRef = useRef<{ lat: number; lon: number } | null>(null);
 
   const [bbox, setBBox] = useState<BBox | null>(null);
-  const [theme, setTheme] = useState<MapTheme>(readMapTheme);
+  const mapTheme = useMapTheme();
+  const { theme } = mapTheme;
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,85 +62,30 @@ export function MapDownloadDialog({ onDownloaded, onClose }: MapDownloadDialogPr
   const estBytes = bbox ? estimateBytesForBBox(bbox, 0, MAX_TILE_ZOOM) : 0;
   const tooLarge = tileCount > MAX_TILES;
 
-  // Create the map once, centered on current location (fallback to a wide view).
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    ensureOfflineProtocol();
+  // Create the map (centered on a wide view; recentered on the fix below).
+  const mapRef = useOfflineMap({
+    containerRef,
+    center: [0, 20],
+    zoom: 2,
+    theme,
+    onCreate: (map) => {
+      const syncBounds = () => setBBox(boundsToBBox(map.getBounds()));
+      map.on("load", syncBounds);
+      map.on("move", syncBounds);
 
-    const map = new maplibregl.Map({
-      container,
-      style: fallbackMapStyle(),
-      center: [0, 20],
-      zoom: 2,
-      attributionControl: false,
-      dragRotate: false,
-    });
-    mapRef.current = map;
+      // Center on the user's location (one-shot; no watch).
+      void getCurrentLocation()
+        .then((p) => {
+          locatedRef.current = { lat: p.lat, lon: p.lon };
+          map.easeTo({ center: [p.lon, p.lat], zoom: 12, duration: 600 });
+        })
+        .catch(() => {
+          /* keep default view; user can pan */
+        });
+    },
+  });
 
-    const syncBounds = () => setBBox(boundsToBBox(map.getBounds()));
-    map.on("load", syncBounds);
-    map.on("move", syncBounds);
-
-    // The container is inside a freshly-portaled overlay, so its box may not be
-    // laid out yet when the map is constructed — MapLibre then measures a 0×0
-    // canvas and renders nothing (and the bbox degenerates to a point). Resize
-    // once the layout settles and whenever the container's box changes.
-    // (Mirrors LocationMapDialog.)
-    const resize = () => map.resize();
-    map.once("load", resize);
-    requestAnimationFrame(resize);
-    const ro = new ResizeObserver(resize);
-    ro.observe(container);
-
-    // Center on the user's location (one-shot; no watch).
-    void getCurrentLocation()
-      .then((p) => {
-        locatedRef.current = { lat: p.lat, lon: p.lon };
-        map.easeTo({ center: [p.lon, p.lat], zoom: 12, duration: 600 });
-      })
-      .catch(() => {
-        /* keep default view; user can pan */
-      });
-
-    return () => {
-      ro.disconnect();
-      map.remove();
-      mapRef.current = null;
-    };
-  }, []);
-
-  // Apply the selected look on mount and whenever it changes.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    let cancelled = false;
-    const controller = new AbortController();
-    void loadOfflineAwareStyle(theme, controller.signal)
-      .then((style) => {
-        if (!cancelled) map.setStyle(style);
-      })
-      .catch(() => {
-        /* offline with no cached style: keep the current (or fallback) style */
-      });
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
-    } catch {
-      // ignore
-    }
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [theme]);
-
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !downloading) onClose();
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [onClose, downloading]);
+  useEscape(onClose, !downloading);
 
   const start = async () => {
     if (!bbox || tooLarge || downloading) return;
@@ -193,10 +122,6 @@ export function MapDownloadDialog({ onDownloaded, onClose }: MapDownloadDialogPr
 
   const cancel = () => abortRef.current?.abort();
 
-  const cycleTheme = () => {
-    setTheme((t) => THEME_ORDER[(THEME_ORDER.indexOf(t) + 1) % THEME_ORDER.length]);
-  };
-
   // Recenter on the user's location (from the initial fix).
   const locate = () => {
     const map = mapRef.current;
@@ -204,8 +129,6 @@ export function MapDownloadDialog({ onDownloaded, onClose }: MapDownloadDialogPr
     if (!map || !you) return;
     map.easeTo({ center: [you.lon, you.lat], zoom: Math.max(map.getZoom(), 12), duration: 500 });
   };
-
-  const ThemeIcon = THEME_META[theme].icon;
 
   return createPortal(
     <div className="fixed inset-0 z-[200] flex flex-col bg-background text-foreground" role="dialog" aria-modal="true">
@@ -216,39 +139,33 @@ export function MapDownloadDialog({ onDownloaded, onClose }: MapDownloadDialogPr
       <div ref={containerRef} className="h-full w-full" />
 
       {/* Close */}
-      <button
-        type="button"
-        aria-label="Close"
-        disabled={downloading}
-        className="absolute right-4 top-safe-4 z-10 rounded-full bg-secondary/70 p-2 text-muted-foreground backdrop-blur transition-colors hover:text-foreground disabled:opacity-40"
+      <MapControlButton
+        icon={X}
+        label="Close"
         onClick={onClose}
-      >
-        <X className="size-6" />
-      </button>
+        variant="panel"
+        disabled={downloading}
+        className="absolute right-4 top-safe-4 z-10"
+      />
 
       {/* Look toggle — under the close button. Cycles sparkle → sun → moon. */}
-      <button
-        type="button"
-        aria-label={`Map look: ${THEME_META[theme].label} (tap to change)`}
-        title={THEME_META[theme].label}
+      <MapThemeToggle
+        mapTheme={mapTheme}
+        variant="panel"
         disabled={downloading}
-        className="absolute right-4 top-safe-16 z-10 rounded-full bg-secondary/70 p-2 text-muted-foreground backdrop-blur transition-colors hover:text-foreground disabled:opacity-40"
-        onClick={cycleTheme}
-      >
-        <ThemeIcon className="size-6" />
-      </button>
+        className="absolute right-4 top-safe-16 z-10"
+      />
 
       {/* Locate — recenter on the user's position. */}
-      <button
-        type="button"
-        aria-label="Center on my location"
+      <MapControlButton
+        icon={Locate}
+        label="Center on my location"
         title="Center on my location"
-        disabled={downloading}
-        className="absolute right-4 top-safe-28 z-10 rounded-full bg-secondary/70 p-2 text-muted-foreground backdrop-blur transition-colors hover:text-foreground disabled:opacity-40"
         onClick={locate}
-      >
-        <Locate className="size-6" />
-      </button>
+        variant="panel"
+        disabled={downloading}
+        className="absolute right-4 top-safe-28 z-10"
+      />
 
       {/* Bottom control panel. */}
       <div className="absolute inset-x-0 bottom-0 z-10 space-y-3 border-t border-border bg-background/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">

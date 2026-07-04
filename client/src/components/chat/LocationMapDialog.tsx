@@ -1,18 +1,16 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Locate, Moon, Navigation, Sparkles, Sun, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Locate, Navigation, X } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
+import { MapControlButton, MapThemeToggle } from "@/components/map/MapControls";
+import { useEscape } from "@/hooks/useEscape";
 import { useGeoWatch } from "@/hooks/useGeoWatch";
+import { useMapTheme } from "@/hooks/useMapTheme";
+import { useOfflineMap } from "@/hooks/useOfflineMap";
 import { haversine } from "@/lib/location";
-import {
-  fallbackMapStyle,
-  mapAccentColor,
-  mapAccentForeground,
-  type MapTheme,
-} from "@/lib/map/dreamithStyle";
-import { ensureOfflineProtocol, loadOfflineAwareStyle } from "@/lib/map/tileProtocol";
+import { mapAccentColor, mapAccentForeground } from "@/lib/map/dreamithStyle";
 
 import type { GeoPoint } from "@/lib/location";
 
@@ -23,31 +21,12 @@ interface LocationMapDialogProps {
   onNavigate?: () => void;
 }
 
-const THEME_STORAGE_KEY = "armada:map-theme";
-const THEME_ORDER: MapTheme[] = ["sparkle", "sun", "moon"];
-
 /** Id of the you→target route source/layer (re-added after each setStyle). */
 const ROUTE_SOURCE = "armada-route";
 const ROUTE_LAYER = "armada-route-line";
 
 /** Below this separation (m) the two points are ~coincident; center instead of fit. */
 const CLOSE_ENOUGH_M = 30;
-
-const THEME_META: Record<MapTheme, { icon: typeof Sun; label: string }> = {
-  sparkle: { icon: Sparkles, label: "Match app theme" },
-  sun: { icon: Sun, label: "Light streets" },
-  moon: { icon: Moon, label: "Dark streets" },
-};
-
-function readMapTheme(): MapTheme {
-  try {
-    const v = localStorage.getItem(THEME_STORAGE_KEY);
-    if (v === "sun" || v === "moon" || v === "sparkle") return v;
-  } catch {
-    // ignore
-  }
-  return "sparkle";
-}
 
 /**
  * Fullscreen interactive map centered on a shared location, rendered over a
@@ -66,7 +45,6 @@ function readMapTheme(): MapTheme {
  */
 export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDialogProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
   const youMarkerRef = useRef<maplibregl.Marker | null>(null);
   const targetMarkerRef = useRef<maplibregl.Marker | null>(null);
   // Set true on a user gesture (pan/zoom/rotate). Once set, the auto-fit never
@@ -74,112 +52,33 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
   const userInteractedRef = useRef(false);
   // Ensures the fit-to-both runs at most once.
   const hasFitRef = useRef(false);
-  const [theme, setTheme] = useState<MapTheme>(readMapTheme);
+  const mapTheme = useMapTheme();
+  const { theme } = mapTheme;
 
   const { position } = useGeoWatch(true);
   const posRef = useRef<GeoPoint | null>(null);
   posRef.current = position;
 
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  useEscape(onClose);
 
-  // Create the map once.
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const map = new maplibregl.Map({
-      container,
-      style: fallbackMapStyle(),
-      center: [point.lon, point.lat],
-      zoom: 15,
-      attributionControl: false,
-      dragRotate: false,
-    });
-    mapRef.current = map;
-
-    // A real user gesture (pan/zoom/rotate) carries an `originalEvent`;
-    // programmatic camera moves (fitBounds/easeTo) don't. Only the former
-    // should cancel the auto-fit, so the initial fit doesn't disable itself.
-    const onUserMove = (e: { originalEvent?: unknown }) => {
-      if (e.originalEvent) userInteractedRef.current = true;
-    };
-    map.on("dragstart", onUserMove);
-    map.on("zoomstart", onUserMove);
-    map.on("rotatestart", onUserMove);
-
-    // The container is inside a freshly-portaled overlay, so its box may not be
-    // laid out yet when the map is constructed — MapLibre then measures a 0×0
-    // canvas and renders nothing (a black screen). Resize once the layout
-    // settles and whenever the container's box changes.
-    const resize = () => map.resize();
-    map.once("load", resize);
-    requestAnimationFrame(resize);
-    const ro = new ResizeObserver(resize);
-    ro.observe(container);
-
-    return () => {
-      ro.disconnect();
-      map.remove();
-      mapRef.current = null;
-      youMarkerRef.current = null;
-      targetMarkerRef.current = null;
-    };
-  }, [point.lat, point.lon]);
-
-  // Apply the selected look (and re-apply if the app theme changes while in
-  // "sparkle"). Runs on mount and whenever `theme` changes.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    let cancelled = false;
-    const controller = new AbortController();
-    // Route all provider resources through the offline protocol so cached
-    // regions serve tiles/assets when present (and always when offline).
-    ensureOfflineProtocol();
-    const apply = () => {
-      void loadOfflineAwareStyle(theme, controller.signal)
-        .then((style) => {
-          if (!cancelled) map.setStyle(style);
-        })
-        .catch(() => {
-          // Offline with no cached style: keep the current (or fallback) style.
-        });
-    };
-    apply();
-
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
-    } catch {
-      // ignore
-    }
-
-    // In sparkle mode, follow live app-theme changes: the theme system rewrites
-    // the injected <style id="theme-vars"> (and toggles the root class), so
-    // re-derive the palette when :root's attributes/children mutate.
-    let observer: MutationObserver | undefined;
-    if (theme === "sparkle" && typeof document !== "undefined") {
-      observer = new MutationObserver(() => apply());
-      observer.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ["class", "style"],
-      });
-      const styleTag = document.getElementById("theme-vars");
-      if (styleTag) observer.observe(styleTag, { childList: true, characterData: true, subtree: true });
-    }
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-      observer?.disconnect();
-    };
-  }, [theme]);
+  // A real user gesture (pan/zoom/rotate) carries an `originalEvent`;
+  // programmatic camera moves (fitBounds/easeTo) don't. Only the former should
+  // cancel the auto-fit, so the initial fit doesn't disable itself.
+  const mapRef = useOfflineMap({
+    containerRef,
+    center: [point.lon, point.lat],
+    zoom: 15,
+    theme,
+    followAppTheme: true,
+    onCreate: (map) => {
+      const onUserMove = (e: { originalEvent?: unknown }) => {
+        if (e.originalEvent) userInteractedRef.current = true;
+      };
+      map.on("dragstart", onUserMove);
+      map.on("zoomstart", onUserMove);
+      map.on("rotatestart", onUserMove);
+    },
+  });
 
   // The dashed you→target line. A `setStyle` (theme swap) wipes custom
   // sources/layers, so (re)install it whenever the style (re)loads, and refresh
@@ -230,7 +129,7 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
     return () => {
       map.off("styledata", install);
     };
-  }, [point.lat, point.lon, position, theme]);
+  }, [mapRef, point.lat, point.lon, position, theme]);
 
   // The target (destination) pin. Recreated when the look changes so its color
   // tracks the map accent (MapLibre's default Marker color is fixed at build).
@@ -241,7 +140,7 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
     targetMarkerRef.current = new maplibregl.Marker({ color: mapAccentColor(theme) })
       .setLngLat([point.lon, point.lat])
       .addTo(map);
-  }, [point.lat, point.lon, theme]);
+  }, [mapRef, point.lat, point.lon, theme]);
 
   // The pulsing "you" beacon marker (a DOM Marker, so it survives setStyle).
   // Created on first fix, then just repositioned as the position updates. Its
@@ -261,7 +160,7 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
       youMarkerRef.current.setLngLat([position.lon, position.lat]);
       youMarkerRef.current.getElement().style.setProperty("--beacon-color", accent);
     }
-  }, [position, theme]);
+  }, [mapRef, position, theme]);
 
   // Fit both points into view exactly once, on the first fix — unless the user
   // has already grabbed the camera. Never re-fits after (the beacon/line keep
@@ -284,11 +183,7 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
       .extend([position.lon, position.lat])
       .extend([target.lon, target.lat]);
     map.fitBounds(bounds, { padding: 80, maxZoom: 16, duration: 600 });
-  }, [position, point.lat, point.lon]);
-
-  const cycleTheme = () => {
-    setTheme((t) => THEME_ORDER[(THEME_ORDER.indexOf(t) + 1) % THEME_ORDER.length]);
-  };
+  }, [mapRef, position, point.lat, point.lon]);
 
   // Recenter on the user's current position (if we have a fix).
   const locate = () => {
@@ -298,7 +193,6 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
     map.easeTo({ center: [you.lon, you.lat], zoom: Math.max(map.getZoom(), 16), duration: 500 });
   };
 
-  const ThemeIcon = THEME_META[theme].icon;
   const accent = mapAccentColor(theme);
   const accentFg = mapAccentForeground(theme);
 
@@ -307,38 +201,26 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
       <div ref={containerRef} className="h-full w-full" />
 
       {/* Close button — top-right, clear of the zoom controls (top-left). */}
-      <button
-        type="button"
-        aria-label="Close map"
-        className="absolute top-safe-4 right-4 pointer-events-auto p-2 rounded-full bg-black/60 backdrop-blur text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+      <MapControlButton
+        icon={X}
+        label="Close map"
         onClick={onClose}
-      >
-        <X className="size-6" />
-      </button>
+        className="absolute top-safe-4 right-4"
+      />
 
       {/* Look toggle — under the close button. Cycles sparkle → sun → moon. */}
-      <button
-        type="button"
-        aria-label={`Map look: ${THEME_META[theme].label} (tap to change)`}
-        title={THEME_META[theme].label}
-        className="absolute top-safe-16 right-4 pointer-events-auto p-2 rounded-full bg-black/60 backdrop-blur text-white/80 hover:text-white hover:bg-white/10 transition-colors"
-        onClick={cycleTheme}
-      >
-        <ThemeIcon className="size-6" />
-      </button>
+      <MapThemeToggle mapTheme={mapTheme} className="absolute top-safe-16 right-4" />
 
       {/* Locate — recenter on the user's current position. Only when we have a
           fix. */}
       {position && (
-        <button
-          type="button"
-          aria-label="Center on my location"
+        <MapControlButton
+          icon={Locate}
+          label="Center on my location"
           title="Center on my location"
-          className="absolute top-safe-28 right-4 pointer-events-auto p-2 rounded-full bg-black/60 backdrop-blur text-white/80 hover:text-white hover:bg-white/10 transition-colors"
           onClick={locate}
-        >
-          <Locate className="size-6" />
-        </button>
+          className="absolute top-safe-28 right-4"
+        />
       )}
 
       {/* Navigate — pill in the map's accent, bottom center, opens the compass. */}
