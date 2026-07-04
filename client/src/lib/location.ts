@@ -48,15 +48,30 @@ export function isLocationMessage(event: NostrEvent): boolean {
 }
 
 /**
+ * Strict decimal-degree token: plain decimal notation only. `Number()` alone is
+ * too permissive for content that arrives over lossy/hostile transports — it
+ * coerces `""` to 0 (a truncated `"1,"` would become lat 1, lon 0 at Null
+ * Island) and accepts hex/binary/scientific literals like `0x10`.
+ */
+const COORD_RE = /^-?\d+(\.\d+)?$/;
+/** Accuracy token: non-negative plain decimal. */
+const ACCURACY_RE = /^\d+(\.\d+)?$/;
+/** Accuracies beyond this (meters) carry no information; drop them. */
+const MAX_ACCURACY_M = 100_000;
+
+/**
  * Parse the {@link GeoPoint} out of a location-message body. Returns undefined
  * if the body isn't a location message or the coordinates don't parse / are out
- * of range.
+ * of range. Malformed input must fall back to plain-text rendering rather than
+ * a plausible-but-wrong pin.
  */
 export function parseLocationContent(content: string): GeoPoint | undefined {
   if (!content.startsWith(LOCATION_PREFIX)) return undefined;
   const rest = content.slice(LOCATION_PREFIX.length).trim();
   const [coords, ...params] = rest.split(";");
-  const [latStr, lonStr] = coords.split(",");
+  const [latStr, lonStr, extra] = coords.split(",").map((s) => s.trim());
+  if (extra !== undefined) return undefined;
+  if (!latStr || !lonStr || !COORD_RE.test(latStr) || !COORD_RE.test(lonStr)) return undefined;
   const lat = Number(latStr);
   const lon = Number(lonStr);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
@@ -65,9 +80,10 @@ export function parseLocationContent(content: string): GeoPoint | undefined {
   let accuracy: number | undefined;
   for (const p of params) {
     const [k, v] = p.split("=");
-    if (k === "u") {
+    if (k === "u" && v !== undefined && ACCURACY_RE.test(v.trim())) {
       const n = Number(v);
-      if (Number.isFinite(n) && n >= 0) accuracy = n;
+      // 0 would claim impossible precision; huge values are meaningless.
+      if (Number.isFinite(n) && n > 0 && n <= MAX_ACCURACY_M) accuracy = n;
     }
   }
   return { lat, lon, accuracy };

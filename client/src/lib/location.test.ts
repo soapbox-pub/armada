@@ -60,6 +60,36 @@ describe("location message format", () => {
     expect(parseLocationContent("no marker 1,2")).toBeUndefined();
   });
 
+  it("rejects truncated coordinates instead of coercing to Null Island", () => {
+    // Number("") is 0 — a truncated body must NOT parse as lat/lon 0.
+    expect(parseLocationContent(`${LOCATION_PREFIX}1,`)).toBeUndefined();
+    expect(parseLocationContent(`${LOCATION_PREFIX},2`)).toBeUndefined();
+    expect(parseLocationContent(`${LOCATION_PREFIX},`)).toBeUndefined();
+    expect(parseLocationContent(`${LOCATION_PREFIX}1`)).toBeUndefined();
+  });
+
+  it("rejects non-decimal numeric literals", () => {
+    expect(parseLocationContent(`${LOCATION_PREFIX}0x10,0b1`)).toBeUndefined();
+    expect(parseLocationContent(`${LOCATION_PREFIX}1e2,3`)).toBeUndefined();
+    expect(parseLocationContent(`${LOCATION_PREFIX}Infinity,0`)).toBeUndefined();
+    expect(parseLocationContent(`${LOCATION_PREFIX}1,2,3`)).toBeUndefined();
+  });
+
+  it("drops meaningless accuracy values but keeps the point", () => {
+    expect(parseLocationContent(`${LOCATION_PREFIX}1,2;u=`)).toEqual({
+      lat: 1, lon: 2, accuracy: undefined,
+    });
+    expect(parseLocationContent(`${LOCATION_PREFIX}1,2;u=0`)).toEqual({
+      lat: 1, lon: 2, accuracy: undefined,
+    });
+    expect(parseLocationContent(`${LOCATION_PREFIX}1,2;u=-5`)).toEqual({
+      lat: 1, lon: 2, accuracy: undefined,
+    });
+    expect(parseLocationContent(`${LOCATION_PREFIX}1,2;u=999999999`)).toEqual({
+      lat: 1, lon: 2, accuracy: undefined,
+    });
+  });
+
   it("formats coordinates for display", () => {
     expect(formatCoords({ lat: 37.7749295, lon: -122.4194155 })).toBe("37.77493, -122.41942");
   });
