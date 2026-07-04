@@ -32,10 +32,16 @@ export function useGeoWatch(enabled: boolean): {
 
     const accept = (pos: GeolocationPosition) => {
       const acc = pos.coords.accuracy;
-      // Accuracy gate: reject fixes much worse than the best seen so far, so a
-      // stray low-accuracy reading doesn't yank the arrow around.
+      // Accuracy gate: reject fixes much worse than the best seen recently, so
+      // a stray low-accuracy reading doesn't yank the arrow around. Each
+      // rejection *relaxes* the gate, so a genuine, persistent accuracy drop
+      // (e.g. walking indoors) is accepted after a few readings instead of
+      // freezing the position on a stale fix forever.
       if (Number.isFinite(acc)) {
-        if (acc > bestAccuracy.current * 2 && bestAccuracy.current !== Infinity) return;
+        if (bestAccuracy.current !== Infinity && acc > bestAccuracy.current * 2) {
+          bestAccuracy.current *= 1.5;
+          return;
+        }
         bestAccuracy.current = Math.min(bestAccuracy.current, acc);
         setAccuracy(acc);
       }

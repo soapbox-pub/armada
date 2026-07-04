@@ -1,9 +1,9 @@
-import { Map as MapIcon, MapPin, Navigation } from "lucide-react";
+import { Loader2, LocateFixed, Map as MapIcon, MapPin, Navigation } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { CompassNavigationDialog } from "@/components/chat/CompassNavigationDialog";
 import { LocationMapDialog } from "@/components/chat/LocationMapDialog";
-import { useGeoWatch } from "@/hooks/useGeoWatch";
+import { GeolocationError, geolocationErrorMessage, getCurrentLocation } from "@/lib/geolocation";
 import { formatCoords, formatDistance, haversine } from "@/lib/location";
 import { cn } from "@/lib/utils";
 
@@ -40,12 +40,11 @@ interface Projected {
  * Project the target (and your position, if known) into the preview box.
  *
  * A tiles-free "relative map": we take the local tangent plane around the
- * midpoint and use an equirectangular projection (east metres ∝ Δlon·cos(lat),
+ * target and use an equirectangular projection (east metres ∝ Δlon·cos(lat),
  * north metres ∝ Δlat), then scale+center so both points fit the box with
  * padding. Because the two axes share one metres-per-unit scale, the on-screen
- * geometry (distance and bearing between the dots) is true — it's a real,
- * correctly-proportioned little map, just without any basemap. With only the
- * target known we simply center it.
+ * geometry between the dots is proportionally true — a real little map, just
+ * without any basemap. With only the target known we simply center it.
  */
 function projectPreview(
   target: GeoPoint,
@@ -94,29 +93,57 @@ function projectPreview(
 }
 
 /**
- * In-timeline card for a shared location. Deliberately renders NO basemap
- * (mesh/offline must draw without network, and one WebGL map per bubble would
- * exhaust the browser's context budget). Instead the preview is a tiles-free
- * *relative* mini-map computed with plain trigonometry: the shared pin and — if
- * a GPS fix is available — your live position are projected into a small box at
- * a shared, distortion-corrected scale, joined by a dashed line, with the true
- * distance shown. Tapping "View Map" opens the on-demand {@link
- * LocationMapDialog}; "Navigate" opens the offline GPS + magnetometer {@link
- * CompassNavigationDialog}. Only one viewer is mounted at a time.
+ * In-timeline card for a shared location. Two hard constraints shape it:
  *
- * Works identically across every transport (groups, DMs, Concord, mesh) since
- * it derives only from a parsed {@link GeoPoint}.
+ * 1. **No sensors until the user asks.** Merely rendering a received message
+ *    must never touch `navigator.geolocation` — that would fire permission
+ *    prompts (or silently activate GPS) for every viewer of the chat, and a
+ *    timeline of N cards would otherwise run N high-accuracy watches keeping
+ *    the radio hot. The card renders fully static; tapping the locate button
+ *    takes a *one-shot* fix (no watch) to reveal your relative position and
+ *    distance. The fullscreen viewers do watch, but only while open — an
+ *    explicit user action.
+ * 2. **No network.** Mesh/offline must draw without tiles (and one WebGL map
+ *    per bubble would exhaust the browser's context budget). The preview is a
+ *    tiles-free *relative* mini-map computed with plain trigonometry: the
+ *    shared pin — and, after a locate, your position — projected at a shared,
+ *    distortion-corrected scale, joined by a dashed line.
+ *
+ * "View Map" opens the on-demand {@link LocationMapDialog}; "Navigate" opens
+ * the offline GPS + magnetometer {@link CompassNavigationDialog}. Only one
+ * viewer is mounted at a time. Works identically across every transport
+ * (groups, DMs, Concord, mesh) since it derives only from a parsed
+ * {@link GeoPoint}.
  */
 export function LocationCard({ point, className }: LocationCardProps) {
   const [view, setView] = useState<View>("none");
-  // Live position only feeds the preview; the fullscreen viewers watch too.
-  const { position } = useGeoWatch(true);
+  // One-shot located position (user-initiated); never a live watch.
+  const [located, setLocated] = useState<GeoPoint | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locateError, setLocateError] = useState<string | null>(null);
 
-  const projected = useMemo(() => projectPreview(point, position), [point, position]);
+  const projected = useMemo(() => projectPreview(point, located), [point, located]);
   const distance = useMemo(
-    () => (position ? haversine(position, point) : null),
-    [position, point],
+    () => (located ? haversine(located, point) : null),
+    [located, point],
   );
+
+  const locate = async () => {
+    if (locating) return;
+    setLocating(true);
+    setLocateError(null);
+    try {
+      setLocated(await getCurrentLocation());
+    } catch (err) {
+      setLocateError(
+        err instanceof GeolocationError
+          ? geolocationErrorMessage(err.kind)
+          : "Couldn't determine your location.",
+      );
+    } finally {
+      setLocating(false);
+    }
+  };
 
   return (
     <>
@@ -169,8 +196,8 @@ export function LocationCard({ point, className }: LocationCardProps) {
             <MapPin className="size-6" fill="hsl(var(--primary) / 0.25)" />
           </div>
 
-          {/* Live "you are here" beacon — the same element the fullscreen map
-              uses for its marker — only once a fix lands. */}
+          {/* "You are here" beacon — the same element the fullscreen map uses
+              for its marker — only after a user-initiated locate. */}
           {projected.you && (
             <div
               className="absolute -translate-x-1/2 -translate-y-1/2"
@@ -182,6 +209,22 @@ export function LocationCard({ point, className }: LocationCardProps) {
               <div className="map-beacon" />
             </div>
           )}
+
+          {/* One-shot locate: reveals your relative position + distance. */}
+          <button
+            type="button"
+            aria-label="Show my distance to this location"
+            title="Show my distance"
+            className="absolute right-2 top-2 flex size-8 items-center justify-center rounded-full border border-border/70 bg-background/70 text-muted-foreground backdrop-blur transition-colors hover:text-foreground hover:bg-background/90"
+            onClick={locate}
+            disabled={locating}
+          >
+            {locating ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <LocateFixed className={cn("size-4", located && "text-primary")} />
+            )}
+          </button>
         </div>
 
         <div className="space-y-3 px-3 py-3">
@@ -198,6 +241,9 @@ export function LocationCard({ point, className }: LocationCardProps) {
               {formatCoords(point)}
               {point.accuracy != null && ` · ±${Math.round(point.accuracy)}m`}
             </div>
+            {locateError && (
+              <div className="mt-1 text-xs text-destructive">{locateError}</div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-2">
