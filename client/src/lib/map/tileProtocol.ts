@@ -54,6 +54,23 @@ export function ensureOfflineProtocol(): void {
   maplibregl.addProtocol(OFFLINE_SCHEME, offlineProtocolHandler);
 }
 
+/**
+ * When true, tiles are served **cache-only**: any tile not present in a
+ * downloaded region is dropped (no network fallback), so a map shows only the
+ * area actually saved offline — even when the device is online. Shared assets
+ * (style/tilejson/glyphs/sprites/hillshade) still fall through to the network
+ * so labels and chrome render. Used by the "view a downloaded region" screen.
+ *
+ * This is module-global because MapLibre's protocol handler is a singleton; it
+ * should only be enabled while a single region viewer is mounted.
+ */
+let tilesCacheOnly = false;
+
+/** Toggle cache-only tile serving (see {@link tilesCacheOnly}). */
+export function setTilesCacheOnly(on: boolean): void {
+  tilesCacheOnly = on;
+}
+
 /** Shared (non-tile) asset kinds that self-seed the cache when fetched online. */
 const SELF_SEED: ReadonlySet<AssetKind> = new Set<AssetKind>([
   "style",
@@ -115,11 +132,19 @@ async function serve(
       bytes = await readCache();
       if (!bytes) throw err;
     }
+  } else if (kind === "tile" && tilesCacheOnly) {
+    // Region viewer: show only the downloaded extent. A tile outside the saved
+    // region misses the cache and gets an empty (feature-less) tile instead of
+    // a network fetch, so the rest of the world stays blank even when online.
+    bytes = (await readCache()) ?? EMPTY_TILE;
   } else {
     bytes = (await readCache()) ?? (await fromNetwork());
   }
   return present(bytes, params, kind);
 }
+
+/** A zero-length payload: a valid empty vector tile (no features to draw). */
+const EMPTY_TILE = new Uint8Array(0);
 
 /** Convert raw cached/network bytes into the payload shape MapLibre asked for. */
 function present(

@@ -1,8 +1,19 @@
-import { Download, MapPin, Trash2 } from "lucide-react";
+import { Download, Map, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { MapDownloadDialog } from "@/components/map/MapDownloadDialog";
+import { RegionViewDialog } from "@/components/map/RegionViewDialog";
 import { SettingsRow } from "@/components/settings/SettingsSection";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { getTileStore } from "@/lib/map/getTileStore";
 import {
@@ -25,6 +36,8 @@ export function MapSettings() {
   const [regions, setRegions] = useState<RegionRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [viewing, setViewing] = useState<RegionRecord | null>(null);
+  const [clearAllOpen, setClearAllOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setRegions(await listRegions());
@@ -38,6 +51,13 @@ export function MapSettings() {
   const remove = async (id: string) => {
     await getTileStore().deleteRegion(id);
     await deleteRegionRecord(id);
+    await refresh();
+  };
+
+  const removeAll = async () => {
+    await getTileStore().clearAll();
+    await Promise.all(regions.map((r) => deleteRegionRecord(r.id)));
+    setClearAllOpen(false);
     await refresh();
   };
 
@@ -74,6 +94,17 @@ export function MapSettings() {
               </span>
               <button
                 type="button"
+                aria-label={`View ${region.name}`}
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setViewing(region);
+                }}
+              >
+                <Map className="size-4" />
+              </button>
+              <button
+                type="button"
                 aria-label={`Delete ${region.name}`}
                 className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                 onClick={(e) => {
@@ -90,10 +121,19 @@ export function MapSettings() {
 
       {regions.length > 0 && (
         <SettingsRow label="Total offline storage">
-          <span className="flex items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
-            <MapPin className="size-3.5" />
-            {formatBytes(total)}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {formatBytes(total)}
+            </span>
+            <button
+              type="button"
+              aria-label="Delete all offline areas"
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => setClearAllOpen(true)}
+            >
+              <Trash2 className="size-4" />
+            </button>
+          </div>
         </SettingsRow>
       )}
 
@@ -103,6 +143,31 @@ export function MapSettings() {
           onClose={() => setDownloadOpen(false)}
         />
       )}
+
+      {viewing && (
+        <RegionViewDialog region={viewing} onClose={() => setViewing(null)} />
+      )}
+
+      <AlertDialog open={clearAllOpen} onOpenChange={setClearAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete all offline areas?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes every downloaded map region ({formatBytes(total)}). You can
+              download them again later while online.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void removeAll()}
+            >
+              Delete all
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
