@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  Map,
   MessageSquareLock,
   Mic,
   Palette,
@@ -23,6 +24,7 @@ import { ProfileSettings } from "@/components/ProfileSettings";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { RelayListEditor } from "@/components/RelayListEditor";
 import { SettingsRow } from "@/components/settings/SettingsSection";
+import { MapSettings } from "@/components/settings/MapSettings";
 import { ThemeSelector } from "@/components/ThemeSelector";
 import { VoiceDeviceSettings } from "@/components/VoiceDeviceSettings";
 import { Button } from "@/components/ui/button";
@@ -53,6 +55,7 @@ type SectionId =
   | "notifications"
   | "appearance"
   | "voice"
+  | "map"
   | "servers"
   | "app-relays"
   | "search-relays"
@@ -198,6 +201,7 @@ export function SettingsPage() {
     const appItems: NavItem[] = [
       { id: "appearance", title: "Appearance", icon: Palette },
       { id: "voice", title: "Voice", icon: Mic },
+      { id: "map", title: "Map", icon: Map },
       { id: "servers", title: "Servers", icon: Server },
       { id: "app-relays", title: "App relays", icon: Waypoints },
       { id: "search-relays", title: "Search relays", icon: Search },
@@ -345,6 +349,8 @@ export function SettingsPage() {
             </SettingsRow>
           </>
         );
+      case "map":
+        return <MapSettings />;
       case "advanced":
         return (
           <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>

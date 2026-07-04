@@ -224,15 +224,8 @@ export function recolorStyle(style: StyleSpecification, palette: MapPalette): St
 
 // ─── Fetch + apply ────────────────────────────────────────────────────
 
-/**
- * Fetch the Dreamith street style and apply the given look. "sun" returns the
- * raw style; "moon"/"sparkle" recolor it. Throws if the network style can't be
- * retrieved; callers should fall back to {@link fallbackMapStyle}.
- */
-export async function loadMapStyle(theme: MapTheme, signal?: AbortSignal): Promise<StyleSpecification> {
-  const res = await fetch(DREAMITH_STYLE_URL, { signal });
-  if (!res.ok) throw new Error(`Failed to load map style: ${res.status}`);
-  const style = (await res.json()) as StyleSpecification;
+/** Apply a look to an already-loaded raw street style (recolor or pass-through). */
+export function applyMapTheme(style: StyleSpecification, theme: MapTheme): StyleSpecification {
   if (theme === "sun") return style;
   return recolorStyle(style, theme === "moon" ? moonPalette() : themePalette());
 }

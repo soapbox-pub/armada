@@ -1,5 +1,6 @@
 import { clearRenderedPlaintext } from "@/hooks/dmRenderCache";
 import { DECRYPT_CACHE_DB_NAME } from "@/lib/AppSigner";
+import { getTileStore } from "@/lib/map/getTileStore";
 
 /**
  * localStorage keys that must survive a purge. `armada:login` is the nostrify
@@ -15,7 +16,14 @@ async function purgeIndexedDB(): Promise<void> {
   try {
     // `indexedDB.databases()` is unsupported on Firefox; fall back to the
     // known Armada database names so we still wipe the bulk of the data.
-    const known = ["armada-events", "armada-concord-cache", "armada-relay-provenance", DECRYPT_CACHE_DB_NAME];
+    const known = [
+      "armada-events",
+      "armada-concord-cache",
+      "armada-relay-provenance",
+      "armada-offline-maps",
+      "armada-offline-tiles",
+      DECRYPT_CACHE_DB_NAME,
+    ];
     const dbs =
       typeof indexedDB.databases === "function"
         ? (await indexedDB.databases()).map((d) => d.name).filter((n): n is string => Boolean(n))
@@ -60,12 +68,21 @@ function purgeLocalStorage(): void {
   }
 }
 
+/** Best-effort deletion of native offline-map tile files (Capacitor). */
+async function purgeOfflineMapFiles(): Promise<void> {
+  try {
+    await getTileStore().clearAll();
+  } catch {
+    // best-effort (no-op on web, where the tiles live in IndexedDB purged above)
+  }
+}
+
 /**
  * Purge all client-side persistence so a fresh logout leaves nothing behind:
  * the event cache, Concord caches, the persistent decrypt cache, decrypted
  * image bytes, per-user read-state and drafts, relay-info, voice/notification
- * prefs, theme, and the added-server list. The in-memory DM render memo is
- * dropped too.
+ * prefs, theme, offline map tiles, and the added-server list. The in-memory DM
+ * render memo is dropped too.
  *
  * `armada:login` is intentionally left for the caller's `removeLogin` to manage
  * in the same tick; everything else (including `armada:app-config`) is wiped so
@@ -74,5 +91,5 @@ function purgeLocalStorage(): void {
 export async function purgeClientStorage(): Promise<void> {
   clearRenderedPlaintext();
   purgeLocalStorage();
-  await Promise.all([purgeIndexedDB(), purgeCacheStorage()]);
+  await Promise.all([purgeIndexedDB(), purgeCacheStorage(), purgeOfflineMapFiles()]);
 }

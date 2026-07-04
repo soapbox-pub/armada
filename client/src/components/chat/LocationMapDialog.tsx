@@ -8,11 +8,11 @@ import { useGeoWatch } from "@/hooks/useGeoWatch";
 import { haversine } from "@/lib/location";
 import {
   fallbackMapStyle,
-  loadMapStyle,
   mapAccentColor,
   mapAccentForeground,
   type MapTheme,
 } from "@/lib/map/dreamithStyle";
+import { ensureOfflineProtocol, loadOfflineAwareStyle } from "@/lib/map/tileProtocol";
 
 import type { GeoPoint } from "@/lib/location";
 
@@ -102,7 +102,6 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
       dragRotate: false,
     });
     mapRef.current = map;
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
 
     // A real user gesture (pan/zoom/rotate) carries an `originalEvent`;
     // programmatic camera moves (fitBounds/easeTo) don't. Only the former
@@ -141,13 +140,16 @@ export function LocationMapDialog({ point, onClose, onNavigate }: LocationMapDia
 
     let cancelled = false;
     const controller = new AbortController();
+    // Route all provider resources through the offline protocol so cached
+    // regions serve tiles/assets when present (and always when offline).
+    ensureOfflineProtocol();
     const apply = () => {
-      void loadMapStyle(theme, controller.signal)
+      void loadOfflineAwareStyle(theme, controller.signal)
         .then((style) => {
           if (!cancelled) map.setStyle(style);
         })
         .catch(() => {
-          // Offline / fetch failed: keep the current (or fallback) style.
+          // Offline with no cached style: keep the current (or fallback) style.
         });
     };
     apply();
