@@ -6,6 +6,9 @@ The client is derived from [Ditto](https://gitlab.com/soapbox-pub/ditto)'s codeb
 (auth stack, NIP-42 relay pool, UI kit) and the relays-as-servers model is borrowed
 from [Flotilla](https://gitea.coracle.social/coracle/flotilla).
 
+> For production hosting (reverse proxies, single-domain routing, LiveKit
+> behind an edge), see [`AGENTS.md`](AGENTS.md).
+
 ```
 ┌────────────┐  wss (NIP-42 AUTH)   ┌──────────────────┐  webhooks  ┌─────────┐
 │   client   │ ───────────────────► │   armada relay   │ ◄───────── │ LiveKit │
