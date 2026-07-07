@@ -273,9 +273,18 @@ export function InCallView({ label, onLabelClick, stacked, compact }: InCallView
         onClick={toggleStage}
         aria-label={stageOpen ? "Hide call stage" : "Show call stage"}
         aria-pressed={stageOpen}
-        className="shrink-0 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-foreground/10"
+        className={cn(
+          "shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+          // More discoverable than a bare chevron: labeled, and visually
+          // "on" (tinted) while the stage is open so its state reads at a
+          // glance instead of relying on users to notice the chevron flip.
+          stageOpen
+            ? "bg-primary/15 text-primary hover:bg-primary/25"
+            : "text-muted-foreground hover:text-foreground hover:bg-foreground/10",
+        )}
       >
         <span className="tabular-nums">{participants.length}</span>
+        <span className="hidden sm:inline">{stageOpen ? "Hide video" : "Show video"}</span>
         {stageOpen ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
       </button>
     </div>

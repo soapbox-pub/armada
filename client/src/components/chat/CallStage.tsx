@@ -452,25 +452,30 @@ export function CallStage({
   );
   const avatarOnly = participants.filter((p) => !withCamera.has(p.identity));
 
-  // Auto-expand the stage when a screenshare *appears* and spotlight it (à la
-  // Discord). We compare against the previous render's screenshare keys so this
-  // fires only on a new share — not on every render, and not re-opening after
-  // the user manually closes the stage while a share is still running.
-  const screenShareKeys = videoTracks
-    .filter((t) => t.source === Track.Source.ScreenShare)
-    .map(trackTileKey);
-  const prevScreenShareKeys = useRef<string[]>([]);
+  // Auto-expand the stage whenever a video track (camera or screenshare)
+  // *appears* that we hadn't seen before — à la Discord. This covers both
+  // joining a call where someone already has their camera/screenshare on
+  // (all their tracks are "new" to us on that first render) and a track
+  // starting mid-call. We compare against the previous render's track keys so
+  // this doesn't re-fire on every render, and doesn't re-open after the user
+  // manually closes the stage while the same tracks are still running. A
+  // screenshare additionally gets spotlighted + a sound cue; a plain camera
+  // just opens the grid quietly.
+  const videoTrackKeys = videoTracks.map(trackTileKey);
+  const prevVideoTrackKeys = useRef<string[]>([]);
   useEffect(() => {
-    const prev = prevScreenShareKeys.current;
-    const appeared = screenShareKeys.find((k) => !prev.includes(k));
+    const prev = prevVideoTrackKeys.current;
+    const appeared = videoTracks.find((t) => !prev.includes(trackTileKey(t)));
     if (appeared) {
       setStageOpen(true);
-      setFocusKey(appeared);
-      playScreenShareSound();
+      if (appeared.source === Track.Source.ScreenShare) {
+        setFocusKey(trackTileKey(appeared));
+        playScreenShareSound();
+      }
     }
-    prevScreenShareKeys.current = screenShareKeys;
+    prevVideoTrackKeys.current = videoTrackKeys;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screenShareKeys.join("|")]);
+  }, [videoTrackKeys.join("|")]);
 
   // The ordered, keyed set of focusable tiles. A render fn per tile keeps the
   // spotlight + thumbnail strip in sync without duplicating tile markup.
