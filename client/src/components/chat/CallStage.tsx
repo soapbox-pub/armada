@@ -9,10 +9,9 @@ import type { TrackReference } from "@livekit/components-react";
 import type { NostrMetadata } from "@nostrify/nostrify";
 import type { Participant, RemoteParticipant } from "livekit-client";
 import { Track } from "livekit-client";
-import { Maximize2, Minimize2, MicOff, Monitor, ScreenShare, Shrink, X } from "lucide-react";
+import { Maximize2, Minimize2, MicOff, ScreenShare, X } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -77,7 +76,7 @@ function fitGrid(
 /**
  * Track an element's content-box size via ResizeObserver. Uses a callback ref
  * so the observer is (re)attached whenever the measured element mounts — the
- * grid container unmounts/remounts as focus/theater toggle, and a plain
+ * grid container unmounts/remounts as focus toggles, and a plain
  * useRef + useEffect([]) would leave a stale 0×0 size on the new element.
  */
 function useElementSize<T extends HTMLElement>() {
@@ -304,7 +303,7 @@ function VideoTile({
   );
 }
 
-/** Hover-revealed expand/shrink button overlaid on a tile's top-right corner. */
+/** Always-visible expand/shrink button overlaid on a tile's top-right corner. */
 function FocusButton({ focused, onClick }: { focused: boolean; onClick: () => void }) {
   return (
     <button
@@ -312,9 +311,11 @@ function FocusButton({ focused, onClick }: { focused: boolean; onClick: () => vo
       aria-label={focused ? "Exit focus" : "Focus this tile"}
       onClick={onClick}
       className={cn(
-        "absolute top-1.5 right-1.5 rounded-md bg-black/60 p-1 text-white/90 hover:bg-black/80 hover:text-white",
-        // Always visible on touch (no hover); fade in on hover for pointer devices.
-        "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity [@media(hover:none)]:opacity-100",
+        "absolute top-1.5 right-1.5 rounded-md bg-black/60 p-1.5 text-white/90 hover:bg-black/80 hover:text-white",
+        // Always visible (not hover-gated) so the expand button is
+        // discoverable — especially after collapsing a screenshare back to
+        // the grid, where the re-expand button was previously hidden.
+        "opacity-100 transition-opacity",
       )}
     >
       {focused ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
@@ -515,22 +516,6 @@ export function CallStage({
 
   const focused = focusKey ? tiles.find((t) => t.key === focusKey) : undefined;
 
-  // Theater mode: detach the stage into a full-viewport overlay.
-  const [theater, setTheater] = useState(false);
-  // Leaving the call / closing the stage also exits theater.
-  useEffect(() => {
-    if (!open) setTheater(false);
-  }, [open]);
-  // Esc exits theater mode.
-  useEffect(() => {
-    if (!theater) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setTheater(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [theater]);
-
   // Measure the grid area so tiles scale down to fit instead of overflowing.
   const [gridRef, gridSize] = useElementSize<HTMLDivElement>();
   const GRID_GAP = 8; // matches gap-2
@@ -552,14 +537,6 @@ export function CallStage({
       <span className="text-xs text-muted-foreground tabular-nums shrink-0">
         {participants.length} in call
       </span>
-      <button
-        type="button"
-        aria-label={theater ? "Exit theater mode" : "Theater mode"}
-        className="shrink-0 rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-foreground/10"
-        onClick={() => setTheater((t) => !t)}
-      >
-        {theater ? <Shrink className="size-4" /> : <Monitor className="size-4" />}
-      </button>
       <button
         type="button"
         aria-label="Hide call stage"
@@ -609,17 +586,6 @@ export function CallStage({
       </div>
     </div>
   );
-
-  if (theater) {
-    // Full-viewport overlay; the docked box collapses (renders nothing here).
-    return createPortal(
-      <div className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm animate-in fade-in-0 duration-150">
-        {header}
-        {body}
-      </div>,
-      document.body,
-    );
-  }
 
   return (
     <div
