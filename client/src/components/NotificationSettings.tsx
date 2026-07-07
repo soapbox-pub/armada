@@ -4,6 +4,7 @@ import { AlertTriangle } from "lucide-react";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useNativeNotifications } from "@/hooks/useNativeNotifications";
 import { useFcmNotifications } from "@/hooks/useFcmNotifications";
+import { useConcordWebPush } from "@/hooks/useConcordWebPush";
 import { usePushNotifications, type PushPrefs } from "@/hooks/usePushNotifications";
 import {
   isIgnoringBatteryOptimizations,
@@ -27,8 +28,12 @@ import { Label } from "@/components/ui/label";
  *      • "Push": FCM via the shared nostr-push server — battery-free and
  *        OS-delivered, but only covers DMs + Concord (generic "New message");
  *        requires Firebase configured in the build. (useFcmNotifications)
- *  - Web / PWA: Web Push via the Armada relay's VAPID gateway.
- *    (usePushNotifications)
+ *  - Web / PWA: Web Push via the Armada relay's VAPID gateway
+ *    (usePushNotifications) for group messages, mentions, reactions, replies
+ *    and DMs, PLUS a separate opt-in for Concord (E2E) channels + DMs delivered
+ *    through the shared nostr-push server (useConcordWebPush) — the only way a
+ *    PWA (incl. installed iOS 16.4+) can get Concord notifications, since the
+ *    relay can't attribute #z-addressed events to a recipient.
  *
  * All paths share the same Discord-style per-type toggles.
  */
@@ -226,10 +231,11 @@ function StyleOption(props: {
 }
 
 function WebPushSettings() {
-  const { supported, permission, enabled, busy, prefs, enable, disable, setPrefs } =
-    usePushNotifications();
+  const relay = usePushNotifications();
+  const concord = useConcordWebPush();
 
-  if (!supported) {
+  // Neither transport is configured for this deployment/browser.
+  if (!relay.supported && !concord.supported) {
     return (
       <p className="text-sm text-muted-foreground">
         Web Push isn't available in this browser. On iOS, add Armada to your Home Screen first.
@@ -238,16 +244,45 @@ function WebPushSettings() {
   }
 
   return (
-    <NotificationToggles
-      title="Enable push notifications"
-      enabled={enabled}
-      busy={busy}
-      blocked={permission === "denied"}
-      blockedMessage="Notifications are blocked in your browser settings."
-      prefs={prefs}
-      onToggle={(v) => (v ? enable() : disable())}
-      onSetPrefs={(p) => setPrefs(p).catch(() => {})}
-    />
+    <div className="space-y-6">
+      {relay.supported && (
+        <NotificationToggles
+          title="Enable push notifications"
+          description="Group messages, mentions, reactions, replies and DMs."
+          enabled={relay.enabled}
+          busy={relay.busy}
+          blocked={relay.permission === "denied"}
+          blockedMessage="Notifications are blocked in your browser settings."
+          prefs={relay.prefs}
+          onToggle={(v) => (v ? relay.enable() : relay.disable())}
+          onSetPrefs={(p) => relay.setPrefs(p).catch(() => {})}
+        />
+      )}
+
+      {concord.supported && (
+        <div className={relay.supported ? "border-t border-border pt-6" : undefined}>
+          <label className="flex items-center justify-between gap-4 cursor-pointer">
+            <span className="text-sm font-medium">
+              Community &amp; DM notifications
+              <span className="block text-xs font-normal text-muted-foreground">
+                Encrypted community channels and direct messages, delivered via the push
+                server. On iOS, add Armada to your Home Screen first.
+              </span>
+              {concord.permission === "denied" && (
+                <span className="block text-xs font-normal text-destructive">
+                  Notifications are blocked in your browser settings.
+                </span>
+              )}
+            </span>
+            <Switch
+              checked={concord.enabled}
+              disabled={concord.busy || concord.permission === "denied"}
+              onCheckedChange={(v) => (v ? concord.enable() : concord.disable())}
+            />
+          </label>
+        </div>
+      )}
+    </div>
   );
 }
 

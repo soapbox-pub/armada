@@ -30,8 +30,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useConcordList } from "@/concord-v1/hooks/useConcordList";
-import { NostrPushClient, type FcmPushSubscription, type PushFilter } from "@/lib/nostrPush";
+import { NostrPushClient, type FcmPushSubscription } from "@/lib/nostrPush";
 import { buildConcordSubs, type ConcordSub } from "@/concord-v1/lib/concordNotifications";
+import { buildDesiredPushSubs, pushSubsSignature } from "@/lib/pushSubscriptions";
 import { APP_RELAYS } from "@/lib/platform";
 
 // ─── Native plugin interface (FCM token accessor) ──────────────────────────────
@@ -111,56 +112,6 @@ function loadEnabledFlag(): boolean {
   }
 }
 
-/**
- * The set of nostr-push subscriptions this device should hold, derived from the
- * user + their Concord channels. Each has a stable-ish server id suffix so we
- * can register/update/delete idempotently.
- */
-interface DesiredSub {
-  /** Suffix appended to the base subscription id (`${baseId}-${idSuffix}`). */
-  idSuffix: string;
-  filter: PushFilter;
-  title: string;
-  body: string;
-}
-
-function buildDesiredSubs(
-  userPubkey: string,
-  concordSubs: ConcordSub[],
-): DesiredSub[] {
-  const subs: DesiredSub[] = [];
-
-  // Direct messages (kind 4) addressed to me. NIP-04 encrypted → static body.
-  subs.push({
-    idSuffix: "dm",
-    filter: { kinds: [4], "#p": [userPubkey] },
-    title: "New direct message",
-    body: "You have a new message",
-  });
-
-  // Concord channels (kind 3300) by #z pseudonym. The server can't decrypt, so
-  // a generic body in the real channel. `#z` rotates per epoch, so we register
-  // one subscription per channel carrying all its retained-epoch pseudonyms;
-  // the id suffix is keyed by community+channel so re-registration on rotation
-  // replaces the same server record rather than accumulating stale ones.
-  const seen = new Set<string>();
-  for (const sub of concordSubs) {
-    if (sub.zs.length === 0) continue;
-    const idSuffix = `concord-${sub.communityId}-${sub.channelName}`.slice(0, 56);
-    if (seen.has(idSuffix)) continue;
-    seen.add(idSuffix);
-    const channel = sub.channelName || "channel";
-    subs.push({
-      idSuffix,
-      filter: { kinds: [3300], "#z": sub.zs },
-      title: sub.communityName ? `${sub.communityName} · #${channel}` : `#${channel}`,
-      body: "New message",
-    });
-  }
-
-  return subs;
-}
-
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export interface UseFcmNotificationsReturn {
@@ -222,7 +173,7 @@ export function useFcmNotifications(): UseFcmNotificationsReturn {
     };
 
     const baseId = getOrCreateSubscriptionId();
-    const desired = buildDesiredSubs(userPubkey, concordSubs);
+    const desired = buildDesiredPushSubs(userPubkey, concordSubs);
 
     await Promise.allSettled(
       desired.map((d) =>
@@ -234,8 +185,8 @@ export function useFcmNotifications(): UseFcmNotificationsReturn {
             notification: {
               title: d.title,
               body: d.body,
-              icon: "/icon-192.png",
-              badge: "/icon-192.png",
+              icon: "/logo-192.png",
+              badge: "/logo-192.png",
             },
             push_subscription: pushSubscription,
           })
@@ -249,8 +200,8 @@ export function useFcmNotifications(): UseFcmNotificationsReturn {
   const lastSig = useRef<string>("");
   useEffect(() => {
     if (!supported || !enabled || !user) return;
-    const desired = buildDesiredSubs(user.pubkey, concordSubs);
-    const sig = JSON.stringify(desired.map((d) => [d.idSuffix, d.filter]));
+    const desired = buildDesiredPushSubs(user.pubkey, concordSubs);
+    const sig = pushSubsSignature(desired);
     if (sig === lastSig.current) return;
     lastSig.current = sig;
     registerAll(user.pubkey).catch((err) => console.warn("[fcm] re-register failed:", err));
@@ -274,7 +225,7 @@ export function useFcmNotifications(): UseFcmNotificationsReturn {
       const client = clientRef.current;
       const baseId = getSubscriptionId();
       if (client && baseId && user) {
-        const desired = buildDesiredSubs(user.pubkey, concordSubs);
+        const desired = buildDesiredPushSubs(user.pubkey, concordSubs);
         await Promise.allSettled(
           desired.map((d) =>
             client

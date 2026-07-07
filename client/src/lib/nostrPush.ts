@@ -3,9 +3,10 @@
  *
  * Sends RPC calls to a shared nostr-push server via encrypted Nostr events
  * (kind 25742, NIP-44) and awaits a confirmation response. The server observes
- * matching events on its relays and delivers an FCM push to registered devices,
- * so Armada gets battery-free, OS-delivered notifications with the app closed —
- * an alternative to the persistent foreground-service relay connection.
+ * matching events on its relays and delivers a push (FCM to native Android, or
+ * VAPID Web Push to browsers / installed PWAs) to registered devices, so Armada
+ * gets battery-free, OS-delivered notifications with the app closed — an
+ * alternative to the persistent foreground-service relay connection.
  *
  * Uses an ephemeral keypair (generated once, persisted in localStorage) to sign
  * RPC events, so the user's real signer is never prompted. The key is
@@ -61,8 +62,22 @@ export interface FcmPushSubscription {
   project_id: string;
 }
 
-/** Any transport nostr-push accepts. (Armada only uses FCM.) */
-export type PushSubscription_ = FcmPushSubscription;
+/**
+ * VAPID Web Push subscription (browsers / installed PWAs, including iOS 16.4+
+ * Home-Screen PWAs). The three fields come straight from a
+ * `PushSubscription.toJSON()` (`endpoint`, `keys.p256dh`, `keys.auth`). The
+ * server signs a VAPID push to `endpoint` when a filter matches — so a PWA can
+ * receive Concord / DM notifications the relay's own gateway can't produce.
+ */
+export interface WebPushSubscription {
+  type: "web";
+  endpoint: string;
+  p256dh_key: string;
+  auth_key: string;
+}
+
+/** Any transport nostr-push accepts (FCM for native Android, web for PWAs). */
+export type PushSubscription_ = FcmPushSubscription | WebPushSubscription;
 
 /**
  * A nostr-push subscription filter. Beyond the common fields, any single-letter
@@ -140,6 +155,21 @@ export class NostrPushClient {
   /** Register (or replace) a push subscription. */
   async registerSubscription(params: RegisterSubscriptionParams): Promise<void> {
     await this.send("register_subscription", params);
+  }
+
+  /**
+   * Fetch the server's VAPID public key for a domain (base64url). Web Push
+   * clients must pass this as `applicationServerKey` to `pushManager.subscribe()`
+   * BEFORE registering a `type: "web"` subscription — the key is generated
+   * per-domain server-side, so the same `domain` must be used for both calls.
+   */
+  async getVapidKey(domain: string): Promise<string> {
+    const result = (await this.send("get_vapid_key", { domain })) as
+      | { vapid_public_key?: string }
+      | undefined;
+    const key = result?.vapid_public_key;
+    if (!key) throw new Error("nostr-push: server returned no VAPID public key");
+    return key;
   }
 
   /** Update an existing push subscription (e.g. activate/deactivate). */
