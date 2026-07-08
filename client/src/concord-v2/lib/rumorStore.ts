@@ -248,11 +248,31 @@ function pendingStore(): NIndexedDB {
   return pending;
 }
 
+/** Listeners notified when wraps are parked (the live-fold bridge). */
+type ParkedWrapListener = (wraps: NostrEvent[]) => void;
+const parkedWrapListeners = new Set<ParkedWrapListener>();
+
+/**
+ * Subscribe to wraps as they are parked. This is the LIVE half of the native
+ * delivery path: the Android service feeds kind-1059 wraps into the WebView
+ * (useNativeEventFeed), which parks them here — without a listener the open
+ * channel only discovered them on a cold read or the 60s refetch, so V2
+ * messages lagged whenever the WebView's own relay sockets were down (V1 has
+ * the equivalent `concordMessage` feed). Listeners get the raw wraps
+ * synchronously; the park write proceeds regardless, and the listener acks
+ * whatever it successfully decodes. Returns an unsubscribe.
+ */
+export function onWrapsParked(listener: ParkedWrapListener): () => void {
+  parkedWrapListeners.add(listener);
+  return () => parkedWrapListeners.delete(listener);
+}
+
 /** Park raw V2 wraps for later WebView-side decryption (native ingest path). */
 export function parkPendingWraps(wraps: NostrEvent[]): void {
   if (wraps.length === 0) return;
   const s = pendingStore();
   void Promise.all(wraps.map((w) => s.event(w))).catch(() => undefined);
+  for (const listener of parkedWrapListeners) listener(wraps);
 }
 
 /**

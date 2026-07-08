@@ -22,6 +22,7 @@ import {
   writeRumors,
   peekPendingWraps,
   ackPendingWraps,
+  onWrapsParked,
 } from "@/concord-v2/lib/rumorStore";
 import { canActOnMember, Permissions } from "@/concord-v2/lib/roles";
 import { buildRumor, channelBindingTags, sealRumor, wrapSeal, type Rumor } from "@/concord-v2/lib/stream";
@@ -265,6 +266,10 @@ export function useChannelTimeline2(community: CommunityV2 | undefined, channel:
       const opened = await openChatBatch(events, channel);
       if (opened.length === 0) return;
       writeRumors(opened);
+      // A decoded wrap's rumor is now safely stored; clear any parked copy of
+      // it (native delivery parks every wrap) so the next cold read doesn't
+      // re-decode it. No-op for wraps that were never parked.
+      ackPendingWraps(opened.map((m) => m.wrapId));
       // NOTE: live events do NOT advance the persisted `newest` cursor — that
       // would seal over any not-yet-bridged offline gap below them. Only a
       // completed backfill bridge advances `newest` (see backfillAndRefresh).
@@ -319,8 +324,23 @@ export function useChannelTimeline2(community: CommunityV2 | undefined, channel:
         }
       })();
     }
+
+    // Live fold for natively-delivered wraps. On Android the background
+    // service receives wraps over its own sockets and feeds them through
+    // useNativeEventFeed → parkPendingWraps — including exactly when the
+    // WebView's relay subscriptions above are down (backgrounded app, silent
+    // reconnect). Folding them here the moment they're parked is V2's
+    // equivalent of V1's `concordMessage` bridge; without it the message a
+    // notification announced didn't render until a cold read or the 60s poll.
+    const streamPks = new Set(channel.streams.map((s) => s.group.pk));
+    const offParked = onWrapsParked((wraps) => {
+      const mine = wraps.filter((w) => streamPks.has(w.pubkey));
+      if (mine.length > 0) void apply(mine);
+    });
+
     return () => {
       controller.abort();
+      offParked();
       if (readyTimer !== undefined) clearInterval(readyTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
