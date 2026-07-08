@@ -3,6 +3,7 @@ import { useMutation, type UseMutationResult } from "@tanstack/react-query";
 
 import { APP_NAME } from "@/lib/platform";
 import { PublishQueuedError, isPublishQueuedError, queueSignedEvent, removeQueuedPublish } from "@/lib/publishOutbox";
+import { publishTimeoutMs } from "@/lib/publishTimeout";
 import { useCurrentUser } from "./useCurrentUser";
 import { useEventStore } from "./useEventStore";
 
@@ -90,10 +91,13 @@ export function useNostrPublish(): UseMutationResult<NostrEvent, Error, EventTem
       onSigned?.(event);
 
       try {
+        // Wider window for bunker logins: an auth-gating relay can embed a
+        // remote NIP-42 sign inside this round-trip (see publishTimeout.ts).
+        const timeout = publishTimeoutMs(user.method);
         if (relay) {
-          await nostr.relay(relay).event(event, { signal: AbortSignal.timeout(8000) });
+          await nostr.relay(relay).event(event, { signal: AbortSignal.timeout(timeout) });
         } else {
-          await nostr.event(event, { signal: AbortSignal.timeout(8000) });
+          await nostr.event(event, { signal: AbortSignal.timeout(timeout) });
         }
         removeQueuedPublish(event.id);
       } catch (error) {
@@ -120,13 +124,15 @@ export function useRepublish(): UseMutationResult<
   { event: NostrEvent; relay?: string }
 > {
   const { nostr } = useNostr();
+  const { user } = useCurrentUser();
 
   return useMutation({
     mutationFn: async ({ event, relay }) => {
+      const timeout = publishTimeoutMs(user?.method);
       if (relay) {
-        await nostr.relay(relay).event(event, { signal: AbortSignal.timeout(8000) });
+        await nostr.relay(relay).event(event, { signal: AbortSignal.timeout(timeout) });
       } else {
-        await nostr.event(event, { signal: AbortSignal.timeout(8000) });
+        await nostr.event(event, { signal: AbortSignal.timeout(timeout) });
       }
       return event;
     },
