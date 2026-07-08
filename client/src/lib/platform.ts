@@ -26,6 +26,24 @@ export function normalizeRelayUrl(url: string): string | undefined {
   }
 }
 
+/**
+ * Drop relay URLs that can never carry NIP-46 signer traffic from this origin.
+ *
+ * A `ws://` rendezvous relay only works when the app itself runs on an
+ * insecure origin (plain-http dev): the Android APK's WebView (https scheme,
+ * mixed content blocked) and any https deployment refuse `ws://` sockets
+ * outright. Baking one into a signer pairing anyway doesn't just waste a
+ * slot — the signer (e.g. Amber) retries the dead relay on every operation
+ * for the lifetime of the connection (a pre-v0.10.0 pairing carried
+ * `ws://localhost:5577` for weeks of updates). Filter them where they cannot
+ * work; keep them on http origins, where local-dev signing legitimately uses
+ * a localhost relay.
+ */
+export function usableSignerRelays(urls: string[], insecureOrigin: boolean): string[] {
+  if (insecureOrigin) return urls;
+  return urls.filter((url) => url.toLowerCase().startsWith("wss://"));
+}
+
 /** Convert a relay websocket URL to its HTTP(S) origin (for NIP-29 livekit endpoints, NIP-11, etc). */
 export function relayToHttpUrl(relayUrl: string): string {
   return relayUrl

@@ -9,7 +9,7 @@ import {
 
 import { useAppContext } from "@/hooks/useAppContext";
 import { clearRenderedPlaintext } from "@/hooks/dmRenderCache";
-import { normalizeRelayUrl, PLATFORM_RELAYS } from "@/lib/platform";
+import { normalizeRelayUrl, PLATFORM_RELAYS, usableSignerRelays } from "@/lib/platform";
 import { purgeClientStorage } from "@/lib/purgeClientStorage";
 
 export type { NostrConnectParams, NostrConnectStatus };
@@ -54,6 +54,10 @@ export function useLoginActions() {
     // Relay URLs used for NIP-46 nostrconnect communication. App relays come
     // first (remote signers are usually reachable through public relays),
     // then the internal platform/user servers as fallback rendezvous points.
+    // The set is FROZEN into the signer pairing for the connection's lifetime,
+    // so relays this origin can't even open (ws:// under https / the APK's
+    // WebView) are filtered out — otherwise the signer retries a dead relay on
+    // every operation until the user re-pairs (see usableSignerRelays).
     getRelayUrls(): string[] {
       const appRelays = config.appRelays
         .map(normalizeRelayUrl)
@@ -61,7 +65,9 @@ export function useLoginActions() {
       const added = config.addedRelays
         .map(normalizeRelayUrl)
         .filter((url): url is string => Boolean(url));
-      return [...new Set([...appRelays, ...PLATFORM_RELAYS, ...added])];
+      const urls = [...new Set([...appRelays, ...PLATFORM_RELAYS, ...added])];
+      const insecureOrigin = typeof window !== "undefined" && window.location.protocol === "http:";
+      return usableSignerRelays(urls, insecureOrigin);
     },
     // Log out the current user
     async logout(): Promise<void> {
