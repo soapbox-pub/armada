@@ -27,6 +27,11 @@ from [Flotilla](https://gitea.coracle.social/coracle/flotilla).
 - **Voice** = NIP-29 AV spaces: the relay issues LiveKit JWTs at
   `/.well-known/nip29/livekit/<group-id>` (NIP-98 authorization) and publishes
   kind 39004 room presence from LiveKit webhooks.
+- **Encrypted communities** =
+  [Concord](https://github.com/concord-protocol/concord) end-to-end-encrypted
+  communities and channels (CORD-01…07). Armada's client-specific Concord
+  conventions — such as private zaps — are documented in [CORD.md](CORD.md),
+  the CORD analog of a project's `NIP.md`.
 
 ## Layout
 

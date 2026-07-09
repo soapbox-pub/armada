@@ -27,6 +27,8 @@ import { relayToRouteParam } from "@/lib/platform";
 import { sanitizeUrl } from "@/lib/sanitizeUrl";
 import { cn } from "@/lib/utils";
 import { useResolvedMediaSrc } from "@/hooks/useResolvedMediaSrc";
+import { useToast } from "@/hooks/useToast";
+import { useWallet } from "@/hooks/useWallet";
 
 import type { AddrCoords } from "@/hooks/useEvent";
 import type { ImetaEncryption, ImetaEntry } from "@/lib/imeta";
@@ -1114,23 +1116,65 @@ function TruncatedNostrLink({ encode }: { encode: () => string }) {
 /** Compact copyable chip for BOLT11 lightning invoices. */
 function LightningInvoice({ invoice }: { invoice: string }) {
   const [copied, setCopied] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [paid, setPaid] = useState(false);
+  const { activeConnection, payWithNWC, webln } = useWallet();
+  const { toast } = useToast();
+  const canPay = Boolean(activeConnection || webln);
+
+  const handlePay = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (paying || paid) return;
+    setPaying(true);
+    try {
+      if (activeConnection) {
+        await payWithNWC(invoice);
+      } else {
+        await webln!.enable();
+        await webln!.sendPayment(invoice);
+      }
+      setPaid(true);
+      toast({ title: "Invoice paid ⚡" });
+    } catch (err) {
+      toast({
+        title: "Payment failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setPaying(false);
+    }
+  };
 
   return (
-    <button
-      type="button"
-      className="inline-flex items-center gap-1.5 max-w-full my-1 px-2.5 py-1 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-500 text-xs hover:bg-amber-500/20 transition-colors"
-      onClick={(e) => {
-        e.stopPropagation();
-        writeClipboardText(invoice).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }, () => undefined);
-      }}
-      title="Copy lightning invoice"
-    >
-      <span aria-hidden>⚡</span>
-      <span className="truncate font-mono">{invoice.slice(0, 24)}…</span>
-      <span className="shrink-0">{copied ? "Copied!" : "Copy"}</span>
-    </button>
+    <span className="inline-flex items-center gap-1 max-w-full my-1">
+      <button
+        type="button"
+        className="inline-flex items-center gap-1.5 min-w-0 px-2.5 py-1 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-500 text-xs hover:bg-amber-500/20 transition-colors"
+        onClick={(e) => {
+          e.stopPropagation();
+          writeClipboardText(invoice).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }, () => undefined);
+        }}
+        title="Copy lightning invoice"
+      >
+        <span aria-hidden>⚡</span>
+        <span className="truncate font-mono">{invoice.slice(0, 24)}…</span>
+        <span className="shrink-0">{copied ? "Copied!" : "Copy"}</span>
+      </button>
+      {canPay && (
+        <button
+          type="button"
+          className="shrink-0 px-2.5 py-1 rounded-full border border-amber-500 bg-amber-500/20 text-amber-500 text-xs font-medium hover:bg-amber-500/30 transition-colors disabled:opacity-60"
+          onClick={handlePay}
+          disabled={paying || paid}
+          title="Pay with your connected wallet"
+        >
+          {paid ? "Paid ✓" : paying ? "Paying…" : "Pay"}
+        </button>
+      )}
+    </span>
   );
 }

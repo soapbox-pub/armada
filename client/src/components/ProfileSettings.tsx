@@ -488,7 +488,7 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave }: ProfileSetti
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: '', about: '', picture: '', banner: '',
-      website: '', nip05: '', lud16: '', bot: false, fields: [],
+      website: '', nip05: '', lud16: '', lud06: '', bot: false, fields: [],
       shape: '',
     },
   });
@@ -540,6 +540,7 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave }: ProfileSetti
         website: metadata.website ?? '',
         nip05: metadata.nip05 ?? '',
         lud16: metadata.lud16 ?? '',
+        lud06: metadata.lud06 ?? '',
         bot: metadata.bot ?? false,
         fields: parseFields(),
         shape: parseShape(),
@@ -558,6 +559,7 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave }: ProfileSetti
     website: watched.website,
     nip05: watched.nip05,
     lud16: watched.lud16,
+    lud06: watched.lud06,
     bot: watched.bot,
     shape: watched.shape,
   };
@@ -764,6 +766,22 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave }: ProfileSetti
                           <span>Lightning</span>
                         </div>
                         <Input placeholder="you@walletofsatoshi.com" {...field} className="h-9" />
+                        <div className="size-9" />
+                      </div>
+                    )}
+                  />
+
+                  {/* LNURL (lud06) */}
+                  <FormField
+                    control={form.control}
+                    name="lud06"
+                    render={({ field }) => (
+                      <div className="grid grid-cols-[auto,1fr,2fr,auto] gap-2 items-center">
+                        <div className="w-6" />
+                        <div className="flex items-center h-9 px-3 text-sm text-muted-foreground">
+                          <span>LNURL</span>
+                        </div>
+                        <Input placeholder="lnurl1…" {...field} className="h-9" />
                         <div className="size-9" />
                       </div>
                     )}

@@ -1,4 +1,4 @@
-import { AlertCircle, Braces, Copy, Link2, MessagesSquare, Pencil, Pin, PinOff, Reply, Trash2 } from "lucide-react";
+import { AlertCircle, Braces, Copy, Link2, MessagesSquare, Pencil, Pin, PinOff, Reply, Trash2, Zap } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
@@ -6,6 +6,8 @@ import { ChatContent } from "@/components/chat/ChatContent";
 import { MessageRow, type MessageIdentity } from "@/components/chat/MessageRow";
 import { PollCard } from "@/components/chat/PollCard";
 import { ReactionBar, ReactionPicker } from "@/components/chat/ReactionBar";
+import { ZapDialog } from "@/components/chat/ZapDialog";
+import { ZapPill } from "@/components/chat/ZapPill";
 import { DittoIcon } from "@/components/brand/DittoIcon";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -39,7 +41,7 @@ import { isMeAction, meActionText } from "@/lib/slashCommands";
 import { shortTimeAgo } from "@/lib/formatTime";
 import { cn } from "@/lib/utils";
 
-import type { ChatMsg, MessageReactions, SendStatus } from "@/components/chat/transport";
+import type { ChatMsg, MessageReactions, MessageZaps, SendStatus, ZapPayment } from "@/components/chat/transport";
 import type { EncryptedRef } from "@/hooks/useResolvedMediaSrc";
 import type { ReactNode } from "react";
 
@@ -308,6 +310,15 @@ export interface ChatMessageProps {
   pollContext?: { relayUrl: string; groupId: string };
   /** Resolved reaction tallies + toggle for this message. */
   reactions?: MessageReactions;
+  /** Whether this surface supports zaps (shows the ⚡ button on others' messages). */
+  zapEnabled?: boolean;
+  /** Aggregated zaps for this message (feeds the ⚡ total chip). */
+  zaps?: MessageZaps;
+  /**
+   * CORD.md announcement publisher (Concord v2). Passed through to the zap
+   * dialog; absent means the NIP-57 public-receipt flow.
+   */
+  onSendZap?: (target: ChatMsg, payment: ZapPayment) => Promise<void>;
   /** Optimistic send status, if this message is locally-published & unconfirmed. */
   sendStatus?: SendStatus;
   /** Search term to highlight in the message body (search-results mode). */
@@ -395,6 +406,9 @@ const ChatMessageInner = memo(function ChatMessageInner({
   identityOverride,
   pollContext,
   reactions,
+  zapEnabled,
+  zaps,
+  onSendZap,
   sendStatus,
   highlight,
   isEditing,
@@ -451,6 +465,15 @@ const ChatMessageInner = memo(function ChatMessageInner({
 
   // Raw-event JSON viewer (rumor context menu).
   const [jsonOpen, setJsonOpen] = useState(false);
+
+  // Zap dialog. The button shows on others' messages when the surface supports
+  // zaps; it disables (with a hint) once the author's profile has loaded
+  // without a lightning address. While the profile is still loading the button
+  // stays enabled — the dialog re-checks and explains.
+  const [zapOpen, setZapOpen] = useState(false);
+  const authorMetadata = author.data?.metadata;
+  const canZap = Boolean(zapEnabled && user && !isOwn && !identityOverride);
+  const zapDisabled = Boolean(author.data && !authorMetadata?.lud16 && !authorMetadata?.lud06);
   const rumorJson = rumor === undefined ? null : JSON.stringify(rumor, null, 2);
 
   const disarmDelete = useCallback(() => {
@@ -493,6 +516,25 @@ const ChatMessageInner = memo(function ChatMessageInner({
   const toolbar = (
     <>
       {canWrite && !isEditing && reactions && <ReactionPicker onReact={reactions.react} />}
+      {canZap && !isEditing && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Zap message"
+              disabled={zapDisabled}
+              className="size-9 md:size-7 text-muted-foreground hover:text-amber-500 disabled:opacity-40"
+              onClick={() => setZapOpen(true)}
+            >
+              <Zap className="size-[18px] md:size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {zapDisabled ? "No lightning address on their profile" : "Zap message"}
+          </TooltipContent>
+        </Tooltip>
+      )}
       {canWrite && !isEditing && onOpenThread && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -651,10 +693,24 @@ const ChatMessageInner = memo(function ChatMessageInner({
     </>
   );
 
+  // The ⚡ total chip sits inline with the reaction pills (one row), as an
+  // extra pill — not its own line.
+  const zapPill =
+    !isEditing && zaps && zaps.tally.count > 0 ? (
+      <ZapPill tally={zaps.tally} canZap={canZap && !zapDisabled} onZap={() => setZapOpen(true)} />
+    ) : null;
+
   const afterBody = (
     <>
-      {!isEditing && reactions && (
-        <ReactionBar tallies={reactions.tallies} canReact={canWrite} onReact={reactions.react} />
+      {!isEditing && reactions ? (
+        <ReactionBar
+          tallies={reactions.tallies}
+          canReact={canWrite}
+          onReact={reactions.react}
+          leading={zapPill}
+        />
+      ) : (
+        zapPill && <div className="flex flex-wrap items-center gap-1.5 mt-1.5">{zapPill}</div>
       )}
       {!isEditing && replyCount > 0 && onOpenThread && (
         <ThreadBadge
@@ -731,6 +787,11 @@ const ChatMessageInner = memo(function ChatMessageInner({
             <MessagesSquare className="mr-2 size-4" /> Quote
           </ContextMenuItem>
         )}
+        {canZap && !isEditing && !zapDisabled && (
+          <ContextMenuItem onSelect={() => setZapOpen(true)}>
+            <Zap className="mr-2 size-4" /> Zap message
+          </ContextMenuItem>
+        )}
         {canEdit && !isEditing && (
           <ContextMenuItem onSelect={() => onEdit?.(event)}>
             <Pencil className="mr-2 size-4" /> Edit message
@@ -790,6 +851,9 @@ const ChatMessageInner = memo(function ChatMessageInner({
         )}
       </ContextMenuContent>
     </ContextMenu>
+    {zapOpen && (
+      <ZapDialog open={zapOpen} onOpenChange={setZapOpen} target={event} sendZap={onSendZap} />
+    )}
     {rumorJson !== null && (
       <Dialog open={jsonOpen} onOpenChange={setJsonOpen}>
         <DialogContent className="max-w-2xl">

@@ -8,12 +8,13 @@ import {
 } from "@/concord-v2/hooks/useChannel2";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { customEmojiReactionTags } from "@/hooks/useReactions";
-import { KIND_COMMENT, KIND_REACTION } from "@/concord-v2/lib/kinds";
+import { KIND_COMMENT, KIND_REACTION, KIND_ZAP } from "@/concord-v2/lib/kinds";
+import { zapRumorTags, type ZapTally } from "@/lib/zaps";
 import type { OpenedChat } from "@/concord-v2/lib/chat";
 import type { ChannelV2, CommunityV2 } from "@/concord-v2/lib/types";
 
 import { toChatMsg } from "@/components/chat/transport";
-import type { ChatMsg, ChatTransport, MessageReactions, ReactInput, ReactionTally } from "@/components/chat/transport";
+import type { ChatMsg, ChatTransport, MessageReactions, MessageZaps, ReactInput, ReactionTally, ZapPayment } from "@/components/chat/transport";
 
 /** Shared empty tally array, so messages with no reactions keep a stable prop. */
 const EMPTY_TALLIES: ReactionTally[] = [];
@@ -184,6 +185,58 @@ export function useTransport2(
     };
   }, [talliesById, send]);
 
+  // CORD.md zap tallies from the fold (only VERIFIED zaps ever reach it).
+  const zapTalliesById = useMemo(() => {
+    const out = new Map<string, ZapTally>();
+    for (const [targetId, entries] of folded.zaps) {
+      if (entries.length === 0) continue;
+      const zaps = [...entries].sort((a, b) => b.sats - a.sats);
+      out.set(targetId, {
+        totalSats: zaps.reduce((sum, z) => sum + z.sats, 0),
+        count: zaps.length,
+        mine: Boolean(user && zaps.some((z) => z.pubkey === user.pubkey)),
+        zaps,
+      });
+    }
+    return out;
+  }, [folded.zaps, user]);
+
+  const zapsFor = useMemo(() => {
+    const objCache = new Map<string, { tally: ZapTally; value: MessageZaps }>();
+    return (id: string): MessageZaps | undefined => {
+      const tally = zapTalliesById.get(id);
+      if (!tally) return undefined;
+      const hit = objCache.get(id);
+      if (hit && hit.tally === tally) return hit.value;
+      const value: MessageZaps = { tally };
+      objCache.set(id, { tally, value });
+      return value;
+    };
+  }, [zapTalliesById]);
+
+  // Seal the CORD.md zap announcement into the channel: a kind-9735 rumor
+  // carrying the payment proof, published through the ordinary send path (the
+  // `e` target rides `send`'s target param; binding tags are added there).
+  const sendZap = useCallback(
+    async (target: ChatMsg, payment: ZapPayment) => {
+      if (!payment.preimage) throw new Error("A private zap needs its payment proof.");
+      await send({
+        content: payment.comment,
+        kind: KIND_ZAP,
+        target: target.id,
+        extraTags: zapRumorTags({
+          targetId: target.id,
+          targetKind: target.kind,
+          recipient: target.pubkey,
+          amountMsats: payment.amountMsats,
+          bolt11: payment.bolt11,
+          preimage: payment.preimage,
+        }).filter((t) => t[0] !== "e"), // send() adds the e target itself
+      });
+    },
+    [send],
+  );
+
   const transport = useMemo<ChatTransport>(
     () => ({
       messages: topLevel,
@@ -200,10 +253,12 @@ export function useTransport2(
       deleteMessage: (event: ChatMsg) => deleteMessage(event.id),
       replyCountFor,
       reactionsFor,
+      zapsFor,
+      sendZap,
       threadRepliesFor,
       sendThreadReply,
     }),
-    [topLevel, isLoading, canWrite, canModerate, loadOlder, hasMore, isLoadingOlder, sendStatus, retry, discard, deleteMessage, replyCountFor, reactionsFor, threadRepliesFor, sendThreadReply],
+    [topLevel, isLoading, canWrite, canModerate, loadOlder, hasMore, isLoadingOlder, sendStatus, retry, discard, deleteMessage, replyCountFor, reactionsFor, zapsFor, sendZap, threadRepliesFor, sendThreadReply],
   );
 
   return { transport, reactionsFor, allMessages: messages };

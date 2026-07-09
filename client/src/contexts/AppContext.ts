@@ -148,6 +148,12 @@ export interface AppConfig {
    * for it. Enabled from the Mesh page; persisted per-device.
    */
   meshEnabled: boolean;
+  /**
+   * Preselected zap amount (sats) in the zap dialog. Synced across devices —
+   * it's a preference, not a secret (wallet connections, by contrast, stay
+   * strictly local; see WalletProvider).
+   */
+  defaultZapAmount: number;
 }
 
 export interface AppContextType {
@@ -179,6 +185,7 @@ export const SYNCED_CONFIG_KEYS = [
   "lastChannelByServer",
   "mutedCommunities",
   "mutedChannels",
+  "defaultZapAmount",
 ] as const satisfies ReadonlyArray<keyof AppConfig>;
 
 export type SyncedConfigKey = (typeof SYNCED_CONFIG_KEYS)[number];
@@ -201,6 +208,7 @@ export const defaultConfig: AppConfig = {
   mutedChannels: [],
   meshIncognito: true,
   meshEnabled: false,
+  defaultZapAmount: 100,
 };
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);

@@ -1,4 +1,4 @@
-import { Braces, Copy, Link2, Loader2, MessagesSquare, Trash2, X } from "lucide-react";
+import { Braces, Copy, Link2, Loader2, MessagesSquare, Trash2, X, Zap } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { useState } from "react";
 
@@ -6,6 +6,8 @@ import { ChatComposer } from "@/components/chat/ChatComposer";
 import { ChatContent } from "@/components/chat/ChatContent";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
 import { ReactionBar, ReactionPicker } from "@/components/chat/ReactionBar";
+import { ZapDialog } from "@/components/chat/ZapDialog";
+import { ZapPill } from "@/components/chat/ZapPill";
 import { DittoIcon } from "@/components/brand/DittoIcon";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -23,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
@@ -32,7 +35,7 @@ import { writeClipboardText } from "@/lib/clipboard";
 import { dittoEventUrl } from "@/lib/dittoUrl";
 import { cn } from "@/lib/utils";
 
-import type { ChatMsg, ChatTransport, MessageReactions } from "@/components/chat/transport";
+import type { ChatMsg, ChatTransport, MessageReactions, MessageZaps, ZapPayment } from "@/components/chat/transport";
 
 /**
  * Consecutive replies from the same author within this window collapse into a
@@ -45,6 +48,9 @@ const CONTINUATION_WINDOW_SECONDS = 5 * 60;
 function ThreadMessage({
   event,
   reactions,
+  zaps,
+  zapEnabled = false,
+  onSendZap,
   canReact,
   canModerate = false,
   isRumor = false,
@@ -53,6 +59,12 @@ function ThreadMessage({
 }: {
   event: ChatMsg;
   reactions?: MessageReactions;
+  /** Aggregated zaps for this message (feeds the ⚡ total chip). */
+  zaps?: MessageZaps;
+  /** Whether this surface supports zaps (shows the ⚡ button on others' messages). */
+  zapEnabled?: boolean;
+  /** CORD.md announcement publisher (Concord v2); absent = NIP-57 public surface. */
+  onSendZap?: (target: ChatMsg, payment: ZapPayment) => Promise<void>;
   canReact: boolean;
   /** Whether the current user may delete others' messages (moderation). */
   canModerate?: boolean;
@@ -78,6 +90,7 @@ function ThreadMessage({
   const when = new Date(event.created_at * 1000);
 
   const [jsonOpen, setJsonOpen] = useState(false);
+  const [zapOpen, setZapOpen] = useState(false);
   // A rumor has no signature; strip the synthetic empty `sig` the transport
   // adds for rendering so the JSON view reflects the true rumor shape.
   const rumorJson = isRumor
@@ -88,6 +101,11 @@ function ThreadMessage({
   // (mirrors ChatMessage's gating). The transport decides how.
   const isOwn = user?.pubkey === event.pubkey;
   const canDelete = Boolean(onDelete) && (isOwn || canModerate);
+  // Zap gating mirrors ChatMessage: shown on others' messages when the surface
+  // supports zaps; disabled once the author's profile loads with no lightning
+  // address.
+  const canZap = Boolean(zapEnabled && user && !isOwn);
+  const zapDisabled = Boolean(author.data && !metadata?.lud16 && !metadata?.lud06);
 
   return (
     <>
@@ -127,18 +145,55 @@ function ThreadMessage({
               </div>
             )}
             <ChatContent event={event} className="text-[15px]" />
-            {reactions && reactions.tallies.length > 0 && (
-              <ReactionBar tallies={reactions.tallies} canReact={canReact} onReact={reactions.react} />
+            {((zaps && zaps.tally.count > 0) || (reactions && reactions.tallies.length > 0)) && (
+              <ReactionBar
+                tallies={reactions?.tallies ?? []}
+                canReact={canReact}
+                onReact={reactions?.react ?? (() => {})}
+                leading={
+                  zaps && zaps.tally.count > 0 ? (
+                    <ZapPill
+                      tally={zaps.tally}
+                      canZap={canZap && !zapDisabled}
+                      onZap={() => setZapOpen(true)}
+                    />
+                  ) : undefined
+                }
+              />
             )}
           </div>
-          {canReact && reactions && (
-            <div className="absolute right-1.5 top-1 opacity-0 group-hover/threadmsg:opacity-100 focus-within:opacity-100 transition-opacity">
-              <ReactionPicker onReact={reactions.react} />
+          {(canReact && reactions) || canZap ? (
+            <div className="absolute right-1.5 top-1 flex items-center opacity-0 group-hover/threadmsg:opacity-100 focus-within:opacity-100 transition-opacity">
+              {canReact && reactions && <ReactionPicker onReact={reactions.react} />}
+              {canZap && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Zap message"
+                      disabled={zapDisabled}
+                      className="size-9 md:size-7 text-muted-foreground hover:text-amber-500 disabled:opacity-40"
+                      onClick={() => setZapOpen(true)}
+                    >
+                      <Zap className="size-[18px] md:size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {zapDisabled ? "No lightning address on their profile" : "Zap message"}
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </div>
-          )}
+          ) : null}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
+        {canZap && !zapDisabled && (
+          <ContextMenuItem onSelect={() => setZapOpen(true)}>
+            <Zap className="mr-2 size-4" /> Zap message
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onSelect={() => writeClipboardText(event.content).catch(() => undefined)}>
           <Copy className="mr-2 size-4" /> Copy text
         </ContextMenuItem>
@@ -185,6 +240,9 @@ function ThreadMessage({
         )}
       </ContextMenuContent>
     </ContextMenu>
+    {zapOpen && (
+      <ZapDialog open={zapOpen} onOpenChange={setZapOpen} target={event} sendZap={onSendZap} />
+    )}
     {rumorJson !== null && (
       <Dialog open={jsonOpen} onOpenChange={setJsonOpen}>
         <DialogContent className="max-w-2xl">
@@ -250,6 +308,9 @@ export function ThreadPanel({ root, transport, relayUrl, groupId, canWrite, ment
   const replies = transport.threadRepliesFor?.(root.id) ?? [];
   const isLoading = transport.threadLoading?.(root.id) ?? false;
   const reactionsFor = transport.reactionsFor;
+  const zapsFor = transport.zapsFor;
+  const zapEnabled = Boolean(transport.zapsFor);
+  const onSendZap = transport.sendZap;
   const isRumor = transport.isRumor ?? false;
   const canModerate = transport.canModerate;
   const onDelete = transport.deleteMessage;
@@ -269,7 +330,7 @@ export function ThreadPanel({ root, transport, relayUrl, groupId, canWrite, ment
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain scrollbar-stable space-y-1">
-        <ThreadMessage event={root} reactions={reactionsFor?.(root.id)} canReact={canWrite} canModerate={canModerate} isRumor={isRumor} onDelete={onDelete} />
+        <ThreadMessage event={root} reactions={reactionsFor?.(root.id)} zaps={zapsFor?.(root.id)} zapEnabled={zapEnabled} onSendZap={onSendZap} canReact={canWrite} canModerate={canModerate} isRumor={isRumor} onDelete={onDelete} />
         <div className="flex items-center gap-2 px-3 py-1">
           <div className="h-px flex-1 bg-border/60" />
           {!isLoading && (
@@ -296,7 +357,7 @@ export function ThreadPanel({ root, transport, relayUrl, groupId, canWrite, ment
               prev.pubkey === reply.pubkey &&
               reply.created_at - prev.created_at < CONTINUATION_WINDOW_SECONDS;
             return (
-              <ThreadMessage key={reply.id} event={reply} reactions={reactionsFor?.(reply.id)} canReact={canWrite} canModerate={canModerate} isRumor={isRumor} continuation={continuation} onDelete={onDelete} />
+              <ThreadMessage key={reply.id} event={reply} reactions={reactionsFor?.(reply.id)} zaps={zapsFor?.(reply.id)} zapEnabled={zapEnabled} onSendZap={onSendZap} canReact={canWrite} canModerate={canModerate} isRumor={isRumor} continuation={continuation} onDelete={onDelete} />
             );
           })
         )}
