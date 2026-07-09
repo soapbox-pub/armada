@@ -24,6 +24,11 @@ interface ReactionBarProps {
   /** Whether the current user may toggle reactions (group membership). */
   canReact: boolean;
   onReact: (input: ReactInput) => void;
+  /**
+   * Optional node rendered first in the pill row (the zap total chip), so it
+   * sits inline with the reaction pills instead of on its own line.
+   */
+  leading?: React.ReactNode;
 }
 
 /** Renders the visual content of a reaction key (custom image or emoji glyph). */
@@ -140,11 +145,12 @@ function ReactionPill({
  * popover listing who reacted, with a button to add or remove the current
  * user's own reaction.
  */
-export function ReactionBar({ tallies, canReact, onReact }: ReactionBarProps) {
-  if (tallies.length === 0) return null;
+export function ReactionBar({ tallies, canReact, onReact, leading }: ReactionBarProps) {
+  if (tallies.length === 0 && !leading) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+      {leading}
       {tallies.map((tally) => (
         <ReactionPill key={tally.key} tally={tally} canReact={canReact} onReact={onReact} />
       ))}

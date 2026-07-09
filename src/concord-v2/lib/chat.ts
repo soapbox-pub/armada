@@ -14,7 +14,8 @@
 
 import type { NostrEvent } from "nostr-tools/pure";
 
-import { KIND_COMMENT, KIND_DELETE, KIND_EDIT, KIND_MESSAGE, KIND_REACTION } from "@/concord-v2/lib/kinds";
+import { KIND_COMMENT, KIND_DELETE, KIND_EDIT, KIND_MESSAGE, KIND_REACTION, KIND_ZAP } from "@/concord-v2/lib/kinds";
+import { verifyZapRumor, type ZapEntry } from "@/lib/zaps";
 import { checkChannelBinding, openWrap, type OpenedEvent } from "@/concord-v2/lib/stream";
 import type { ChannelV2 } from "@/concord-v2/lib/types";
 
@@ -163,7 +164,16 @@ export interface FoldedTimeline {
   messages: OpenedChat[];
   /** target rumor id → emoji → tally. */
   reactions: Map<string, Map<string, ReactionEntry>>;
+  /** target rumor id → VERIFIED zaps (CORD.md §4; unverified never enter). */
+  zaps: Map<string, ZapEntry[]>;
 }
+
+/**
+ * Per-rumor CORD.md verdict cache: verification hashes the preimage and
+ * decodes the invoice, and a rumor's tags never change, so each zap is judged
+ * exactly once per session no matter how many folds re-run over it.
+ */
+const zapVerdicts = new Map<string, boolean>();
 
 /**
  * Fold a batch of opened chat events into the channel timeline: drop banned
@@ -187,6 +197,7 @@ export function foldTimeline(opened: OpenedChat[], moderation?: ChatModeration):
   // author's legitimate one).
   const edits = new Map<string, Array<{ author: string; content: string; ms: number }>>();
   const reactions = new Map<string, Map<string, ReactionEntry>>();
+  const zaps = new Map<string, ZapEntry[]>();
 
   for (const ev of opened) {
     if (moderation?.banned.has(ev.author)) continue;
@@ -221,6 +232,28 @@ export function foldTimeline(opened: OpenedChat[], moderation?: ChatModeration):
       if (url && !entry.url) entry.url = url;
       continue;
     }
+    if (ev.kind === KIND_ZAP) {
+      const target = eTargetOf(ev);
+      if (!target) continue;
+      let verdict = zapVerdicts.get(ev.rumorId);
+      if (verdict === undefined) {
+        verdict = verifyZapRumor({ kind: ev.kind, tags: ev.tags });
+        zapVerdicts.set(ev.rumorId, verdict);
+      }
+      if (!verdict) continue;
+      const msats = Number(ev.tags.find((t) => t[0] === "amount")?.[1]);
+      let list = zaps.get(target);
+      if (!list) zaps.set(target, (list = []));
+      if (!list.some((z) => z.id === ev.rumorId)) {
+        list.push({
+          id: ev.rumorId,
+          pubkey: ev.author,
+          sats: Math.floor(msats / 1000),
+          comment: ev.content,
+        });
+      }
+      continue;
+    }
     if (ev.kind === KIND_MESSAGE || ev.kind === KIND_COMMENT) {
       // kind-9 top-level messages and kind-1111 threaded replies both land in
       // the timeline pool; the reader splits them by their NIP-22 root pointer.
@@ -253,5 +286,6 @@ export function foldTimeline(opened: OpenedChat[], moderation?: ChatModeration):
   return {
     messages: [...byId.values()].sort((a, b) => (a.ms !== b.ms ? a.ms - b.ms : a.rumorId < b.rumorId ? -1 : 1)),
     reactions,
+    zaps,
   };
 }

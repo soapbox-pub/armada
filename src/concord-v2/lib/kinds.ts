@@ -36,6 +36,13 @@ export const KIND_REACTION = 7;
 export const KIND_DELETE = 5;
 /** Message edit (fields not yet pinned by the CORDs; `e` names the target). */
 export const KIND_EDIT = 3302;
+/**
+ * Zap (CORD.md): NIP-57 receipt shape authored by the PAYER, plus a
+ * `preimage` tag as the payment proof. Verified locally by every member
+ * (sha256(preimage) == bolt11 payment hash, amount tag == invoice amount);
+ * unverified zaps never enter tallies.
+ */
+export const KIND_ZAP = 9735;
 /** WebXDC peer signal. */
 export const KIND_WEBXDC = 3310;
 /** Typing indicator — ephemeral rumor (rides a 21059 wrap). */

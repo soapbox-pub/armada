@@ -14,6 +14,7 @@ import {
   UserCircle,
   Waypoints,
   Wrench,
+  Zap,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -25,6 +26,7 @@ import { ProfileSettings } from "@/components/ProfileSettings";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { RelayListEditor } from "@/components/RelayListEditor";
 import { SettingsRow } from "@/components/settings/SettingsSection";
+import { WalletSettings } from "@/components/settings/WalletSettings";
 import { ThemeSelector } from "@/components/ThemeSelector";
 import { VoiceDeviceSettings } from "@/components/VoiceDeviceSettings";
 import { Button } from "@/components/ui/button";
@@ -60,6 +62,7 @@ type SectionId =
   | "search-relays"
   | "dms"
   | "media"
+  | "wallet"
   | "advanced"
   | "install"
   | "about";
@@ -219,6 +222,9 @@ export function SettingsPage() {
       { id: "dms", title: "Direct messages", icon: MessageSquareLock },
       { id: "media", title: "Media servers", icon: Image },
     ];
+    if (user) {
+      appItems.push({ id: "wallet", title: "Wallet", icon: Zap });
+    }
     if (user && CONCORD_ENABLED) {
       appItems.push({ id: "advanced", title: "Advanced", icon: Wrench, inline: true });
     }
@@ -383,6 +389,8 @@ export function SettingsPage() {
             </SettingsRow>
           </>
         );
+      case "wallet":
+        return <WalletSettings />;
       case "advanced":
         return (
           <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>

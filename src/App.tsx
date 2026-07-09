@@ -20,6 +20,7 @@ import { ScreenSharePicker } from "@/components/ScreenSharePicker";
 import { SyncGate } from "@/components/SyncGate";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import WalletProvider from "@/components/WalletProvider";
 import { WebPushNotifications } from "@/components/WebPushNotifications";
 import { WireSync } from "@/wire/WireSync";
 
@@ -54,24 +55,26 @@ export function App() {
       <QueryClientProvider client={queryClient}>
         <NostrLoginProvider storageKey="armada:login">
           <NostrProvider>
-            <TooltipProvider>
-              <ReadStateProvider>
-                <WireSync />
-                <NostrSync />
-                <PublishOutbox />
-                <SyncGate />
-                <DeepLinkWarmup />
-                <DesktopBadge />
-                <NativeNotifications />
-                <WebPushNotifications />
-                <ControlPlaneSync />
-                <ScreenSharePicker />
-                <Toaster />
-                <MeshProvider>
-                  <AppRouter />
-                </MeshProvider>
-              </ReadStateProvider>
-            </TooltipProvider>
+            <WalletProvider>
+              <TooltipProvider>
+                <ReadStateProvider>
+                  <WireSync />
+                  <NostrSync />
+                  <PublishOutbox />
+                  <SyncGate />
+                  <DeepLinkWarmup />
+                  <DesktopBadge />
+                  <NativeNotifications />
+                  <WebPushNotifications />
+                  <ControlPlaneSync />
+                  <ScreenSharePicker />
+                  <Toaster />
+                  <MeshProvider>
+                    <AppRouter />
+                  </MeshProvider>
+                </ReadStateProvider>
+              </TooltipProvider>
+            </WalletProvider>
           </NostrProvider>
         </NostrLoginProvider>
       </QueryClientProvider>

@@ -16,6 +16,7 @@
 
 import type { ReactInput, ReactionTally } from "@/hooks/useReactions";
 import type { SendStatus } from "@/hooks/useGroupMessages";
+import type { ZapTally } from "@/lib/zaps";
 import type { NostrEvent } from "@nostrify/nostrify";
 
 export type { ReactInput, ReactionTally, SendStatus };
@@ -62,6 +63,25 @@ export function toChatMsg(m: {
 export interface MessageReactions {
   tallies: ReactionTally[];
   react: (input: ReactInput) => void;
+}
+
+/** Per-message zap state, resolved by the transport for one message. */
+export interface MessageZaps {
+  tally: ZapTally;
+}
+
+/**
+ * A settled lightning payment, handed by the shared zap dialog to a transport
+ * whose zap announcement is its own event (Concord v2's sealed CORD.md rumor).
+ * NIP-29 has no publish step — the LNURL provider's public receipt is the
+ * announcement — so its transport omits {@link ChatTransport.sendZap}.
+ */
+export interface ZapPayment {
+  amountMsats: number;
+  bolt11: string;
+  /** Payment proof; present when the payer's wallet returned it (NWC/WebLN). */
+  preimage?: string;
+  comment: string;
 }
 
 /**
@@ -118,6 +138,19 @@ export interface ChatTransport {
   replyCountFor?: (id: string) => number;
   /** Resolved reaction tallies + toggle for a message id (batched per room). */
   reactionsFor?: (id: string) => MessageReactions;
+  /**
+   * Aggregated zaps for a message id. Presence enables the zap button; the
+   * payment itself runs in the shared dialog (it needs only the author's
+   * lightning address), while this feeds the ⚡ total chip.
+   */
+  zapsFor?: (id: string) => MessageZaps | undefined;
+  /**
+   * Announce a settled zap payment for this message, for transports whose
+   * announcement is a chat-plane event (Concord v2 / CORD.md). When present,
+   * the dialog REQUIRES a proof-returning payment method (NWC/WebLN — no
+   * manual QR, which never reveals the preimage).
+   */
+  sendZap?: (target: ChatMsg, payment: ZapPayment) => Promise<void>;
   /** Open the threaded-replies panel for a message. */
   openThread?: (event: ChatMsg, focusReply?: boolean) => void;
 

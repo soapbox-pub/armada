@@ -171,7 +171,7 @@ export function storedToOpenedChat(ev: NostrEvent, channelIdHex: string): Opened
 // ── Reads / writes ────────────────────────────────────────────────────────────
 
 /** All chat-plane rumor kinds we persist and fold. */
-const CHAT_KINDS = [5, 7, 9, 1111, 3302];
+const CHAT_KINDS = [5, 7, 9, 1111, 3302, 9735];
 
 /**
  * Read a channel's cached chat rumors, newest-first up to `limit`. A `channel`

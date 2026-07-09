@@ -20,6 +20,7 @@ import { useGroupSearch } from "@/hooks/useGroupSearch";
 import { useDeleteOwnMessage, useEditMessage } from "@/hooks/useEditMessage";
 import { usePinnedMessages } from "@/hooks/usePinnedMessages";
 import { useGroupReactions } from "@/hooks/useReactions";
+import { useZapReceipts } from "@/hooks/useZapReceipts";
 import { useGroupThreads, useSendThreadReply } from "@/hooks/useThread";
 import { useRepublish } from "@/hooks/useNostrPublish";
 import { useNewMessagesDivider } from "@/hooks/useNewMessagesDivider";
@@ -101,6 +102,9 @@ function Nip29ChatMessage({
       canModerate={transport.canModerate}
       pollContext={{ relayUrl, groupId }}
       reactions={transport.reactionsFor?.(event.id)}
+      zapEnabled={Boolean(transport.zapsFor)}
+      zaps={transport.zapsFor?.(event.id)}
+      onSendZap={transport.sendZap}
       sendStatus={transport.sendStatusFor?.(event.id)}
       highlight={highlight}
       isEditing={isEditing}
@@ -233,7 +237,6 @@ export function GroupChat({ relayUrl, groupId, canWrite, membershipPending = fal
     for (const m of searchResults) set.add(m.id);
     return [...set];
   }, [messages, searchResults]);
-  const { reactionsFor } = useGroupReactions(relayUrl, groupId, visibleIds);
   const { replyCountFor, threadRepliesFor } = useGroupThreads(relayUrl, groupId, visibleIds);
   const sendThreadReply = useSendThreadReply(relayUrl, groupId);
 
@@ -243,6 +246,25 @@ export function GroupChat({ relayUrl, groupId, canWrite, membershipPending = fal
     [],
   );
   const [threadRoot, setThreadRoot] = useState<NostrEvent | undefined>(undefined);
+
+  // Reaction and zap tallies resolve over the timeline PLUS the open thread's
+  // replies (kind-1111 comments, which aren't in the timeline), so a reply's
+  // ⚡/emoji counts show in the thread panel too. The id set changes only when
+  // a thread opens or closes.
+  const tallyIds = useMemo(() => {
+    if (!threadRoot) return visibleIds;
+    const replyIds = (threadRepliesFor?.(threadRoot.id) ?? []).map((r) => r.id);
+    if (replyIds.length === 0) return visibleIds;
+    return [...new Set([...visibleIds, ...replyIds])];
+  }, [visibleIds, threadRoot, threadRepliesFor]);
+
+  const { reactionsFor } = useGroupReactions(relayUrl, groupId, tallyIds);
+  // Public NIP-57 receipts for the visible window + open thread (providers
+  // publish them to the app relays the 9734 lists).
+  const { zapsFor } = useZapReceipts(
+    relayUrl && groupId ? `nip29:${relayUrl}:${groupId}` : undefined,
+    tallyIds,
+  );
   const [threadAutoFocus, setThreadAutoFocus] = useState(false);
   const [lastThreadRoot, setLastThreadRoot] = useState<NostrEvent | undefined>(undefined);
   const [replyTo, setReplyTo] = useState<NostrEvent | undefined>(undefined);
@@ -435,6 +457,7 @@ export function GroupChat({ relayUrl, groupId, canWrite, membershipPending = fal
       togglePin: handleTogglePin,
       replyCountFor,
       reactionsFor,
+      zapsFor,
       openThread,
       threadRepliesFor,
       sendThreadReply: async (root, content, tags) => {
@@ -459,6 +482,7 @@ export function GroupChat({ relayUrl, groupId, canWrite, membershipPending = fal
       handleTogglePin,
       replyCountFor,
       reactionsFor,
+      zapsFor,
       openThread,
       threadRepliesFor,
       sendThreadReply,
