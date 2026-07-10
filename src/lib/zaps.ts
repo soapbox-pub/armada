@@ -24,10 +24,7 @@ import { verifyEvent } from "nostr-tools/pure";
 import type { NostrEvent } from "@nostrify/nostrify";
 import type { Event as NostrToolsEvent } from "nostr-tools/pure";
 
-/**
- * Bounded insertion-order cache (receipts and rumors are immutable, so a
- * verdict never changes; the cap only bounds memory over a long session).
- */
+/** Bounded insertion-order cache (entries are immutable; the cap only bounds memory). */
 function boundedSet<K, V>(map: Map<K, V>, key: K, value: V, cap = 4096): V {
   if (map.size >= cap) map.delete(map.keys().next().value as K);
   map.set(key, value);
@@ -113,12 +110,10 @@ function tagValue(ev: NostrEvent, name: string): string | undefined {
 }
 
 /**
- * The embedded kind-9734 zap request, or null. The request's own signature is
- * verified (it's the only self-authenticating part of a receipt): without
- * that check, anyone could attribute a zap to an arbitrary pubkey — including
- * the viewer's own, spoofing the "you zapped this" state.
- *
- * Verified per receipt id once per session (receipts are immutable).
+ * The embedded kind-9734 zap request, or null. Its signature is verified —
+ * the only self-authenticating part of a receipt; without it anyone could
+ * attribute a zap to an arbitrary pubkey (including the viewer's own,
+ * spoofing "you zapped this"). Cached per receipt id.
  */
 const requestCache = new Map<string, NostrEvent | null>();
 export function receiptZapRequest(receipt: NostrEvent): NostrEvent | null {
@@ -142,10 +137,9 @@ export function receiptZapRequest(receipt: NostrEvent): NostrEvent | null {
 
 /**
  * A receipt's amount in sats. The bolt11 invoice is the source of truth
- * (NIP-57 receipts MUST carry one); a receipt whose embedded request names a
- * different amount than the invoice is inconsistent and worth nothing. The
- * receipt's own `amount` tag is provider-added convenience and never trusted
- * alone.
+ * (NIP-57 receipts MUST carry one); a request amount that disagrees with the
+ * invoice voids the receipt, and the receipt's own `amount` tag is never
+ * trusted alone.
  */
 export function receiptAmountSats(receipt: NostrEvent, request: NostrEvent): number {
   const bolt11 = tagValue(receipt, "bolt11");
@@ -158,19 +152,15 @@ export function receiptAmountSats(receipt: NostrEvent, request: NostrEvent): num
 }
 
 /**
- * Fold public kind-9735 receipts for ONE target message into a tally.
- *
- * Guards (a relay answering a `#e` query is trusted for routing, not for
- * content): dedupe by receipt id AND by the invoice's payment hash (the same
- * payment republished under a new receipt id counts once); drop receipts
- * whose embedded zap request doesn't name `targetId`, fails signature
- * verification, or claims an amount its invoice doesn't carry.
- *
- * Residual trust: we don't pin the receipt's author to the recipient's LNURL
- * `nostrPubkey` — that would take an LNURL fetch per message author at render
- * time, leaking every reader's IP to every author's wallet provider. So a
- * determined forger can still mint an unpaid invoice + self-signed request;
- * what's closed here is impersonation and free amount inflation.
+ * Fold public kind-9735 receipts for ONE target message into a tally. A relay
+ * answering a `#e` query is trusted for routing, not content: dedupe by
+ * receipt id AND payment hash (one payment counts once), drop receipts whose
+ * request doesn't name `targetId`, fails signature verification, or claims an
+ * amount its invoice doesn't carry. Residual trust: the receipt author isn't
+ * pinned to the recipient's LNURL `nostrPubkey` (that fetch would leak every
+ * reader's IP to every author's wallet provider), so a forger paying nothing
+ * can still mint an unpaid invoice + self-signed request — what's closed here
+ * is impersonation and free amount inflation.
  */
 export function tallyZaps(
   receipts: NostrEvent[],

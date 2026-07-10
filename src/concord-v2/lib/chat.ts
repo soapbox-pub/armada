@@ -169,11 +169,9 @@ export interface FoldedTimeline {
 }
 
 /**
- * Per-rumor CORD.md verdict cache (payment hash when valid, null when not):
- * verification hashes the preimage and decodes the invoice, and a rumor's
- * tags never change, so each zap is judged exactly once per session no matter
- * how many folds re-run over it. Capped so a long session can't grow it
- * without bound.
+ * Per-rumor CORD.md verdict cache (payment hash when valid, null when not).
+ * A rumor's tags never change, so each zap is hashed/decoded once per session
+ * no matter how many folds re-run over it. Capped to bound memory.
  */
 const zapVerdicts = new Map<string, string | null>();
 const ZAP_VERDICT_CAP = 8192;
@@ -200,12 +198,9 @@ export function foldTimeline(opened: OpenedChat[], moderation?: ChatModeration):
   // author's legitimate one).
   const edits = new Map<string, Array<{ author: string; content: string; ms: number }>>();
   const reactions = new Map<string, Map<string, ReactionEntry>>();
-  // Verified zap candidates, deduped by payment hash after the loop: a
-  // preimage is visible to every member once announced, so without this any
-  // member could re-post someone else's proof (or the payer could reuse one
-  // payment across messages) and inflate tallies. One settled payment counts
-  // once per channel (CORD.md §4); the earliest rumor (ms, then rumorId) wins
-  // deterministically so every member folds the same tally.
+  // Verified zap candidates, deduped by payment hash after the loop: an
+  // announced preimage is visible to every member, so without this anyone
+  // could replay someone else's proof and inflate tallies (CORD.md §4).
   const zapCandidates: Array<{ target: string; hash: string; ms: number; entry: ZapEntry }> = [];
 
   for (const ev of opened) {
@@ -296,13 +291,11 @@ export function foldTimeline(opened: OpenedChat[], moderation?: ChatModeration):
     if (deleted) byId.delete(id);
   }
 
-  // Zaps: one payment counts once. Earliest claimant of a payment hash wins;
-  // duplicates (replayed proofs, batch overlap) are dropped.
+  // Zaps: one payment counts once, earliest rumor (ms, then id) winning
+  // deterministically so every member folds the same tally.
   const zaps = new Map<string, ZapEntry[]>();
   const claimedHashes = new Set<string>();
-  zapCandidates.sort((a, b) =>
-    a.ms !== b.ms ? a.ms - b.ms : a.entry.id < b.entry.id ? -1 : a.entry.id > b.entry.id ? 1 : 0,
-  );
+  zapCandidates.sort((a, b) => (a.ms !== b.ms ? a.ms - b.ms : a.entry.id < b.entry.id ? -1 : 1));
   for (const { target, hash, entry } of zapCandidates) {
     if (claimedHashes.has(hash)) continue;
     claimedHashes.add(hash);

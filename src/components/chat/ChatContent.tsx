@@ -1121,9 +1121,9 @@ function LightningInvoice({ invoice }: { invoice: string }) {
   const [paying, setPaying] = useState(false);
   const [paid, setPaid] = useState(false);
   // Anyone can paste a large invoice into chat, so paying is a two-step,
-  // amount-visible action: first tap arms ("Pay 21k?"), second tap pays,
-  // and the armed state disarms itself after a few seconds. Amountless
-  // invoices are never one-tap payable (the wallet would choose the amount).
+  // amount-visible action: first tap arms ("Confirm 21k sats?"), second tap
+  // pays, and the armed state disarms after a few seconds. Amountless
+  // invoices are never one-tap payable.
   const [armed, setArmed] = useState(false);
   const disarmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(disarmTimer.current), []);
