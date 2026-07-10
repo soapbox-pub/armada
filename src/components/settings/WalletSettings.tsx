@@ -1,14 +1,13 @@
 import { CheckCircle2, Circle, Loader2, Trash2 } from "lucide-react";
 import { useState } from "react";
 
-import { nwcWalletPubkey } from "@/components/WalletProvider";
+import { nwcWalletPubkey } from "@/lib/walletStorage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SettingsRow } from "@/components/settings/SettingsSection";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useToast } from "@/hooks/useToast";
 import { useWallet } from "@/hooks/useWallet";
-import { ZAP_PRESETS } from "@/lib/zaps";
 
 /**
  * Settings → Wallet: Nostr Wallet Connect management + zap preferences.
@@ -139,7 +138,7 @@ export function WalletSettings() {
           value={config.defaultZapAmount}
           onChange={(e) => {
             const n = Math.max(1, Math.floor(Number(e.target.value) || 0));
-            updateConfig((current) => ({ ...current, defaultZapAmount: n || ZAP_PRESETS[1] }));
+            updateConfig((current) => ({ ...current, defaultZapAmount: n }));
           }}
           className="w-28 text-right"
         />

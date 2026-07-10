@@ -111,7 +111,11 @@ export function useZap(opts: {
 
         const bolt11 = await fetchLnurlInvoice(params, {
           amountMsats,
-          comment: trimmedComment,
+          // A private zap's comment lives ONLY in the sealed rumor (CORD.md
+          // §5): handing it to the LNURL provider would link the payment to
+          // content. Public zaps already hand the provider the whole signed
+          // request, so the comment param costs nothing extra there.
+          comment: isPrivate ? undefined : trimmedComment,
           zapRequest,
         });
         // Never pay an invoice that doesn't encode what we asked for.

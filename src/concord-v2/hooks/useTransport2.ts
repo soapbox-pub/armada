@@ -13,8 +13,8 @@ import { zapRumorTags, type ZapTally } from "@/lib/zaps";
 import type { OpenedChat } from "@/concord-v2/lib/chat";
 import type { ChannelV2, CommunityV2 } from "@/concord-v2/lib/types";
 
-import { toChatMsg } from "@/components/chat/transport";
-import type { ChatMsg, ChatTransport, MessageReactions, MessageZaps, ReactInput, ReactionTally, ZapPayment } from "@/components/chat/transport";
+import { stableZapsFor, toChatMsg } from "@/components/chat/transport";
+import type { ChatMsg, ChatTransport, MessageReactions, ReactInput, ReactionTally, ZapPayment } from "@/components/chat/transport";
 
 /** Shared empty tally array, so messages with no reactions keep a stable prop. */
 const EMPTY_TALLIES: ReactionTally[] = [];
@@ -201,18 +201,7 @@ export function useTransport2(
     return out;
   }, [folded.zaps, user]);
 
-  const zapsFor = useMemo(() => {
-    const objCache = new Map<string, { tally: ZapTally; value: MessageZaps }>();
-    return (id: string): MessageZaps | undefined => {
-      const tally = zapTalliesById.get(id);
-      if (!tally) return undefined;
-      const hit = objCache.get(id);
-      if (hit && hit.tally === tally) return hit.value;
-      const value: MessageZaps = { tally };
-      objCache.set(id, { tally, value });
-      return value;
-    };
-  }, [zapTalliesById]);
+  const zapsFor = useMemo(() => stableZapsFor((id) => zapTalliesById.get(id)), [zapTalliesById]);
 
   // Seal the CORD.md zap announcement into the channel: a kind-9735 rumor
   // carrying the payment proof, published through the ordinary send path (the
@@ -231,7 +220,8 @@ export function useTransport2(
           amountMsats: payment.amountMsats,
           bolt11: payment.bolt11,
           preimage: payment.preimage,
-        }).filter((t) => t[0] !== "e"), // send() adds the e target itself
+          omitTarget: true, // send() adds the e target itself
+        }),
       });
     },
     [send],

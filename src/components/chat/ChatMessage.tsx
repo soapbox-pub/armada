@@ -6,6 +6,7 @@ import { ChatContent } from "@/components/chat/ChatContent";
 import { MessageRow, type MessageIdentity } from "@/components/chat/MessageRow";
 import { PollCard } from "@/components/chat/PollCard";
 import { ReactionBar, ReactionPicker } from "@/components/chat/ReactionBar";
+import { ZapButton } from "@/components/chat/ZapButton";
 import { ZapDialog } from "@/components/chat/ZapDialog";
 import { ZapPill } from "@/components/chat/ZapPill";
 import { DittoIcon } from "@/components/brand/DittoIcon";
@@ -461,25 +462,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
   const toolbar = (
     <>
       {canWrite && !isEditing && reactions && <ReactionPicker onReact={reactions.react} />}
-      {canZap && !isEditing && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Zap message"
-              disabled={zapDisabled}
-              className="size-9 md:size-7 text-muted-foreground hover:text-amber-500 disabled:opacity-40"
-              onClick={() => setZapOpen(true)}
-            >
-              <Zap className="size-[18px] md:size-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {zapDisabled ? "No lightning address on their profile" : "Zap message"}
-          </TooltipContent>
-        </Tooltip>
-      )}
+      {canZap && !isEditing && <ZapButton disabled={zapDisabled} onOpen={() => setZapOpen(true)} />}
       {canWrite && !isEditing && onOpenThread && (
         <Tooltip>
           <TooltipTrigger asChild>

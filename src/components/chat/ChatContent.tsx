@@ -1,5 +1,5 @@
 import { nip19 } from "nostr-tools";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { BlurhashCanvas } from "@/components/BlurhashCanvas";
@@ -27,6 +27,7 @@ import { AUDIO_EXTS, EMBED_MEDIA_URL_REGEX, IMAGE_URL_REGEX, mimeFromExt } from 
 import { relayToRouteParam } from "@/lib/platform";
 import { sanitizeUrl } from "@/lib/sanitizeUrl";
 import { cn } from "@/lib/utils";
+import { bolt11AmountSats, formatSats } from "@/lib/zaps";
 import { useResolvedMediaSrc } from "@/hooks/useResolvedMediaSrc";
 import { useToast } from "@/hooks/useToast";
 import { useWallet } from "@/hooks/useWallet";
@@ -1119,13 +1120,29 @@ function LightningInvoice({ invoice }: { invoice: string }) {
   const [copied, setCopied] = useState(false);
   const [paying, setPaying] = useState(false);
   const [paid, setPaid] = useState(false);
+  // Anyone can paste a large invoice into chat, so paying is a two-step,
+  // amount-visible action: first tap arms ("Pay 21k?"), second tap pays,
+  // and the armed state disarms itself after a few seconds. Amountless
+  // invoices are never one-tap payable (the wallet would choose the amount).
+  const [armed, setArmed] = useState(false);
+  const disarmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(disarmTimer.current), []);
   const { activeConnection, payWithNWC, webln } = useWallet();
   const { toast } = useToast();
-  const canPay = Boolean(activeConnection || webln);
+  const amountSats = useMemo(() => bolt11AmountSats(invoice), [invoice]);
+  const canPay = Boolean(activeConnection || webln) && amountSats !== null;
 
   const handlePay = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (paying || paid) return;
+    if (!armed) {
+      setArmed(true);
+      clearTimeout(disarmTimer.current);
+      disarmTimer.current = setTimeout(() => setArmed(false), 4000);
+      return;
+    }
+    clearTimeout(disarmTimer.current);
+    setArmed(false);
     setPaying(true);
     try {
       if (activeConnection) {
@@ -1162,18 +1179,31 @@ function LightningInvoice({ invoice }: { invoice: string }) {
         title="Copy lightning invoice"
       >
         <span aria-hidden>⚡</span>
-        <span className="truncate font-mono">{invoice.slice(0, 24)}…</span>
+        <span className="truncate font-mono">
+          {amountSats !== null ? `${formatSats(amountSats)} sats` : invoice.slice(0, 24) + "…"}
+        </span>
         <span className="shrink-0">{copied ? "Copied!" : "Copy"}</span>
       </button>
       {canPay && (
         <button
           type="button"
-          className="shrink-0 px-2.5 py-1 rounded-full border border-amber-500 bg-amber-500/20 text-amber-500 text-xs font-medium hover:bg-amber-500/30 transition-colors disabled:opacity-60"
+          className={cn(
+            "shrink-0 px-2.5 py-1 rounded-full border text-xs font-medium transition-colors disabled:opacity-60",
+            armed
+              ? "border-amber-500 bg-amber-500 text-amber-950 hover:bg-amber-400"
+              : "border-amber-500 bg-amber-500/20 text-amber-500 hover:bg-amber-500/30",
+          )}
           onClick={handlePay}
           disabled={paying || paid}
           title="Pay with your connected wallet"
         >
-          {paid ? "Paid ✓" : paying ? "Paying…" : "Pay"}
+          {paid
+            ? "Paid ✓"
+            : paying
+              ? "Paying…"
+              : armed
+                ? `Confirm ${formatSats(amountSats!)} sats?`
+                : "Pay"}
         </button>
       )}
     </span>

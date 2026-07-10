@@ -1,5 +1,3 @@
-import { sha256 } from "@noble/hashes/sha2.js";
-import { bytesToHex as nobleBytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import type { EventTemplate, NostrEvent } from "nostr-tools/pure";
 import { describe, expect, it, vi } from "vitest";
@@ -8,27 +6,14 @@ import { buildV2CommentTags, foldTimeline, openChatBatch, replyTargetOf } from "
 import { bytesToHex, channelGroupKey } from "@/concord-v2/lib/derive";
 import { KIND_COMMENT, KIND_DELETE, KIND_EDIT, KIND_MESSAGE, KIND_REACTION, KIND_SEAL_ENCRYPTED, KIND_ZAP } from "@/concord-v2/lib/kinds";
 import { buildRumor, channelBindingTags, sealRumor, wrapSeal, type Rumor } from "@/concord-v2/lib/stream";
+import { MOCK_PREIMAGE as ZAP_PREIMAGE, paymentHashOf } from "@/test/bolt11Mock";
 import type { ChannelV2 } from "@/concord-v2/lib/types";
 
-// Synthetic invoices ("lnmock<msats>") decode to controlled sections so the
-// CORD.md fold can be tested without a bolt11 encoder (same scheme as
-// zaps.test.ts).
-const ZAP_PREIMAGE = "42".repeat(32);
-const ZAP_PAYMENT_HASH = nobleBytesToHex(sha256(hexToBytes(ZAP_PREIMAGE)));
+// Synthetic "lnmock…" invoices decode to controlled sections so the CORD.md
+// fold can be tested without a bolt11 encoder (shared with zaps.test.ts).
 vi.mock("light-bolt11-decoder", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("light-bolt11-decoder")>();
-  return {
-    ...actual,
-    decode: (invoice: string) => {
-      if (!invoice.startsWith("lnmock")) return actual.decode(invoice);
-      return {
-        sections: [
-          { name: "amount", value: invoice.slice("lnmock".length) },
-          { name: "payment_hash", value: ZAP_PAYMENT_HASH },
-        ],
-      };
-    },
-  };
+  const { mockBolt11Decoder } = await import("@/test/bolt11Mock");
+  return mockBolt11Decoder(await importOriginal<typeof import("light-bolt11-decoder")>());
 });
 
 const root = new Uint8Array(32).fill(3);
@@ -210,18 +195,24 @@ describe("chat plane (CORD-03)", () => {
     const carol = signer();
 
     const msg = chatRumor(alice, KIND_MESSAGE, "zap me", 1000);
-    const zapTags = (preimage: string, msats: string) => [
+    const zapTags = (preimage: string, msats: string, bolt11 = `lnmock${msats}`) => [
       ["e", msg.id],
       ["p", alice.pubkey],
       ["k", "9"],
       ["amount", msats],
-      ["bolt11", `lnmock${msats}`],
+      ["bolt11", bolt11],
       ["preimage", preimage],
     ];
     // Bob's zap: valid preimage, matching amount.
     const goodZap = chatRumor(bob, KIND_ZAP, "gm ⚡", 2000, zapTags(ZAP_PREIMAGE, "21000"));
     // Carol's forgery: wrong preimage for the invoice's payment hash.
-    const forgedZap = chatRumor(carol, KIND_ZAP, "", 3000, zapTags("99".repeat(32), "500000"));
+    const forgedZap = chatRumor(
+      carol,
+      KIND_ZAP,
+      "",
+      3000,
+      zapTags("99".repeat(32), "500000", `lnmock500000:h${paymentHashOf("88".repeat(32))}`),
+    );
 
     const wraps = await Promise.all([
       wrapChat(msg, channel, alice),
@@ -235,5 +226,42 @@ describe("chat plane (CORD-03)", () => {
     expect(zaps?.[0]).toMatchObject({ pubkey: bob.pubkey, sats: 21, comment: "gm ⚡" });
     // The zap rumor is not a timeline message.
     expect(folded.messages.map((m) => m.content)).toEqual(["zap me"]);
+  });
+
+  it("counts a payment once: a replayed proof never re-enters the tally", async () => {
+    const channel = makeChannel();
+    const alice = signer();
+    const bob = signer();
+    const mallory = signer();
+
+    const m1 = chatRumor(alice, KIND_MESSAGE, "zap me", 1000);
+    const m2 = chatRumor(alice, KIND_MESSAGE, "me too", 1100);
+    const zapTags = (targetId: string) => [
+      ["e", targetId],
+      ["p", alice.pubkey],
+      ["k", "9"],
+      ["amount", "21000"],
+      ["bolt11", "lnmock21000"],
+      ["preimage", ZAP_PREIMAGE],
+    ];
+    // Bob pays once and announces (earliest ms — the deterministic winner).
+    const paid = chatRumor(bob, KIND_ZAP, "", 2000, zapTags(m1.id));
+    // Mallory saw bob's preimage in the plane and replays the same proof as
+    // her own zap — on the same message and on a different one.
+    const replaySame = chatRumor(mallory, KIND_ZAP, "", 3000, zapTags(m1.id));
+    const replayOther = chatRumor(mallory, KIND_ZAP, "", 4000, zapTags(m2.id));
+
+    const wraps = await Promise.all([
+      wrapChat(m1, channel, alice),
+      wrapChat(m2, channel, alice),
+      wrapChat(paid, channel, bob),
+      wrapChat(replaySame, channel, mallory),
+      wrapChat(replayOther, channel, mallory),
+    ]);
+    const folded = foldTimeline(await openChatBatch(wraps, channel));
+
+    expect(folded.zaps.get(m1.id)?.length).toBe(1);
+    expect(folded.zaps.get(m1.id)?.[0].pubkey).toBe(bob.pubkey);
+    expect(folded.zaps.get(m2.id)).toBeUndefined();
   });
 });

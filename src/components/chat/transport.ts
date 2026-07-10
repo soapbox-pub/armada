@@ -71,6 +71,26 @@ export interface MessageZaps {
 }
 
 /**
+ * Wrap a tally lookup in a per-id object cache so unchanged rows keep a
+ * stable {@link MessageZaps} prop (preserves React.memo). Shared by both
+ * transports' `zapsFor`.
+ */
+export function stableZapsFor(
+  get: (id: string) => ZapTally | undefined,
+): (id: string) => MessageZaps | undefined {
+  const cache = new Map<string, { tally: ZapTally; value: MessageZaps }>();
+  return (id) => {
+    const tally = get(id);
+    if (!tally) return undefined;
+    const hit = cache.get(id);
+    if (hit && hit.tally === tally) return hit.value;
+    const value: MessageZaps = { tally };
+    cache.set(id, { tally, value });
+    return value;
+  };
+}
+
+/**
  * A settled lightning payment, handed by the shared zap dialog to a transport
  * whose zap announcement is its own event (Concord v2's sealed CORD.md rumor).
  * NIP-29 has no publish step — the LNURL provider's public receipt is the

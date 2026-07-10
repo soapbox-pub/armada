@@ -1,7 +1,8 @@
 import { useNostr } from "@nostrify/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 
+import { stableZapsFor } from "@/components/chat/transport";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useEventStore } from "@/hooks/useEventStore";
 import { KIND_ZAP_RECEIPT, tallyZaps, type ZapTally } from "@/lib/zaps";
@@ -139,20 +140,7 @@ export function useZapReceipts(
   }, [receiptsQuery.data, user?.pubkey]);
 
   // Stable per-id MessageZaps objects (preserves React.memo on rows).
-  const objCache = useRef(new Map<string, { tally: ZapTally; value: MessageZaps }>());
-
-  const zapsFor = useCallback(
-    (id: string): MessageZaps | undefined => {
-      const tally = talliesById.get(id);
-      if (!tally) return undefined;
-      const hit = objCache.current.get(id);
-      if (hit && hit.tally === tally) return hit.value;
-      const value: MessageZaps = { tally };
-      objCache.current.set(id, { tally, value });
-      return value;
-    },
-    [talliesById],
-  );
+  const zapsFor = useMemo(() => stableZapsFor((id) => talliesById.get(id)), [talliesById]);
 
   return { zapsFor };
 }

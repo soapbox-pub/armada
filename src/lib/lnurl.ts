@@ -21,6 +21,16 @@ export interface LnurlPayParams {
   allowsNostr: boolean;
 }
 
+/** Require https (LUD-06 does too): a profile field must not be able to point
+ * payment traffic at plain http or, worse, probe intranet hosts over it. */
+function httpsOnly(url: string): string | null {
+  try {
+    return new URL(url).protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 /** lud16 `name@domain` → LNURL-pay metadata URL. */
 function lud16Url(address: string): string | null {
   const match = address.trim().match(/^([\w.+-]+)@([\w.-]+)$/);
@@ -29,11 +39,11 @@ function lud16Url(address: string): string | null {
   return `https://${domain}/.well-known/lnurlp/${name.toLowerCase()}`;
 }
 
-/** lud06 bech32 `lnurl1…` → its embedded URL. */
+/** lud06 bech32 `lnurl1…` → its embedded URL (https only). */
 function lud06Url(lnurl: string): string | null {
   try {
     const { words } = bech32.decode(lnurl.trim().toLowerCase() as `${string}1${string}`, 20000);
-    return new TextDecoder().decode(bech32.fromWords(words));
+    return httpsOnly(new TextDecoder().decode(bech32.fromWords(words)));
   } catch {
     return null;
   }
@@ -60,7 +70,7 @@ export async function resolveLnurlPay(
   if (data.status === "ERROR") {
     throw new Error(typeof data.reason === "string" ? data.reason : "Lightning wallet service error.");
   }
-  if (data.tag !== "payRequest" || typeof data.callback !== "string") {
+  if (data.tag !== "payRequest" || typeof data.callback !== "string" || !httpsOnly(data.callback)) {
     throw new Error("Recipient's lightning address doesn't accept payments.");
   }
   return {

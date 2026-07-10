@@ -3,8 +3,8 @@
  *
  *  - NIP-29 group chat: standard NIP-57. The LNURL provider publishes a public
  *    kind-9735 receipt to our app relays; we aggregate receipts per message
- *    ({@link tallyZaps}) and decode amounts defensively across the three
- *    places an amount can live.
+ *    ({@link tallyZaps}), verifying the embedded request's signature and
+ *    holding the bolt11 invoice as the single source of truth for amounts.
  *
  *  - Concord v2 channels: CORD.md private zaps. No public event exists — the
  *    payer seals a kind-9735-shaped rumor (NIP-57 receipt shape + `preimage`
@@ -19,8 +19,20 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { decode as decodeBolt11 } from "light-bolt11-decoder";
+import { verifyEvent } from "nostr-tools/pure";
 
 import type { NostrEvent } from "@nostrify/nostrify";
+import type { Event as NostrToolsEvent } from "nostr-tools/pure";
+
+/**
+ * Bounded insertion-order cache (receipts and rumors are immutable, so a
+ * verdict never changes; the cap only bounds memory over a long session).
+ */
+function boundedSet<K, V>(map: Map<K, V>, key: K, value: V, cap = 4096): V {
+  if (map.size >= cap) map.delete(map.keys().next().value as K);
+  map.set(key, value);
+  return value;
+}
 
 export const KIND_ZAP_RECEIPT = 9735;
 
@@ -100,44 +112,65 @@ function tagValue(ev: NostrEvent, name: string): string | undefined {
   return ev.tags.find((t) => t[0] === name)?.[1];
 }
 
-/** The embedded, provider-verified kind-9734 zap request, or null. */
+/**
+ * The embedded kind-9734 zap request, or null. The request's own signature is
+ * verified (it's the only self-authenticating part of a receipt): without
+ * that check, anyone could attribute a zap to an arbitrary pubkey — including
+ * the viewer's own, spoofing the "you zapped this" state.
+ *
+ * Verified per receipt id once per session (receipts are immutable).
+ */
+const requestCache = new Map<string, NostrEvent | null>();
 export function receiptZapRequest(receipt: NostrEvent): NostrEvent | null {
+  const hit = requestCache.get(receipt.id);
+  if (hit !== undefined) return hit;
+
   const description = tagValue(receipt, "description");
-  if (!description) return null;
+  if (!description) return boundedSet(requestCache, receipt.id, null);
   try {
     const request = JSON.parse(description) as NostrEvent;
-    if (request && typeof request.pubkey === "string" && request.kind === 9734) {
-      return request;
-    }
-    return null;
+    const valid =
+      request &&
+      request.kind === 9734 &&
+      typeof request.pubkey === "string" &&
+      verifyEvent(request as NostrToolsEvent);
+    return boundedSet(requestCache, receipt.id, valid ? request : null);
   } catch {
-    return null;
+    return boundedSet(requestCache, receipt.id, null);
   }
 }
 
 /**
- * A receipt's amount in sats, checked across the three places it can live:
- * the receipt's own `amount` tag, the embedded zap request's `amount` tag,
- * and finally the bolt11 invoice itself.
+ * A receipt's amount in sats. The bolt11 invoice is the source of truth
+ * (NIP-57 receipts MUST carry one); a receipt whose embedded request names a
+ * different amount than the invoice is inconsistent and worth nothing. The
+ * receipt's own `amount` tag is provider-added convenience and never trusted
+ * alone.
  */
-export function receiptAmountSats(receipt: NostrEvent): number {
-  const own = Number(tagValue(receipt, "amount"));
-  if (Number.isFinite(own) && own > 0) return Math.floor(own / 1000);
-  const request = receiptZapRequest(receipt);
-  if (request) {
-    const requested = Number(request.tags.find((t) => t[0] === "amount")?.[1]);
-    if (Number.isFinite(requested) && requested > 0) return Math.floor(requested / 1000);
-  }
+export function receiptAmountSats(receipt: NostrEvent, request: NostrEvent): number {
   const bolt11 = tagValue(receipt, "bolt11");
-  if (bolt11) return bolt11AmountSats(bolt11) ?? 0;
-  return 0;
+  if (!bolt11) return 0;
+  const { amountMsats } = bolt11Info(bolt11);
+  if (amountMsats === null) return 0;
+  const requested = Number(request.tags.find((t) => t[0] === "amount")?.[1]);
+  if (Number.isFinite(requested) && requested > 0 && requested !== amountMsats) return 0;
+  return Math.floor(amountMsats / 1000);
 }
 
 /**
  * Fold public kind-9735 receipts for ONE target message into a tally.
- * Guards: dedupe by receipt id, and drop receipts whose embedded zap request
- * doesn't actually name `targetId` in its `e` tag (a relay answering a `#e`
- * query is trusted for routing, not for content).
+ *
+ * Guards (a relay answering a `#e` query is trusted for routing, not for
+ * content): dedupe by receipt id AND by the invoice's payment hash (the same
+ * payment republished under a new receipt id counts once); drop receipts
+ * whose embedded zap request doesn't name `targetId`, fails signature
+ * verification, or claims an amount its invoice doesn't carry.
+ *
+ * Residual trust: we don't pin the receipt's author to the recipient's LNURL
+ * `nostrPubkey` — that would take an LNURL fetch per message author at render
+ * time, leaking every reader's IP to every author's wallet provider. So a
+ * determined forger can still mint an unpaid invoice + self-signed request;
+ * what's closed here is impersonation and free amount inflation.
  */
 export function tallyZaps(
   receipts: NostrEvent[],
@@ -145,14 +178,20 @@ export function tallyZaps(
   userPubkey?: string,
 ): ZapTally {
   const seen = new Set<string>();
+  const seenHashes = new Set<string>();
   const zaps: ZapEntry[] = [];
   for (const receipt of receipts) {
     if (receipt.kind !== KIND_ZAP_RECEIPT || seen.has(receipt.id)) continue;
     const request = receiptZapRequest(receipt);
     if (!request) continue;
     if (!request.tags.some((t) => t[0] === "e" && t[1] === targetId)) continue;
-    const sats = receiptAmountSats(receipt);
+    const sats = receiptAmountSats(receipt, request);
     if (sats <= 0) continue;
+    const { paymentHash } = bolt11Info(tagValue(receipt, "bolt11") ?? "");
+    if (paymentHash) {
+      if (seenHashes.has(paymentHash)) continue;
+      seenHashes.add(paymentHash);
+    }
     seen.add(receipt.id);
     zaps.push({ id: receipt.id, pubkey: request.pubkey, sats, comment: request.content ?? "" });
   }
@@ -171,32 +210,38 @@ export function tallyZaps(
  * Verify a CORD.md zap rumor's payment proof (§4):
  *   - sha256(preimage) equals the bolt11 invoice's payment hash, and
  *   - the `amount` tag equals the invoice's encoded amount (millisats).
- * Channel/epoch binding is the plane decoder's job (it checks every chat
- * rumor); this checks only what is zap-specific. Never throws.
+ * Returns the invoice's payment hash on success (the fold dedupes on it —
+ * every settled payment counts at most once per channel, §4), null on any
+ * failure. Channel/epoch binding is the plane decoder's job (it checks every
+ * chat rumor); this checks only what is zap-specific. Never throws.
  */
 export function verifyZapRumor(rumor: {
   kind: number;
   tags: string[][];
-}): boolean {
-  if (rumor.kind !== KIND_ZAP_RECEIPT) return false;
+}): string | null {
+  if (rumor.kind !== KIND_ZAP_RECEIPT) return null;
   const find = (name: string) => rumor.tags.find((t) => t[0] === name)?.[1];
   const bolt11 = find("bolt11");
   const preimage = find("preimage");
   const amount = Number(find("amount"));
-  if (!bolt11 || !preimage || !/^[0-9a-f]{64}$/.test(preimage)) return false;
-  if (!Number.isFinite(amount) || amount <= 0) return false;
+  if (!bolt11 || !preimage || !/^[0-9a-f]{64}$/.test(preimage)) return null;
+  if (!Number.isFinite(amount) || amount <= 0) return null;
 
   const { amountMsats, paymentHash } = bolt11Info(bolt11);
-  if (!paymentHash || amountMsats === null) return false; // amountless invoices are not zappable
-  if (amountMsats !== amount) return false;
+  if (!paymentHash || amountMsats === null) return null; // amountless invoices are not zappable
+  if (amountMsats !== amount) return null;
   try {
-    return bytesToHex(sha256(hexToBytes(preimage))) === paymentHash;
+    return bytesToHex(sha256(hexToBytes(preimage))) === paymentHash ? paymentHash : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-/** Build the CORD.md zap rumor tag set (binding tags are added by the send path). */
+/**
+ * Build the CORD.md zap rumor tag set (binding tags are added by the send
+ * path). `omitTarget` skips the `e` tag for senders whose transport appends
+ * the target itself.
+ */
 export function zapRumorTags(opts: {
   targetId: string;
   targetKind: number;
@@ -204,9 +249,10 @@ export function zapRumorTags(opts: {
   amountMsats: number;
   bolt11: string;
   preimage: string;
+  omitTarget?: boolean;
 }): string[][] {
   return [
-    ["e", opts.targetId],
+    ...(opts.omitTarget ? [] : [["e", opts.targetId]]),
     ["p", opts.recipient],
     ["k", String(opts.targetKind)],
     ["amount", String(opts.amountMsats)],

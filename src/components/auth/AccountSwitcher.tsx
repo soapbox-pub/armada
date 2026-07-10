@@ -19,6 +19,7 @@ import { ServerProfileDialog } from '@/components/dialogs/ServerProfileDialog';
 import { StatusDialog } from '@/components/dialogs/StatusDialog';
 import { clearRenderedPlaintext } from '@/hooks/dmRenderCache';
 import { purgeClientStorage } from '@/lib/purgeClientStorage';
+import { clearWalletStorage } from '@/lib/walletStorage';
 
 interface AccountSwitcherProps {
   onAddAccountClick: () => void;
@@ -45,6 +46,9 @@ export function AccountSwitcher({ onAddAccountClick }: AccountSwitcherProps) {
     // Use setTimeout to ensure the dropdown closes before removing login
     setTimeout(() => {
       removeLogin(currentUser.id);
+      // The removed account's NWC wallet secrets must not outlive it (the
+      // full purge below only runs on the final logout).
+      clearWalletStorage(currentUser.pubkey);
       clearRenderedPlaintext();
       if (isLastAccount) {
         void purgeClientStorage().finally(() => window.location.assign('/welcome'));

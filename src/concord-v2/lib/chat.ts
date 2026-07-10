@@ -169,11 +169,14 @@ export interface FoldedTimeline {
 }
 
 /**
- * Per-rumor CORD.md verdict cache: verification hashes the preimage and
- * decodes the invoice, and a rumor's tags never change, so each zap is judged
- * exactly once per session no matter how many folds re-run over it.
+ * Per-rumor CORD.md verdict cache (payment hash when valid, null when not):
+ * verification hashes the preimage and decodes the invoice, and a rumor's
+ * tags never change, so each zap is judged exactly once per session no matter
+ * how many folds re-run over it. Capped so a long session can't grow it
+ * without bound.
  */
-const zapVerdicts = new Map<string, boolean>();
+const zapVerdicts = new Map<string, string | null>();
+const ZAP_VERDICT_CAP = 8192;
 
 /**
  * Fold a batch of opened chat events into the channel timeline: drop banned
@@ -197,7 +200,13 @@ export function foldTimeline(opened: OpenedChat[], moderation?: ChatModeration):
   // author's legitimate one).
   const edits = new Map<string, Array<{ author: string; content: string; ms: number }>>();
   const reactions = new Map<string, Map<string, ReactionEntry>>();
-  const zaps = new Map<string, ZapEntry[]>();
+  // Verified zap candidates, deduped by payment hash after the loop: a
+  // preimage is visible to every member once announced, so without this any
+  // member could re-post someone else's proof (or the payer could reuse one
+  // payment across messages) and inflate tallies. One settled payment counts
+  // once per channel (CORD.md §4); the earliest rumor (ms, then rumorId) wins
+  // deterministically so every member folds the same tally.
+  const zapCandidates: Array<{ target: string; hash: string; ms: number; entry: ZapEntry }> = [];
 
   for (const ev of opened) {
     if (moderation?.banned.has(ev.author)) continue;
@@ -237,21 +246,25 @@ export function foldTimeline(opened: OpenedChat[], moderation?: ChatModeration):
       if (!target) continue;
       let verdict = zapVerdicts.get(ev.rumorId);
       if (verdict === undefined) {
+        if (zapVerdicts.size >= ZAP_VERDICT_CAP) {
+          zapVerdicts.delete(zapVerdicts.keys().next().value as string);
+        }
         verdict = verifyZapRumor({ kind: ev.kind, tags: ev.tags });
         zapVerdicts.set(ev.rumorId, verdict);
       }
       if (!verdict) continue;
       const msats = Number(ev.tags.find((t) => t[0] === "amount")?.[1]);
-      let list = zaps.get(target);
-      if (!list) zaps.set(target, (list = []));
-      if (!list.some((z) => z.id === ev.rumorId)) {
-        list.push({
+      zapCandidates.push({
+        target,
+        hash: verdict,
+        ms: ev.ms,
+        entry: {
           id: ev.rumorId,
           pubkey: ev.author,
           sats: Math.floor(msats / 1000),
           comment: ev.content,
-        });
-      }
+        },
+      });
       continue;
     }
     if (ev.kind === KIND_MESSAGE || ev.kind === KIND_COMMENT) {
@@ -281,6 +294,21 @@ export function foldTimeline(opened: OpenedChat[], moderation?: ChatModeration):
       deleters.has(msg.author) ||
       (moderation && [...deleters].some((d) => moderation.canDelete(d, msg.author)));
     if (deleted) byId.delete(id);
+  }
+
+  // Zaps: one payment counts once. Earliest claimant of a payment hash wins;
+  // duplicates (replayed proofs, batch overlap) are dropped.
+  const zaps = new Map<string, ZapEntry[]>();
+  const claimedHashes = new Set<string>();
+  zapCandidates.sort((a, b) =>
+    a.ms !== b.ms ? a.ms - b.ms : a.entry.id < b.entry.id ? -1 : a.entry.id > b.entry.id ? 1 : 0,
+  );
+  for (const { target, hash, entry } of zapCandidates) {
+    if (claimedHashes.has(hash)) continue;
+    claimedHashes.add(hash);
+    let list = zaps.get(target);
+    if (!list) zaps.set(target, (list = []));
+    list.push(entry);
   }
 
   return {

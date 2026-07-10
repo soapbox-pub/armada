@@ -6,6 +6,7 @@ import { ChatComposer } from "@/components/chat/ChatComposer";
 import { ChatContent } from "@/components/chat/ChatContent";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
 import { ReactionBar, ReactionPicker } from "@/components/chat/ReactionBar";
+import { ZapButton } from "@/components/chat/ZapButton";
 import { ZapDialog } from "@/components/chat/ZapDialog";
 import { ZapPill } from "@/components/chat/ZapPill";
 import { DittoIcon } from "@/components/brand/DittoIcon";
@@ -25,7 +26,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
@@ -43,6 +43,10 @@ import type { ChatMsg, ChatTransport, MessageReactions, MessageZaps, ZapPayment 
  * `CONTINUATION_WINDOW_SECONDS` in MessageTimeline.
  */
 const CONTINUATION_WINDOW_SECONDS = 5 * 60;
+
+/** Stable no-op for a zap-only pill row (no reactions resolved), so the
+ * ReactionBar keeps a constant prop instead of a fresh closure per render. */
+const NOOP_REACT = () => {};
 
 /** A single message row inside the thread panel (root or reply). */
 function ThreadMessage({
@@ -149,7 +153,7 @@ function ThreadMessage({
               <ReactionBar
                 tallies={reactions?.tallies ?? []}
                 canReact={canReact}
-                onReact={reactions?.react ?? (() => {})}
+                onReact={reactions?.react ?? NOOP_REACT}
                 leading={
                   zaps && zaps.tally.count > 0 ? (
                     <ZapPill
@@ -165,25 +169,7 @@ function ThreadMessage({
           {(canReact && reactions) || canZap ? (
             <div className="absolute right-1.5 top-1 flex items-center opacity-0 group-hover/threadmsg:opacity-100 focus-within:opacity-100 transition-opacity">
               {canReact && reactions && <ReactionPicker onReact={reactions.react} />}
-              {canZap && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Zap message"
-                      disabled={zapDisabled}
-                      className="size-9 md:size-7 text-muted-foreground hover:text-amber-500 disabled:opacity-40"
-                      onClick={() => setZapOpen(true)}
-                    >
-                      <Zap className="size-[18px] md:size-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {zapDisabled ? "No lightning address on their profile" : "Zap message"}
-                  </TooltipContent>
-                </Tooltip>
-              )}
+              {canZap && <ZapButton disabled={zapDisabled} onOpen={() => setZapOpen(true)} />}
             </div>
           ) : null}
         </div>

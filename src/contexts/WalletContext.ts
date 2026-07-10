@@ -1,16 +1,9 @@
 import { createContext } from "react";
 
+import type { NWCConnection } from "@/lib/walletStorage";
 import type { WebLNProvider } from "@webbtc/webln-types";
 
-/** One saved Nostr Wallet Connect (NIP-47) connection. */
-export interface NWCConnection {
-  /** The full nostr+walletconnect:// URI. SECRET — never synced, never rendered whole. */
-  connectionString: string;
-  /** User-facing label ("Alby Hub", "Coinos", …). */
-  alias: string;
-  /** ms timestamp, for stable ordering. */
-  addedAt: number;
-}
+export type { NWCConnection };
 
 export interface WalletContextType {
   /** Saved NWC connections for the CURRENT account (local-only storage). */

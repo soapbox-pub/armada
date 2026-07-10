@@ -51,7 +51,9 @@ publishes anything.
    LNURL-pay. The client MUST NOT include a NIP-57 `nostr` parameter in the
    callback: its presence is what causes a provider to mint a public kind `9735`
    receipt. Without it, the provider sees an ordinary Lightning payment and
-   produces no Nostr event anywhere.
+   produces no Nostr event anywhere. The client MUST NOT include the LNURL
+   `comment` parameter either — the zap comment belongs to the sealed
+   announcement alone (§5), not to the recipient's wallet provider.
 3. **Pay** with a method that returns the preimage — NIP-47 `pay_invoice` and
    WebLN `sendPayment` both do. A payment path that never reveals the preimage
    to the client (scanning the invoice with an external wallet) cannot produce a
@@ -102,6 +104,13 @@ unless all of it holds:
 - **Amount**: the `amount` tag equals the invoice's encoded amount, in millisats.
 - **Binding**: `channel` and `epoch` strict-equal the Channel and epoch whose
   key decrypted the wrap (CORD-03 §3), like every chat rumor.
+- **Uniqueness**: the invoice's `payment_hash` has not already been counted in
+  this Channel. A published Zap reveals its preimage to every member, so
+  without this rule anyone could replay someone else's proof — as their own
+  zap, or on another message — and one payment would count many times. When
+  several verified Zaps carry the same `payment_hash`, exactly one enters
+  totals, chosen deterministically (lowest `ms`, then lowest rumor id) so all
+  members agree.
 
 The `e`-referenced message MAY be one the receiver has not yet seen — a Zap is
 held and folded when its target arrives, exactly as a reaction to an unseen
@@ -109,15 +118,17 @@ message is. A client MAY render an event that fails the payment or amount check
 as an unverified claim, but it never enters totals.
 
 **What the proof does and does not bind.** Invoice + preimage prove that *this
-payer settled this invoice for this amount* — value verifiably left their
-wallet. They do not cryptographically prove the invoice credited the `p`-tagged
-recipient: a custodial provider's invoice does not name its account holder, and
-any LNURL endpoint will happily issue an invoice. That last link is the payer's
-word, carried by their real signature on the seal — the same authorship trust
-every message in the plane already rests on — backed by economics: fabricating a
-Zap means actually paying the claimed sats to someone, so a forger can
-misattribute value but never mint it. Totals stay honest in aggregate the way
-proof-of-burn is honest.
+invoice was settled for this amount* — value verifiably moved, exactly once
+per Channel (the uniqueness rule). They do not cryptographically prove the
+invoice credited the `p`-tagged recipient, or that the seal's signer was the
+one who paid: a custodial provider's invoice does not name its account holder,
+any LNURL endpoint will happily issue an invoice, and a preimage learned
+out-of-band could be announced in a Channel that never saw the original. Those
+links are the payer's word, carried by their real signature on the seal — the
+same authorship trust every message in the plane already rests on — backed by
+economics: fabricating a Zap means actually paying the claimed sats to
+someone, so within a Channel a forger can misattribute value but never mint
+it. Totals stay honest in aggregate the way proof-of-burn is honest.
 
 ### 5. Privacy
 
@@ -169,8 +180,10 @@ In the Armada client:
 - `client/src/lib/zaps.ts` — `verifyZapRumor` (the §4 proof check), tag builder,
   and bolt11 decoding.
 - `client/src/hooks/useZap.ts` + `client/src/lib/lnurl.ts` — the §2 flow
-  (LNURL-pay without the `nostr` parameter, pay, obtain preimage).
+  (LNURL-pay without the `nostr` or `comment` parameters, pay, obtain
+  preimage).
 - `client/src/concord-v2/lib/chat.ts` — folds verified Zaps into per-message
-  tallies; unverified ones never enter totals.
+  tallies, one per `payment_hash` (§4 uniqueness); unverified ones never enter
+  totals.
 - `client/src/concord-v2/hooks/useTransport2.ts` — seals and publishes the Zap
   rumor (`sendZap`).

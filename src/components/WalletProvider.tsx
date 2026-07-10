@@ -1,27 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
-import { WalletContext, type NWCConnection, type WalletContextType } from "@/contexts/WalletContext";
+import { WalletContext, type WalletContextType } from "@/contexts/WalletContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { readActive, readConnections, writeWalletStorage, type NWCConnection } from "@/lib/walletStorage";
 import { bolt11Info } from "@/lib/zaps";
 
 import type { LN } from "@getalby/sdk";
 import type { WebLNProvider } from "@webbtc/webln-types";
 
 /** Load the NWC SDK on first use — it's heavy and most sessions never pay. */
-async function loadLN(): Promise<typeof LN> {
-  const { LN: LNClass } = await import("@getalby/sdk");
-  return LNClass;
+async function loadSdk(): Promise<typeof import("@getalby/sdk")> {
+  return import("@getalby/sdk");
 }
 
 /**
  * Lightning wallet state for the current account.
  *
  * NWC connection URIs are wallet-spending SECRETS: they live in per-account
- * plain localStorage keys, are never written to the encrypted settings sync
- * (a NIP-78 event on relays is the wrong place for a spending key), and the
- * UI only ever renders their alias + wallet-service pubkey prefix.
- * Follow-up: move the backing store to the platform keystore on Capacitor
- * (Ditto's secureStorage adapter migrates transparently).
+ * plain localStorage keys (see src/lib/walletStorage.ts — never synced, only
+ * the alias + wallet-service pubkey prefix are ever rendered, purged when the
+ * account is removed).
  *
  * Storage is keyed by pubkey and re-read on account switch, so wallets never
  * leak between accounts. Ported from Ditto's useNWC (validation budgets,
@@ -39,29 +37,6 @@ const CONNECT_TIMEOUT_MS = 10_000;
  */
 const PAY_TIMEOUT_MS = 90_000;
 
-const connectionsKey = (pubkey: string) => `armada:nwc-connections:${pubkey}`;
-const activeKey = (pubkey: string) => `armada:nwc-active:${pubkey}`;
-
-function readConnections(pubkey: string | undefined): NWCConnection[] {
-  if (!pubkey) return [];
-  try {
-    const raw = localStorage.getItem(connectionsKey(pubkey));
-    const parsed = raw ? (JSON.parse(raw) as NWCConnection[]) : [];
-    return Array.isArray(parsed) ? parsed.filter((c) => typeof c?.connectionString === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function readActive(pubkey: string | undefined): string | null {
-  if (!pubkey) return null;
-  try {
-    return localStorage.getItem(activeKey(pubkey));
-  } catch {
-    return null;
-  }
-}
-
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), ms);
@@ -76,12 +51,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
       },
     );
   });
-}
-
-/** The wallet-service pubkey a NWC URI points at (its "host" part), or "". */
-export function nwcWalletPubkey(uri: string): string {
-  const match = uri.match(/^nostr\+?walletconnect:\/\/([0-9a-f]{64})/i);
-  return match ? match[1].toLowerCase() : "";
 }
 
 /**
@@ -144,14 +113,7 @@ const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =
     (next: NWCConnection[], nextActive: string | null) => {
       setConnections(next);
       setActiveString(nextActive);
-      if (!pubkey) return;
-      try {
-        localStorage.setItem(connectionsKey(pubkey), JSON.stringify(next));
-        if (nextActive) localStorage.setItem(activeKey(pubkey), nextActive);
-        else localStorage.removeItem(activeKey(pubkey));
-      } catch {
-        // Storage unavailable — connections survive for the session only.
-      }
+      if (pubkey) writeWalletStorage(pubkey, next, nextActive);
     },
     [pubkey],
   );
@@ -171,7 +133,7 @@ const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =
       try {
         await withTimeout(
           (async () => {
-            const LNClass = await loadLN();
+            const { LN: LNClass } = await loadSdk();
             client = new LNClass(trimmed);
             await client.nwcClient.getInfo();
           })(),
@@ -225,25 +187,23 @@ const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =
       try {
         return await withTimeout(
           (async () => {
-            const LNClass = await loadLN();
-            client = new LNClass(connection.connectionString);
+            const sdk = await loadSdk();
+            client = new sdk.LN(connection.connectionString);
             try {
               const result = await client.pay(invoice);
               if (result?.preimage) return { preimage: result.preimage };
               // Paid, but the reply carried no preimage — recover it by lookup.
               return { preimage: await recoverPreimage(client, invoice) };
             } catch (payErr) {
-              // A timeout means the wallet's response (and the preimage with
-              // it) was lost, but the payment almost certainly settled — like
+              // A NIP-47 timeout means the wallet's response (and the preimage
+              // with it) was lost, but the payment very likely settled — like
               // Ditto, we DON'T fail the zap over a lost ack. Try to recover
               // the preimage (CORD.md needs it), but return null rather than
               // throw when we can't: the NIP-29 caller doesn't need it (the
               // provider's public receipt confirms the zap), and the private
               // caller decides for itself whether a null proof is fatal.
-              // A NON-timeout error is a genuine payment failure — surface it.
-              const message = payErr instanceof Error ? payErr.message.toLowerCase() : "";
-              const isTimeout = message.includes("timeout") || message.includes("timed out");
-              if (!isTimeout) {
+              // Any other error is a genuine payment failure — surface it.
+              if (!(payErr instanceof sdk.Nip47TimeoutError)) {
                 throw payErr instanceof Error ? payErr : new Error("Payment failed.");
               }
               return { preimage: await recoverPreimage(client, invoice) };
