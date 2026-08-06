@@ -21,6 +21,7 @@ import {
   refreshRelays,
   rehydrateCommunity,
   removeFromList,
+  setControlRoot,
   type CommunityList,
   type PersistedCommunityList,
   type CommunityListEntry,
@@ -209,7 +210,14 @@ export type CommunityListAction =
       /** Channels a rotation cut me out of, with the epoch that did it. */
       cuts?: CommunityListEntry["channel_cuts"];
     }
-  | { type: "refresh-relays"; communityId: string; relays: string[] };
+  | { type: "refresh-relays"; communityId: string; relays: string[] }
+  | {
+      /** A verified `control_wrap` adoption (CORD-04 §3) — see {@link setControlRoot}. */
+      type: "set-control-root";
+      communityId: string;
+      epoch: number;
+      controlRootHex: string;
+    };
 
 function applyAction(list: CommunityList, action: CommunityListAction): CommunityList {
   switch (action.type) {
@@ -225,6 +233,8 @@ function applyAction(list: CommunityList, action: CommunityListAction): Communit
       return refreshChannels(list, action.communityId, action.channels, action.cuts);
     case "refresh-relays":
       return refreshRelays(list, action.communityId, action.relays);
+    case "set-control-root":
+      return setControlRoot(list, action.communityId, action.epoch, action.controlRootHex);
   }
 }
 

@@ -26,7 +26,7 @@ import {
   baseRekeyGroupKey,
   channelRekeyGroupKey,
   dissolvedGroupKey,
-  type GroupKey,
+  type StreamKeyView,
 } from "@/concord-v2/lib/derive";
 import { KIND_WRAP } from "@/concord-v2/lib/kinds";
 import { registerStreamKeys } from "@/concord-v2/lib/streamAuth";
@@ -76,8 +76,8 @@ const PUBLISH_CONCURRENCY = 10;
  * Every stream address whose history a new relay needs. Derivable entirely
  * from the member's own key material — no fold required.
  */
-export function mirrorGroups(community: CommunityV2): GroupKey[] {
-  const groups: GroupKey[] = [
+export function mirrorGroups(community: CommunityV2): StreamKeyView[] {
+  const groups: StreamKeyView[] = [
     ...controlGroups(community),
     ...guestbookGroups(community),
     dissolvedGroupKey(community.id),

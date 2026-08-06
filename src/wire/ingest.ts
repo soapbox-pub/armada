@@ -1,6 +1,6 @@
 import { openChatBatch } from "@/concord-v2/lib/chat";
 import { KIND_MESSAGE, KIND_REACTION } from "@/concord-v2/lib/kinds";
-import type { GroupKey } from "@/concord-v2/lib/derive";
+import type { StreamKeyView } from "@/concord-v2/lib/derive";
 import { notePlaneWrapsJunk, notePlaneWrapsSeen, openPlaneWrapsChunked, unseenPlaneWraps } from "@/concord-v2/lib/planeSync";
 import { parkPendingWraps, writeOpened, writeRumors } from "@/concord-v2/lib/rumorStore";
 import { bufferLiveDmWraps } from "@/lib/nip17/dm17Store";
@@ -219,7 +219,7 @@ export async function ingestWireEvents(
   if (ctlWraps.length > 0 && spec) {
     const byCommunity = new Map<
       string,
-      { groups: GroupKey[]; refounded: boolean; wraps: NostrEvent[] }
+      { groups: StreamKeyView[]; refounded: boolean; wraps: NostrEvent[] }
     >();
     for (const ev of ctlWraps) {
       const entry = spec.v2CtlByPk.get(ev.pubkey);

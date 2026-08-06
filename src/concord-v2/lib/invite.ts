@@ -39,6 +39,16 @@ export interface InviteBundle {
   owner_salt: string;
   community_root: string;
   root_epoch: number;
+  /**
+   * The Control Plane's signer pubkey at `root_epoch` (CORD-02 §5): subscribe,
+   * verify, read — never write. Absent = a legacy, pre-split Community (fold
+   * Control at the legacy address, CORD-06 §3). Taken on trust — it derives
+   * from a secret the joiner never holds, so nothing in the bundle can prove
+   * it; a wrong one is eclipse-class self-harm by the inviter (the joiner
+   * reads a stale/empty plane), never forged authority, and a later verified
+   * base rotation re-delivers the true key (CORD-05 §1).
+   */
+  control_pk?: string;
   /** The granted (private) Channels. */
   channels: Array<{ id: string; key: string; epoch: number; name: string }>;
   relays: string[];

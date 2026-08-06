@@ -261,6 +261,9 @@ export function useInviteActions2(community: CommunityV2 | undefined) {
       owner_salt: bytesToHex(src.ownerSalt),
       community_root: bytesToHex(src.root),
       root_epoch: Number(src.rootEpoch),
+      // Read access to the Control Plane, never write (CORD-02 §7); absent on
+      // a legacy pre-split epoch.
+      ...(src.controlPk ? { control_pk: src.controlPk } : {}),
       channels: vendable.map((ch) => ({
         id: bytesToHex(ch.id),
         key: bytesToHex(ch.key),

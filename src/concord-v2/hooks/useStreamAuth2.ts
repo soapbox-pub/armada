@@ -3,10 +3,10 @@ import { useEffect } from "react";
 import {
   baseRekeyGroupKey,
   channelRekeyGroupKey,
-  controlGroupKey,
   dissolvedGroupKey,
   guestbookGroupKey,
   type GroupKey,
+  type StreamKeyView,
 } from "@/concord-v2/lib/derive";
 import { CHANNEL_REKEY_LOOKAHEAD } from "@/concord-v2/lib/rekey";
 import { registerStreamKeys } from "@/concord-v2/lib/streamAuth";
@@ -15,7 +15,7 @@ import { useChannels2, controlFoldKey } from "@/concord-v2/hooks/useControlPlane
 import { useCommunity2, useLiveCommunities2 } from "@/concord-v2/hooks/useCommunityList2";
 import { rehydrateCommunity } from "@/concord-v2/lib/communityList";
 import { channelsView } from "@/concord-v2/lib/community";
-import { readControlFold } from "@/concord-v2/lib/control";
+import { controlGroups, readControlFold } from "@/concord-v2/lib/control";
 import { onFoldedWrite } from "@/lib/foldedCache";
 import { logSync } from "@/lib/syncLog";
 
@@ -24,17 +24,19 @@ import { logSync } from "@/lib/syncLog";
  * planes on an auth-gating relay (see {@link streamAuth}). These are derivable
  * without the Control fold — enough to unblock the very first control REQ:
  *
- *   - the Control Plane, every held root epoch (channels fold from here);
+ *   - the Control Plane, every held root epoch (channels fold from here) —
+ *     for a split epoch this is the held `control_pk`, an ADDRESS-ONLY
+ *     registration for a non-staff member (there is no secret to sign a
+ *     NIP-42 challenge with, and the relay must not gate reads on it);
  *   - the Guestbook Plane, every held epoch (the member list);
  *   - the dissolution tombstone address (id-derived);
  *   - the NEXT base-rekey address (the rekey watcher polls it).
  *
  * Channel stream keys are added separately once the fold names them.
  */
-function communityCoreKeys(community: CommunityV2): GroupKey[] {
-  const keys: GroupKey[] = [];
+function communityCoreKeys(community: CommunityV2): StreamKeyView[] {
+  const keys: StreamKeyView[] = [...controlGroups(community)];
   for (const r of community.heldRoots) {
-    keys.push(controlGroupKey(r.key, community.id, r.epoch));
     keys.push(guestbookGroupKey(r.key, community.id, r.epoch));
   }
   keys.push(dissolvedGroupKey(community.id));
@@ -87,11 +89,11 @@ export function useRegisterAllStreamKeys2(): void {
 
     const register = async () => {
       // Gather all keys first, then register in one burst — one AUTH wave per relay.
-      const batches: Array<{ keys: GroupKey[]; relays: string[]; idHex: string }> = [];
+      const batches: Array<{ keys: StreamKeyView[]; relays: string[]; idHex: string }> = [];
       for (const entry of communities) {
         const community = rehydrateCommunity(entry);
         if (!community) continue;
-        const keys: GroupKey[] = communityCoreKeys(community);
+        const keys: StreamKeyView[] = communityCoreKeys(community);
         // Per-channel keys from the persisted fold (may be absent on a
         // never-synced community — then only core keys register until it folds).
         try {

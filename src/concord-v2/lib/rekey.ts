@@ -7,16 +7,26 @@
  * every current holder can find it, and a removed member finding no blob for
  * their locator across ALL chunks knows they're out.
  *
- * The wrapped plaintext is fixed-width — `scope_id[32] ‖ epoch_be[8] ‖
- * new_key[32]` — NIP-44-encrypted under the Rotator↔recipient pairwise key
+ * The wrapped plaintext is fixed-width PER FORM, the width declaring the form
+ * (CORD-06 §1), NIP-44-encrypted under the Rotator↔recipient pairwise key
  * (one ECDH either side can compute, so a NIP-46 bunker opens its blob with a
- * single nip44_decrypt). NOTE: signer nip44 interfaces carry STRINGS, so this
- * implementation transports the 72 bytes as base64 inside the NIP-44 plaintext
- * (the spec doesn't pin a byte-transport for string-only signers — flagged as
- * spec feedback).
+ * single nip44_decrypt):
+ *
+ *   - a Channel rotation's blob is 72 bytes:
+ *     `scope_id[32] ‖ epoch_be[8] ‖ new_key[32]`;
+ *   - a base rotation's member blob is 104, appending the next epoch's
+ *     `new_control_pk[32]` (CORD-02 §2);
+ *   - a staff recipient's is 136, appending `new_control_root[32]`;
+ *   - a 72-byte BASE blob is the legacy pre-split form — honored when reading
+ *     old rotations, never minted anew (CORD-06 §3).
+ *
+ * Any other width is malformed and the blob is dropped. NOTE: signer nip44
+ * interfaces carry STRINGS, so this implementation transports the raw bytes as
+ * base64 inside the NIP-44 plaintext (the spec doesn't pin a byte-transport
+ * for string-only signers — flagged as spec feedback).
  */
 
-import { bytesToHex, channelRekeyGroupKey, epochKeyCommitment, random32, recipientLocator } from "@/concord-v2/lib/derive";
+import { bytesToHex, channelRekeyGroupKey, controlSignerGroupKey, epochKeyCommitment, random32, recipientLocator } from "@/concord-v2/lib/derive";
 import { KIND_REKEY, KIND_SEAL_ENCRYPTED } from "@/concord-v2/lib/kinds";
 import { citationFromTags, citationToTag, isTagDecimal, type AuthorityCitation } from "@/concord-v2/lib/edition";
 import { buildRumor, type OpenedEvent } from "@/concord-v2/lib/stream";
@@ -51,7 +61,7 @@ export function rekeyScopeId(scope: RekeyScope): Uint8Array {
   return scope.kind === "channel" ? scope.channelId : ZERO32;
 }
 
-// ── The 72-byte wrapped plaintext ────────────────────────────────────────────
+// ── The wrapped plaintext (fixed-width per form, CORD-06 §1) ─────────────────
 
 /** `scope_id[32] ‖ epoch_be[8] ‖ new_key[32]` — scope and epoch live INSIDE the ciphertext. */
 export function encodeWrappedKey(scopeId: Uint8Array, newEpoch: bigint, newKey: Uint8Array): Uint8Array {
@@ -63,7 +73,25 @@ export function encodeWrappedKey(scopeId: Uint8Array, newEpoch: bigint, newKey: 
 }
 
 /**
- * Parse + verify a decrypted 72-byte blob against the event's tags: a
+ * A BASE rotation's blob: the 72-byte layout plus the next epoch's
+ * `new_control_pk[32]` (104 bytes, every member), a staff recipient's
+ * additionally `new_control_root[32]` (136 bytes) — CORD-06 §1.
+ */
+export function encodeWrappedBaseKey(
+  newEpoch: bigint,
+  newRoot: Uint8Array,
+  newControlPk: Uint8Array,
+  newControlRoot?: Uint8Array,
+): Uint8Array {
+  const out = new Uint8Array(newControlRoot ? 136 : 104);
+  out.set(encodeWrappedKey(ZERO32, newEpoch, newRoot), 0);
+  out.set(newControlPk, 72);
+  if (newControlRoot) out.set(newControlRoot, 104);
+  return out;
+}
+
+/**
+ * Parse + verify a decrypted 72-byte CHANNEL blob against the event's tags: a
  * recipient accepts the key only when the INNER scope and epoch match, which
  * is what makes a blob unspliceable across channels/epochs (CORD-06 §1).
  */
@@ -78,6 +106,51 @@ export function decodeWrappedKey(
   if (bytesToHex(scopeId) !== bytesToHex(expectedScopeId)) throw new Error("wrapped key scope mismatch");
   if (epoch !== expectedEpoch) throw new Error("wrapped key epoch mismatch");
   return plain.slice(40, 72);
+}
+
+/** A parsed base-rotation blob (CORD-06 §1); the width declared the form. */
+export interface WrappedBaseKey {
+  newRoot: Uint8Array;
+  /**
+   * The next epoch's Control Plane address (hex) — absent on a legacy 72-byte
+   * blob, whose acceptor folds that epoch's Control at the legacy
+   * member-derivable address instead (CORD-06 §3).
+   */
+  controlPk?: string;
+  /** The staff write secret (136-byte form only), already verified to derive to `controlPk`. */
+  controlRoot?: Uint8Array;
+}
+
+/**
+ * Parse + verify a decrypted BASE blob (CORD-06 §1). Accepts the three fixed
+ * widths — 72 (legacy pre-split), 104 (member), 136 (staff) — and drops any
+ * other as malformed. The scope must be the all-zero base scope and the epoch
+ * must match the event's tags (unspliceable), and a 136-byte blob's
+ * `new_control_root` must derive to exactly its `new_control_pk`
+ * (CORD-02 §5) — a mismatched pair is refused whole rather than adopting a
+ * plane split from its readers.
+ */
+export function decodeWrappedBaseKey(
+  plain: Uint8Array,
+  communityId: Uint8Array,
+  expectedEpoch: bigint,
+): WrappedBaseKey {
+  if (plain.length !== 72 && plain.length !== 104 && plain.length !== 136) {
+    throw new Error(`wrapped base key must be 72, 104 or 136 bytes, got ${plain.length}`);
+  }
+  const scopeId = plain.slice(0, 32);
+  const epoch = new DataView(plain.buffer, plain.byteOffset).getBigUint64(32, false);
+  if (bytesToHex(scopeId) !== ZERO32_HEX) throw new Error("wrapped key scope mismatch");
+  if (epoch !== expectedEpoch) throw new Error("wrapped key epoch mismatch");
+  const newRoot = plain.slice(40, 72);
+  if (plain.length === 72) return { newRoot };
+  const controlPk = bytesToHex(plain.slice(72, 104));
+  if (plain.length === 104) return { newRoot, controlPk };
+  const controlRoot = plain.slice(104, 136);
+  if (controlSignerGroupKey(controlRoot, communityId, expectedEpoch).pk !== controlPk) {
+    throw new Error("wrapped control_root does not derive to its control_pk");
+  }
+  return { newRoot, controlPk, controlRoot };
 }
 
 /** base64 helpers for carrying the 72 bytes through string-only nip44 signers. */
@@ -377,6 +450,50 @@ export async function mintOrReuseRotationKey(
   const minted = mintRotationKey();
   await writeFolded(key, minted);
   return minted;
+}
+
+/**
+ * The fresh `control_root` minted BESIDE a base rotation's new root
+ * (CORD-06 §3: every compliant base rotation mints the split), reserved under
+ * the same four inputs as {@link mintOrReuseRotationKey} and for the same
+ * reason: a retried rotation merges into the first attempt's set, so both
+ * attempts must carry ONE pair or staff adopt whichever secret rode the chunk
+ * with their locator.
+ */
+export async function mintOrReuseControlRoot(
+  communityIdHex: string,
+  newEpoch: bigint,
+  prevCommit: string,
+): Promise<Uint8Array> {
+  const key = `rekey-mint:${communityIdHex}:${ZERO32_HEX}:${newEpoch}:${prevCommit}:control`;
+  const held = await readFolded<Uint8Array>(key);
+  if (held instanceof Uint8Array && held.length === 32) return held;
+  const minted = mintRotationKey();
+  await writeFolded(key, minted);
+  return minted;
+}
+
+// ── The Grant's control_wrap plaintext (CORD-04 §3) ──────────────────────────
+
+/**
+ * `epoch_be[8] ‖ control_root[32]` — the staff write key as delivered inside a
+ * staff-making Grant, NIP-44-encrypted under the granter↔member pairwise key
+ * (the rekey-blob discipline: fixed width, the epoch INSIDE the ciphertext).
+ */
+export function encodeControlWrap(epoch: bigint, controlRoot: Uint8Array): Uint8Array {
+  const out = new Uint8Array(40);
+  new DataView(out.buffer).setBigUint64(0, epoch, false);
+  out.set(controlRoot, 8);
+  return out;
+}
+
+/** Parse a decrypted 40-byte control_wrap; the caller verifies the derivation. */
+export function decodeControlWrap(plain: Uint8Array): { epoch: bigint; controlRoot: Uint8Array } {
+  if (plain.length !== 40) throw new Error(`control_wrap must be 40 bytes, got ${plain.length}`);
+  return {
+    epoch: new DataView(plain.buffer, plain.byteOffset).getBigUint64(0, false),
+    controlRoot: plain.slice(8, 40),
+  };
 }
 
 /** Compute my locator for a rotation (public inputs only — bunker-friendly). */

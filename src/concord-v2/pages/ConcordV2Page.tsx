@@ -124,7 +124,7 @@ import { channelsHingingOn, isEntitled } from "@/concord-v2/lib/channelAccess";
 import { bytesToHex } from "@/concord-v2/lib/derive";
 import { useRelayFollow2 } from "@/concord-v2/hooks/useRelayFollow2";
 import { useRoleIntent } from "@/concord-v2/hooks/useRoleIntent";
-import { useRoles2 } from "@/concord-v2/hooks/useRoles2";
+import { useRoles2, useStaffKeyWatch2 } from "@/concord-v2/hooks/useRoles2";
 import { useSendMessage2 } from "@/concord-v2/hooks/useChannel2";
 import { useTransport2 } from "@/concord-v2/hooks/useTransport2";
 import { useConcord2Unread, type Concord2Unread } from "@/concord-v2/hooks/useConcord2Unread";
@@ -1113,6 +1113,10 @@ export function ConcordV2Page() {
   // And per-held-private-channel rotations (CORD-06 §2): adopt fresh channel
   // keys or drop a channel we've been removed from. No-op without any.
   useChannelRekeyWatch2(baseCommunity);
+  // Adopt the staff write key a promotion delivered inside my Grant
+  // (CORD-04 §3): verify the control_wrap and record the control_root in the
+  // vault, unlocking Control Plane writes on this and my other devices.
+  useStaffKeyWatch2(baseCommunity);
   // Keep our OWN live invite links vending the current epoch (CORD-05 §2), so a
   // rotation on another device / by another admin doesn't leave them stale.
   useLinkRefreshWatch2(baseCommunity);

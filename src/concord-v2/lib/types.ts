@@ -238,6 +238,16 @@ export interface HeldRoot {
   epoch: bigint;
   key: Uint8Array;
   /**
+   * The epoch's Control Plane signer pubkey (`control_pk`, x-only hex) —
+   * HELD, never derived: it derives from a `control_root` only the owner and
+   * staff hold (CORD-02 §2), and arrives in invites, base rekey blobs, and the
+   * Community List. Present = a split epoch (subscribe/verify by this address,
+   * decrypt under the community_root-derived read key); absent = a LEGACY
+   * pre-split epoch, whose Control Plane folds at the member-derivable
+   * `concord/control` address (CORD-02 §5).
+   */
+  controlPk?: string;
+  /**
    * Epoch-seconds the rotation that superseded this root published — the hard
    * read cutoff for everything derived from it (see the priors doc above).
    * Absent on the current root, and on roots retired before cutoffs existed.
@@ -269,6 +279,20 @@ export interface CommunityV2 {
   /** The current community_root at `rootEpoch`. */
   root: Uint8Array;
   rootEpoch: bigint;
+  /**
+   * The CURRENT epoch's Control Plane signer pubkey (see
+   * {@link HeldRoot.controlPk}); absent on a legacy pre-split epoch. Mirrors
+   * the current entry in `heldRoots`, the way `root`/`rootEpoch` do.
+   */
+  controlPk?: string;
+  /**
+   * The CURRENT epoch's staff write secret (`control_root`, CORD-02 §2) —
+   * held only by the owner and staff, delivered on promotion inside the
+   * staff-making Grant (CORD-04 §3) or in a 136-byte base rekey blob
+   * (CORD-06 §1). Absent for regular members and on legacy epochs. Possession
+   * gates publishing to the Control Plane, never authority.
+   */
+  controlRoot?: Uint8Array;
   /** Every held root epoch (current + retained priors), newest first. */
   heldRoots: HeldRoot[];
   /** Private-channel keys held (public channels derive from the root). */

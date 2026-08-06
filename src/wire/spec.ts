@@ -8,7 +8,7 @@ import { KIND_WRAP } from "@/concord-v2/lib/kinds";
 import { GIT_ISSUE_KIND, GIT_PULL_REQUEST_KIND, GIT_STATUS_KINDS, matchGitTicketRepository, NIP22_COMMENT_KIND, parseGitTicket, type GitRepositoryAttachment } from "@/lib/gitActivity";
 
 import type { ConcordControlSub, ConcordSub } from "@/concord-v1/lib/concordNotifications";
-import type { GroupKey } from "@/concord-v2/lib/derive";
+import type { StreamKeyView } from "@/concord-v2/lib/derive";
 import type { ChannelV2 } from "@/concord-v2/lib/types";
 import type { NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -120,7 +120,7 @@ export interface WireInputs {
   concord2Control?: Array<{
     relays: string[];
     idHex: string;
-    groups: GroupKey[];
+    groups: StreamKeyView[];
     /** Whether the community has ever rotated its root (see `noteControlSnapshot`). */
     refounded: boolean;
   }>;
@@ -153,7 +153,7 @@ export interface WireSpec {
   /** V2 channel id hex → its owning community id hex (for notification routing). */
   v2CommunityByChannel: Map<string, string>;
   /** V2 CONTROL stream address (wrap author) → its community, for decrypt + fold wake. */
-  v2CtlByPk: Map<string, { idHex: string; groups: GroupKey[]; refounded: boolean }>;
+  v2CtlByPk: Map<string, { idHex: string; groups: StreamKeyView[]; refounded: boolean }>;
   /** V1 `#z` pseudonym → channel id hex, for scope naming. */
   v1ByZ: Map<string, string>;
   /** V1 CONTROL `#z` pseudonym → its community id hex, for the fold-wake scope. */
@@ -302,7 +302,7 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
   // control-stream keys (not any channel's) and wake the fold rather than a
   // chat timeline (see ingest.ts). Filters coalesce with the chat-wrap filter
   // on the same relay via the shared KIND_WRAP `add` merge — one round trip.
-  const v2CtlByPk = new Map<string, { idHex: string; groups: GroupKey[]; refounded: boolean }>();
+  const v2CtlByPk = new Map<string, { idHex: string; groups: StreamKeyView[]; refounded: boolean }>();
   const ctlPksByRelay = new Map<string, Set<string>>();
   for (const { relays, idHex, groups, refounded } of inputs.concord2Control ?? []) {
     for (const g of groups) v2CtlByPk.set(g.pk, { idHex, groups, refounded });

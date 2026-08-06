@@ -14,7 +14,7 @@
  * never re-add a tombstoned id.
  */
 
-import { bytesToHex, hex32, verifyCommunityId } from "@/concord-v2/lib/derive";
+import { bytesToHex, controlSignerGroupKey, hex32, verifyCommunityId } from "@/concord-v2/lib/derive";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
 import {
@@ -38,6 +38,20 @@ export interface JoinMaterial {
   owner_salt: string;
   community_root: string;
   root_epoch: number;
+  /**
+   * The current epoch's Control Plane signer pubkey (CORD-02 §2/§8) — read
+   * access to the plane, never write. Absent = a legacy pre-split epoch,
+   * whose Control folds at the member-derivable legacy address.
+   */
+  control_pk?: string;
+  /**
+   * Armada extension, STAFF ONLY: the current epoch's `control_root` write
+   * secret (hex). The list is NIP-44-encrypted to self and already carries the
+   * `community_root`, so this is the same trust class — it is how a staffer's
+   * write key survives across their own devices. Delivered by a staff-making
+   * Grant's `control_wrap` (CORD-04 §3) or a 136-byte base blob (CORD-06 §1).
+   */
+  control_root?: string;
   /** The PRIVATE channels held (public ones derive from the root — CORD-03). */
   channels: Array<{ id: string; key: string; epoch: number; name: string; priors?: Array<{ key: string; epoch: number; retired_at?: number }> }>;
   relays: string[];
@@ -48,8 +62,9 @@ export interface JoinMaterial {
    * hard read cutoff for that epoch; absent for epochs retired before this
    * client recorded cutoffs. `refounder` names the npub whose Refounding
    * minted that epoch — its Guestbook's snapshot authority (CORD-02 §5).
+   * `control_pk` names a split epoch's Control address (absent = legacy).
    */
-  held_roots?: Array<{ epoch: number; key: string; retired_at?: number; refounder?: string }>;
+  held_roots?: Array<{ epoch: number; key: string; retired_at?: number; refounder?: string; control_pk?: string }>;
   /** Armada extension: the npub whose Refounding minted `root_epoch`. */
   refounder?: string;
   [k: string]: unknown;
@@ -506,6 +521,32 @@ export function refreshRelays(list: CommunityList, communityId: string, relays: 
 }
 
 /**
+ * Record the staff write secret for a membership's CURRENT epoch — a
+ * `control_wrap` adoption (CORD-04 §3). The caller has already verified the
+ * secret derives to the `control_pk` held for exactly this epoch; a stale
+ * epoch (the entry advanced while the wrap was in flight) is a no-op. Never
+ * bumps `added_at` (holding the write key says nothing about liveness), and
+ * shares refreshChannels' same-root-epoch merge caveat: a stale sibling can
+ * win the canonical-bytes tiebreak until the watcher re-adopts — the Grant
+ * head persists on the plane, so it always can. Pure.
+ */
+export function setControlRoot(
+  list: CommunityList,
+  communityId: string,
+  epoch: number,
+  controlRootHex: string,
+): CommunityList {
+  const idx = list.entries.findIndex((e) => e.community_id === communityId);
+  if (idx === -1) return list;
+  const entries = list.entries.map((e, i) => {
+    if (i !== idx) return e;
+    if (e.current.root_epoch !== epoch || typeof e.current.control_pk !== "string") return e;
+    return { ...e, current: { ...e.current, control_root: controlRootHex } };
+  });
+  return { ...list, entries };
+}
+
+/**
  * Enforce the membership cap: the count bounds the common case, the NIP-44
  * byte cap is the law — the caller must ALSO verify the serialized list fits
  * before publishing (CORD-02 §8).
@@ -539,11 +580,18 @@ export function rehydrateCommunity(entry: CommunityListEntry, extraRelays: strin
 
     const asRefounder = (v: unknown): string | undefined =>
       typeof v === "string" && /^[0-9a-f]{64}$/i.test(v) ? v.toLowerCase() : undefined;
+    const asHex32 = asRefounder; // same shape: 64 lowercase-hex chars
     // The current head's refounder is the top-level `refounder` field; retained
     // roots carry their own, so historical snapshot authority survives the walk.
     const currentRefounder = asRefounder(jm.refounder);
+    const controlPk = asHex32(jm.control_pk);
     const heldRoots: HeldRoot[] = [
-      { epoch: rootEpoch, key: root, ...(currentRefounder ? { refounder: currentRefounder } : {}) },
+      {
+        epoch: rootEpoch,
+        key: root,
+        ...(currentRefounder ? { refounder: currentRefounder } : {}),
+        ...(controlPk ? { controlPk } : {}),
+      },
     ];
     for (const hr of jm.held_roots ?? []) {
       try {
@@ -554,15 +602,26 @@ export function rehydrateCommunity(entry: CommunityListEntry, extraRelays: strin
             ? Math.floor(hr.retired_at)
             : undefined;
         const refounder = asRefounder(hr.refounder);
+        const hrControlPk = asHex32(hr.control_pk);
         heldRoots.push({
           epoch,
           key: hex32(hr.key),
           ...(retiredAt !== undefined ? { retiredAt } : {}),
           ...(refounder ? { refounder } : {}),
+          ...(hrControlPk ? { controlPk: hrControlPk } : {}),
         });
       } catch {
         // skip malformed retained roots
       }
+    }
+    // The staff write secret rides only when it still derives to the held
+    // address for THIS epoch — a stale or corrupt secret fails closed to a
+    // read-only view rather than signing at an address nobody reads
+    // (CORD-02 §5; a legacy epoch has no address for it to derive to).
+    let controlRoot: Uint8Array | undefined;
+    if (controlPk && asHex32(jm.control_root)) {
+      const candidate = hex32(jm.control_root as string);
+      if (controlSignerGroupKey(candidate, id, rootEpoch).pk === controlPk) controlRoot = candidate;
     }
     // Also anchor the seed's root when it's an epoch we don't otherwise hold.
     if (entry.seed && entry.seed.community_root && entry.seed.root_epoch !== jm.root_epoch) {
@@ -615,6 +674,8 @@ export function rehydrateCommunity(entry: CommunityListEntry, extraRelays: strin
       ownerSalt: hex32(jm.owner_salt),
       root,
       rootEpoch,
+      ...(controlPk ? { controlPk } : {}),
+      ...(controlRoot ? { controlRoot } : {}),
       heldRoots,
       privateChannels,
       relays: capRelays([...(Array.isArray(jm.relays) ? jm.relays : []), ...extraRelays]),
@@ -695,8 +756,9 @@ export function toJoinMaterial(c: CommunityV2, opts?: { relays?: string[]; prior
       key: bytesToHex(r.key),
       ...(r.retiredAt !== undefined ? { retired_at: r.retiredAt } : {}),
       ...(r.refounder ? { refounder: r.refounder } : {}),
+      ...(r.controlPk ? { control_pk: r.controlPk } : {}),
     }));
-  return {
+  const jm: JoinMaterial = {
     // Round-trip unknown fields from the prior snapshot (CORD-02 §6/§8).
     ...(opts?.prior ?? {}),
     community_id: c.idHex,
@@ -710,4 +772,11 @@ export function toJoinMaterial(c: CommunityV2, opts?: { relays?: string[]; prior
     ...(heldRoots.length > 0 ? { held_roots: heldRoots } : {}),
     ...(c.refounder ? { refounder: c.refounder } : {}),
   };
+  // Written or DELETED, never inherited from `prior`: a snapshot taken at a
+  // new epoch must not carry the old epoch's address or secret forward.
+  if (c.controlPk) jm.control_pk = c.controlPk;
+  else delete jm.control_pk;
+  if (c.controlPk && c.controlRoot) jm.control_root = bytesToHex(c.controlRoot);
+  else delete jm.control_root;
+  return jm;
 }

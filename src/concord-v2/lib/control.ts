@@ -1,10 +1,15 @@
 /**
  * Concord V2 Control Plane — CORD-02 §5/§6/§9, CORD-04.
  *
- * The Control Plane is one Private Stream per Community (keyed by the
- * community_root at `control_pk`) carrying versioned, real-npub-signed
- * editions inside PLAINTEXT seals (kind 20014 — the one plane whose seals stay
- * plaintext so a compaction can re-wrap signed editions across epochs).
+ * The Control Plane is one Private Stream per Community carrying versioned,
+ * real-npub-signed editions inside PLAINTEXT seals (kind 20014 — the one plane
+ * whose seals stay plaintext so a compaction can re-wrap signed editions
+ * across epochs). Its stream key is SPLIT (CORD-01 Write-Restricted Streams):
+ * the address-and-signer keypair derives from the staff-held `control_root`,
+ * while the wraps' content is encrypted under the community_root-derived read
+ * key every member holds — a spam gate, never authority. Epochs minted before
+ * the split keyed the whole plane by the `concord/control` derivation alone,
+ * retained here for reading them (CORD-02 §5).
  *
  * `foldControlState` replays the whole plane into current state in one pass:
  * the owner-rooted roster first (delegation fixpoint — the owner's rank comes
@@ -18,11 +23,13 @@ import {
   banlistLocator,
   bytesToHex,
   controlGroupKey,
+  controlSignerGroupKey,
   dissolvedGroupKey,
   grantLocator,
   hex32,
   inviteLinksLocator,
   type GroupKey,
+  type StreamKeyView,
 } from "@/concord-v2/lib/derive";
 import {
   buildEditionRumor,
@@ -78,14 +85,73 @@ import { bootstrapHead, fold, type Edition } from "@/concord-v2/lib/version";
 
 // ── Addressing ───────────────────────────────────────────────────────────────
 
-/** Every control-plane stream key across the community's held root epochs, newest first. */
-export function controlGroups(community: CommunityV2): GroupKey[] {
-  return community.heldRoots.map((r) => controlGroupKey(r.key, community.id, r.epoch));
+/**
+ * One held root epoch's Control Plane read view (CORD-02 §5).
+ *
+ * A SPLIT epoch (the root carries a held `control_pk`) subscribes and verifies
+ * by that address while decrypting under the community_root-derived read key;
+ * its `sk` is present only when this member holds the epoch's `control_root`
+ * and it actually derives to the held address (staff). A LEGACY epoch is the
+ * `concord/control` derivation whole — address, signer and encryption in one
+ * key every member holds.
+ */
+function controlStreamOf(community: CommunityV2, rootKey: Uint8Array, epoch: bigint, controlPk?: string): StreamKeyView {
+  const read = controlGroupKey(rootKey, community.id, epoch);
+  if (!controlPk) return read;
+  const signerSk =
+    community.controlRoot !== undefined && epoch === community.rootEpoch
+      ? controlSignerGroupKey(community.controlRoot, community.id, epoch)
+      : undefined;
+  return {
+    pk: controlPk,
+    get convKey() {
+      return read.convKey;
+    },
+    // The reader's half of the write gate: the wrap signature proves a
+    // control_root holder published it, so openWrap verifies it (CORD-01
+    // Write-Restricted Streams; CORD-02 §5).
+    restricted: true,
+    // A held secret that does not derive to the held address is corrupt state,
+    // not a signer: leave `sk` absent (fail closed to read-only) rather than
+    // mint wraps at an address nobody subscribes to.
+    ...(signerSk && signerSk.pk === controlPk ? { sk: signerSk.sk } : {}),
+  };
 }
 
-/** The CURRENT control-plane stream key (where new editions publish). */
-export function currentControlGroup(community: CommunityV2): GroupKey {
-  return controlGroupKey(community.root, community.id, community.rootEpoch);
+/** Every control-plane stream view across the community's held root epochs, newest first. */
+export function controlGroups(community: CommunityV2): StreamKeyView[] {
+  return community.heldRoots.map((r) => controlStreamOf(community, r.key, r.epoch, r.controlPk));
+}
+
+/** The CURRENT control-plane stream view (address + read key; `sk` when writable). */
+export function currentControlGroup(community: CommunityV2): StreamKeyView {
+  return controlStreamOf(community, community.root, community.rootEpoch, community.controlPk);
+}
+
+/** Whether this member can PUBLISH to the current Control Plane (CORD-02 §2). */
+export function canWriteControl(community: CommunityV2): boolean {
+  return currentControlGroup(community).sk !== undefined;
+}
+
+/**
+ * The CURRENT control-plane WRITE key: address, signing secret and read
+ * conv_key. Throws when the epoch is split and this member does not hold its
+ * `control_root` — publishing there would mint a wrap that fails the plane's
+ * signature check at every reader and relay (CORD-02 §2).
+ */
+export function currentControlWriteGroup(community: CommunityV2): GroupKey {
+  const stream = currentControlGroup(community);
+  const sk = stream.sk;
+  if (sk === undefined) {
+    throw new Error("Only community staff hold this community's write key; ask a moderator to re-send it.");
+  }
+  return {
+    sk,
+    pk: stream.pk,
+    get convKey() {
+      return stream.convKey;
+    },
+  };
 }
 
 // ── Sealing / opening ────────────────────────────────────────────────────────
@@ -106,7 +172,7 @@ export async function sealEdition(rumor: NostrRumor, control: GroupKey, signer: 
 const parsedEditionMemo = new Map<string, ParsedEdition | null>();
 
 /** Open every control wrap that decodes under one of `groups` into editions. */
-export function openControlWraps(wraps: NostrEvent[], groups: GroupKey[]): ParsedEdition[] {
+export function openControlWraps(wraps: NostrEvent[], groups: StreamKeyView[]): ParsedEdition[] {
   const byPk = new Map(groups.map((g) => [g.pk, g]));
   const out: ParsedEdition[] = [];
   for (const wrap of wraps) {

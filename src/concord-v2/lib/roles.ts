@@ -44,6 +44,22 @@ export const ADMIN_ALL =
 /** Management bits (everything but the purely-social MENTION_EVERYONE). */
 export const MANAGEMENT_MASK = ADMIN_ALL & ~Permissions.MENTION_EVERYONE;
 
+/**
+ * The STAFF bits (CORD-04 §3): the permissions whose authorized actions land
+ * as Control Plane editions. A member holding ANY of them — plus always the
+ * owner — is staff: the set that holds the `control_root` write key
+ * (CORD-02 §2). KICK writes to the Guestbook and MANAGE_MESSAGES to Chat
+ * planes; neither needs it. A future permission whose actions are Control
+ * editions joins this mask by definition.
+ */
+export const STAFF_MASK =
+  Permissions.MANAGE_ROLES |
+  Permissions.MANAGE_CHANNELS |
+  Permissions.MANAGE_METADATA |
+  Permissions.BAN |
+  Permissions.CREATE_INVITE |
+  Permissions.PIN_MESSAGES;
+
 /** Protocol-wide name cap: 64 bytes of UTF-8 (roles, channels, community name). */
 export const NAME_MAX_BYTES = 64;
 /** A member holds at most 64 Roles; a Community carries at most 100 (CORD-04 §2). */
@@ -290,15 +306,32 @@ export interface MemberGrant {
   /** Grantee pubkey, lowercase hex. */
   member: string;
   roleIds: string[];
+  /**
+   * The staff write key riding the Grant (CORD-04 §3): the current
+   * `control_root` NIP-44-encrypted under the granter↔member pairwise
+   * conversation key, base64 — delivery, never authority. Its plaintext is
+   * fixed-width, `epoch_be[8] ‖ control_root[32]`, and the recipient adopts
+   * the secret only if it derives to exactly the `control_pk` they hold for
+   * the named epoch. Opaque pairwise ciphertext to every other reader.
+   */
+  controlWrap?: string;
 }
 
 interface MemberGrantWire {
   member: string;
   role_ids: string[];
+  control_wrap?: string;
 }
 
+/** Sanity bound on a carried `control_wrap` (a NIP-44 wrap of 40 bytes is ~130 chars). */
+const MAX_CONTROL_WRAP_CHARS = 1024;
+
 export function grantToJSON(grant: MemberGrant): string {
-  const wire: MemberGrantWire = { member: grant.member, role_ids: grant.roleIds };
+  const wire: MemberGrantWire = {
+    member: grant.member,
+    role_ids: grant.roleIds,
+    ...(grant.controlWrap !== undefined ? { control_wrap: grant.controlWrap } : {}),
+  };
   return JSON.stringify(wire);
 }
 
@@ -309,7 +342,15 @@ export function grantFromJSON(json: string): MemberGrant | undefined {
     const roleIds = Array.isArray(w.role_ids)
       ? w.role_ids.filter((r): r is string => typeof r === "string").slice(0, MAX_ROLES_PER_MEMBER)
       : [];
-    return { member: w.member.toLowerCase(), roleIds };
+    const controlWrap =
+      typeof w.control_wrap === "string" && w.control_wrap.length > 0 && w.control_wrap.length <= MAX_CONTROL_WRAP_CHARS
+        ? w.control_wrap
+        : undefined;
+    return {
+      member: w.member.toLowerCase(),
+      roleIds,
+      ...(controlWrap !== undefined ? { controlWrap } : {}),
+    };
   } catch {
     return undefined;
   }
@@ -373,6 +414,28 @@ export function isAuthorizedIn(
 
 export function hasPermission(roles: CommunityRoles, memberHex: string, bits: bigint): boolean {
   return permsContain(effectivePermissions(roles, memberHex), bits);
+}
+
+/**
+ * Whether a member is STAFF (CORD-04 §3): the owner, or any holder of a
+ * Control-writing bit ({@link STAFF_MASK}) — the set entitled to the
+ * `control_root` (CORD-02 §2).
+ */
+export function isStaff(roles: CommunityRoles, memberHex: string, ownerHex: string | undefined): boolean {
+  if (memberHex === ownerHex) return true;
+  return (effectivePermissions(roles, memberHex) & STAFF_MASK) !== 0n;
+}
+
+/**
+ * Whether a grant's role set leaves its member staff, judged against `roles`'
+ * definitions — the granter-side trigger for delivering the `control_root`
+ * inside the Grant itself (CORD-04 §3).
+ */
+export function rolesMakeStaff(roles: CommunityRoles, roleIds: string[]): boolean {
+  return roleIds.some((rid) => {
+    const r = roleById(roles, rid);
+    return r !== undefined && (r.permissions & STAFF_MASK) !== 0n;
+  });
 }
 
 /** A member's rank: the lowest position among their Roles; undefined if roleless. */

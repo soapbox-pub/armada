@@ -5,6 +5,7 @@ import { useDeferredFold } from "@/concord-v2/hooks/useDeferredFold2";
 import {
   controlFoldKey,
   currentControlGroup,
+  currentControlWriteGroup,
   foldControlState,
   isCurrentFoldedControl,
   isDissolvedOpened,
@@ -546,7 +547,10 @@ export async function publishEdition2(
   } catch (e) {
     if (e instanceof DissolvedError) throw new Error("This community has been dissolved; it accepts no changes.");
   }
-  const control = currentControlGroup(community);
+  // The WRITE key: on a split epoch its signing secret is the staff-held
+  // control_root (CORD-02 §2) — a member without it fails here with a
+  // readable error instead of minting a wrap every reader and relay drops.
+  const control = currentControlWriteGroup(community);
   const wrap = await sealEdition(rumor, control, signer);
   const urls = opts?.relays ?? community.relays;
   const attempt = () =>

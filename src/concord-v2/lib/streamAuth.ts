@@ -43,12 +43,19 @@
 import { finalizeEvent } from "nostr-tools/pure";
 import type { NostrEvent } from "nostr-tools/pure";
 
-import type { GroupKey } from "@/concord-v2/lib/derive";
+import type { StreamKeyView } from "@/concord-v2/lib/derive";
 import { normalizeRelayUrl } from "@/lib/platform";
 
 interface StreamKeyEntry {
-  /** The stream secret key that authenticates this pubkey. */
-  sk: Uint8Array;
+  /**
+   * The stream secret key that authenticates this pubkey — absent for an
+   * ADDRESS-ONLY registration: a split Control Plane's `control_pk` is held
+   * by every member, but its signing secret only by staff (CORD-02 §2), so a
+   * regular member can never answer a NIP-42 challenge for it. The address is
+   * still registered so subscription builders and the auth gate know it is
+   * accounted for rather than "not yet registered".
+   */
+  sk?: Uint8Array;
   /**
    * Normalized relay URLs whose challenges this key signs; `undefined` means
    * unscoped — sign on EVERY relay (pre-scoping behavior, the safe fallback
@@ -86,7 +93,7 @@ function normalizeScope(relays?: string[]): Set<string> | undefined {
  * existing key (a second community sharing a channel key on other relays must
  * not lose its coverage).
  */
-export function registerStreamKeys(keys: GroupKey[], relays?: string[]): string[] {
+export function registerStreamKeys(keys: StreamKeyView[], relays?: string[]): string[] {
   const scope = normalizeScope(relays);
   const changed: string[] = [];
   for (const k of keys) {
@@ -95,6 +102,12 @@ export function registerStreamKeys(keys: GroupKey[], relays?: string[]): string[
       registry.set(k.pk, { sk: k.sk, relays: scope ? new Set(scope) : undefined });
       changed.push(k.pk);
       continue;
+    }
+    // An address registered without its secret gains one the moment a holder
+    // registers it (a staffer adopting the control_root upgrades in place).
+    if (existing.sk === undefined && k.sk !== undefined) {
+      existing.sk = k.sk;
+      changed.push(k.pk);
     }
     if (!existing.relays) continue; // already unscoped — broadest possible
     if (!scope) {
@@ -315,6 +328,11 @@ export function streamAuthsSettled(url: string, pubkeys: Iterable<string>): bool
   if (!state?.challenged) return true;
   let allAcked = true;
   for (const pk of pubkeys) {
+    // An address-only registration (a split control_pk without its staff
+    // secret) can never be authenticated by this client — there is no AUTH to
+    // wait for, so it must not hold every sweep at the stale-timer forever.
+    const entry = registry.get(pk);
+    if (entry !== undefined && entry.sk === undefined) continue;
     if (!state.acked.has(pk)) {
       allAcked = false;
       break;

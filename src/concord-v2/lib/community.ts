@@ -8,6 +8,7 @@ import {
   bytesToHex,
   channelGroupKey,
   communityIdOf,
+  controlSignerGroupKey,
   hex32,
   random32,
   voiceGroupKey,
@@ -21,9 +22,11 @@ import { capRelays, type ChannelV2, type CommunityV2, type VoiceKeys } from "@/c
 
 /**
  * Mint a brand-new community: a random `owner_salt` commits the owner into the
- * self-certifying `community_id`, and an independent random `community_root`
- * is the access key (deliberately NOT derived from the id, so access can
- * rotate while identity stays fixed).
+ * self-certifying `community_id`, an independent random `community_root` is
+ * the access key (deliberately NOT derived from the id, so access can rotate
+ * while identity stays fixed), and a random `control_root` — held by the
+ * owner alone until staff are promoted — write-gates the Control Plane
+ * (CORD-02 §2), every member reading it by the derived `control_pk`.
  *
  * Genesis publishes exactly two owner-signed editions — the metadata and one
  * public `#general` Channel — which the caller builds; this mints the secrets
@@ -37,6 +40,8 @@ export function mintCommunity(name: string, ownerPubkeyHex: string, relays: stri
   const owner = ownerPubkeyHex.toLowerCase();
   const id = communityIdOf(hex32(owner), ownerSalt);
   const root = random32();
+  const controlRoot = random32();
+  const controlPk = controlSignerGroupKey(controlRoot, id, 0n).pk;
   const generalChannelId = random32();
   return {
     community: {
@@ -46,7 +51,9 @@ export function mintCommunity(name: string, ownerPubkeyHex: string, relays: stri
       ownerSalt,
       root,
       rootEpoch: 0n,
-      heldRoots: [{ epoch: 0n, key: root }],
+      controlPk,
+      controlRoot,
+      heldRoots: [{ epoch: 0n, key: root, controlPk }],
       privateChannels: [],
       relays: capRelays(relays),
       name,

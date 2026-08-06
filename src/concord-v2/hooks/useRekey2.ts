@@ -8,11 +8,12 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { channelKeysToWire, heldChannelKeys, toJoinMaterial } from "@/concord-v2/lib/communityList";
 import { currentControlGroup, foldControlState, openControlEditions } from "@/concord-v2/lib/control";
 import { sweepControl } from "@/concord-v2/lib/planeSync";
-import { channelRekeyGroupKey, controlGroupKey, guestbookGroupKey } from "@/concord-v2/lib/derive";
+import { channelRekeyGroupKey, controlGroupKey, controlSignerGroupKey, guestbookGroupKey } from "@/concord-v2/lib/derive";
 import {
   baseRekeyGroupKey,
   bytesToHex,
   epochKeyCommitment,
+  hexToBytes,
   random32,
 } from "@/concord-v2/lib/derive";
 import { buildSnapshotRumors, sealGuestbook } from "@/concord-v2/lib/guestbook";
@@ -23,11 +24,14 @@ import {
   CHANNEL_REKEY_LOOKAHEAD,
   bytesToBase64,
   checkContinuity,
+  decodeWrappedBaseKey,
   decodeWrappedKey,
+  encodeWrappedBaseKey,
   encodeWrappedKey,
   findBlob,
   groupRotations,
   lowerKeyWins,
+  mintOrReuseControlRoot,
   mintOrReuseRotationKey,
   myLocator,
   parseRekey,
@@ -38,7 +42,7 @@ import {
   type RekeyBlob,
 } from "@/concord-v2/lib/rekey";
 import { citationSatisfied } from "@/concord-v2/lib/control";
-import { hasPermission, outranksMember, Permissions } from "@/concord-v2/lib/roles";
+import { hasPermission, isStaff, outranksMember, Permissions } from "@/concord-v2/lib/roles";
 import { queryPlane, queryRekeyRounds, readControlSnapshot, readStoredSeal, readStreamCursor, updateStreamCursor, writeOpened } from "@/concord-v2/lib/rumorStore";
 import { openWrap, rewrapSeal, sealRumor, wrapSeal, type OpenedEvent, type OpenedWireEvent } from "@/concord-v2/lib/stream";
 import { buildRefreshedBundleEvents, type InviteBundle } from "@/concord-v2/lib/invite";
@@ -49,7 +53,6 @@ import type { CommunityMetadata, CommunityV2, HeldRoot, PrivateChannelKey } from
 import type { NostrEvent } from "@nostrify/nostrify";
 import type { NUser } from "@nostrify/react/login";
 
-const ZERO_SCOPE = new Uint8Array(32);
 
 /**
  * Re-post this user's live invite bundles for `rotated` at the community's
@@ -65,7 +68,7 @@ const ZERO_SCOPE = new Uint8Array(32);
 export async function refreshInviteBundlesFor(
   nostr: ReturnType<typeof useNostr>["nostr"],
   user: NUser,
-  rotated: Pick<CommunityV2, "id" | "idHex" | "owner" | "ownerSalt" | "root" | "rootEpoch" | "privateChannels" | "relays" | "name">,
+  rotated: Pick<CommunityV2, "id" | "idHex" | "owner" | "ownerSalt" | "root" | "rootEpoch" | "controlPk" | "privateChannels" | "relays" | "name">,
   metadata: Pick<CommunityMetadata, "name" | "icon"> | undefined,
   // Fan-out override for a relay-list change: the refreshed bundle (which
   // VENDS `rotated.relays`) must also overwrite the copy on the OLD relays —
@@ -93,6 +96,7 @@ export async function refreshInviteBundlesFor(
     owner_salt: bytesToHex(rotated.ownerSalt),
     community_root: bytesToHex(rotated.root),
     root_epoch: Number(rotated.rootEpoch),
+    ...(rotated.controlPk ? { control_pk: rotated.controlPk } : {}),
     channels: [],
     relays: rotated.relays,
     name: metadata?.name ?? rotated.name,
@@ -274,7 +278,13 @@ export function useRekeyWatch2(community: CommunityV2 | undefined): { stranded: 
       // Try to adopt: my blob, decrypted under the rotator↔me pairwise key.
       // `publishedAtMs` is the adopted rotation's publish time — recorded on
       // the superseded root as its hard read cutoff (`retiredAt`).
-      let adopted: { key: Uint8Array; rotator: string; publishedAtMs: number } | undefined;
+      // `controlPk`/`controlRoot` are the next epoch's Control Plane pair
+      // riding the blob (CORD-06 §1): the pk in every 104/136-byte blob, the
+      // secret only in a staff recipient's 136. A legacy 72-byte blob carries
+      // neither — that epoch's Control folds at the legacy address.
+      let adopted:
+        | { key: Uint8Array; rotator: string; publishedAtMs: number; controlPk?: string; controlRoot?: Uint8Array }
+        | undefined;
       // A complete rotation counts toward removal only if it could have carried
       // a blob for me — i.e. it was published at/after I joined.
       let sawExcludingRotation = false;
@@ -314,10 +324,18 @@ export function useRekeyWatch2(community: CommunityV2 | undefined): { stranded: 
         }
         try {
           const plainB64 = await nip44.decrypt(set.rotator, blob.wrapped);
-          const newKey = decodeWrappedKey(base64ToBytes(plainB64), ZERO_SCOPE, set.newEpoch);
-          // Racing rotations converge on the lexicographically lowest new key.
-          if (!adopted || lowerKeyWins(adopted.key, newKey) === newKey) {
-            adopted = { key: newKey, rotator: set.rotator, publishedAtMs: rotationPublishedAtMs(set) };
+          const wrapped = decodeWrappedBaseKey(base64ToBytes(plainB64), community.id, set.newEpoch);
+          // Racing rotations converge on the lexicographically lowest new BASE
+          // key; the control pair rides the winner's blobs, never compared
+          // (CORD-06 §3).
+          if (!adopted || lowerKeyWins(adopted.key, wrapped.newRoot) === wrapped.newRoot) {
+            adopted = {
+              key: wrapped.newRoot,
+              rotator: set.rotator,
+              publishedAtMs: rotationPublishedAtMs(set),
+              ...(wrapped.controlPk ? { controlPk: wrapped.controlPk } : {}),
+              ...(wrapped.controlRoot ? { controlRoot: wrapped.controlRoot } : {}),
+            };
           }
         } catch {
           // undecryptable blob at my locator — treat as absent
@@ -336,15 +354,27 @@ export function useRekeyWatch2(community: CommunityV2 | undefined): { stranded: 
         const heldRoots: HeldRoot[] = [
           // The rotator is this epoch's snapshot authority (CORD-02 §5),
           // recorded per root so it survives later rotations.
-          { epoch: nextEpoch, key: adopted.key, refounder: adopted.rotator },
+          {
+            epoch: nextEpoch,
+            key: adopted.key,
+            refounder: adopted.rotator,
+            ...(adopted.controlPk ? { controlPk: adopted.controlPk } : {}),
+          },
           ...community.heldRoots.map((r) =>
             r.epoch === community.rootEpoch && r.retiredAt === undefined ? { ...r, retiredAt } : r,
           ),
         ];
+        // The control pair is the BLOB's, never inherited: the secret rolls
+        // with the root at every Refounding (CORD-02 §2), so a stale pair
+        // carried forward would sign (or subscribe) at a dead address. A
+        // member blob leaves `controlRoot` unset — staff-only material — and a
+        // legacy 72-byte blob leaves both unset (legacy epoch).
         const rotated: CommunityV2 = {
           ...community,
           root: adopted.key,
           rootEpoch: nextEpoch,
+          controlPk: adopted.controlPk,
+          controlRoot: adopted.controlRoot,
           heldRoots,
           refounder: adopted.rotator,
         };
@@ -1125,15 +1155,29 @@ export function useRefound2(community: CommunityV2 | undefined) {
       const newEpoch = community.rootEpoch + 1n;
       const prevCommit = bytesToHex(epochKeyCommitment(community.rootEpoch, community.root));
       // Reserved, not freshly minted: a rotation retried after a relay refusal
-      // must carry the SAME key, or the two attempts merge into one rotation
-      // set and split the community across two roots at one epoch.
+      // must carry the SAME keys, or the two attempts merge into one rotation
+      // set and split the community across two roots at one epoch. The
+      // control_root is reserved under the same inputs — the pair rides the
+      // same blobs, so a retry must re-deliver the identical pair.
       const newRoot = await mintOrReuseRotationKey(community.idHex, { kind: "root" }, newEpoch, prevCommit);
+      // Every compliant base rotation mints the split (CORD-06 §3) — a legacy
+      // community upgrades as a side effect of this Refounding.
+      const newControlRoot = await mintOrReuseControlRoot(community.idHex, newEpoch, prevCommit);
+      const newControlPk = controlSignerGroupKey(newControlRoot, community.id, newEpoch).pk;
 
       // Acquire everything BEFORE the first publish (resumable, never half-lost).
-      const plain = bytesToBase64(encodeWrappedKey(ZERO_SCOPE, newEpoch, newRoot));
+      // Every member's blob carries the new control_pk (104 bytes); a staff
+      // recipient's (CORD-04 §3) appends the secret itself (136 bytes).
+      const memberPlain = bytesToBase64(
+        encodeWrappedBaseKey(newEpoch, newRoot, hexToBytes(newControlPk)),
+      );
+      const staffPlain = bytesToBase64(
+        encodeWrappedBaseKey(newEpoch, newRoot, hexToBytes(newControlPk), newControlRoot),
+      );
       const blobs: RekeyBlob[] = [];
       for (const pk of recipients) {
-        const wrapped = await nip44.encrypt(pk, plain);
+        const staff = pk === user.pubkey ? true : isStaff(folded.roster, pk, folded.ownerHex);
+        const wrapped = await nip44.encrypt(pk, staff ? staffPlain : memberPlain);
         blobs.push({ locator: myLocator(user.pubkey, pk, "0".repeat(64), newEpoch), wrapped });
       }
 
@@ -1186,7 +1230,12 @@ export function useRefound2(community: CommunityV2 | undefined) {
             ...community,
             root: newRoot,
             rootEpoch: newEpoch,
-            heldRoots: [{ epoch: newEpoch, key: newRoot, refounder: user.pubkey }, ...retiredPriorRoots],
+            controlPk: newControlPk,
+            controlRoot: newControlRoot,
+            heldRoots: [
+              { epoch: newEpoch, key: newRoot, refounder: user.pubkey, controlPk: newControlPk },
+              ...retiredPriorRoots,
+            ],
             refounder: user.pubkey,
           },
           { prior: entry?.current, relays: entry?.current.relays },
@@ -1201,7 +1250,19 @@ export function useRefound2(community: CommunityV2 | undefined) {
       // that never lands is gone for every later joiner, and the reserved root
       // means a resumed rotation re-publishes these same wraps rather than
       // orphaning them under a sibling key (§3 idempotency).
-      const newControl = controlGroupKey(newRoot, community.id, newEpoch);
+      // The new epoch's Control address is SPLIT (CORD-06 §3): the wrap signs
+      // with the fresh control_root-derived signer and encrypts under the new
+      // community_root-derived read key. A Rotator MUST NOT also mirror
+      // editions to the legacy-derived address — that would re-open exactly
+      // the member-writable surface the split closes.
+      const newControlRead = controlGroupKey(newRoot, community.id, newEpoch);
+      const newControl = {
+        sk: controlSignerGroupKey(newControlRoot, community.id, newEpoch).sk,
+        pk: newControlPk,
+        get convKey() {
+          return newControlRead.convKey;
+        },
+      };
       for (const head of folded.headEditions.values()) {
         // A head folded from the opened-event store carries no seal on the
         // event itself (the store keeps seals in KV, not in the rumor), so
@@ -1334,6 +1395,7 @@ export function useRefound2(community: CommunityV2 | undefined) {
           ...community,
           root: newRoot,
           rootEpoch: newEpoch,
+          controlPk: newControlPk,
           privateChannels: rotatedChannels,
         };
 
@@ -1362,7 +1424,12 @@ export function useRefound2(community: CommunityV2 | undefined) {
         ...community,
         root: newRoot,
         rootEpoch: newEpoch,
-        heldRoots: [{ epoch: newEpoch, key: newRoot, refounder: user.pubkey }, ...retiredPriorRoots],
+        controlPk: newControlPk,
+        controlRoot: newControlRoot,
+        heldRoots: [
+          { epoch: newEpoch, key: newRoot, refounder: user.pubkey, controlPk: newControlPk },
+          ...retiredPriorRoots,
+        ],
         privateChannels: rotatedChannels,
         refounder: user.pubkey,
       };

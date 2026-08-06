@@ -18,12 +18,12 @@ import {
   buildChannelEdition,
   buildMetadataEdition,
   controlGroups,
-  currentControlGroup,
+  currentControlWriteGroup,
   foldControlState,
   openControlWraps,
   sealEdition,
 } from "@/concord-v2/lib/control";
-import { baseRekeyGroupKey, bytesToHex, epochKeyCommitment, hex32, random32 } from "@/concord-v2/lib/derive";
+import { baseRekeyGroupKey, bytesToHex, controlSignerGroupKey, epochKeyCommitment, hex32, random32 } from "@/concord-v2/lib/derive";
 import { buildInviteUrl, buildBundleEvent, buildRefreshedBundleEvents, mintLinkSigner, mintToken, parseBundleEvent, parseInviteLink, type InviteBundle } from "@/concord-v2/lib/invite";
 import { KIND_MESSAGE, KIND_SEAL_ENCRYPTED } from "@/concord-v2/lib/kinds";
 import {
@@ -31,8 +31,8 @@ import {
   buildRekeyRumors,
   bytesToBase64,
   checkContinuity,
-  decodeWrappedKey,
-  encodeWrappedKey,
+  decodeWrappedBaseKey,
+  encodeWrappedBaseKey,
   findBlob,
   groupRotations,
   myLocator,
@@ -63,10 +63,12 @@ describe("Concord V2 end to end", () => {
     const wire: NostrEvent[] = []; // "the relays"
 
     // ── 1. The owner creates the community (genesis: exactly two editions).
+    // The owner holds the minted control_root, so the write group resolves.
     const { community: ownerCommunity, generalChannelId } = mintCommunity("Test Fleet", owner.pubkey, [
       "wss://relay.example",
     ]);
-    const control0 = currentControlGroup(ownerCommunity);
+    const control0 = currentControlWriteGroup(ownerCommunity);
+    expect(control0.pk).toBe(ownerCommunity.controlPk);
     wire.push(
       await sealEdition(
         buildMetadataEdition(ownerCommunity.id, { name: "Test Fleet", relays: ownerCommunity.relays }, { actorPubkey: owner.pubkey, version: 1n }),
@@ -89,6 +91,7 @@ describe("Concord V2 end to end", () => {
       owner_salt: bytesToHex(ownerCommunity.ownerSalt),
       community_root: bytesToHex(ownerCommunity.root),
       root_epoch: 0,
+      control_pk: ownerCommunity.controlPk,
       channels: [],
       relays: ownerCommunity.relays,
       name: "Test Fleet",
@@ -107,6 +110,7 @@ describe("Concord V2 end to end", () => {
       owner_salt: fetched.owner_salt,
       community_root: fetched.community_root,
       root_epoch: fetched.root_epoch,
+      control_pk: fetched.control_pk,
       channels: [],
       relays: fetched.relays,
       name: fetched.name,
@@ -114,6 +118,10 @@ describe("Concord V2 end to end", () => {
     const aliceCommunity = rehydrateCommunity({ community_id: jm.community_id, seed: jm, current: jm, added_at: 1 })!;
     expect(aliceCommunity.idHex).toBe(ownerCommunity.idHex);
     expect(bytesToHex(aliceCommunity.root)).toBe(bytesToHex(ownerCommunity.root));
+    // Alice holds the ADDRESS (read/verify), never the write secret.
+    expect(aliceCommunity.controlPk).toBe(ownerCommunity.controlPk);
+    expect(aliceCommunity.controlRoot).toBeUndefined();
+    expect(() => currentControlWriteGroup(aliceCommunity)).toThrow();
 
     // ── 4. Alice folds the control plane and finds #general.
     const aliceFold = foldControlState(
@@ -158,9 +166,14 @@ describe("Concord V2 end to end", () => {
 
     const newEpoch = 1n;
     const newRoot = random32();
+    // Every base rotation mints the split's pair beside the root (CORD-06 §3).
+    const newControlRoot = random32();
+    const newControlPk = controlSignerGroupKey(newControlRoot, ownerCommunity.id, newEpoch).pk;
     const prevCommit = bytesToHex(epochKeyCommitment(0n, ownerCommunity.root));
     const rekeyAddress = baseRekeyGroupKey(ownerCommunity.root, ownerCommunity.id, newEpoch);
-    const plain = bytesToBase64(encodeWrappedKey(new Uint8Array(32), newEpoch, newRoot));
+    // Alice is a plain member: her blob is the 104-byte form (pk, no secret).
+    // The owner's own would be 136; the rotator already holds the pair.
+    const plain = bytesToBase64(encodeWrappedBaseKey(newEpoch, newRoot, hex32(newControlPk)));
     const survivors = [owner.pubkey, alice.pubkey];
     const blobs: RekeyBlob[] = survivors.map((pk) => ({
       locator: myLocator(owner.pubkey, pk, "0".repeat(64), newEpoch),
@@ -185,10 +198,15 @@ describe("Concord V2 end to end", () => {
       ...ownerCommunity,
       root: newRoot,
       rootEpoch: newEpoch,
-      heldRoots: [{ epoch: newEpoch, key: newRoot }, ...ownerCommunity.heldRoots],
+      controlPk: newControlPk,
+      controlRoot: newControlRoot,
+      heldRoots: [{ epoch: newEpoch, key: newRoot, controlPk: newControlPk }, ...ownerCommunity.heldRoots],
       refounder: owner.pubkey,
     };
-    const control1 = currentControlGroup(rotatedOwner);
+    // The compaction republishes at the NEW epoch's split address: signed by
+    // the fresh control_root's signer, readable under the new root (CORD-06 §3).
+    const control1 = currentControlWriteGroup(rotatedOwner);
+    expect(control1.pk).toBe(newControlPk);
     for (const head of ownerFold.headEditions.values()) {
       wire.push(rewrapSeal(head.opened.seal!, control1));
     }
@@ -203,12 +221,16 @@ describe("Concord V2 end to end", () => {
 
     const aliceBlob = findBlob(rotation, myLocator(owner.pubkey, alice.pubkey, rotation.scopeIdHex, newEpoch));
     expect(aliceBlob).toBeDefined();
-    const aliceNewRoot = decodeWrappedKey(
+    const aliceWrapped = decodeWrappedBaseKey(
       base64ToBytes(alice.nip44decrypt(owner.pubkey, aliceBlob!.wrapped)),
-      new Uint8Array(32),
+      aliceCommunity.id,
       newEpoch,
     );
-    expect(bytesToHex(aliceNewRoot)).toBe(bytesToHex(newRoot));
+    expect(bytesToHex(aliceWrapped.newRoot)).toBe(bytesToHex(newRoot));
+    // The 104-byte member blob hands Alice the new Control address, no secret.
+    expect(aliceWrapped.controlPk).toBe(newControlPk);
+    expect(aliceWrapped.controlRoot).toBeUndefined();
+    const aliceNewRoot = aliceWrapped.newRoot;
 
     // Mallory finds no blob across the COMPLETE rotation → removed.
     const malloryBlob = findBlob(rotation, myLocator(owner.pubkey, mallory.pubkey, rotation.scopeIdHex, newEpoch));
@@ -221,7 +243,18 @@ describe("Concord V2 end to end", () => {
         community_id: aliceCommunity.idHex,
         seed: jm,
         current: toJoinMaterial(
-          { ...aliceCommunity, root: aliceNewRoot, rootEpoch: newEpoch, heldRoots: [{ epoch: newEpoch, key: aliceNewRoot }, ...aliceCommunity.heldRoots], refounder: owner.pubkey },
+          {
+            ...aliceCommunity,
+            root: aliceNewRoot,
+            rootEpoch: newEpoch,
+            controlPk: aliceWrapped.controlPk,
+            controlRoot: undefined,
+            heldRoots: [
+              { epoch: newEpoch, key: aliceNewRoot, controlPk: aliceWrapped.controlPk },
+              ...aliceCommunity.heldRoots,
+            ],
+            refounder: owner.pubkey,
+          },
           { relays: jm.relays },
         ),
         added_at: 1,
@@ -229,6 +262,7 @@ describe("Concord V2 end to end", () => {
     )!;
     expect(rotatedAlice.rootEpoch).toBe(1n);
     expect(rotatedAlice.refounder).toBe(owner.pubkey);
+    expect(rotatedAlice.controlPk).toBe(newControlPk);
     const aliceFold1 = foldControlState(
       openControlWraps(wire, controlGroups(rotatedAlice)),
       rotatedAlice.id,
@@ -303,6 +337,7 @@ describe("Concord V2 end to end", () => {
       owner_salt: bytesToHex(c.ownerSalt),
       community_root: bytesToHex(c.root),
       root_epoch: Number(c.rootEpoch),
+      ...(c.controlPk ? { control_pk: c.controlPk } : {}),
       channels: [],
       relays: c.relays,
       name: "Test Fleet",
@@ -314,12 +349,18 @@ describe("Concord V2 end to end", () => {
     const url = buildInviteUrl("https://armada.example.com", link.pk, token, e0.relays);
 
     // ── 2. The owner Refounds to epoch 1 (ban/convert): newEpoch = rootEpoch+1,
-    // a fresh root. The link is NOT revoked — it stays live and shareable.
+    // a fresh root + a fresh control pair (CORD-06 §3). The link is NOT
+    // revoked — it stays live and shareable.
+    const e1Root = random32();
+    const e1ControlRoot = random32();
+    const e1ControlPk = controlSignerGroupKey(e1ControlRoot, e0.id, 1n).pk;
     const rotatedOwner: CommunityV2 = {
       ...e0,
-      root: random32(),
+      root: e1Root,
       rootEpoch: 1n,
-      heldRoots: [{ epoch: 1n, key: random32() }, ...e0.heldRoots],
+      controlPk: e1ControlPk,
+      controlRoot: e1ControlRoot,
+      heldRoots: [{ epoch: 1n, key: e1Root, controlPk: e1ControlPk }, ...e0.heldRoots],
       refounder: owner.pubkey,
     };
 

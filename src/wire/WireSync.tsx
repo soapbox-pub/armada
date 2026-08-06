@@ -48,7 +48,7 @@ import { ingestWireEvents } from "@/wire/ingest";
 import { buildWireSpec, stampRoundSince, type WireSpec } from "@/wire/spec";
 import type { GitRepositoryWireInput } from "@/wire/spec";
 
-import type { GroupKey } from "@/concord-v2/lib/derive";
+import type { GroupKey, StreamKeyView } from "@/concord-v2/lib/derive";
 import type { ChannelV2 } from "@/concord-v2/lib/types";
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -588,7 +588,7 @@ function wireGitRepositories(
 function useWireConcord2Control(): Array<{
   relays: string[];
   idHex: string;
-  groups: GroupKey[];
+  groups: StreamKeyView[];
   refounded: boolean;
 }> {
   const { data } = useCommunityList2();
@@ -598,7 +598,7 @@ function useWireConcord2Control(): Array<{
     const out: Array<{
       relays: string[];
       idHex: string;
-      groups: GroupKey[];
+      groups: StreamKeyView[];
       refounded: boolean;
     }> = [];
     for (const entry of entries) {
@@ -1078,7 +1078,7 @@ function WireSyncInner() {
           // Control wraps → opened-event store, grouped per owning community.
           const ctlByCommunity = new Map<
             string,
-            { groups: GroupKey[]; refounded: boolean; wraps: NostrRumor[] }
+            { groups: StreamKeyView[]; refounded: boolean; wraps: NostrRumor[] }
           >();
           for (const wrap of parked) {
             const channel = spec.v2ByPk.get(wrap.pubkey);

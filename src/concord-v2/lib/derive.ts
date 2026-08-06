@@ -23,6 +23,7 @@ import { getConversationKey } from "nostr-tools/nip44";
 
 const LABEL_CHANNEL = "concord/channel";
 const LABEL_CONTROL = "concord/control";
+const LABEL_CONTROL_SIGNER = "concord/control-signer";
 const LABEL_REKEY_PSEUDONYM = "concord/rekey-pseudonym";
 const LABEL_BASE_REKEY_PSEUDONYM = "concord/base-rekey-pseudonym";
 const LABEL_RECIPIENT_PSEUDONYM = "concord/recipient-pseudonym";
@@ -145,6 +146,35 @@ export interface GroupKey {
    * registration, voice room names — which never touch it.
    */
   readonly convKey: Uint8Array;
+}
+
+/**
+ * A stream as a READER holds it: the address to subscribe/verify by and the
+ * conversation key that opens the wraps — with the signing secret only when
+ * it is actually held.
+ *
+ * Every plane except the split Control Plane is a full {@link GroupKey}
+ * (holding the secret IS holding the plane). A Write-Restricted Stream
+ * (CORD-01) splits the two: every member holds the Control Plane's address
+ * (`control_pk`, delivered rather than derived) and its community_root-derived
+ * read key, but only staff hold the `control_root` the signing `sk` derives
+ * from — so the read view's `sk` is optional, and everything that only READS
+ * (openWrap, subscription filters, NIP-42 registration) takes this shape.
+ */
+export interface StreamKeyView {
+  /** x-only pubkey hex — the Stream address. */
+  pk: string;
+  /** NIP-44 conversation key that opens the wraps. */
+  readonly convKey: Uint8Array;
+  /** The wrap-signing secret, when held (absent for a write-restricted read view). */
+  sk?: Uint8Array;
+  /**
+   * Write-restricted (CORD-01): the address is a narrower writer-set's signer,
+   * so a wrap's signature actually proves something (a `control_root` holder
+   * published it) and the reader MUST verify it — where an ordinary stream's
+   * wrap signature is made with a key every reader holds and proves nothing.
+   */
+  restricted?: boolean;
 }
 
 /**
@@ -304,11 +334,32 @@ export function channelGroupKey(secret: Uint8Array, channelId: Uint8Array, epoch
   return groupKeyCached(LABEL_CHANNEL, secret, channelId, toEpoch(epoch));
 }
 
-/** The Control Plane's group key (community_root-keyed). */
+/**
+ * The Control Plane's community_root-keyed group key (CORD-02 §5).
+ *
+ * Post-split this is the plane's READ key: its `convKey` encrypts the wraps
+ * for every member. On a LEGACY (pre-split) epoch the same derivation was the
+ * whole plane — its `pk` the address and wrap signer too — and that use is
+ * retained for reading such epochs; the two schemes never collide (different
+ * labels, different addresses).
+ */
 export function controlGroupKey(communityRoot: Uint8Array, communityId: Uint8Array, epoch: number | bigint): GroupKey {
   assert32("communityRoot", communityRoot);
   assert32("communityId", communityId);
   return groupKeyCached(LABEL_CONTROL, communityRoot, communityId, toEpoch(epoch));
+}
+
+/**
+ * The Control Plane's control_root-keyed SIGNER keypair (CORD-02 §2/§5): its
+ * `pk` is the plane's address and its staff-only `sk` signs the wraps. Every
+ * member holds the derived `control_pk` (delivered, never derived — only the
+ * owner and staff hold the `control_root` input); the wraps' content is
+ * encrypted under {@link controlGroupKey}'s conv_key, not this one's.
+ */
+export function controlSignerGroupKey(controlRoot: Uint8Array, communityId: Uint8Array, epoch: number | bigint): GroupKey {
+  assert32("controlRoot", controlRoot);
+  assert32("communityId", communityId);
+  return groupKeyCached(LABEL_CONTROL_SIGNER, controlRoot, communityId, toEpoch(epoch));
 }
 
 /** The Guestbook Plane's group key (community_root-keyed). */

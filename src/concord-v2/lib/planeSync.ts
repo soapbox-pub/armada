@@ -60,7 +60,7 @@ import { KIND_WRAP, type Plane } from "@/concord-v2/lib/kinds";
 import { readControlSnapshot, readStreamCursor, updateStreamCursor, writeOpened } from "@/concord-v2/lib/rumorStore";
 import { isStreamPubkey, streamAuthsSettled } from "@/concord-v2/lib/streamAuth";
 import { openWrap, type OpenedEvent, type OpenedWireEvent } from "@/concord-v2/lib/stream";
-import type { GroupKey } from "@/concord-v2/lib/derive";
+import type { StreamKeyView } from "@/concord-v2/lib/derive";
 import type { CommunityV2 } from "@/concord-v2/lib/types";
 import { readFolded, writeFolded } from "@/lib/foldedCache";
 import { beginSyncTask } from "@/lib/syncActivity";
@@ -92,7 +92,7 @@ export function _configureAuthWaitForTests(cfg: Partial<typeof authWait>): void 
  * the relay never challenged — then there's nothing to wait for), or the cap
  * expires. Ack state comes from the relay's own `OK` replies (streamAuth).
  */
-async function whenAuthReady(url: string, groupsOf: () => GroupKey[]): Promise<void> {
+async function whenAuthReady(url: string, groupsOf: () => StreamKeyView[]): Promise<void> {
   const deadline = Date.now() + authWait.maxWaitMs;
   for (;;) {
     const pks = groupsOf().map((g) => g.pk);
@@ -113,7 +113,7 @@ async function whenAuthReady(url: string, groupsOf: () => GroupKey[]): Promise<v
  * and reads back as a clean empty page — which is how a fresh login used to
  * "complete" with zero messages and drop the user into hollow rooms.
  */
-export async function whenAuthSettled(url: string, groupsOf: () => GroupKey[]): Promise<void> {
+export async function whenAuthSettled(url: string, groupsOf: () => StreamKeyView[]): Promise<void> {
   const deadline = Date.now() + authWait.maxWaitMs;
   for (;;) {
     if (streamAuthsSettled(url, groupsOf().map((g) => g.pk)) || Date.now() >= deadline) return;
@@ -151,7 +151,7 @@ export interface PlaneScope {
    */
   refounded: boolean;
   /** The stream keys whose addresses this plane's wraps are authored by. */
-  groups: GroupKey[];
+  groups: StreamKeyView[];
   /**
    * COMPLETE mode (see the module docstring): the plane is re-fetched whole
    * rather than trusting a persisted forward cursor — full at session start /
@@ -263,7 +263,7 @@ export function mergeOpened(...sets: OpenedEvent[][]): OpenedEvent[] {
 }
 
 /** Decrypt raw plane wraps under the held groups into opened events. */
-export function openPlaneWraps(wraps: NostrRumor[], groups: GroupKey[]): OpenedWireEvent[] {
+export function openPlaneWraps(wraps: NostrRumor[], groups: StreamKeyView[]): OpenedWireEvent[] {
   const byPk = new Map(groups.map((g) => [g.pk, g]));
   const out: OpenedWireEvent[] = [];
   for (const wrap of wraps) {
@@ -289,7 +289,7 @@ const PLANE_DECODE_SLICE_MS = 5;
  * seals) — all synchronous noble crypto — so decoding a whole plane in one
  * unbroken loop freezes the UI for the duration on a phone.
  */
-export async function openPlaneWrapsChunked(wraps: NostrRumor[], groups: GroupKey[]): Promise<OpenedWireEvent[]> {
+export async function openPlaneWrapsChunked(wraps: NostrRumor[], groups: StreamKeyView[]): Promise<OpenedWireEvent[]> {
   const byPk = new Map(groups.map((g) => [g.pk, g]));
   const out: OpenedWireEvent[] = [];
   let sliceStart = performance.now();
