@@ -49,6 +49,7 @@ import type { Channel, Community } from "@/concord/lib/types";
 import type { NostrRumor } from "@/lib/nostrRumor";
 
 import { useChannelTimeline, useChatModeration } from "./useChannel";
+import { channelWriteGroup } from "@/concord/lib/community";
 
 /**
  * The community every channel in this file belongs to — the rumor-store tenant
@@ -166,6 +167,7 @@ function makeChannel(): { channel: Channel; idHex: string } {
       idHex,
       name: "general",
       isPrivate: false,
+      isAnnouncement: false,
       voice,
       streams: [stream],
       current: stream,
@@ -198,11 +200,11 @@ async function wrapChatAt(
     pubkey: s.pubkey,
     ms: createdAt * 1000,
   });
-  const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, s);
-  const w = wrapSeal(seal, channel.current.group);
+  const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channelWriteGroup(channel), s);
+  const w = wrapSeal(seal, channelWriteGroup(channel));
   return finalizeEvent(
     { kind: w.kind, content: w.content, tags: w.tags, created_at: createdAt },
-    channel.current.group.sk,
+    channelWriteGroup(channel).sk,
   );
 }
 

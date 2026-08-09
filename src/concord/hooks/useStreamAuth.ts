@@ -5,7 +5,6 @@ import {
   channelRekeyGroupKey,
   dissolvedGroupKey,
   guestbookGroupKey,
-  type GroupKey,
   type StreamKeyView,
 } from "@/concord/lib/derive";
 import { CHANNEL_REKEY_LOOKAHEAD } from "@/concord/lib/rekey";
@@ -59,8 +58,15 @@ function communityCoreKeys(community: Community): StreamKeyView[] {
   return keys;
 }
 
-/** Every per-channel stream key across held epochs (public + held private). */
-function channelKeys(channels: Channel[]): GroupKey[] {
+/**
+ * Every per-channel stream key across held epochs (public + held private).
+ *
+ * A view, not a `GroupKey`: an announcement channel's address is
+ * write-restricted, so a non-staff member registers it ADDRESS-ONLY — exactly
+ * as they already do for a split epoch's `control_pk`. They hold no secret to
+ * sign a NIP-42 challenge with, and the relay must not gate their reads on it.
+ */
+function channelKeys(channels: Channel[]): StreamKeyView[] {
   return channels.flatMap((c) => c.streams.map((s) => s.group));
 }
 

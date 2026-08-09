@@ -1,4 +1,4 @@
-import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, ChevronLeft, Bell, BellOff, Flag, Folder, FolderGit2, Hash, Headphones, KeyRound, Link as LinkIcon, Loader2, Lock, LogOut, Megaphone, MessagesSquare, MoreVertical, Pause, Phone, Pin, Play, Plus, RefreshCw, ScrollText, Search, Settings, Shield, Timer, Trash2, UserPlus, Users, X } from "lucide-react";
+import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, ChevronLeft, Bell, BellOff, Flag, Folder, FolderGit2, Headphones, KeyRound, Link as LinkIcon, Loader2, Lock, LogOut, Megaphone, MessagesSquare, MoreVertical, Pause, Phone, Pin, Play, Plus, RefreshCw, ScrollText, Search, Settings, Shield, Timer, Trash2, UserPlus, Users, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
@@ -13,6 +13,8 @@ import { JoinButton } from "@/components/auth/JoinButton";
 import { MemberList } from "@/components/chat/MemberList";
 import { ProfileRelayHints } from "@/components/ProfileRelayHints";
 import { ChannelCategoryHeading } from "@/concord/components/ChannelCategoryHeading";
+import { canWriteChannel } from "@/concord/lib/community";
+import { channelIconFor } from "@/concord/components/channelIcon";
 import { categoryKey, categoryNames, groupChannelsByCategory } from "@/concord/lib/channelCategory";
 import {
   applyArrangement,
@@ -528,7 +530,7 @@ const ChannelRow = memo(function ChannelRow({
   // desync. Folded presence remains the source for calls you're not in.
   const participants = inCall && voiceRoomPubkeys ? voiceRoomPubkeys : foldedParticipants;
 
-  const Icon = channel.isPrivate ? Lock : Hash;
+  const Icon = channelIconFor(channel);
   const hasUnread = Boolean(unread);
   const hasMention = Boolean(unread?.mention);
   // A call is live in this channel when anyone is present.
@@ -707,11 +709,10 @@ function MentionsView({
         return (
           <div key={msg.id} className="pb-1">
             <div className="flex items-center gap-1 px-3 pt-2 pb-0.5 text-xs font-medium text-muted-foreground">
-              {ch?.isPrivate ? (
-                <Lock className="size-3 shrink-0" />
-              ) : (
-                <Hash className="size-3 shrink-0" />
-              )}
+              {(() => {
+                const ChannelIcon = channelIconFor(ch ?? {});
+                return <ChannelIcon className="size-3 shrink-0" />;
+              })()}
               <span className="truncate">{ch?.name ?? "unknown channel"}</span>
             </div>
             <MentionMessage
@@ -804,11 +805,10 @@ function ThreadsView({
         return (
           <div key={t.root.id} className="pb-1">
             <div className="flex items-center gap-1 px-3 pt-2 pb-0.5 text-xs font-medium text-muted-foreground">
-              {ch?.isPrivate ? (
-                <Lock className="size-3 shrink-0" />
-              ) : (
-                <Hash className="size-3 shrink-0" />
-              )}
+              {(() => {
+                const ChannelIcon = channelIconFor(ch ?? {});
+                return <ChannelIcon className="size-3 shrink-0" />;
+              })()}
               <span className="truncate">{ch?.name ?? "unknown channel"}</span>
               {t.hasNew ? (
                 <span
@@ -1387,7 +1387,14 @@ export function ConcordPage() {
   // composer with a notice; folding them into `canWrite` freezes the same write
   // paths everywhere else too — timeline reply/edit and the thread composer.
   const { data: dissolved } = useDissolved(community);
-  const canWrite = Boolean(user && channel && !dissolved && !excluded && !stranded);
+  // An ANNOUNCEMENT channel is the fourth write-dead state, and the only one
+  // that is per-CHANNEL rather than per-community: its stream is address-gated
+  // to `control_root` holders, so a member without one holds no key to sign a
+  // wrap with. Folded in here for the same reason as the other three — it
+  // freezes the timeline's reply/edit affordances and the thread composer too,
+  // rather than only hiding the main composer.
+  const announcementReadOnly = Boolean(channel?.isAnnouncement && !canWriteChannel(channel));
+  const canWrite = Boolean(user && channel && !dissolved && !excluded && !stranded && !announcementReadOnly);
 
   const { transport: baseTransport, reactionsFor, allMessages, calendar, timerEntries, openedById } = useTransport(community, channel, canWrite, canModerateMessages, channelIdHex);
 
@@ -2065,8 +2072,8 @@ export function ConcordPage() {
   // The dialog is about ONE channel's access; switching rooms closes it.
   useEffect(() => setAddMembersOpen(false), [channel?.idHex]);
 
-  const handleCreateTextChannel = useCallback(async (name: string, opts?: { isPrivate?: boolean }) => {
-    const { channelIdHex: created } = await createChannel({ name, isPrivate: opts?.isPrivate });
+  const handleCreateTextChannel = useCallback(async (name: string, opts?: { isPrivate?: boolean; isAnnouncement?: boolean }) => {
+    const { channelIdHex: created } = await createChannel({ name, isPrivate: opts?.isPrivate, isAnnouncement: opts?.isAnnouncement });
     // A newborn Private Channel is born alongside the Role that names who may
     // read it, and nobody holds that Role yet — so there is nobody to vend to.
     // Access starts empty and is handed out by granting the Role, which is the
@@ -2957,11 +2964,10 @@ export function ConcordPage() {
           style={{ left: (channelDrag.columnX?.left ?? 0) + 12, top: channelDrag.pointer.y }}
         >
           <span className="flex max-w-48 items-center gap-2 rotate-[-2deg] scale-105 clip-corner-lg bg-muted px-3 py-1.5 text-sm font-medium ring-2 ring-primary [filter:drop-shadow(0_8px_16px_rgba(0,0,0,0.55))_drop-shadow(0_0_8px_hsl(var(--primary)/0.6))]">
-            {draggedChannel.isPrivate ? (
-              <Lock className="size-4 shrink-0" />
-            ) : (
-              <Hash className="size-4 shrink-0" />
-            )}
+            {(() => {
+              const ChannelIcon = channelIconFor(draggedChannel);
+              return <ChannelIcon className="size-4 shrink-0" />;
+            })()}
             <span className="truncate">{draggedChannel.name}</span>
           </span>
         </div>
@@ -3078,11 +3084,10 @@ export function ConcordPage() {
                 </>
               ) : (
                 <>
-                  {channel?.isPrivate ? (
-                    <Lock className="size-5 text-muted-foreground shrink-0" />
-                  ) : (
-                    <Hash className="size-5 text-muted-foreground shrink-0" />
-                  )}
+                  {(() => {
+                    const ChannelIcon = channelIconFor(channel ?? {});
+                    return <ChannelIcon className="size-5 text-muted-foreground shrink-0" />;
+                  })()}
                   <h1 className="font-semibold truncate leading-tight">{channel?.name ?? "…"}</h1>
                 </>
               )}
@@ -3149,11 +3154,10 @@ export function ConcordPage() {
                     </>
                   ) : (
                     <>
-                      {channel?.isPrivate ? (
-                        <Lock className="size-3 shrink-0" />
-                      ) : (
-                        <Hash className="size-3 shrink-0" />
-                      )}
+                      {(() => {
+                        const ChannelIcon = channelIconFor(channel ?? {});
+                        return <ChannelIcon className="size-3 shrink-0" />;
+                      })()}
                       {channel?.name ?? "…"}
                     </>
                   )}
@@ -3665,6 +3669,17 @@ export function ConcordPage() {
                         </Button>
                       )}
                     </div>
+                  ) : announcementReadOnly ? (
+                    <div className="mx-2 mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
+                      <Megaphone className="size-5 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1 text-sm">
+                        <p className="font-medium">Only moderators can post here.</p>
+                        <p className="text-muted-foreground">
+                          This is an announcement channel. You'll see everything posted in it —
+                          you just can't post or reply.
+                        </p>
+                      </div>
+                    </div>
                   ) : (
                     channel && (
                       <>
@@ -3706,6 +3721,7 @@ export function ConcordPage() {
               open={creatingChannel}
               onOpenChange={setCreatingChannel}
               connectedCoordinates={connectedCoordinates}
+              canAnnounce={Boolean(community?.controlRoot)}
               onCreateText={handleCreateTextChannel}
               onCreateRepository={handleCreateRepositoryChannel}
             />

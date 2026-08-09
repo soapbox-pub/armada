@@ -913,10 +913,21 @@ export async function sweepExpiredCommunityRumors(
 // are indexed only by their author (the stream address) so a plane can read
 // exactly its own.
 //
-// Lives in its own ArmadaDB tenant. Wraps are stored WITHOUT their signature:
-// a wrap is signed by a throwaway ephemeral key, `openWrap` never checks that
-// signature, and everything authenticating the message is the seal sealed
-// inside it — so there is nothing here to preserve.
+// Lives in its own ArmadaDB tenant, which — like every tenant — stores RUMORS:
+// no adapter carries a `sig` (`db/types.ts`), so a parked wrap comes back
+// unsigned however it was handed over. For an ordinary stream that costs
+// nothing: its wrap is signed with a key every reader holds, `openWrap` never
+// checks it, and everything authenticating the message is the seal inside.
+//
+// A WRITE-RESTRICTED stream (CORD-01) inverts that — the wrap signature IS the
+// write gate, proving a narrower signer set published it, and `openWrap`
+// refuses the wrap without it. Such a wrap parked and drained would therefore
+// be unopenable FOREVER: it re-fails every peek until the age-prune deletes
+// it, silently, with no relay refetch behind the chat plane to cover the loss.
+// So the signature is kept beside the wrap in the KV, keyed by wrap id — the
+// signature itself, not bookkeeping smuggled into the row's tags (which are
+// the bytes its id commits to). Same shape, and the same reason, as the stored
+// seal above and the control snapshot at the top of this file.
 
 const PENDING_TENANT = ARMADA_TENANTS.c2Park;
 
@@ -951,13 +962,24 @@ let pendingKnownEmpty: boolean | undefined;
 const PENDING_PRUNE_INTERVAL_MS = 5 * 60_000;
 let lastPendingPruneAt = 0;
 
+/** KV key holding a parked wrap's signature (the store itself holds no `sig`). */
+const parkSigKey = (wrapId: string) => `c2parksig:${wrapId}`;
+
 /** Park raw Concord wraps for later WebView-side decryption (native ingest path). */
 export function parkPendingWraps(wraps: NostrEvent[]): void {
   if (wraps.length === 0) return;
   pendingKnownEmpty = false;
   const s = pendingStore();
+  const kv = getArmadaDB().kv;
   void Promise.all(
-    wraps.map(({ sig: _sig, ...wrap }) => s.event(wrap)),
+    wraps.flatMap(({ sig, ...wrap }) => [
+      s.event(wrap),
+      // Best-effort and independent of the row: a lost signature costs only
+      // the write-restricted case, and losing the ROW would lose the message.
+      ...(typeof sig === "string" && sig.length > 0
+        ? [kv.set(parkSigKey(wrap.id), sig).catch(() => undefined)]
+        : []),
+    ]),
   ).catch(() => undefined);
 }
 
@@ -989,12 +1011,43 @@ export async function peekPendingWraps(streamPks: string[]): Promise<NostrRumor[
     if (now - lastPendingPruneAt >= PENDING_PRUNE_INTERVAL_MS) {
       lastPendingPruneAt = now;
       const cutoff = Math.floor(now / 1000) - PENDING_MAX_AGE_SECS;
-      void s.remove([{ kinds: [1059, 21059], until: cutoff }]).catch(() => undefined);
+      // Read the doomed ids before removing them: their KV signatures are keyed
+      // by wrap id, so this is the only moment they can still be named. A
+      // leaked key is inert but unbounded, and nothing else ever collects it.
+      void (async () => {
+        const doomed = await s.query([{ kinds: [1059, 21059], until: cutoff }]);
+        await s.remove([{ kinds: [1059, 21059], until: cutoff }]);
+        await forgetParkedSigs(doomed.map((w) => w.id));
+      })().catch(() => undefined);
     }
-    return await s.query([{ kinds: [1059, 21059], authors: streamPks, limit: 1000 }]);
+    const parked = await s.query([{ kinds: [1059, 21059], authors: streamPks, limit: 1000 }]);
+    return await Promise.all(parked.map(withParkedSig));
   } catch {
     return [];
   }
+}
+
+/**
+ * Re-attach the signature parked beside a wrap, when one was kept.
+ *
+ * Unsigned is not an error: only a write-restricted stream's `openWrap` needs
+ * the signature, every other wrap opens exactly as before, and a wrap parked
+ * by a build that predates this keeps working as the unsigned rumor it is.
+ */
+async function withParkedSig(wrap: NostrRumor): Promise<NostrRumor> {
+  try {
+    const sig = await getArmadaDB().kv.get<string>(parkSigKey(wrap.id));
+    return sig ? { ...wrap, sig } as NostrRumor : wrap;
+  } catch {
+    return wrap;
+  }
+}
+
+/** Drop the KV signatures of wraps that are leaving the park. */
+async function forgetParkedSigs(wrapIds: string[]): Promise<void> {
+  if (wrapIds.length === 0) return;
+  const kv = getArmadaDB().kv;
+  await Promise.all(wrapIds.map((id) => kv.delete(parkSigKey(id)).catch(() => undefined)));
 }
 
 /** Remove parked wraps whose rumors are now safely in the opened-event store. */
@@ -1002,6 +1055,7 @@ export function ackPendingWraps(wrapIds: string[]): void {
   if (wrapIds.length === 0) return;
   const s = pendingStore();
   void s.remove([{ ids: wrapIds }]).catch(() => undefined);
+  void forgetParkedSigs(wrapIds);
 }
 
 // ── Sync cursor ───────────────────────────────────────────────────────────────

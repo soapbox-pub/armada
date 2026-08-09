@@ -22,6 +22,7 @@ import { getConversationKey } from "nostr-tools/nip44";
 // ── Labels (A.6, frozen) ─────────────────────────────────────────────────────
 
 const LABEL_CHANNEL = "concord/channel";
+const LABEL_CHANNEL_SIGNER = "concord/channel-signer";
 const LABEL_CONTROL = "concord/control";
 const LABEL_CONTROL_SIGNER = "concord/control-signer";
 const LABEL_REKEY_PSEUDONYM = "concord/rekey-pseudonym";
@@ -333,6 +334,32 @@ export function channelGroupKey(secret: Uint8Array, channelId: Uint8Array, epoch
   assert32("secret", secret);
   assert32("channelId", channelId);
   return groupKeyCached(LABEL_CHANNEL, secret, channelId, toEpoch(epoch));
+}
+
+/**
+ * An ANNOUNCEMENT Channel's control_root-keyed SIGNER keypair: its `pk` is the
+ * Channel's Chat Plane address and its staff-only `sk` signs the wraps, while
+ * the content stays encrypted under {@link channelGroupKey}'s conv_key — the
+ * community_root derivation every member already holds.
+ *
+ * This is CORD-01's Write-Restricted Stream applied to a Channel, and it is the
+ * same split the Control Plane uses, keyed by the same secret: an ordinary
+ * Channel's address derives from a secret every reader holds, so every reader
+ * can sign wraps at it and "read-only" could only ever be a client-side
+ * request. Here the readership is unchanged and the signer set narrows to
+ * `control_root` holders — so posting rights need no new key distribution and
+ * no new rotation: the address rolls with the root epoch, and a demoted staff
+ * member stops being able to post exactly when they stop holding the root.
+ *
+ * Like `control_pk`, the resulting address is DELIVERED, never derived, by
+ * members who hold no `control_root` — it rides in the Channel's own metadata
+ * edition (`channelAnnounce.ts`), which the Control Plane's MANAGE_CHANNELS
+ * gate already authenticates.
+ */
+export function channelSignerGroupKey(controlRoot: Uint8Array, channelId: Uint8Array, epoch: number | bigint): GroupKey {
+  assert32("controlRoot", controlRoot);
+  assert32("channelId", channelId);
+  return groupKeyCached(LABEL_CHANNEL_SIGNER, controlRoot, channelId, toEpoch(epoch));
 }
 
 /**

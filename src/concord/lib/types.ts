@@ -7,7 +7,7 @@
  * access can rotate while identity stays fixed (CORD-02 §1–2).
  */
 
-import type { GroupKey } from "@/concord/lib/derive";
+import type { GroupKey, StreamKeyView } from "@/concord/lib/derive";
 import {
   normalizeGitRepositoryAttachments,
   parseGitRepositoryAddress,
@@ -338,7 +338,21 @@ export interface Channel {
    * A retired epoch carries its rotation's publish time as `retiredAt` — the
    * decode path refuses anything sealed under it with a later `created_at`.
    */
-  streams: Array<{ epoch: bigint; group: GroupKey; retiredAt?: number }>;
-  /** The current write coordinate. */
-  current: { epoch: bigint; group: GroupKey };
+  streams: Array<{ epoch: bigint; group: StreamKeyView; retiredAt?: number }>;
+  /**
+   * The current stream coordinate.
+   *
+   * A READ view: an announcement Channel's address is a write-restricted
+   * stream whose `sk` only staff hold (`channelAnnounce.ts`), so the signing
+   * secret is not part of the shape every reader gets. Publishing goes through
+   * {@link channelWriteGroup}, which refuses when it is absent — the same
+   * split, for the same reason, as the Control Plane's `currentControlGroup` /
+   * `currentControlWriteGroup`.
+   */
+  current: { epoch: bigint; group: StreamKeyView };
+  /**
+   * Write-restricted (announcement) Channel: every member reads, only
+   * `control_root` holders can post. See `channelAnnounce.ts`.
+   */
+  isAnnouncement: boolean;
 }

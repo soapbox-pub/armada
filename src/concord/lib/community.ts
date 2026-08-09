@@ -7,13 +7,17 @@
 import {
   bytesToHex,
   channelGroupKey,
+  channelSignerGroupKey,
   communityIdOf,
   controlSignerGroupKey,
   hex32,
   random32,
   voiceGroupKey,
   voiceMediaKey,
+  type GroupKey,
+  type StreamKeyView,
 } from "@/concord/lib/derive";
+import { channelAnnouncePk } from "@/concord/lib/channelAnnounce";
 import { channelCategory } from "@/concord/lib/channelCategory";
 import { channelPosition, compareChannelOrder } from "@/concord/lib/channelOrder";
 import { parseInviteLink, type ParsedInviteLink } from "@/concord/lib/invite";
@@ -75,6 +79,41 @@ export function mintCommunity(name: string, ownerPubkeyHex: string, relays: stri
  *
  * Ordered by name for a stable sidebar.
  */
+/**
+ * Whether this member can PUBLISH to a Channel's current stream.
+ *
+ * False only for an announcement Channel this member holds no `control_root`
+ * for — every ordinary Channel's stream key IS its write key, so a Channel the
+ * member can see at all is one they can write to.
+ */
+export function canWriteChannel(channel: Channel): boolean {
+  return channel.current.group.sk !== undefined;
+}
+
+/**
+ * A Channel's current WRITE key. Throws when the Channel is write-restricted
+ * and this member holds no `control_root` — publishing there would mint a wrap
+ * that fails the signature check at every reader and every relay.
+ *
+ * The mirror of `currentControlWriteGroup`, and for the same reason: the read
+ * view is what every caller gets, so the one place that needs a signing secret
+ * is the one place that has to say so.
+ */
+export function channelWriteGroup(channel: Channel): GroupKey {
+  const { group } = channel.current;
+  const sk = group.sk;
+  if (sk === undefined) {
+    throw new Error("Only community staff can post in an announcement channel.");
+  }
+  return {
+    sk,
+    pk: group.pk,
+    get convKey() {
+      return group.convKey;
+    },
+  };
+}
+
 export function channelsView(community: Community, folded: FoldedControl | undefined): Channel[] {
   const out: Channel[] = [];
   const seen = new Set<string>();
@@ -121,20 +160,66 @@ export function channelsView(community: Community, folded: FoldedControl | undef
       : [];
 
     if (!def.isPrivate) {
+      // An ANNOUNCEMENT channel is the same Chat Plane addressed by a
+      // write-restricted stream: the wraps stay encrypted under the SAME
+      // community_root-derived conv_key (so the readership is untouched), but
+      // the address is `control_root`-derived, so only staff can produce a
+      // wrap it will accept. See `channelAnnounce.ts`.
+      const announcePk = channelAnnouncePk(def.metadata);
+      const announceStreams = announcePk
+        ? community.heldRoots.map((r) => {
+            const read = channelGroupKey(r.key, id, r.epoch);
+            const signer =
+              community.controlRoot !== undefined && r.epoch === community.rootEpoch
+                ? channelSignerGroupKey(community.controlRoot, id, r.epoch)
+                : undefined;
+            const group: StreamKeyView = {
+              pk: announcePk,
+              get convKey() {
+                return read.convKey;
+              },
+              // The reader's half of the write gate: the wrap signature proves
+              // a control_root holder published it, so openWrap verifies it
+              // (CORD-01 Write-Restricted Streams).
+              restricted: true,
+              // A held secret that does not derive to the published address is
+              // corrupt state, not a signer: leave `sk` absent (fail closed to
+              // read-only) rather than mint wraps nobody subscribes to. This is
+              // also what makes a STALE address safe — after a Refounding rolls
+              // `control_root`, the metadata's pk no longer derives, so staff
+              // drop to read-only until the channel is re-announced instead of
+              // publishing into a stream no member reads.
+              ...(signer && signer.pk === announcePk ? { sk: signer.sk } : {}),
+            };
+            return {
+              epoch: r.epoch,
+              group,
+              ...(r.retiredAt !== undefined ? { retiredAt: r.retiredAt } : {}),
+            };
+          })
+        : [];
       let voiceMemo: VoiceKeys | undefined;
       out.push({
         id,
         idHex: def.channelIdHex,
         name: def.name,
         isPrivate: false,
+        isAnnouncement: announcePk !== undefined,
         category: channelCategory(def.metadata),
         position: channelPosition(def.metadata),
         get voice() {
           return (voiceMemo ??= voiceKeys(community.root, id, community.rootEpoch));
         },
-        // Writes go to the root stream; private-era streams stay readable.
-        streams: [...rootStreams, ...channelStreams],
-        current: rootStreams[0],
+        // An announcement channel reads ONLY its restricted address, and
+        // deliberately not the community_root-derived one every ordinary
+        // channel shares — for the same reason a private channel drops its
+        // public-era stream. That address is writable by every member, so
+        // folding it in would present un-gated posts inside a channel whose
+        // whole claim is that only staff can post: a demoted moderator, or any
+        // member with a patched client, could keep "announcing" by writing to
+        // the address the channel used to have.
+        streams: announcePk ? [...announceStreams, ...channelStreams] : [...rootStreams, ...channelStreams],
+        current: announcePk ? announceStreams[0] : rootStreams[0],
       });
       continue;
     }
@@ -146,6 +231,13 @@ export function channelsView(community: Community, folded: FoldedControl | undef
       idHex: def.channelIdHex,
       name: def.name,
       isPrivate: true,
+      // Announcement mode is a PUBLIC-channel shape: it narrows the writer set
+      // below a readership that is already the whole membership. A private
+      // channel's readership is its keyholders, and that key is its wrap
+      // signer — so the two would have to be split by a second, separately
+      // distributed key rather than by `control_root`, which is what this
+      // design buys its way out of.
+      isAnnouncement: false,
       category: channelCategory(def.metadata),
       position: channelPosition(def.metadata),
       get voice() {
@@ -186,6 +278,7 @@ export function channelsView(community: Community, folded: FoldedControl | undef
       idHex,
       name: held.name || idHex.slice(0, 8),
       isPrivate: true,
+      isAnnouncement: false,
       get voice() {
         return (voiceMemo ??= voiceKeys(held.key, held.id, held.epoch));
       },

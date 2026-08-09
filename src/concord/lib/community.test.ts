@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { channelsView, mintCommunity } from "./community";
-import { bytesToHex, channelGroupKey, random32 } from "./derive";
+import { canWriteChannel, channelWriteGroup, channelsView, mintCommunity } from "./community";
+import { withChannelAnnouncePk } from "./channelAnnounce";
+import { bytesToHex, channelGroupKey, channelSignerGroupKey, random32 } from "./derive";
 import { emptyRoles } from "./roles";
 
 import type { FoldedControl, FoldedChannel } from "./control";
@@ -120,5 +121,87 @@ describe("channelsView (CORD-03 channel kinds)", () => {
     // Holding an independent channel key is itself proof the channel is
     // private: a public one would derive from the root and need no key.
     expect(channelsView(community, foldWith([]))[0]?.isPrivate).toBe(true);
+  });
+});
+
+/**
+ * An announcement channel narrows the WRITER set without touching the reader
+ * set — CORD-01's Write-Restricted Stream applied to a Channel. The whole test
+ * of the design is that a non-staff member ends up with a channel they can
+ * fully read and provably cannot post to, with no extra key handed to them.
+ */
+describe("channelsView (announcement channels)", () => {
+  const announce = (id: Uint8Array, controlRoot: Uint8Array, epoch: bigint): ChannelMetadata =>
+    withChannelAnnouncePk({ name: "news", private: false }, channelSignerGroupKey(controlRoot, id, epoch).pk);
+
+  it("addresses the channel by the control_root signer while keeping the member read key", () => {
+    const { community } = mintCommunity("Fleet", OWNER, ["wss://a.test"]);
+    const id = random32();
+    const metadata = announce(id, community.controlRoot!, community.rootEpoch);
+    const view = channelsView(community, foldWith([channelDef(id, metadata)]))[0];
+
+    expect(view.isAnnouncement).toBe(true);
+    // The ADDRESS is the staff-only derivation…
+    expect(view.current.group.pk).toBe(channelSignerGroupKey(community.controlRoot!, id, community.rootEpoch).pk);
+    // …while the CONTENT key is the same community_root one every member holds,
+    // so making a channel announcement-only takes nothing away from readers.
+    expect(view.current.group.convKey).toEqual(channelGroupKey(community.root, id, community.rootEpoch).convKey);
+    // And readers are told to check the wrap signature rather than trust relays.
+    expect(view.current.group.restricted).toBe(true);
+  });
+
+  it("does not fold in the community_root address every member can write to", () => {
+    // The hole this closes: that address is derivable by the whole membership,
+    // so folding it in would let a demoted moderator — or any member with a
+    // patched client — keep "announcing" at the channel's ordinary address.
+    const { community } = mintCommunity("Fleet", OWNER, ["wss://a.test"]);
+    const id = random32();
+    const view = channelsView(community, foldWith([channelDef(id, announce(id, community.controlRoot!, community.rootEpoch))]))[0];
+    const ordinary = channelGroupKey(community.root, id, community.rootEpoch).pk;
+    expect(view.streams.some((s) => s.group.pk === ordinary)).toBe(false);
+  });
+
+  it("gives staff a write key and everyone else a read-only view", () => {
+    const { community } = mintCommunity("Fleet", OWNER, ["wss://a.test"]);
+    const id = random32();
+    const folded = foldWith([channelDef(id, announce(id, community.controlRoot!, community.rootEpoch))]);
+
+    const asStaff = channelsView(community, folded)[0];
+    expect(canWriteChannel(asStaff)).toBe(true);
+    expect(channelWriteGroup(asStaff).pk).toBe(asStaff.current.group.pk);
+
+    // A rank-and-file member holds the same community_root but no control_root:
+    // same channel, same reads, no signing secret anywhere in the view.
+    const member: Community = { ...community, controlRoot: undefined };
+    const asMember = channelsView(member, folded)[0];
+    expect(asMember.current.group.pk).toBe(asStaff.current.group.pk);
+    expect(asMember.current.group.convKey).toEqual(asStaff.current.group.convKey);
+    expect(canWriteChannel(asMember)).toBe(false);
+    expect(() => channelWriteGroup(asMember)).toThrow(/staff/i);
+  });
+
+  it("falls back to read-only when the published address no longer derives", () => {
+    // What a Refounding leaves behind: `control_root` has rolled, so the
+    // address in the channel's metadata is last epoch's. Staff must NOT publish
+    // under the current root to an address no member subscribes to — better a
+    // channel that refuses writes until it is re-announced.
+    const { community } = mintCommunity("Fleet", OWNER, ["wss://a.test"]);
+    const id = random32();
+    const stale = announce(id, random32(), community.rootEpoch);
+    const view = channelsView(community, foldWith([channelDef(id, stale)]))[0];
+    expect(view.isAnnouncement).toBe(true);
+    expect(canWriteChannel(view)).toBe(false);
+  });
+
+  it("reads as an ordinary channel when the announce address is malformed", () => {
+    // Degrade toward the pre-announcement behavior, not toward a channel
+    // pointed at an address nobody can produce wraps for.
+    const { community } = mintCommunity("Fleet", OWNER, ["wss://a.test"]);
+    const id = random32();
+    const metadata: ChannelMetadata = { name: "news", private: false, custom: { "armada.announce": { pk: "nope" } } };
+    const view = channelsView(community, foldWith([channelDef(id, metadata)]))[0];
+    expect(view.isAnnouncement).toBe(false);
+    expect(view.current.group.pk).toBe(channelGroupKey(community.root, id, community.rootEpoch).pk);
+    expect(canWriteChannel(view)).toBe(true);
   });
 });

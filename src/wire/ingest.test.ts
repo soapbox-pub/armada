@@ -21,6 +21,7 @@ import { onWireScopes, resetWireBus } from "./bus";
 import { ingestWireEvents, type WireEventStore } from "./ingest";
 import { registerNotifySink, type NotifyCandidate } from "./notify";
 import type { WireSpec } from "./spec";
+import { channelWriteGroup } from "@/concord/lib/community";
 
 afterEach(() => {
   resetWireBus();
@@ -43,6 +44,7 @@ function makeChannel(): { channel: Channel; idHex: string } {
       idHex,
       name: "general",
       isPrivate: false,
+      isAnnouncement: false,
       voice,
       streams: [stream],
       current: stream,
@@ -63,8 +65,8 @@ async function wrapChat(channel: Channel, s: ReturnType<typeof signer>, content:
     pubkey: s.pubkey,
     ms: Date.now(),
   });
-  const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, s);
-  return wrapSeal(seal, channel.current.group) as NostrEvent;
+  const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channelWriteGroup(channel), s);
+  return wrapSeal(seal, channelWriteGroup(channel)) as NostrEvent;
 }
 
 class FakeStore implements WireEventStore {

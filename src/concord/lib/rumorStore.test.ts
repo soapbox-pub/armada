@@ -31,6 +31,7 @@ import {
   writeOpened,
   writeRumors,
 } from "@/concord/lib/rumorStore";
+import { channelWriteGroup } from "@/concord/lib/community";
 
 // A clean IndexedDB for the suite (the store singleton opens against it lazily).
 (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
@@ -54,7 +55,7 @@ function makeChannel(): { channel: Channel; idHex: string } {
   const stream = { epoch: 0n, group };
   const voice = { room: voiceGroupKey(root, channelId, 0), mediaKey: voiceMediaKey(root, channelId, 0) };
   return {
-    channel: { id: channelId, idHex, name: "general", isPrivate: false, voice, streams: [stream], current: stream },
+    channel: { id: channelId, idHex, name: "general", isPrivate: false, isAnnouncement: false, voice, streams: [stream], current: stream },
     idHex,
   };
 }
@@ -69,7 +70,7 @@ function signer(sk = generateSecretKey()) {
 }
 
 async function wrapChat(rumor: NostrRumor, channel: Channel, s: ReturnType<typeof signer>): Promise<NostrEvent> {
-  return wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, s), channel.current.group);
+  return wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channelWriteGroup(channel), s), channelWriteGroup(channel));
 }
 
 function chatRumor(
@@ -238,7 +239,7 @@ describe("concord rumor store", () => {
     );
     expect(seal?.kind).toBe(KIND_SEAL_ENCRYPTED);
     // And it is the real thing: the disclosure opens it back to the message.
-    const keys = discloseKeysFor(seal!.content, channel.current.group.convKey)!;
+    const keys = discloseKeysFor(seal!.content, channelWriteGroup(channel).convKey)!;
     expect(keys).toBeDefined();
     expect(JSON.parse(decryptWithDisclosedKeys(seal!.content, keys)!).content).toBe("chat");
   });
@@ -314,6 +315,21 @@ describe("concord rumor store", () => {
     const fresh = await import("@/concord/lib/rumorStore");
     const parked = await fresh.peekPendingWraps([control.pk]);
     expect(parked.map((w) => w.id)).toEqual([wrap.id]);
+  });
+
+  it("preserves the wrap signature a WRITE-RESTRICTED stream verifies on drain", async () => {
+    const alice = signer();
+    const stream = channelGroupKey(new Uint8Array(32).fill(9), new Uint8Array(32).fill(6), 0);
+    const rumor = buildRumor({ kind: 3308, content: "{}", tags: [["vsk", "0"], ["eid", "ab".repeat(32)], ["ev", "1"]], pubkey: alice.pubkey, ms: null });
+    const wrap = wrapSeal(await sealRumor(rumor, KIND_SEAL_PLAINTEXT, stream, alice), stream);
+
+    parkPendingWraps([wrap]);
+    const [parked] = await eventually(() => peekPendingWraps([stream.pk]), (r) => r.length === 1);
+
+    // A restricted stream's write gate IS the wrap signature (stream.ts), so a
+    // wrap that survives the park without one can never be opened again — it
+    // just re-fails every drain until the age-prune deletes it.
+    expect(() => openWrap(parked as NostrEvent, { ...stream, restricted: true })).not.toThrow();
   });
 
   it("surfaces a mention buried DEEPER than the per-channel scan window", async () => {

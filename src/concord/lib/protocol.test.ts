@@ -10,7 +10,7 @@ import type { EventTemplate, NostrEvent } from "nostr-tools/pure";
 import { describe, expect, it } from "vitest";
 
 import { foldTimeline, openChatBatch } from "@/concord/lib/chat";
-import { channelsView, mintCommunity } from "@/concord/lib/community";
+import { channelsView, channelWriteGroup, mintCommunity } from "@/concord/lib/community";
 import { rehydrateCommunity, toJoinMaterial } from "@/concord/lib/communityList";
 import { bundleToEntry } from "@/concord/hooks/useCommunityActions";
 import {
@@ -23,7 +23,7 @@ import {
   openControlWraps,
   sealEdition,
 } from "@/concord/lib/control";
-import { baseRekeyGroupKey, bytesToHex, controlSignerGroupKey, epochKeyCommitment, hex32, random32 } from "@/concord/lib/derive";
+import { baseRekeyGroupKey, bytesToHex, controlSignerGroupKey, epochKeyCommitment, hex32, random32, type GroupKey } from "@/concord/lib/derive";
 import { buildInviteUrl, buildBundleEvent, buildRefreshedBundleEvents, mintLinkSigner, mintToken, parseBundleEvent, parseInviteLink, type InviteBundle } from "@/concord/lib/invite";
 import { KIND_MESSAGE, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import {
@@ -148,10 +148,10 @@ describe("Concord end to end", () => {
         pubkey: who.pubkey,
         ms: Date.now(),
       });
-      wire.push(wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, general.current.group, who), general.current.group));
+      wire.push(wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channelWriteGroup(general), who), channelWriteGroup(general)));
     }
     const ownerChannels = channelsView(ownerCommunity, aliceFold);
-    const chatWraps = wire.filter((e) => e.pubkey === general.current.group.pk);
+    const chatWraps = wire.filter((e) => e.pubkey === channelWriteGroup(general).pk);
     const ownerTimeline = foldTimeline(await openChatBatch(chatWraps, ownerChannels[0]));
     expect(ownerTimeline.messages.map((m) => m.content)).toEqual(["hello fleet", "soon to be banned"]);
 
@@ -292,7 +292,7 @@ describe("Concord end to end", () => {
       pubkey: alice.pubkey,
       ms: Date.now(),
     });
-    const e1group = aliceChannels[0].streams.find((s) => s.epoch === 1n)!.group;
+    const e1group = aliceChannels[0].streams.find((s) => s.epoch === 1n)!.group as GroupKey;
     const e1wrap = wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, e1group, alice), e1group);
     const malloryChannels = channelsView(
       { ...aliceCommunity, privateChannels: [] }, // Mallory still holds only epoch 0

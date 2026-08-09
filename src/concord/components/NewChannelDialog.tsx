@@ -1,4 +1,4 @@
-import { ArrowLeft, FolderGit2, Hash, Loader2, Lock } from "lucide-react";
+import { ArrowLeft, FolderGit2, Hash, Loader2, Lock, Megaphone } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { OwnerAvatar, OwnerSlashRepo, RepositoryPicker, type PickedRepository } from "@/components/projects/RepositoryPicker";
@@ -45,11 +45,18 @@ function TypeCard({ icon: Icon, title, description, onClick }: { icon: typeof Ha
  * that ties a NIP-34 repo to the new channel — found by searching the public
  * ngit directory or by pasting an naddr / nostr:// address from a git client.
  */
-export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onCreateText, onCreateRepository }: {
+export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, canAnnounce, onCreateText, onCreateRepository }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   connectedCoordinates: ReadonlySet<string>;
-  onCreateText: (name: string, opts?: { isPrivate?: boolean }) => Promise<unknown>;
+  /**
+   * Whether this member holds the community's `control_root`, i.e. can mint an
+   * announcement channel's write-restricted address at all. Offered as a
+   * capability rather than assumed: `createChannel` throws without it, and a
+   * checkbox that can only fail is worse than an absent one.
+   */
+  canAnnounce?: boolean;
+  onCreateText: (name: string, opts?: { isPrivate?: boolean; isAnnouncement?: boolean }) => Promise<unknown>;
   onCreateRepository: (name: string, repository: PickedRepository) => Promise<unknown>;
 }) {
   const [step, setStep] = useState<Step>("type");
@@ -58,6 +65,7 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPrivate, setIsPrivate] = useState(true);
+  const [isAnnouncement, setIsAnnouncement] = useState(false);
 
   // Fresh wizard every time it opens.
   useEffect(() => {
@@ -68,6 +76,7 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
     setCreating(false);
     setError(null);
     setIsPrivate(true);
+    setIsAnnouncement(false);
   }, [open]);
 
   const choose = useCallback((repository: PickedRepository) => {
@@ -87,8 +96,11 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
         await onCreateRepository(channelName, selected);
         toast({ title: "Repository channel created", description: `#${channelName} · ${selected.displayName}` });
       } else {
-        await onCreateText(channelName, isPrivate ? { isPrivate: true } : undefined);
-        toast({ title: isPrivate ? "Private channel created" : "Channel created", description: `#${channelName}` });
+        await onCreateText(channelName, isPrivate ? { isPrivate: true } : isAnnouncement ? { isAnnouncement: true } : undefined);
+        toast({
+          title: isPrivate ? "Private channel created" : isAnnouncement ? "Announcement channel created" : "Channel created",
+          description: `#${channelName}`,
+        });
       }
       onOpenChange(false);
     } catch (e) {
@@ -96,7 +108,7 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
     } finally {
       setCreating(false);
     }
-  }, [name, creating, step, selected, isPrivate, onCreateRepository, onCreateText, onOpenChange]);
+  }, [name, creating, step, selected, isPrivate, isAnnouncement, onCreateRepository, onCreateText, onOpenChange]);
 
   const back = step === "text" || step === "repo" ? () => setStep("type") : step === "confirm" ? () => setStep("repo") : undefined;
 
@@ -153,7 +165,11 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
               <Checkbox
                 id="channel2-private"
                 checked={isPrivate}
-                onCheckedChange={(c) => setIsPrivate(c === true)}
+                onCheckedChange={(c) => {
+                  const next = c === true;
+                  setIsPrivate(next);
+                  if (next) setIsAnnouncement(false);
+                }}
                 disabled={creating}
                 className="mt-0.5"
               />
@@ -172,6 +188,35 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
                 A role of the same name is created alongside it and decides who may read it.
                 Grant that role to give a member access.
               </p>
+            )}
+
+            {canAnnounce && (
+              <label htmlFor="channel2-announce" className="flex items-start gap-3 cursor-pointer">
+                <Checkbox
+                  id="channel2-announce"
+                  checked={isAnnouncement}
+                  onCheckedChange={(c) => {
+                    const next = c === true;
+                    setIsAnnouncement(next);
+                    // Mutually exclusive, and enforced here rather than by
+                    // disabling: a private channel's key is both its read key
+                    // and its wrap signer, so there is no reader set left for
+                    // a narrower writer set to sit inside.
+                    if (next) setIsPrivate(false);
+                  }}
+                  disabled={creating}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0">
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    <Megaphone className="size-3.5" /> Announcement channel
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    Everyone reads it; only moderators can post. Enforced by the keys, so it
+                    holds in any client.
+                  </span>
+                </span>
+              </label>
             )}
 
             {error && <p className="text-xs text-destructive">{error}</p>}

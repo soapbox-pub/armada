@@ -34,6 +34,7 @@ import { CONCORD_AV_SERVERS } from "@/lib/platform";
 import { preferredVoiceServerOrigin } from "@/lib/voiceDevices";
 
 import type { NostrEvent } from "@nostrify/nostrify";
+import { channelWriteGroup } from "@/concord/lib/community";
 
 /** The stable empty fold (so idle rows keep constant props). */
 const EMPTY_FOLD: VoicePresenceFold = { present: [], claims: new Map() };
@@ -207,7 +208,7 @@ export function useVoiceHeartbeat(
         ms: Date.now(),
       });
       const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, user.signer);
-      const wrap = wrapSeal(seal, channel.current.group, { ephemeral: true });
+      const wrap = wrapSeal(seal, channelWriteGroup(channel), { ephemeral: true });
       await Promise.allSettled(
         community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(6000) })),
       );

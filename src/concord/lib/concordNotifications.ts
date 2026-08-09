@@ -4,7 +4,7 @@ import { channelsView } from "@/concord/lib/community";
 import { messageExpirationOf } from "@/concord/lib/disappearing";
 import { channelGitRepositoryAttachments } from "@/concord/lib/types";
 import type { FoldedControl } from "@/concord/lib/control";
-import type { GroupKey } from "@/concord/lib/derive";
+import type { StreamKeyView } from "@/concord/lib/derive";
 import type { Community } from "@/concord/lib/types";
 
 /**
@@ -64,16 +64,16 @@ export interface ConcordSub {
 /**
  * Build the per-channel Concord notification subscriptions for one community from
  * its rehydrated runtime shape + its (possibly cached) Control fold. Also
- * returns the channels' stream GroupKeys so the caller can register them for
+ * returns the channels' stream key VIEWS so the caller can register them for
  * NIP-42 stream auth (an auth-gating relay requires every `authors` entry to
  * be authenticated; the signing happens in the WebView).
  */
 export function buildConcordSubs(
   community: Community,
   folded: FoldedControl | undefined,
-): { subs: ConcordSub[]; streamKeys: GroupKey[] } {
+): { subs: ConcordSub[]; streamKeys: StreamKeyView[] } {
   const subs: ConcordSub[] = [];
-  const streamKeys: GroupKey[] = [];
+  const streamKeys: StreamKeyView[] = [];
   if (community.relays.length === 0) return { subs, streamKeys };
 
   const communityName = folded?.metadata?.name || community.name || "Community";

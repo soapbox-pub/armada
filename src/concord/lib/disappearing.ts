@@ -26,6 +26,7 @@ import { writeRumors } from "@/concord/lib/rumorStore";
 import { buildRumor, channelBindingTags, sealRumor, wrapSeal, type StreamSigner } from "@/concord/lib/stream";
 import type { OpenedChat } from "@/concord/lib/chat";
 import type { Channel, CommunityMetadata, Community } from "@/concord/lib/types";
+import { channelWriteGroup } from "@/concord/lib/community";
 
 export { expirationOf, isExpired };
 
@@ -131,7 +132,7 @@ export async function publishTimerNotices(
     const tags = [...channelBindingTags(channel.idHex, channel.current.epoch), ["timer", timer]];
     const rumor = buildRumor({ kind: KIND_TIMER_NOTICE, content: "", tags, pubkey: actorPubkey, ms });
     const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, signer);
-    const wrap = wrapSeal(seal, channel.current.group);
+    const wrap = wrapSeal(seal, channelWriteGroup(channel));
     wraps.push(wrap);
     opened.push({
       rumorId: rumor.id,

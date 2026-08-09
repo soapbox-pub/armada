@@ -22,6 +22,7 @@ import { useWireScopes } from "@/wire/useWireScopes";
 
 import type { AppStateMeta, AppStateUpdate, AppSync } from "@/hooks/useWebxdcApi";
 import type { NostrEvent } from "@nostrify/nostrify";
+import { channelWriteGroup } from "@/concord/lib/community";
 
 function tagValue(tags: string[][], name: string): string | undefined {
   return tags.find(([n]) => n === name)?.[1];
@@ -142,7 +143,7 @@ export function useConcordAppSync(
       const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, user.signer);
       const wrap = wrapSeal(
         seal,
-        channel.current.group,
+        channelWriteGroup(channel),
         ephemeral ? { ephemeral: true } : expiresAt !== undefined ? { expiration: expiresAt } : undefined,
       );
       // Durable state: write our own update to the store immediately (the wire

@@ -39,7 +39,7 @@ import type { EventTemplate, NostrEvent } from "nostr-tools/pure";
 import { describe, expect, it } from "vitest";
 
 import { foldTimeline, openChatBatch, type OpenedChat } from "@/concord/lib/chat";
-import { mintCommunity } from "@/concord/lib/community";
+import { channelWriteGroup, mintCommunity } from "@/concord/lib/community";
 import {
   bytesToHex,
   channelGroupKey,
@@ -73,6 +73,7 @@ function publicChannel(root: Uint8Array, epoch = 0n): Channel {
     idHex: bytesToHex(id),
     name: "general",
     isPrivate: false,
+    isAnnouncement: false,
     get voice() {
       return { room: voiceGroupKey(root, id, epoch), mediaKey: voiceMediaKey(root, id, epoch) };
     },
@@ -94,10 +95,10 @@ async function post(who: Signer, channel: Channel, content: string, ms: number):
     ms,
     tags: channelBindingTags(channel.idHex, channel.current.epoch),
   });
-  const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, {
+  const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channelWriteGroup(channel), {
     signEvent: async (t: EventTemplate) => finalizeEvent(t, who.sk),
   });
-  return wrapSeal(seal, channel.current.group);
+  return wrapSeal(seal, channelWriteGroup(channel));
 }
 
 // ── The corpus ───────────────────────────────────────────────────────────────

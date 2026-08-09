@@ -3,7 +3,7 @@ import type { EventTemplate, NostrEvent } from "nostr-tools/pure";
 import { describe, expect, it, vi } from "vitest";
 
 import { buildConcordCommentTags, filterEpochCutoff, foldTimeline, openChatBatch, replyTargetOf } from "@/concord/lib/chat";
-import { bytesToHex, channelGroupKey, voiceGroupKey, voiceMediaKey } from "@/concord/lib/derive";
+import { bytesToHex, channelGroupKey, channelSignerGroupKey, random32, voiceGroupKey, voiceMediaKey } from "@/concord/lib/derive";
 import { KIND_CALENDAR_RSVP, KIND_CALENDAR_TIME, KIND_COMMENT, KIND_DELETE, KIND_EDIT, KIND_MESSAGE, KIND_POLL, KIND_POLL_VOTE, KIND_REACTION, KIND_SEAL_ENCRYPTED, KIND_TIMER_NOTICE, KIND_ZAP } from "@/concord/lib/kinds";
 import { buildRumor, channelBindingTags, sealRumor, wrapSeal } from "@/concord/lib/stream";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -12,6 +12,10 @@ import { parsePoll, tallyPollVotes } from "@/lib/polls";
 import { MOCK_PREIMAGE as ZAP_PREIMAGE, paymentHashOf } from "@/test/bolt11Mock";
 import type { Channel } from "@/concord/lib/types";
 import type { OpenedChat } from "@/concord/lib/chat";
+import { channelWriteGroup, channelsView, mintCommunity } from "@/concord/lib/community";
+import { withChannelAnnouncePk } from "@/concord/lib/channelAnnounce";
+import { emptyRoles } from "@/concord/lib/roles";
+import type { ChannelMetadata } from "@/concord/lib/types";
 
 // Synthetic "lnmock…" invoices decode to controlled sections so the CORD.md
 // fold can be tested without a bolt11 encoder (shared with zaps.test.ts).
@@ -28,7 +32,7 @@ function makeChannel(): Channel {
   const group = channelGroupKey(root, channelId, 0);
   const stream = { epoch: 0n, group };
   const voice = { room: voiceGroupKey(root, channelId, 0), mediaKey: voiceMediaKey(root, channelId, 0) };
-  return { id: channelId, idHex: channelIdHex, name: "general", isPrivate: false, voice, streams: [stream], current: stream };
+  return { id: channelId, idHex: channelIdHex, name: "general", isPrivate: false, isAnnouncement: false, voice, streams: [stream], current: stream };
 }
 
 function signer(sk = generateSecretKey()) {
@@ -36,7 +40,7 @@ function signer(sk = generateSecretKey()) {
 }
 
 async function wrapChat(rumor: NostrRumor, channel: Channel, s: ReturnType<typeof signer>): Promise<NostrEvent> {
-  return wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, s), channel.current.group);
+  return wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channelWriteGroup(channel), s), channelWriteGroup(channel));
 }
 
 function chatRumor(s: ReturnType<typeof signer>, kind: number, content: string, ms: number, extra: string[][] = []): NostrRumor {
@@ -335,6 +339,7 @@ describe("chat plane (CORD-03)", () => {
       idHex: channelIdHex,
       name: "general",
       isPrivate: false,
+      isAnnouncement: false,
       voice: { room: voiceGroupKey(root, channelId, 1), mediaKey: voiceMediaKey(root, channelId, 1) },
       streams: [newStream, { epoch: 0n, group: oldGroup, retiredAt: 5 }],
       current: newStream,
@@ -379,6 +384,7 @@ describe("chat plane (CORD-03)", () => {
       idHex: channelIdHex,
       name: "general",
       isPrivate: false,
+      isAnnouncement: false,
       voice: { room: voiceGroupKey(root, channelId, 1), mediaKey: voiceMediaKey(root, channelId, 1) },
       streams: [newStream, { epoch: 0n, group, retiredAt: 5 }],
       current: newStream,
@@ -747,5 +753,87 @@ describe("foldTimeline — community pause (CORD-04 §8)", () => {
     const m = plainMsg("member", 1_200_000);
     const folded = foldTimeline([m], undefined, { staff: () => false });
     expect(folded.quarantined.has(m.rumorId)).toBe(false);
+  });
+});
+
+/**
+ * The end-to-end claim an announcement channel makes: every member reads it,
+ * and a member who is not staff cannot put anything in it — enforced by the
+ * keys, not by the client agreeing to hide a composer.
+ */
+describe("chat plane (announcement channels)", () => {
+  const OWNER = "f".repeat(64);
+
+  function announcementCommunity() {
+    const { community } = mintCommunity("Fleet", OWNER, ["wss://a.test"]);
+    const id = random32();
+    const metadata: ChannelMetadata = withChannelAnnouncePk(
+      { name: "news", private: false },
+      channelSignerGroupKey(community.controlRoot!, id, community.rootEpoch).pk,
+    );
+    const folded = {
+      roster: emptyRoles(),
+      ownerHex: OWNER,
+      channels: new Map([[bytesToHex(id), { channelIdHex: bytesToHex(id), name: "news", isPrivate: false, deleted: false, metadata }]]),
+      banned: new Set(),
+      liveInviteLinks: new Set(),
+      registriesByCreator: new Map(),
+      heads: new Map(),
+      headEditions: new Map(),
+      incomplete: [],
+      bannedAt: new Map(),
+    } as unknown as Parameters<typeof channelsView>[1];
+    return {
+      staff: channelsView(community, folded)[0],
+      member: channelsView({ ...community, controlRoot: undefined }, folded)[0],
+      community,
+      id,
+    };
+  }
+
+  it("a member decodes what staff published, and cannot publish there itself", async () => {
+    const { staff, member } = announcementCommunity();
+    const mod = signer();
+
+    const rumor = buildRumor({
+      kind: KIND_MESSAGE,
+      content: "maintenance at 9",
+      tags: channelBindingTags(staff.idHex, 0n),
+      pubkey: mod.pubkey,
+      ms: 1000,
+    });
+    const wrap = wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channelWriteGroup(staff), mod), channelWriteGroup(staff));
+
+    // The reader holds no control_root, yet the message opens: the write gate
+    // narrowed the signer set without narrowing the readership.
+    const opened = await openChatBatch([wrap], member);
+    expect(opened.map((o) => o.content)).toEqual(["maintenance at 9"]);
+
+    // …and the same member has no key to answer with.
+    expect(() => channelWriteGroup(member)).toThrow(/staff/i);
+  });
+
+  it("refuses a wrap published at the announce address by a forged signer", async () => {
+    const { staff, member, id, community } = announcementCommunity();
+    const impostor = signer();
+
+    // A member who knows the address and holds the community_root read key can
+    // build a perfectly-formed wrap — the ONLY thing they cannot do is sign it
+    // as the stream. Forge exactly that: right pubkey field, wrong signature.
+    const rumor = buildRumor({
+      kind: KIND_MESSAGE,
+      content: "everyone is fired",
+      tags: channelBindingTags(staff.idHex, 0n),
+      pubkey: impostor.pubkey,
+      ms: 2000,
+    });
+    const read = channelGroupKey(community.root, id, community.rootEpoch);
+    const honest = wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, read, impostor), read);
+    // Through JSON, as it would arrive from a relay: nostr-tools stamps a
+    // `verified` symbol on anything it finalized, and a spread would carry it
+    // over and short-circuit the very check under test.
+    const forged = JSON.parse(JSON.stringify({ ...honest, pubkey: staff.current.group.pk })) as NostrEvent;
+
+    expect(await openChatBatch([forged], member)).toEqual([]);
   });
 });

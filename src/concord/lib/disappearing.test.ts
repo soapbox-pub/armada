@@ -16,6 +16,7 @@ import { bytesToHex, channelGroupKey, voiceGroupKey, voiceMediaKey } from "@/con
 import { KIND_COMMENT, KIND_DELETE, KIND_MESSAGE, KIND_TIMER_NOTICE } from "@/concord/lib/kinds";
 import { openWrap } from "@/concord/lib/stream";
 import type { Channel, CommunityMetadata, Community } from "@/concord/lib/types";
+import { channelWriteGroup } from "@/concord/lib/community";
 
 // publishTimerNotices writes the actor's own copy through the rumor store,
 // which opens IndexedDB — not what this suite is about.
@@ -102,7 +103,7 @@ describe("publishTimerNotices (CORD-08 §4)", () => {
     const group = channelGroupKey(root, channelId, 0);
     const stream = { epoch: 0n, group };
     const voice = { room: voiceGroupKey(root, channelId, 0), mediaKey: voiceMediaKey(root, channelId, 0) };
-    return { id: channelId, idHex, name: "general", isPrivate: false, voice, streams: [stream], current: stream };
+    return { id: channelId, idHex, name: "general", isPrivate: false, isAnnouncement: false, voice, streams: [stream], current: stream };
   }
 
   it("posts one sealed notice per channel, and the notice never expires", async () => {
@@ -126,12 +127,12 @@ describe("publishTimerNotices (CORD-08 §4)", () => {
     // One wrap per channel, fanned out to both relays.
     expect(published).toHaveLength(channels.length * community.relays.length);
     for (const channel of channels) {
-      const wrap = published.find((e) => e.pubkey === channel.current.group.pk);
+      const wrap = published.find((e) => e.pubkey === channelWriteGroup(channel).pk);
       expect(wrap).toBeDefined();
       // The notice documents the policy; the policy must not erase it — no
       // NIP-40 tag on the wrap, and none inside the signed rumor.
       expect(wrap!.tags.some((t) => t[0] === "expiration")).toBe(false);
-      const opened = openWrap(wrap!, channel.current.group);
+      const opened = openWrap(wrap!, channelWriteGroup(channel));
       expect(opened.kind).toBe(KIND_TIMER_NOTICE);
       expect(opened.author).toBe(actor);
       expect(timerNoticeSeconds(opened)).toBe(DAY);

@@ -8,6 +8,7 @@ import { buildRumor, channelBindingTags, checkChannelBinding, openWrap, sealRumo
 import type { Channel, Community } from "@/concord/lib/types";
 
 import type { NostrEvent } from "@nostrify/nostrify";
+import { channelWriteGroup } from "@/concord/lib/community";
 
 /** How long a typing signal is considered live. */
 const TYPING_WINDOW_MS = 8000;
@@ -100,7 +101,7 @@ export function useTypingPublisher(community: Community | undefined, channel: Ch
           ms: now,
         });
         const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, user.signer);
-        const wrap = wrapSeal(seal, channel.current.group, { ephemeral: true });
+        const wrap = wrapSeal(seal, channelWriteGroup(channel), { ephemeral: true });
         await Promise.allSettled(
           community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(6000) })),
         );

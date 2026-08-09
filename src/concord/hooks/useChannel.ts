@@ -53,6 +53,7 @@ import { useSyncTopic } from "@/sync/useSyncTopic";
 import { useWireScopes } from "@/wire/useWireScopes";
 
 import type { NostrEvent } from "@nostrify/nostrify";
+import { channelWriteGroup } from "@/concord/lib/community";
 
 /** Query key for a channel's RAW opened-event set (all chat-plane kinds). */
 export const channelKey = (channelIdHex: string | null) => ["concord", "channel", channelIdHex] as const;
@@ -748,7 +749,7 @@ export function useSendMessage(community: Community | undefined, channel: Channe
         throw err; // reactions/edits/deletes: callers own the rollback
       }
       logSync("send", `sealed ${rumor.id.slice(0, 8)} in ${sinceMs(sealStarted)} — wrapping + broadcasting to ${community.relays.length} relay(s)`);
-      const wrap = wrapSeal(seal, channel.current.group, expiresAt !== undefined ? { expiration: expiresAt } : undefined);
+      const wrap = wrapSeal(seal, channelWriteGroup(channel), expiresAt !== undefined ? { expiration: expiresAt } : undefined);
 
       // The wrap is authored by the channel stream key rather than the user,
       // so identify this exact relay event as local before its push can arrive.

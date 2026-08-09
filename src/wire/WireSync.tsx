@@ -46,7 +46,7 @@ import { ingestWireEvents } from "@/wire/ingest";
 import { buildWireSpec, stampRoundSince, type WireSpec } from "@/wire/spec";
 import type { GitRepositoryWireInput } from "@/wire/spec";
 
-import type { GroupKey, StreamKeyView } from "@/concord/lib/derive";
+import type { StreamKeyView } from "@/concord/lib/derive";
 import type { Channel } from "@/concord/lib/types";
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -382,7 +382,10 @@ function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; c
           catchUpCommunity(nostr, entry, community.idHex);
         }
 
-        const keys: GroupKey[] = [];
+        // Views, not GroupKeys: an announcement channel's address is
+        // write-restricted, so a non-staff member registers it address-only
+        // (`useStreamAuth`).
+        const keys: StreamKeyView[] = [];
         for (const channel of channels) {
           out.push({
             relays: community.relays,

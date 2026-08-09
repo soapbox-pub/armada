@@ -22,7 +22,7 @@ import {
   buildRoleEdition,
   sealDissolved,
 } from "@/concord/lib/control";
-import { bytesToHex, hex32, random32 } from "@/concord/lib/derive";
+import { bytesToHex, channelSignerGroupKey, hex32, random32 } from "@/concord/lib/derive";
 import {
   encodeFragment,
   InviteError,
@@ -43,6 +43,7 @@ import {
   type Community,
   type PrivateChannelKey,
 } from "@/concord/lib/types";
+import { withChannelAnnouncePk } from "@/concord/lib/channelAnnounce";
 import { withChannelCategory } from "@/concord/lib/channelCategory";
 import { channelPosition, compareChannelOrder, reorderPositions, withChannelPosition } from "@/concord/lib/channelOrder";
 import { controlGroups, foldControlState, openControlWraps } from "@/concord/lib/control";
@@ -714,9 +715,9 @@ export function useCommunityManagement(community: Community | undefined) {
   const createChannel = useMutation<
     { channelIdHex: string; minted?: PrivateChannelKey },
     Error,
-    { name: string; repository?: { address: string; relayHints: string[] }; isPrivate?: boolean }
+    { name: string; repository?: { address: string; relayHints: string[] }; isPrivate?: boolean; isAnnouncement?: boolean }
   >({
-    mutationFn: async ({ name, repository, isPrivate }) => {
+    mutationFn: async ({ name, repository, isPrivate, isAnnouncement }) => {
       if (!user || !community) throw new Error("Not ready.");
       const trimmed = name.trim();
       if (!trimmed) throw new Error("Channel name is required.");
@@ -727,6 +728,23 @@ export function useCommunityManagement(community: Community | undefined) {
       // just-created channel is absent from it and the attach throws. Building
       // one edition leaves the channel born attached instead.
       let metadata: ChannelMetadata = { name: trimmed, private: Boolean(isPrivate) };
+      // An ANNOUNCEMENT channel is born addressed by the control_root-derived
+      // signer instead of the community_root one (`channelAnnounce.ts`), so the
+      // whole membership reads it and only staff can post. The address is
+      // published in the channel's own first edition — the Control Plane's
+      // MANAGE_CHANNELS gate is what authenticates it — and derives from a
+      // secret only staff hold, so nothing extra is distributed to anyone.
+      //
+      // Private and announcement are mutually exclusive: a private channel's
+      // key is both its read key and its wrap signer, so there is no reader
+      // set left to be wider than the writer set.
+      if (isAnnouncement && !isPrivate) {
+        if (!community.controlRoot) throw new Error("Only community staff can create an announcement channel.");
+        metadata = withChannelAnnouncePk(
+          metadata,
+          channelSignerGroupKey(community.controlRoot, channelId, community.rootEpoch).pk,
+        );
+      }
       if (repository) {
         const address = parseGitRepositoryAddress(repository.address);
         if (!address) throw new Error("Repository address must be a canonical 30617 coordinate.");

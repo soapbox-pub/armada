@@ -16,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { KIND_MESSAGE, KIND_SEAL_ENCRYPTED } from "./kinds";
 import type { Channel, Community } from "./types";
+import { channelWriteGroup } from "@/concord/lib/community";
 
 /** The community every channel here belongs to (the rumor-store tenant). */
 const CID = "dd".repeat(32);
@@ -47,6 +48,7 @@ function makeChannel(m: Modules): Channel {
     idHex: m.bytesToHex(channelId),
     name: "general",
     isPrivate: false,
+    isAnnouncement: false,
     voice: { room: m.voiceGroupKey(root, channelId, 0), mediaKey: m.voiceMediaKey(root, channelId, 0) },
     streams: [streamKey],
     current: streamKey,
@@ -72,11 +74,11 @@ async function wrapChatAt(
     pubkey: s.pubkey,
     ms: createdAt * 1000,
   });
-  const seal = await m.sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, s);
-  const w = m.wrapSeal(seal, channel.current.group);
+  const seal = await m.sealRumor(rumor, KIND_SEAL_ENCRYPTED, channelWriteGroup(channel), s);
+  const w = m.wrapSeal(seal, channelWriteGroup(channel));
   return finalizeEvent(
     { kind: w.kind, content: w.content, tags: w.tags, created_at: createdAt },
-    channel.current.group.sk,
+    channelWriteGroup(channel).sk,
   );
 }
 
@@ -238,19 +240,19 @@ describe("channelFilters (retired-epoch fetch policy)", () => {
     // retired and capping the retired half would skip the live region below
     // the cap on any page where both halves came back full.
     expect(m.channelFilters(withRetired, { limit: 50 })).toEqual([
-      { kinds: [1059], authors: [channel.current.group.pk, oldGroup.pk], limit: 50 },
+      { kinds: [1059], authors: [channelWriteGroup(channel).pk, oldGroup.pk], limit: 50 },
     ]);
 
     // Paging and the bridge pass apply to that one filter uniformly — no
     // filter can be handed a `since` above its own `until`.
     expect(m.channelFilters(withRetired, { limit: 50, cursor: 300, since: 100 })).toEqual([
-      { kinds: [1059], authors: [channel.current.group.pk, oldGroup.pk], limit: 50, until: 300, since: 100 },
+      { kinds: [1059], authors: [channelWriteGroup(channel).pk, oldGroup.pk], limit: 50, until: 300, since: 100 },
     ]);
 
     // FROZEN (history swept to exhaustion): the retired address leaves the
     // author set entirely — the only spam-proof filter dimension is not asking.
     expect(m.channelFilters(withRetired, { limit: 50, freezeRetired: true })).toEqual([
-      { kinds: [1059], authors: [channel.current.group.pk], limit: 50 },
+      { kinds: [1059], authors: [channelWriteGroup(channel).pk], limit: 50 },
     ]);
   });
 });

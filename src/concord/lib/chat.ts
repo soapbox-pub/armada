@@ -52,30 +52,39 @@ function openOne(wrap: NostrRumor, channel: Channel): OpenedChat | null {
   const cached = decodeMemo.get(memoKey);
   if (cached !== undefined) return cached;
 
-  const stream = channel.streams.find((s) => s.group.pk === wrap.pubkey);
-  if (!stream) {
+  // Normally one stream owns an address. An ANNOUNCEMENT channel breaks that:
+  // its address is control_root-derived and so does NOT roll with the base,
+  // while the conv_key that encrypts its wraps is community_root-derived and
+  // does — so one address carries one read view per held root epoch. Try each;
+  // the wrap's own binding tags name the epoch, so only the right one opens,
+  // and a wrong candidate fails exactly as a foreign wrap already did.
+  const candidates = channel.streams.filter((s) => s.group.pk === wrap.pubkey);
+  if (candidates.length === 0) {
     decodeMemo.set(memoKey, null);
     skippedNoKey.add(memoKey);
     return null;
   }
   let opened: OpenedChat | null = null;
-  try {
-    const ev = openWrap(wrap, stream.group);
-    // Chat seals MUST be encrypted (CORD-02 §5) — a plaintext seal would make
-    // the message a standalone signed artifact any relay could display.
-    if (ev.sealKind !== KIND_SEAL_ENCRYPTED) throw new Error("chat seal must be encrypted");
-    checkChannelBinding(ev, channel.idHex, stream.epoch);
-    // A retired epoch is sealed history, not a live channel: the superseding
-    // rotation's publish time is a hard cutoff, and anything sealed under the
-    // old key but dated after it is refused. Key possession alone must not
-    // keep an ejected member writing into epochs the community rotated away
-    // from — the roster/banlist can't drop what it can't attribute in time.
-    if (stream.retiredAt !== undefined && ev.createdAt > stream.retiredAt) {
-      throw new Error("sealed under a retired epoch after its rotation");
+  for (const stream of candidates) {
+    try {
+      const ev = openWrap(wrap, stream.group);
+      // Chat seals MUST be encrypted (CORD-02 §5) — a plaintext seal would make
+      // the message a standalone signed artifact any relay could display.
+      if (ev.sealKind !== KIND_SEAL_ENCRYPTED) throw new Error("chat seal must be encrypted");
+      checkChannelBinding(ev, channel.idHex, stream.epoch);
+      // A retired epoch is sealed history, not a live channel: the superseding
+      // rotation's publish time is a hard cutoff, and anything sealed under the
+      // old key but dated after it is refused. Key possession alone must not
+      // keep an ejected member writing into epochs the community rotated away
+      // from — the roster/banlist can't drop what it can't attribute in time.
+      if (stream.retiredAt !== undefined && ev.createdAt > stream.retiredAt) {
+        throw new Error("sealed under a retired epoch after its rotation");
+      }
+      opened = { ...ev, channelIdHex: channel.idHex, epoch: stream.epoch };
+      break;
+    } catch {
+      opened = null;
     }
-    opened = { ...ev, channelIdHex: channel.idHex, epoch: stream.epoch };
-  } catch {
-    opened = null;
   }
   decodeMemo.set(memoKey, opened);
   return opened;
