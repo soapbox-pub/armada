@@ -39,6 +39,7 @@ import { lazyWithReload } from "@/lib/chunkReload";
 // a consistent build instead of surfacing as a crash.
 const ConcordPage = lazy(lazyWithReload(() => import("@/concord/pages/ConcordPage").then((m) => ({ default: m.ConcordPage }))));
 const DiscordImportPage = lazy(lazyWithReload(() => import("@/pages/DiscordImportPage").then((m) => ({ default: m.DiscordImportPage }))));
+const HistoryAuditPage = lazy(lazyWithReload(() => import("@/pages/HistoryAuditPage").then((m) => ({ default: m.HistoryAuditPage }))));
 const DiscoverPage = lazy(lazyWithReload(() => import("@/pages/DiscoverPage").then((m) => ({ default: m.DiscoverPage }))));
 const DMsPage = lazy(lazyWithReload(() => import("@/pages/DMsPage").then((m) => ({ default: m.DMsPage }))));
 const DownloadsPage = lazy(lazyWithReload(() => import("@/pages/DownloadsPage").then((m) => ({ default: m.DownloadsPage }))));
@@ -341,6 +342,7 @@ export function AppRouter() {
             <Route path="/s/:server/:groupId/t/:threadRoot" element={<GroupPage />} />
             <Route path="/s/:server/:groupId/t/:threadRoot/m/:messageId" element={<GroupPage />} />
             <Route path="/c/:communityId" element={<ConcordPage />} />
+            <Route path="/c/:communityId/history" element={<RequireAuth><HistoryAuditPage /></RequireAuth>} />
             {/* Community-wide panes. Static segments outrank `:channelId`, and
                 Concord channel ids are hex, so these can never be shadowed by
                 a real channel. Kept in one place: `CONCORD2_PANES`. */}

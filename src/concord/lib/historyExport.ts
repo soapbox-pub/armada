@@ -1,19 +1,21 @@
 /**
- * Concord history export writers — the DiscordChatExporter-parity output half of
- * the history tool.
+ * Concord history export writers.
  *
- * These are PURE, synchronous serializers over a fully-assembled
- * {@link ExportModel}: every async concern (decrypting an attachment, resolving
- * a profile, inlining an avatar as a `data:` URI) has already been resolved by
- * the orchestrator into plain fields, so a writer never touches the network,
- * the store, or crypto — which is what lets them be unit-tested against a fixture
- * and lets the HTML they emit be a genuinely self-contained, offline artifact
- * (no `_Files/` sidecar, no live URLs the reader's browser would leak on open).
+ * Two formats, both PURE and synchronous over a fully-assembled
+ * {@link ExportModel} (every async concern — decrypting an attachment,
+ * resolving a profile, inlining an avatar as a `data:` URI — is already resolved
+ * into plain fields by the orchestrator):
  *
- * The one thing that makes this export different from a chat log dump: every
- * format leads with the {@link HistoryReport} verdict, so the file states, on
- * its face, how complete the history it contains actually is. An export taken to
- * justify an action carries the proof (or the disclaimer) with it.
+ *   - {@link exportJson}: the whole model, for machine consumption.
+ *   - {@link exportHtml}: a single self-contained file that opens as a MINI
+ *     ARMADA — a channel rail down the left, a message pane on the right, and a
+ *     little embedded script to switch between them. Nothing it references lives
+ *     off the file (inline CSS/JS, `data:` URIs for media), so it opens offline
+ *     and leaks nothing on open.
+ *
+ * Every format leads with the {@link HistoryReport} verdict, so a file taken to
+ * justify an action carries the proof (or the disclaimer) of its own
+ * completeness with it.
  */
 
 import type { HistoryReport } from "@/concord/lib/historyAudit";
@@ -22,7 +24,7 @@ import type { HistoryReport } from "@/concord/lib/historyAudit";
 
 export interface ExportProfile {
   pubkey: string;
-  /** Resolved display name (kind-0, `getDisplayName` fallback to a short npub). */
+  /** Resolved display name; empty falls back to a short npub at render time. */
   name: string;
   /** Avatar src: a `data:` URI when embedded offline, an https URL, or undefined. */
   picture?: string;
@@ -68,6 +70,8 @@ export interface ExportModel {
   communityIdHex: string;
   /** When the export was produced (epoch ms). */
   generatedAtMs: number;
+  /** Community icon, embedded as a `data:` URI when available. */
+  icon?: string;
   /** pubkey → resolved profile. */
   profiles: Record<string, ExportProfile>;
   channels: ExportChannel[];
@@ -91,98 +95,12 @@ function nameOf(model: ExportModel, pubkey: string): string {
 
 // ── JSON ─────────────────────────────────────────────────────────────────────
 
-/**
- * The full model as pretty JSON — the machine-readable format, and the one that
- * round-trips every field (report included). Deliberately the whole model, so a
- * downstream analyzer needs nothing this tool knows but didn't write.
- */
+/** The full model as pretty JSON — machine-readable, round-trips every field. */
 export function exportJson(model: ExportModel): string {
   return JSON.stringify(model, null, 2) + "\n";
 }
 
-// ── Plain text ─────────────────────────────────────────────────────────────
-
-function reportLines(report: HistoryReport): string[] {
-  const lines: string[] = [];
-  lines.push(report.ready ? "History completeness: COMPLETE (for this client)" : "History completeness: INCOMPLETE");
-  for (const b of report.blockers) lines.push(`  ! ${b.kind}: ${b.detail}`);
-  for (const w of report.warnings) lines.push(`  ~ ${w.kind}: ${w.detail}`);
-  return lines;
-}
-
-/** Human-readable transcript, one channel after another. */
-export function exportText(model: ExportModel): string {
-  const out: string[] = [];
-  out.push(`${model.communityName}`);
-  out.push(`Community ${model.communityIdHex}`);
-  out.push(`Exported ${isoTime(model.generatedAtMs)}`);
-  out.push(...reportLines(model.report));
-  out.push("");
-
-  for (const ch of model.channels) {
-    out.push("=".repeat(60));
-    out.push(`#${ch.name}${ch.isPrivate ? " (private)" : ""} — ${ch.messages.length} message(s)`);
-    out.push("=".repeat(60));
-    for (const m of ch.messages) {
-      const who = nameOf(model, m.author);
-      const edited = m.edited ? " (edited)" : "";
-      const reply = m.replyTo ? ` [reply→ ${m.replyTo.slice(0, 8)}]` : "";
-      out.push(`[${isoTime(m.ms)}] ${who}${reply}${edited}`);
-      if (m.content) out.push(indent(m.content));
-      for (const a of m.attachments) {
-        out.push(indent(a.failed ? `<attachment (undecryptable): ${a.url}>` : `<attachment: ${a.url}>`));
-      }
-      if (m.reactions.length) {
-        out.push(indent(m.reactions.map((r) => `${r.emoji} ${r.count}`).join("  ")));
-      }
-    }
-    out.push("");
-  }
-  return out.join("\n");
-}
-
-function indent(text: string): string {
-  return text
-    .split("\n")
-    .map((l) => `    ${l}`)
-    .join("\n");
-}
-
-// ── CSV ──────────────────────────────────────────────────────────────────────
-
-function csvCell(value: string): string {
-  // Always quote: content routinely carries commas, quotes and newlines, and a
-  // quote-always policy is the one that never needs a per-cell decision.
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
-/**
- * One flat CSV across all channels (a `Channel` column, unlike DCE's file-per-
- * channel), so the whole export is one spreadsheet-loadable artifact. Columns
- * mirror DCE's: identity, author, time, content, attachments, reactions.
- */
-export function exportCsv(model: ExportModel): string {
-  const rows: string[] = [];
-  rows.push(["Channel", "AuthorID", "Author", "Date", "Content", "Attachments", "Reactions"].join(","));
-  for (const ch of model.channels) {
-    for (const m of ch.messages) {
-      rows.push(
-        [
-          csvCell(ch.name),
-          csvCell(m.author),
-          csvCell(nameOf(model, m.author)),
-          csvCell(isoTime(m.ms)),
-          csvCell(m.content),
-          csvCell(m.attachments.map((a) => a.url).join(" ")),
-          csvCell(m.reactions.map((r) => `${r.emoji}:${r.count}`).join(" ")),
-        ].join(","),
-      );
-    }
-  }
-  return rows.join("\r\n") + "\r\n";
-}
-
-// ── HTML ─────────────────────────────────────────────────────────────────────
+// ── HTML escaping / content ──────────────────────────────────────────────────
 
 const HTML_ESCAPES: Record<string, string> = {
   "&": "&amp;",
@@ -200,7 +118,7 @@ export function escapeHtml(text: string): string {
 /** Escape, linkify bare URLs, and turn newlines into <br> — enough for a transcript. */
 function renderContent(text: string): string {
   const escaped = escapeHtml(text);
-  const linked = escaped.replace(/https?:\/\/[^\s<]+/g, (url) => `<a href="${url}" rel="noopener noreferrer">${url}</a>`);
+  const linked = escaped.replace(/https?:\/\/[^\s<]+/g, (url) => `<a href="${url}" rel="noopener noreferrer" target="_blank">${url}</a>`);
   return linked.replace(/\n/g, "<br>");
 }
 
@@ -213,14 +131,33 @@ function avatarHtml(model: ExportModel, pubkey: string): string {
 
 function attachmentHtml(a: ExportAttachment): string {
   if (a.failed) {
-    return `<div class="attachment failed">Attachment could not be decrypted for offline embedding — <a href="${escapeHtml(a.url)}" rel="noopener noreferrer">source link</a></div>`;
+    return `<div class="attachment failed">Attachment could not be decrypted for offline embedding — <a href="${escapeHtml(a.url)}" rel="noopener noreferrer" target="_blank">source link</a></div>`;
   }
   const src = a.dataUri ?? a.url;
   if ((a.mime ?? "").startsWith("image/") || a.dataUri?.startsWith("data:image/")) {
     return `<img class="attachment" src="${escapeHtml(src)}" alt="" loading="lazy">`;
   }
-  return `<div class="attachment"><a href="${escapeHtml(src)}" rel="noopener noreferrer">${escapeHtml(a.url)}</a></div>`;
+  return `<div class="attachment file"><a href="${escapeHtml(src)}" rel="noopener noreferrer" target="_blank">${escapeHtml(a.url)}</a></div>`;
 }
+
+function messageHtml(model: ExportModel, m: ExportMessage): string {
+  const head =
+    `<div class="msg-head"><span class="author">${escapeHtml(nameOf(model, m.author))}</span>` +
+    `<span class="time">${escapeHtml(isoTime(m.ms))}</span>` +
+    (m.replyTo ? `<span class="tag">reply</span>` : "") +
+    (m.edited ? `<span class="tag">edited</span>` : "") +
+    `</div>`;
+  const body = m.content ? `<div class="content">${renderContent(m.content)}</div>` : "";
+  const atts = m.attachments.map(attachmentHtml).join("");
+  const reactions = m.reactions.length
+    ? `<div class="reactions">${m.reactions
+        .map((r) => `<span class="reaction">${escapeHtml(r.emoji)} <b>${r.count}</b></span>`)
+        .join("")}</div>`
+    : "";
+  return `<div class="msg" id="m-${escapeHtml(m.rumorId)}">${avatarHtml(model, m.author)}<div class="msg-body">${head}${body}${atts}${reactions}</div></div>`;
+}
+
+// ── The completeness banner ──────────────────────────────────────────────────
 
 function reportHtml(report: HistoryReport): string {
   const items = [
@@ -229,90 +166,145 @@ function reportHtml(report: HistoryReport): string {
   ].join("");
   const cls = report.ready ? "complete" : "incomplete";
   const label = report.ready ? "History complete for this client" : "History INCOMPLETE";
-  return `<section class="report ${cls}"><h2>${label}</h2>${items ? `<ul>${items}</ul>` : ""}</section>`;
+  // A <details> keeps it out of the way when clean and unfoldable when it isn't.
+  return (
+    `<details class="report ${cls}"${report.ready ? "" : " open"}>` +
+    `<summary><span class="dot"></span>${label}</summary>` +
+    (items ? `<ul>${items}</ul>` : `<p class="muted">Every channel reached its floor and the control plane is fully accounted for.</p>`) +
+    `</details>`
+  );
 }
 
-const HTML_STYLE = `
+// ── The self-contained mini-Armada document ──────────────────────────────────
+
+const APP_STYLE = `
 :root { color-scheme: dark; }
 * { box-sizing: border-box; }
-body { margin: 0; background: #1b1420; color: #e7e0ea; font: 15px/1.5 system-ui, sans-serif; }
-header, main { max-width: 900px; margin: 0 auto; padding: 16px; }
-header { border-bottom: 1px solid #3a2f42; }
-h1 { font-size: 20px; margin: 0 0 4px; }
-.meta { color: #a99db4; font-size: 13px; }
-.report { margin: 16px 0; padding: 12px 16px; border-radius: 8px; border: 1px solid; }
-.report.complete { border-color: #2f6b45; background: #16241c; }
-.report.incomplete { border-color: #7a3b3b; background: #2a1a1a; }
-.report h2 { font-size: 15px; margin: 0 0 6px; }
+html, body { height: 100%; }
+body { margin: 0; background: #17121d; color: #ece6f0; font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+a { color: #c9a9ff; }
+.muted { color: #9a8fa6; }
+.app { display: flex; height: 100vh; }
+.sidebar { width: 260px; flex: 0 0 260px; background: #120e17; border-right: 1px solid #2c2435; display: flex; flex-direction: column; }
+.community { display: flex; align-items: center; gap: 10px; padding: 16px; border-bottom: 1px solid #2c2435; font-weight: 700; }
+.community img { width: 32px; height: 32px; border-radius: 9px; object-fit: cover; }
+.community .fallback { width: 32px; height: 32px; border-radius: 9px; background: #34294a; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+.channels { flex: 1; overflow-y: auto; padding: 8px; }
+.ch { display: flex; width: 100%; align-items: center; gap: 6px; padding: 7px 10px; border: 0; border-radius: 7px; background: transparent; color: #b9adc6; font: inherit; text-align: left; cursor: pointer; }
+.ch:hover { background: #221a2e; color: #ece6f0; }
+.ch.active { background: #2c2138; color: #fff; }
+.ch .hash { color: #6f6480; font-weight: 700; }
+.ch .count { margin-left: auto; font-size: 12px; color: #7d7189; }
+.ch .lock { font-size: 11px; }
+.exported { padding: 10px 16px; border-top: 1px solid #2c2435; font-size: 11px; color: #7d7189; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid #2c2435; }
+.topbar .title { font-weight: 700; }
+.report { margin-left: auto; font-size: 13px; border-radius: 8px; padding: 4px 10px; border: 1px solid transparent; }
+.report summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 8px; }
+.report summary::-webkit-details-marker { display: none; }
+.report .dot { width: 9px; height: 9px; border-radius: 50%; }
+.report.complete { background: #16241c; border-color: #2f6b45; }
+.report.complete .dot { background: #4ade80; }
+.report.incomplete { background: #2a1a1a; border-color: #7a3b3b; }
+.report.incomplete .dot { background: #ff8f8f; }
+.report ul { margin: 8px 0 2px; padding-left: 18px; }
 .report li.blocker { color: #ff9c9c; }
 .report li.warning { color: #ffd79c; }
-.channel h2 { position: sticky; top: 0; background: #1b1420; padding: 12px 0 6px; border-bottom: 1px solid #3a2f42; }
-.msg { display: flex; gap: 10px; padding: 6px 0; }
-.avatar { width: 40px; height: 40px; border-radius: 50%; flex: 0 0 40px; object-fit: cover; background: #3a2f42; }
-.avatar-fallback { display: inline-flex; align-items: center; justify-content: center; font-weight: 600; color: #cdbfd6; }
+.panes { flex: 1; overflow-y: auto; }
+.pane { display: none; padding: 12px 20px 40px; }
+.pane.active { display: block; }
+.empty { color: #7d7189; padding: 24px 0; text-align: center; }
+.msg { display: flex; gap: 12px; padding: 7px 0; }
+.avatar { width: 40px; height: 40px; border-radius: 50%; flex: 0 0 40px; object-fit: cover; background: #34294a; }
+.avatar-fallback { display: inline-flex; align-items: center; justify-content: center; font-weight: 600; color: #d8ccdf; }
 .msg-body { min-width: 0; flex: 1; }
-.msg-head { font-size: 14px; }
+.msg-head { display: flex; align-items: baseline; gap: 8px; }
 .author { font-weight: 600; }
-.time { color: #8f8398; font-size: 12px; margin-left: 6px; }
-.edited, .reply { color: #8f8398; font-size: 12px; }
-.content { white-space: normal; overflow-wrap: anywhere; }
-.attachment { max-width: 100%; border-radius: 6px; margin-top: 4px; }
+.time { color: #8f8398; font-size: 12px; }
+.tag { color: #8f8398; font-size: 11px; background: #241c30; border-radius: 6px; padding: 0 6px; }
+.content { overflow-wrap: anywhere; }
+.attachment { max-width: min(400px, 100%); border-radius: 8px; margin-top: 6px; display: block; }
+.attachment.file { font-size: 13px; }
 .attachment.failed { color: #ffb0b0; font-size: 13px; }
-.reactions { margin-top: 4px; }
-.reaction { display: inline-block; background: #2c2233; border: 1px solid #3a2f42; border-radius: 10px; padding: 0 8px; margin-right: 4px; font-size: 13px; }
-a { color: #c9a9ff; }
+.reactions { margin-top: 5px; }
+.reaction { display: inline-block; background: #241c30; border: 1px solid #372b47; border-radius: 12px; padding: 1px 9px; margin-right: 5px; font-size: 13px; }
 `;
 
-function messageHtml(model: ExportModel, m: ExportMessage): string {
-  const head =
-    `<div class="msg-head"><span class="author">${escapeHtml(nameOf(model, m.author))}</span>` +
-    `<span class="time">${escapeHtml(isoTime(m.ms))}</span>` +
-    (m.replyTo ? `<span class="reply"> · reply→ ${escapeHtml(m.replyTo.slice(0, 8))}</span>` : "") +
-    (m.edited ? `<span class="edited"> · edited</span>` : "") +
-    `</div>`;
-  const body = m.content ? `<div class="content">${renderContent(m.content)}</div>` : "";
-  const atts = m.attachments.map(attachmentHtml).join("");
-  const reactions = m.reactions.length
-    ? `<div class="reactions">${m.reactions
-        .map((r) => `<span class="reaction">${escapeHtml(r.emoji)} ${r.count}</span>`)
-        .join("")}</div>`
-    : "";
-  return `<div class="msg" id="m-${escapeHtml(m.rumorId)}">${avatarHtml(model, m.author)}<div class="msg-body">${head}${body}${atts}${reactions}</div></div>`;
+const SWITCH_SCRIPT = `
+(function () {
+  var buttons = Array.prototype.slice.call(document.querySelectorAll('.ch'));
+  var panes = Array.prototype.slice.call(document.querySelectorAll('.pane'));
+  var title = document.getElementById('pane-title');
+  function select(id, name) {
+    panes.forEach(function (p) { p.classList.toggle('active', p.getAttribute('data-pane') === id); });
+    buttons.forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-ch') === id); });
+    if (title && name != null) title.textContent = name;
+  }
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () { select(b.getAttribute('data-ch'), b.getAttribute('data-name')); });
+  });
+  if (buttons.length) select(buttons[0].getAttribute('data-ch'), buttons[0].getAttribute('data-name'));
+})();
+`;
+
+function communityGlyph(model: ExportModel): string {
+  if (model.icon) return `<img src="${escapeHtml(model.icon)}" alt="">`;
+  const initial = escapeHtml((model.communityName.slice(0, 1) || "#").toUpperCase());
+  return `<span class="fallback">${initial}</span>`;
+}
+
+function channelButton(ch: ExportChannel): string {
+  return (
+    `<button class="ch" data-ch="${escapeHtml(ch.channelIdHex)}" data-name="${escapeHtml(ch.name)}">` +
+    `<span class="hash">${ch.isPrivate ? "🔒" : "#"}</span>` +
+    `<span class="name">${escapeHtml(ch.name)}</span>` +
+    `<span class="count">${ch.messages.length}</span>` +
+    `</button>`
+  );
+}
+
+function channelPane(model: ExportModel, ch: ExportChannel): string {
+  const body = ch.messages.length
+    ? ch.messages.map((m) => messageHtml(model, m)).join("")
+    : `<div class="empty">No messages in this channel.</div>`;
+  return `<section class="pane" data-pane="${escapeHtml(ch.channelIdHex)}">${body}</section>`;
 }
 
 /**
- * A single self-contained HTML file: embedded CSS, embedded avatars/images (as
- * `data:` URIs the orchestrator resolved), and the completeness report at the
- * top. Nothing it references lives off the file, so it opens offline and leaks
- * nothing on open.
+ * A single self-contained HTML file that opens as a mini Armada: a channel rail,
+ * a message pane, and an embedded switch script. Fully offline — inline CSS/JS
+ * and `data:` URIs for every image the orchestrator resolved.
  */
 export function exportHtml(model: ExportModel): string {
-  const channels = model.channels
-    .map(
-      (ch) =>
-        `<section class="channel"><h2>#${escapeHtml(ch.name)}${ch.isPrivate ? " 🔒" : ""} <span class="meta">${ch.messages.length} message(s)</span></h2>` +
-        ch.messages.map((m) => messageHtml(model, m)).join("") +
-        `</section>`,
-    )
-    .join("");
+  const channels = model.channels;
+  const rail = channels.map(channelButton).join("");
+  const panes = channels.map((ch) => channelPane(model, ch)).join("");
+  const firstName = channels[0]?.name ?? "";
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(model.communityName)} — Concord export</title>
-<style>${HTML_STYLE}</style>
+<style>${APP_STYLE}</style>
 </head>
 <body>
-<header>
-<h1>${escapeHtml(model.communityName)}</h1>
-<div class="meta">Community ${escapeHtml(model.communityIdHex)}</div>
-<div class="meta">Exported ${escapeHtml(isoTime(model.generatedAtMs))}</div>
-</header>
-<main>
-${reportHtml(model.report)}
-${channels}
-</main>
+<div class="app">
+  <aside class="sidebar">
+    <div class="community">${communityGlyph(model)}<span>${escapeHtml(model.communityName)}</span></div>
+    <nav class="channels">${rail || '<div class="empty">No channels</div>'}</nav>
+    <div class="exported">Exported ${escapeHtml(isoTime(model.generatedAtMs))}<br>${escapeHtml(model.communityIdHex.slice(0, 16))}…</div>
+  </aside>
+  <main class="main">
+    <div class="topbar">
+      <span class="title"><span class="hash muted">#</span> <span id="pane-title">${escapeHtml(firstName)}</span></span>
+      ${reportHtml(model.report)}
+    </div>
+    <div class="panes">${panes || '<div class="empty">Nothing to show.</div>'}</div>
+  </main>
+</div>
+<script>${SWITCH_SCRIPT}</script>
 </body>
 </html>
 `;
@@ -320,16 +312,14 @@ ${channels}
 
 // ── Format registry ──────────────────────────────────────────────────────────
 
-export type ExportFormat = "json" | "txt" | "csv" | "html";
+export type ExportFormat = "html" | "json";
 
 export const EXPORT_FORMATS: Record<ExportFormat, { extension: string; mime: string; write: (m: ExportModel) => string }> = {
-  json: { extension: "json", mime: "application/json", write: exportJson },
-  txt: { extension: "txt", mime: "text/plain", write: exportText },
-  csv: { extension: "csv", mime: "text/csv", write: exportCsv },
   html: { extension: "html", mime: "text/html", write: exportHtml },
+  json: { extension: "json", mime: "application/json", write: exportJson },
 };
 
-/** A filesystem-safe base name for the export, matching DCE's guild-channel-date shape. */
+/** A filesystem-safe base name for the export (community-id-date shape). */
 export function exportFileName(model: ExportModel, format: ExportFormat): string {
   const safe = model.communityName.replace(/[^\p{L}\p{N}\-_. ]/gu, "_").trim() || "community";
   const date = isoTime(model.generatedAtMs).slice(0, 10);

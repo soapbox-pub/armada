@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -46,7 +47,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ImageLightbox } from "@/concord/components/ImageLightbox";
-import { HistoryAuditDialog } from "@/concord/components/HistoryAuditDialog";
 import {
   COMMUNITY_TIMER_PRESETS,
   formatCommunityTimer,
@@ -433,21 +433,28 @@ function InfoBody({
  * can already decrypt.
  */
 function HistorySection({ community }: { community: Community }) {
-  const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <History className="size-4" />
+    <div className="space-y-1.5">
+      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         History
+      </span>
+      <div className="space-y-2.5 rounded-lg bg-secondary/40 p-3">
+        <p className="text-xs text-muted-foreground">
+          Read every channel to its floor across all relays, verify completeness, and export a copy —
+          a self-contained HTML that opens as a mini-Armada, or JSON.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="clip-corner-lg"
+          onClick={() => navigate(`/c/${encodeURIComponent(community.idHex)}/history`)}
+        >
+          <History className="size-4 shrink-0" />
+          Verify &amp; export history
+        </Button>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Read every channel to its floor across all relays, verify completeness, and export a copy
-        (self-contained HTML, JSON, TXT, or CSV).
-      </p>
-      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
-        Verify &amp; export history
-      </Button>
-      <HistoryAuditDialog community={community} open={open} onClose={() => setOpen(false)} />
     </div>
   );
 }

@@ -325,9 +325,15 @@ export function useHistoryAudit(community: Community | undefined) {
         }
         for (const pk of authorList) profiles[pk] ??= { pubkey: pk, name: "" };
 
-        // 4. Assets — embed avatars + image attachments as data URIs (offline HTML).
+        // 4. Assets — embed the icon, avatars + image attachments as data URIs (offline HTML).
+        let iconDataUri: string | undefined;
         if (embedAssets) {
           const budget = { left: ASSET_TOTAL_BUDGET };
+          const icon = folded.metadata?.icon;
+          if (icon) {
+            const r = await fetchImageDataUri(icon.url, { algorithm: "aes-gcm", key: icon.key, nonce: icon.nonce }, signal, budget);
+            if (r.dataUri) iconDataUri = r.dataUri;
+          }
           const total = authorList.length + pendingAssets.length;
           let done = 0;
           setProgress({ phase: "assets", done, total, label: "Embedding media" });
@@ -373,6 +379,7 @@ export function useHistoryAudit(community: Community | undefined) {
           communityName: folded.metadata?.name || community.name,
           communityIdHex: community.idHex,
           generatedAtMs: now,
+          ...(iconDataUri ? { icon: iconDataUri } : {}),
           profiles,
           channels: exportChannels,
           report,
