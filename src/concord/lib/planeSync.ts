@@ -584,6 +584,15 @@ export function controlSweepReach(community: Community): { reached: number; tota
 }
 
 /**
+ * Whether ONE specific relay answered this community's last control sweep. The
+ * per-relay form of {@link controlSweepReach}, for a caller (the history audit)
+ * that reports coverage relay-by-relay rather than as a count.
+ */
+export function controlSweepRelayReached(community: Community, url: string): boolean {
+  return scopeReached.has(controlScopeKey(community, url));
+}
+
+/**
  * Whether a MAJORITY of this community's relays answered the last control
  * sweep — `floor(n/2) + 1`, so 1-of-1, 2-of-2, 2-of-3, 3-of-4.
  *

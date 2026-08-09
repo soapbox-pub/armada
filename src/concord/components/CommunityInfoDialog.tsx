@@ -5,6 +5,7 @@ import {
   Check,
   Folder,
   Hash,
+  History,
   ImagePlus,
   Loader2,
   Lock,
@@ -45,6 +46,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ImageLightbox } from "@/concord/components/ImageLightbox";
+import { HistoryAuditDialog } from "@/concord/components/HistoryAuditDialog";
 import {
   COMMUNITY_TIMER_PRESETS,
   formatCommunityTimer,
@@ -394,6 +396,8 @@ function InfoBody({
           relays={relays}
           canManage={canManageMetadata}
         />
+
+        <HistorySection community={community} />
       </div>
 
       <input
@@ -418,6 +422,32 @@ function InfoBody({
           e.target.value = "";
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * "Verify & export history" — opens the {@link HistoryAuditDialog}, the in-app
+ * gate for ensuring a complete decrypted history before acting on (or archiving)
+ * a community. Available to every member; the audit reads only what this member
+ * can already decrypt.
+ */
+function HistorySection({ community }: { community: Community }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <History className="size-4" />
+        History
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Read every channel to its floor across all relays, verify completeness, and export a copy
+        (self-contained HTML, JSON, TXT, or CSV).
+      </p>
+      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+        Verify &amp; export history
+      </Button>
+      <HistoryAuditDialog community={community} open={open} onClose={() => setOpen(false)} />
     </div>
   );
 }
