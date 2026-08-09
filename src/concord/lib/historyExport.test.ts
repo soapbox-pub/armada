@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { auditHistory, type HistoryReport } from "@/concord/lib/historyAudit";
 import {
   EXPORT_FORMATS,
+  buildTranscript,
   escapeHtml,
   exportFileName,
   exportHtml,
@@ -10,14 +10,6 @@ import {
   isoTime,
   type ExportModel,
 } from "@/concord/lib/historyExport";
-
-function report(): HistoryReport {
-  return auditHistory({
-    communityIdHex: "cid",
-    control: { incompleteEntities: [], truncated: false, quorum: true, relays: [{ url: "wss://r", answered: true, failed: false }], channelCount: 1, memberCount: 2 },
-    channels: [],
-  });
-}
 
 function model(over: Partial<ExportModel> = {}): ExportModel {
   return {
@@ -40,7 +32,6 @@ function model(over: Partial<ExportModel> = {}): ExportModel {
       },
       { channelIdHex: "ch2", name: "random", isPrivate: true, messages: [] },
     ],
-    report: over.report ?? report(),
   };
 }
 
@@ -57,11 +48,21 @@ describe("escapeHtml", () => {
 });
 
 describe("exportJson", () => {
-  it("round-trips the whole model", () => {
+  it("round-trips the model and carries no completeness verdict", () => {
     const parsed = JSON.parse(exportJson(model()));
     expect(parsed.communityName).toBe("Test Community");
     expect(parsed.channels[0].messages).toHaveLength(2);
-    expect(parsed.report.ready).toBe(true);
+    expect(parsed.report).toBeUndefined();
+  });
+});
+
+describe("buildTranscript", () => {
+  it("lists channels and messages without a completeness notice", () => {
+    const t = buildTranscript(model());
+    expect(t).toContain("#general");
+    expect(t).toContain("Alice");
+    expect(t).toContain("hello world");
+    expect(t).not.toMatch(/completeness/i);
   });
 });
 
@@ -69,15 +70,28 @@ describe("exportHtml (mini-Armada)", () => {
   it("renders a channel rail and a pane per channel", () => {
     const html = exportHtml(model());
     expect(html).toContain("<!doctype html>");
-    // A rail button + a pane, keyed by channel id, for each channel.
     expect(html).toContain('data-ch="ch1"');
     expect(html).toContain('data-ch="ch2"');
     expect(html).toContain('data-pane="ch1"');
     expect(html).toContain('data-pane="ch2"');
-    // A private channel is marked.
     expect(html).toContain("🔒");
-    // The embedded switch script makes it interactive with no external assets.
     expect(html).toContain("addEventListener('click'");
+  });
+
+  it("carries Chat, Text, and JSON views in one file", () => {
+    const html = exportHtml(model());
+    expect(html).toContain('data-view="chat"');
+    expect(html).toContain('data-view="text"');
+    expect(html).toContain('data-view="json"');
+    // The Text view embeds the transcript; the JSON view embeds the model.
+    expect(html).toContain("#general");
+    expect(html).toContain("communityName");
+  });
+
+  it("does not bake a completeness notice into the file", () => {
+    const html = exportHtml(model());
+    expect(html).not.toMatch(/History (INCOMPLETE|complete)/i);
+    expect(html).not.toMatch(/completeness/i);
   });
 
   it("is self-contained: embedded media are data URIs", () => {
@@ -106,26 +120,17 @@ describe("exportHtml (mini-Armada)", () => {
     expect(exportHtml(m)).toContain("could not be decrypted");
   });
 
-  it("shows an incomplete banner when the report is not ready", () => {
-    const notReady = auditHistory({
-      communityIdHex: "cid",
-      control: { incompleteEntities: ["e1"], truncated: false, quorum: true, relays: [{ url: "wss://r", answered: true, failed: false }], channelCount: 1, memberCount: 1 },
-      channels: [],
-    });
-    expect(exportHtml(model({ report: notReady }))).toContain("History INCOMPLETE");
-  });
-
   it("shows an empty-channel placeholder", () => {
     expect(exportHtml(model())).toContain("No messages in this channel.");
   });
 });
 
 describe("format registry + filename", () => {
-  it("exposes only html and json", () => {
-    expect(Object.keys(EXPORT_FORMATS).sort()).toEqual(["html", "json"]);
-    const m = model();
-    expect(EXPORT_FORMATS.json.write(m)).toBe(exportJson(m));
+  it("exposes only html", () => {
+    expect(Object.keys(EXPORT_FORMATS)).toEqual(["html"]);
     expect(EXPORT_FORMATS.html.mime).toBe("text/html");
+    const m = model();
+    expect(EXPORT_FORMATS.html.write(m)).toBe(exportHtml(m));
   });
 
   it("builds a filesystem-safe name", () => {

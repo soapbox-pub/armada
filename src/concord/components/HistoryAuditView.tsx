@@ -1,4 +1,4 @@
-import { AlertTriangle, Braces, FileCode, Loader2, ShieldCheck } from "lucide-react";
+import { Check, FileCode, Loader2, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -6,15 +6,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { WizardShell } from "@/components/onboarding/WizardShell";
 import { useHistoryAudit, type AuditPhase } from "@/concord/hooks/useHistoryAudit";
-import {
-  EXPORT_FORMATS,
-  exportFileName,
-  type ExportFormat,
-  type ExportModel,
-} from "@/concord/lib/historyExport";
 import type { HistoryReport } from "@/concord/lib/historyAudit";
+import { EXPORT_FORMATS, exportFileName, type ExportFormat, type ExportModel } from "@/concord/lib/historyExport";
 import type { Community } from "@/concord/lib/types";
-import { cn } from "@/lib/utils";
 
 const PHASE_LABEL: Record<AuditPhase, string> = {
   idle: "",
@@ -26,7 +20,7 @@ const PHASE_LABEL: Record<AuditPhase, string> = {
   error: "Failed",
 };
 
-/** Force a save of one export format via an object-URL anchor. */
+/** Force a save of the export via an object-URL anchor. */
 function download(model: ExportModel, format: ExportFormat): void {
   const fmt = EXPORT_FORMATS[format];
   const blob = new Blob([fmt.write(model)], { type: `${fmt.mime};charset=utf-8` });
@@ -40,56 +34,14 @@ function download(model: ExportModel, format: ExportFormat): void {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-function ReportCard({ report }: { report: HistoryReport }) {
-  return (
-    <div
-      className={cn(
-        "space-y-3 rounded-xl border p-4",
-        report.ready ? "border-emerald-500/30 bg-emerald-500/5" : "border-destructive/30 bg-destructive/5",
-      )}
-    >
-      <div className="flex items-center gap-2.5">
-        {report.ready ? (
-          <ShieldCheck className="size-5 shrink-0 text-emerald-500" />
-        ) : (
-          <AlertTriangle className="size-5 shrink-0 text-destructive" />
-        )}
-        <div className="min-w-0">
-          <p className="font-medium leading-tight">
-            {report.ready ? "History complete for this client" : "History is incomplete"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {report.channels.length} channel{report.channels.length === 1 ? "" : "s"} ·{" "}
-            {report.totalMessages} message{report.totalMessages === 1 ? "" : "s"}
-          </p>
-        </div>
-      </div>
-
-      {(report.blockers.length > 0 || report.warnings.length > 0) && (
-        <ul className="space-y-1.5 text-sm">
-          {report.blockers.map((b, i) => (
-            <li key={`b${i}`} className="flex gap-2 text-destructive">
-              <span aria-hidden>•</span>
-              <span>{b.detail}</span>
-            </li>
-          ))}
-          {report.warnings.map((w, i) => (
-            <li key={`w${i}`} className="flex gap-2 text-amber-500">
-              <span aria-hidden>•</span>
-              <span>{w.detail}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {!report.ready && (
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Acting on an incomplete view can drop or clobber history. Let the relays catch up and re-run
-          before a rekey, a compaction, a member removal, or any list change.
-        </p>
-      )}
-    </div>
-  );
+/**
+ * A relay that actually FAILED (errored or timed out) during the run, as
+ * opposed to the soft "didn't reach the floor" heuristics. This is the only
+ * thing worth warning about before download, and the only thing that warrants
+ * offering a re-run.
+ */
+function hadRelayFailure(report: HistoryReport): boolean {
+  return report.control.relays.some((r) => r.failed) || report.channels.some((c) => c.relays.some((r) => r.failed));
 }
 
 interface HistoryAuditViewProps {
@@ -98,10 +50,10 @@ interface HistoryAuditViewProps {
 }
 
 /**
- * The full-screen "ensure perfect history before acting" surface — a routed
- * wizard (like the Discord import) rather than a dialog, so it outlives the
- * settings dialog its entry point sits in. Runs the exhaustive audit, shows a
- * clean completeness verdict, and offers the self-contained HTML / JSON exports.
+ * The full-screen "verify and export history" surface: a routed wizard (like the
+ * Discord import) rather than a dialog, so it outlives the settings dialog its
+ * entry point sits in. Runs the exhaustive sweep, populates the local store, and
+ * offers the self-contained HTML export built from those rumors.
  */
 export function HistoryAuditView({ community, onClose }: HistoryAuditViewProps) {
   const { run, cancel, canRun, progress, result, error } = useHistoryAudit(community);
@@ -109,6 +61,7 @@ export function HistoryAuditView({ community, onClose }: HistoryAuditViewProps) 
 
   const busy = progress.phase !== "idle" && progress.phase !== "done" && progress.phase !== "error";
   const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+  const relayFailure = result ? hadRelayFailure(result.report) : false;
 
   const close = () => {
     if (busy) cancel();
@@ -131,9 +84,8 @@ export function HistoryAuditView({ community, onClose }: HistoryAuditViewProps) 
         </div>
 
         <p className="text-center text-sm leading-relaxed text-muted-foreground">
-          Reads the control plane and every channel to its floor across all this community&apos;s
-          relays, then names anything it can&apos;t prove is present. No client can prove a relay
-          handed over everything — this reports the coverage it reached and every gap it can detect.
+          Reads the control plane and every channel across all this community&apos;s relays, saves what
+          it finds to your local store, and builds a self-contained export from those rumors.
         </p>
 
         {error && (
@@ -160,24 +112,39 @@ export function HistoryAuditView({ community, onClose }: HistoryAuditViewProps) 
           </div>
         ) : result ? (
           <div className="space-y-4">
-            <ReportCard report={result.report} />
-            <div className="space-y-2">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Download</p>
-              <div className="flex gap-2">
-                <Button type="button" className="flex-1 clip-corner-lg" onClick={() => download(result.model, "html")}>
-                  <FileCode className="size-4" />
-                  HTML
-                </Button>
-                <Button type="button" variant="outline" className="flex-1 clip-corner-lg" onClick={() => download(result.model, "json")}>
-                  <Braces className="size-4" />
-                  JSON
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                HTML opens as a self-contained mini-Armada — a channel rail and message view, offline,
-                with images embedded.
-              </p>
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Check className="size-4 text-emerald-500" />
+              {result.report.channels.length} channel{result.report.channels.length === 1 ? "" : "s"},{" "}
+              {result.report.totalMessages} message{result.report.totalMessages === 1 ? "" : "s"} ready to export
             </div>
+
+            {relayFailure && (
+              <p className="text-center text-xs text-amber-500">
+                Some relays didn&apos;t respond, so this copy may be missing recent history.
+              </p>
+            )}
+
+            <div className="flex gap-2">
+              <Button type="button" className="h-11 flex-1 clip-corner-lg" onClick={() => download(result.model, "html")}>
+                <FileCode className="size-4" />
+                Download HTML
+              </Button>
+              {relayFailure && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-11 clip-corner-lg"
+                  onClick={() => void run({ embedAssets: embed })}
+                >
+                  Run again
+                </Button>
+              )}
+            </div>
+
+            <p className="text-center text-xs text-muted-foreground">
+              Opens as a self-contained mini-Armada with Chat, Text, and JSON views. Offline, with
+              images embedded.
+            </p>
           </div>
         ) : (
           <div className="flex items-center justify-center gap-2">
@@ -188,23 +155,21 @@ export function HistoryAuditView({ community, onClose }: HistoryAuditViewProps) 
           </div>
         )}
 
-        <div className="space-y-2">
-          {busy ? (
-            <Button type="button" size="lg" variant="outline" className="h-12 w-full clip-corner-lg" onClick={cancel}>
-              Cancel
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              size="lg"
-              className="h-12 w-full clip-corner-lg text-base"
-              disabled={!canRun}
-              onClick={() => void run({ embedAssets: embed })}
-            >
-              {result ? "Re-run audit" : "Run audit"}
-            </Button>
-          )}
-        </div>
+        {busy ? (
+          <Button type="button" size="lg" variant="secondary" className="h-12 w-full clip-corner-lg" onClick={cancel}>
+            Cancel
+          </Button>
+        ) : !result ? (
+          <Button
+            type="button"
+            size="lg"
+            className="h-12 w-full clip-corner-lg text-base"
+            disabled={!canRun}
+            onClick={() => void run({ embedAssets: embed })}
+          >
+            Run audit
+          </Button>
+        ) : null}
       </div>
     </WizardShell>
   );

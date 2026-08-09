@@ -29,12 +29,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
-import {
-  foldTimeline,
-  openChatBatch,
-  replyTargetOf,
-  type OpenedChat,
-} from "@/concord/lib/chat";
+import { foldTimeline, openChatBatch, replyTargetOf } from "@/concord/lib/chat";
 import { backfillStore } from "@/concord/lib/channelSync";
 import { useChannels, useControlFold } from "@/concord/hooks/useControlPlane";
 import {
@@ -270,16 +265,14 @@ export function useHistoryAudit(community: Community | undefined) {
 
           const { wraps, exhausted, failed } = await collectChannelWraps(nostr, community, channel, signal);
           const openedWire = await openChatBatch(wraps, channel, { signal });
-          // Merge with what the store already decrypted on earlier syncs, then
-          // persist the freshly-opened ones so the pull is also a durable fill.
-          const stored = await queryChannelRumors(community.idHex, channel.idHex, { limit: 1_000_000, signal });
-          if (openedWire.length) void writeRumors(community.idHex, openedWire);
-          const byId = new Map<string, OpenedChat>();
-          for (const o of stored) byId.set(o.rumorId, o);
-          for (const o of openedWire) byId.set(o.rumorId, o);
-          const merged = [...byId.values()];
+          // Populate the local store, THEN read the export source back out of it,
+          // so the export is generated purely from durable rumors (never from a
+          // wire set that hasn't landed on disk). The store also merges in
+          // whatever earlier syncs already decrypted.
+          if (openedWire.length) await writeRumors(community.idHex, openedWire);
+          const rumors = await queryChannelRumors(community.idHex, channel.idHex, { limit: 1_000_000, signal });
 
-          const timeline = foldTimeline(merged, { banned: folded.banned, canDelete: () => false });
+          const timeline = foldTimeline(rumors, { banned: folded.banned, canDelete: () => false });
           for (const m of timeline.messages) authors.add(m.author);
 
           const queriedEpochs = channel.streams.map((s) => s.epoch.toString());
@@ -288,7 +281,7 @@ export function useHistoryAudit(community: Community | undefined) {
             name: channel.name,
             isPrivate: channel.isPrivate,
             deleted: false,
-            opened: merged,
+            opened: rumors,
             messageCount: timeline.messages.length,
             queriedEpochs,
             exhaustedEpochs: exhausted ? queriedEpochs : [],
@@ -382,7 +375,6 @@ export function useHistoryAudit(community: Community | undefined) {
           ...(iconDataUri ? { icon: iconDataUri } : {}),
           profiles,
           channels: exportChannels,
-          report,
         };
         const out = { report, model };
         setResult(out);

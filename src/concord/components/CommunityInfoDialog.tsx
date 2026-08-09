@@ -427,10 +427,10 @@ function InfoBody({
 }
 
 /**
- * "Verify & export history" — opens the {@link HistoryAuditDialog}, the in-app
- * gate for ensuring a complete decrypted history before acting on (or archiving)
- * a community. Available to every member; the audit reads only what this member
- * can already decrypt.
+ * "Verify & export history": navigates to the full-screen history route
+ * (`HistoryAuditView`), which reads the community to its floor and exports a
+ * self-contained HTML copy. Available to every member; it reads only what this
+ * member can already decrypt.
  */
 function HistorySection({ community }: { community: Community }) {
   const navigate = useNavigate();
@@ -441,8 +441,8 @@ function HistorySection({ community }: { community: Community }) {
       </span>
       <div className="space-y-2.5 rounded-lg bg-secondary/40 p-3">
         <p className="text-xs text-muted-foreground">
-          Read every channel to its floor across all relays, verify completeness, and export a copy —
-          a self-contained HTML that opens as a mini-Armada, or JSON.
+          Read every channel across all relays, save it to your local store, and export a
+          self-contained HTML copy that opens as a mini-Armada.
         </p>
         <Button
           type="button"
