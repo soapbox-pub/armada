@@ -51,9 +51,11 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, can
   connectedCoordinates: ReadonlySet<string>;
   /**
    * Whether this member holds the community's `control_root`, i.e. can mint an
-   * announcement channel's write-restricted address at all. Offered as a
-   * capability rather than assumed: `createChannel` throws without it, and a
-   * checkbox that can only fail is worse than an absent one.
+   * announcement channel's write-restricted address at all. `createChannel`
+   * throws without it, so the option is offered disabled rather than hidden —
+   * the two reasons it can be false (not staff; a LEGACY control epoch, which
+   * has no staff-only secret for the signer to key on) are both explainable,
+   * and a silently absent checkbox reads as a missing feature instead.
    */
   canAnnounce?: boolean;
   onCreateText: (name: string, opts?: { isPrivate?: boolean; isAnnouncement?: boolean }) => Promise<unknown>;
@@ -190,8 +192,10 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, can
               </p>
             )}
 
-            {canAnnounce && (
-              <label htmlFor="channel2-announce" className="flex items-start gap-3 cursor-pointer">
+            <label
+              htmlFor="channel2-announce"
+              className={canAnnounce ? "flex items-start gap-3 cursor-pointer" : "flex items-start gap-3 opacity-60"}
+            >
                 <Checkbox
                   id="channel2-announce"
                   checked={isAnnouncement}
@@ -204,7 +208,7 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, can
                     // a narrower writer set to sit inside.
                     if (next) setIsPrivate(false);
                   }}
-                  disabled={creating}
+                  disabled={creating || !canAnnounce}
                   className="mt-0.5"
                 />
                 <span className="min-w-0">
@@ -212,12 +216,12 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, can
                     <Megaphone className="size-3.5" /> Announcement channel
                   </span>
                   <span className="block text-xs text-muted-foreground">
-                    Everyone reads it; only moderators can post. Enforced by the keys, so it
-                    holds in any client.
+                    {canAnnounce
+                      ? "Everyone reads it; only moderators can post. Enforced by the keys, so it holds in any client."
+                      : "Needs the community's moderator-only key, which you don't hold here — either you're not staff, or the community predates staff keys and has no moderator-only key to build this on."}
                   </span>
                 </span>
               </label>
-            )}
 
             {error && <p className="text-xs text-destructive">{error}</p>}
             <div className="flex justify-end">
