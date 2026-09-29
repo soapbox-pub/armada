@@ -38,6 +38,7 @@ export function useUploadFile() {
         fetch: (input, init) =>
           globalThis.fetch(input, {
             ...init,
+            headers: padNostrAuthorization(init?.headers),
             signal: AbortSignal.any([
               init?.signal ?? AbortSignal.timeout(30_000),
               AbortSignal.timeout(30_000),
@@ -82,6 +83,27 @@ function getFileExtension(filename: string): string {
   const dotIndex = filename.lastIndexOf(".");
   if (dotIndex <= 0) return "";
   return filename.slice(dotIndex).toLowerCase();
+}
+
+/**
+ * Pad a Blossom `Authorization: Nostr <base64>` token to standard Base64
+ * length. Some Blossom servers reject unpadded auth events even though
+ * other servers accept them.
+ */
+export function padNostrAuthorization(headers?: HeadersInit): Headers {
+  const result = new Headers(headers);
+  const auth = result.get("Authorization");
+
+  if (!auth?.startsWith("Nostr ")) return result;
+
+  const token = auth.slice("Nostr ".length);
+  const padding = (4 - (token.length % 4)) % 4;
+
+  if (padding > 0) {
+    result.set("Authorization", `Nostr ${token}${"=".repeat(padding)}`);
+  }
+
+  return result;
 }
 
 /**
@@ -131,6 +153,7 @@ async function mirrorToServers(
         fetch: (input, init) =>
           globalThis.fetch(input, {
             ...init,
+            headers: padNostrAuthorization(init?.headers),
             signal: AbortSignal.any([
               init?.signal ?? AbortSignal.timeout(30_000),
               AbortSignal.timeout(30_000),
