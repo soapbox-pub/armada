@@ -93,7 +93,7 @@ vi.mock("@/hooks/useUserVolume", () => ({
   useUserVolume: () => [1, vi.fn()],
   useScreenShareVolume: () => [1, vi.fn()],
 }));
-vi.mock("@/lib/callSounds", () => ({ playScreenShareSound: vi.fn() }));
+vi.mock("@/lib/callSounds", () => ({ playScreenShareSound: vi.fn(), playScreenShareEndSound: vi.fn() }));
 vi.mock("@/lib/hevcScreenShare", () => ({
   isHevcScreenShareParticipant: () => false,
 }));
