@@ -161,6 +161,13 @@ win:
       arch: [x64]
     - target: portable
       arch: [x64]
+  # Authenticode via Azure Artifact Signing, configured by environment; unset
+  # builds are unsigned. See scripts/sign-windows.cjs. SHA-256 only: dual
+  # SHA-1 signing exists for Windows 7, which Electron no longer runs on, and
+  # would double the per-signature cost.
+  signtoolOptions:
+    sign: scripts/sign-windows.cjs
+    signingHashAlgorithms: [sha256]
 
 nsis:
   oneClick: false

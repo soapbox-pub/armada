@@ -87,8 +87,16 @@ name: Release
 #                            owns buzz.armada.app. Signs the NIP-82 release
 #                            (and the nsite deploys).
 #   KLIPY_API_KEY            (optional) GIF search key baked into the bundles
-#   WINDOWS_CSC_LINK         (optional) base64 PFX for Authenticode signing
-#   WINDOWS_CSC_KEY_PASSWORD (optional) its password
+#   AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET
+#                            (optional, all or none, with the three below) the
+#                            Entra app registration that holds the Artifact
+#                            Signing "Certificate Profile Signer" role.
+#   AZURE_SIGNING_ENDPOINT   (optional) e.g. https://eus.codesigning.azure.net
+#   AZURE_SIGNING_ACCOUNT    (optional) Artifact Signing account name
+#   AZURE_SIGNING_PROFILE    (optional) its certificate profile name
+#                            All six set: Windows executables are Authenticode
+#                            signed (electron/scripts/sign-windows.cjs). None:
+#                            they ship unsigned. Some: the release fails.
 #   GOOGLE_PLAY_SERVICE_ACCOUNT_JSON  (optional) base64 of the Play Console
 #                            service-account JSON key with release permission on
 #                            buzz.armada.app. Empty (unprovisioned) skips the
@@ -200,18 +208,33 @@ jobs:
       - name: Build Linux + Windows installers
         env:
           TAG: ${{ github.ref_name }}
-          # Optional Authenticode identity. Unsigned installed NSIS builds still
-          # self-update through the validated feed, like AppImage; production
-          # releases should nevertheless keep one stable certificate for an
-          # independent publisher identity and SmartScreen reputation.
-          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+          # Optional Authenticode signing through Azure Artifact Signing (see
+          # the secrets list above). Unsigned installed NSIS builds still
+          # self-update through the validated feed; signing is what gives the
+          # installer a publisher identity and SmartScreen reputation.
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          JSIGN_VERSION: "7.5"
+          JSIGN_SHA256: 602a51c3545a6dc4fb99bd2ea7152b26d1345916d0c93ddfbd5936cb735af91c
         run: |
           set -eu
           case "$TAG" in
             v[0-9]*) VERSION="${TAG#v}" ;;
             *) VERSION=0.0.0 ;;
           esac
+          # Jsign is fetched only when signing is configured, so an unsigned
+          # fork's release has no dependency on GitHub being reachable. The
+          # hook itself refuses a partial configuration.
+          if [ -n "${AZURE_SIGNING_ACCOUNT:-}" ]; then
+            export JSIGN_JAR="$RUNNER_TEMP/jsign-$JSIGN_VERSION.jar"
+            curl -fsSL --retry 3 --retry-all-errors -o "$JSIGN_JAR" \
+              "https://github.com/ebourg/jsign/releases/download/$JSIGN_VERSION/jsign-$JSIGN_VERSION.jar"
+            echo "$JSIGN_SHA256  $JSIGN_JAR" | sha256sum -c -
+          fi
           cd electron
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" package.json
           npm ci --no-audit --no-fund

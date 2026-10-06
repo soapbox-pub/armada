@@ -301,10 +301,13 @@ date" indefinitely. Recovery is a manual download from `/downloads`. The retired
 feed files are still on the server — nothing deletes them; remove them by hand
 whenever you like.
 
-Windows signing remains recommended: provisioning `WINDOWS_CSC_LINK` and
-`WINDOWS_CSC_KEY_PASSWORD` gives the installer and subsequent updates one
-publisher identity and improves SmartScreen reputation. It is not required for
-self-update. An installed unsigned NSIS build uses the same trust boundary as
+Windows executables are Authenticode signed through Azure Artifact Signing
+(formerly Trusted Signing) when the release has its six `AZURE_*` secrets
+(listed in `release.yml`); `scripts/sign-windows.cjs` is the
+`win.signtoolOptions.sign` hook, and runs Jsign because the release runner is
+Linux. Signing gives the installer and later updates one publisher identity and
+builds SmartScreen reputation. With none set the build is unsigned; with only
+some set it fails. Signing is not required for self-update. An installed unsigned NSIS build uses the same trust boundary as
 the AppImage: HTTPS protects delivery, and electron-updater checks the
 downloaded file against the `x` sha256 the release event declares, which is also
 the artifact's Blossom content address.
