@@ -267,14 +267,6 @@ export function bridgePortalUrl(path: "/" | "/import" = "/"): string | null {
 }
 
 /**
- * Plausible analytics domain. OFF by default; set only by hosted deployments,
- * and build-time so it can't be toggled or synced. `PLAUSIBLE_ENDPOINT`
- * optionally points at a self-hosted instance or proxy.
- */
-export const PLAUSIBLE_DOMAIN: string = (config("PLAUSIBLE_DOMAIN") ?? "").trim();
-export const PLAUSIBLE_ENDPOINT: string = (config("PLAUSIBLE_ENDPOINT") ?? "").trim();
-
-/**
  * nostr-push gateway: `NOSTR_PUSH_PUBKEY` (npub or hex, `#p`-tagged on
  * kind-25742 RPCs) and `NOSTR_PUSH_RELAYS` (rendezvous relays). Both empty
  * ⇒ no iOS APNs push.

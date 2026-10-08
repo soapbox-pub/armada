@@ -2,7 +2,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useBackOrHome } from "@/hooks/useBackOrHome";
-import { APP_NAME, PLAUSIBLE_DOMAIN } from "@/lib/platform";
+import { APP_NAME } from "@/lib/platform";
 
 export function PrivacyPolicyPage() {
   const back = useBackOrHome();
@@ -19,7 +19,7 @@ export function PrivacyPolicyPage() {
 
       <div className="flex-1 min-h-0 overflow-y-auto safe-area-bottom">
         <article className="max-w-2xl mx-auto px-4 sm:px-6 pb-16 pt-3 space-y-6 text-sm text-foreground/90 leading-relaxed">
-          <p className="text-xs text-muted-foreground">Last updated: July 11, 2026</p>
+          <p className="text-xs text-muted-foreground">Last updated: October 8, 2026</p>
 
           <section className="space-y-2">
             <h2 className="text-base font-bold text-foreground">Overview</h2>
@@ -34,8 +34,15 @@ export function PrivacyPolicyPage() {
             <h2 className="text-base font-bold text-foreground">How Nostr Works</h2>
             <p>
               Nostr is a decentralized protocol. When you publish content, it is sent to one or more <strong>relays</strong> (independent
-              servers) that you choose. {APP_NAME} does not operate these relays and has no control over data
-              stored on them. Content published to Nostr relays is <strong>public by default</strong> and may be visible to anyone.
+              servers) that you choose. Content published to Nostr relays is <strong>public by default</strong> and may be
+              visible to anyone, except where it is encrypted (direct messages and Concord communities, below).
+            </p>
+            <p>
+              Out of the box, {APP_NAME} uses a few default servers, some of which are operated by Soapbox, the team
+              behind {APP_NAME}: the relay <code>relay.ditto.pub</code>, the file server <code>blossom.ditto.pub</code>,
+              the link-preview service at <code>ditto.pub</code>, and the voice broker at <code>armada.buzz</code>. The
+              rest are run by independent operators. You can replace the relays, file servers and voice server in
+              Settings, and anyone can host their own.
             </p>
           </section>
 
@@ -91,26 +98,24 @@ export function PrivacyPolicyPage() {
             <h2 className="text-base font-bold text-foreground">Voice Calls</h2>
             <p>
               Voice calls use LiveKit servers. For Concord communities, the voice broker issues a short-lived token
-              bound to your pubkey; call media is encrypted in transit. For NIP-29 servers, the relay operator
-              manages the LiveKit instance and its data handling.
+              bound to your pubkey, and call media is end-to-end encrypted, so the voice server cannot hear the call.
+              For NIP-29 servers, the relay operator manages the LiveKit instance and its data handling, and calls
+              are encrypted only in transit.
             </p>
           </section>
 
           <section className="space-y-2">
             <h2 className="text-base font-bold text-foreground">Analytics</h2>
-            {PLAUSIBLE_DOMAIN ? (
-              <p>
-                This deployment of {APP_NAME} uses privacy-friendly analytics (Plausible) to understand general
-                usage patterns. These analytics are cookieless, do not track individual users, and do not collect
-                personal information. The official {APP_NAME} apps (Android and desktop) ship with analytics
-                disabled entirely.
-              </p>
-            ) : (
-              <p>
-                This build of {APP_NAME} does not collect analytics. No tracking cookies, no telemetry, and no
-                third-party analytics are active in the client.
-              </p>
-            )}
+            <p>
+              {APP_NAME} contains no analytics. There are no tracking cookies, no telemetry, and no third-party
+              analytics in the client, on any platform.
+            </p>
+            <p>
+              The website at armada.buzz is served by Soapbox's hosting gateway, which collects error reports when
+              the page crashes: the error, the page address, and a short trail of recent clicks, page changes and
+              network requests leading up to it, with secret keys removed. The Android, iOS and desktop apps do not
+              load it, and a self-hosted copy of {APP_NAME} only sends these reports if its host turns them on.
+            </p>
           </section>
 
           <section className="space-y-2">
@@ -121,9 +126,12 @@ export function PrivacyPolicyPage() {
               <li><strong>Blossom servers:</strong> For file uploads and media hosting</li>
               <li><strong>LiveKit voice servers:</strong> For real-time voice calls</li>
               <li><strong>NIP-05 providers:</strong> For verifying Nostr addresses</li>
+              <li><strong>Link-preview service:</strong> Sees the address of each link it previews</li>
+              <li><strong>Push gateway:</strong> For web and iOS notifications; it matches encrypted events and never sees message text</li>
+              <li><strong>GIF search provider:</strong> Sees the search terms you type in the GIF picker</li>
             </ul>
             <p>
-              Each of these services is operated independently and may have its own data handling practices.
+              Each of these services may have its own data handling practices.
             </p>
           </section>
 

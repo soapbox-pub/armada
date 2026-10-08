@@ -68,10 +68,6 @@ jobs:
       # Inlined at build time (src/build/buildConfig.ts).
       KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
       BRIDGE_PORTAL_URL: ${{ secrets.VITE_BRIDGE_PORTAL_URL }}
-      # Deliberately NO PLAUSIBLE_*: the VITE_PLAUSIBLE_* secret names armada.buzz as the
-      # site, and this build is served from a gateway subdomain, so it would
-      # file its traffic under a domain it isn't. Empty = tracker never
-      # initialized, i.e. no telemetry.
     steps:
       - uses: actions/checkout@v4
 

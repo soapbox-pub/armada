@@ -944,7 +944,7 @@ function TimerNotice({ author, seconds, self }: { author: string; seconds: numbe
  */
 export function ConcordPage() {
   // Parsed via `parseChatRoute` (panes are static segments with no params), the
-  // same parse the builder, notifications and analytics use.
+  // same parse the builder and notifications use.
   const location = useLocation();
   const { pathname } = location;
   const route = useMemo(() => {

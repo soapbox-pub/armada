@@ -31,10 +31,6 @@ export const CONFIG_NAMES = [
   "LINK_PREVIEW_ENDPOINT",
   // Discord bridge portal origin (e.g. "https://bridge.armada.buzz"). Empty/unset = Discord import UI hidden.
   "BRIDGE_PORTAL_URL",
-  // Plausible site domain (e.g. "armada.buzz"). Empty/unset = analytics disabled.
-  "PLAUSIBLE_DOMAIN",
-  // Plausible API endpoint (self-hosted instance or proxy). Empty/unset = Plausible Cloud default.
-  "PLAUSIBLE_ENDPOINT",
   // KLIPY GIF API key. Unset = the keyless GIFverse backend.
   "KLIPY_API_KEY",
   "NOSTR_PUSH_PUBKEY",

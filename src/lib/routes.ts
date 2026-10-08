@@ -1,14 +1,11 @@
 /**
  * The one place a chat route is spelled (NIP-29/Buzz, Concord, DMs): builder
- * plus parser, shared with the analytics sanitizer.
+ * plus parser.
  *
  *     /c/<community>/<channel>                    the channel
  *     /c/<community>/<channel>/m/<id>             a message in its timeline
  *     /c/<community>/<channel>/t/<root>           the thread opened at <root>
  *     /c/<community>/<channel>/t/<root>/m/<id>    a reply INSIDE that thread
- *
- * Message ids are durable parts of the location and must never reach analytics
- * raw — see `chatRouteTemplate`.
  */
 
 import { nip19 } from "nostr-tools";
@@ -158,7 +155,7 @@ export function withoutMessage(route: ChatRoute): ChatRoute {
   return rest;
 }
 
-/** Parse the `/t/<root>` + `/m/<id>` suffix; `null` for anything else so no id leaks to analytics. */
+/** Parse the `/t/<root>` + `/m/<id>` suffix; `null` for anything else. */
 function parseFocus(
   rest: readonly string[],
 ): { threadRoot?: string; messageId?: string } | null {
@@ -223,39 +220,6 @@ export function parseChatRoute(pathname: string): ChatRoute | null {
     default:
       return null;
   }
-}
-
-/**
- * Route template for analytics, derived from the same parse the app navigates
- * by, so drift can't leak ids to a third party.
- */
-export function chatRouteTemplate(route: ChatRoute): string {
-  switch (route.kind) {
-    case "nip29": {
-      if (route.pane) return `/s/:server/${route.pane}`;
-      if (!route.groupId) return "/s/:server";
-      return focusTemplate("/s/:server/:groupId", route);
-    }
-    case "concord": {
-      if (route.pane) return `/c/:communityId/${route.pane}`;
-      if (!route.channelId) return "/c/:communityId";
-      return focusTemplate("/c/:communityId/:channelId", route);
-    }
-    case "dm": {
-      if (!route.peer) return "/dm";
-      return route.messageId ? "/dm/:peer/m/:messageId" : "/dm/:peer";
-    }
-  }
-}
-
-function focusTemplate(
-  base: string,
-  focus: { threadRoot?: string; messageId?: string },
-): string {
-  let template = base;
-  if (focus.threadRoot) template += "/t/:threadRoot";
-  if (focus.messageId) template += "/m/:messageId";
-  return template;
 }
 
 /** Absolute shareable URL; `shareOrigin()` is the public web origin even on native. */

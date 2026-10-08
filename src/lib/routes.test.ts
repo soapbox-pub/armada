@@ -5,7 +5,6 @@ import { parseDmRouteParam } from "./dmConversation";
 import {
   type ChatRoute,
   chatRoute,
-  chatRouteTemplate,
   parseChatRoute,
   roomPath,
   withoutMessage,
@@ -18,28 +17,24 @@ function dmPeerOf(path: string): string | undefined {
 }
 
 /** Every legal shape, as the pair the builder and parser must agree on. */
-const ROUNDTRIPS: Array<[ChatRoute, string, string]> = [
+const ROUNDTRIPS: Array<[ChatRoute, string]> = [
   // NIP-29 / Buzz.
-  [{ kind: "nip29", relayUrl: "wss://relay.example" }, "/s/relay.example", "/s/:server"],
+  [{ kind: "nip29", relayUrl: "wss://relay.example" }, "/s/relay.example"],
   [
     { kind: "nip29", relayUrl: "wss://relay.example", pane: "inbox" },
     "/s/relay.example/inbox",
-    "/s/:server/inbox",
   ],
   [
     { kind: "nip29", relayUrl: "wss://relay.example", groupId: "abc" },
     "/s/relay.example/abc",
-    "/s/:server/:groupId",
   ],
   [
     { kind: "nip29", relayUrl: "wss://relay.example", groupId: "abc", messageId: "m1" },
     "/s/relay.example/abc/m/m1",
-    "/s/:server/:groupId/m/:messageId",
   ],
   [
     { kind: "nip29", relayUrl: "wss://relay.example", groupId: "abc", threadRoot: "r1" },
     "/s/relay.example/abc/t/r1",
-    "/s/:server/:groupId/t/:threadRoot",
   ],
   [
     {
@@ -50,42 +45,35 @@ const ROUNDTRIPS: Array<[ChatRoute, string, string]> = [
       messageId: "m1",
     },
     "/s/relay.example/abc/t/r1/m/m1",
-    "/s/:server/:groupId/t/:threadRoot/m/:messageId",
   ],
   // Concord.
-  [{ kind: "concord", communityId: "c" }, "/c/c", "/c/:communityId"],
+  [{ kind: "concord", communityId: "c" }, "/c/c"],
   [
     { kind: "concord", communityId: "c", pane: "mentions" },
     "/c/c/mentions",
-    "/c/:communityId/mentions",
   ],
   [
     { kind: "concord", communityId: "c", channelId: "ch" },
     "/c/c/ch",
-    "/c/:communityId/:channelId",
   ],
   [
     { kind: "concord", communityId: "c", channelId: "ch", messageId: "m1" },
     "/c/c/ch/m/m1",
-    "/c/:communityId/:channelId/m/:messageId",
   ],
   [
     { kind: "concord", communityId: "c", channelId: "ch", threadRoot: "r1" },
     "/c/c/ch/t/r1",
-    "/c/:communityId/:channelId/t/:threadRoot",
   ],
   [
     { kind: "concord", communityId: "c", channelId: "ch", threadRoot: "r1", messageId: "m1" },
     "/c/c/ch/t/r1/m/m1",
-    "/c/:communityId/:channelId/t/:threadRoot/m/:messageId",
   ],
   // DMs.
-  [{ kind: "dm" }, "/dm", "/dm"],
-  [{ kind: "dm", peer: "npub1abc" }, "/dm/npub1abc", "/dm/:peer"],
+  [{ kind: "dm" }, "/dm"],
+  [{ kind: "dm", peer: "npub1abc" }, "/dm/npub1abc"],
   [
     { kind: "dm", peer: "npub1abc", messageId: "m1" },
     "/dm/npub1abc/m/m1",
-    "/dm/:peer/m/:messageId",
   ],
 ];
 
@@ -93,10 +81,6 @@ describe("chatRoute / parseChatRoute", () => {
   it.each(ROUNDTRIPS)("builds and parses %o", (route, path) => {
     expect(chatRoute(route)).toBe(path);
     expect(parseChatRoute(path)).toEqual(route);
-  });
-
-  it.each(ROUNDTRIPS)("templates %o", (route, _path, template) => {
-    expect(chatRouteTemplate(route)).toBe(template);
   });
 
   it("round-trips a relay URL through the server param", () => {

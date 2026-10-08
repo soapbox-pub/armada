@@ -146,11 +146,6 @@ jobs:
       - name: Build standalone web bundle
         env:
           KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
-          # OFF in the published sovereign desktop build by default (see the
-          # Android release workflow). Configurable for own-branded builds via
-          # the provisioned secret; empty = tracker never initialized.
-          PLAUSIBLE_DOMAIN: ${{ secrets.VITE_PLAUSIBLE_DOMAIN }}
-          PLAUSIBLE_ENDPOINT: ${{ secrets.VITE_PLAUSIBLE_ENDPOINT }}
           # Discord bridge portal origin (only the origin of links the user
           # clicks — nothing dialed, no data sent). Empty = affordances hidden.
           BRIDGE_PORTAL_URL: ${{ secrets.VITE_BRIDGE_PORTAL_URL }}
@@ -526,24 +521,11 @@ jobs:
         env:
           KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
           # Discord bridge portal origin. Only the origin of links the user
-          # clicks (nothing is dialed on boot, no Armada data is sent), so
-          # unlike PLAUSIBLE_* below there is no sovereignty reason to
-          # keep it out of the APK. Empty = every Discord affordance hidden.
+          # clicks (nothing is dialed on boot, no Armada data is sent).
+          # Empty = every Discord affordance hidden.
           BRIDGE_PORTAL_URL: ${{ secrets.VITE_BRIDGE_PORTAL_URL }}
         run: |
           set -eu
-          # Analytics is structurally EXCLUDED from the APK. Baking armada.buzz
-          # telemetry into every self-hoster's install would betray "your keys,
-          # your fleet", so this build never wires the VITE_PLAUSIBLE_* secrets
-          # into its env. Not merely "off by default": those secrets remain
-          # provisioned for this repo's alias (they were the hosted web deploy's,
-          # and no workflow consumes them since it was removed), so passing them
-          # through here would silently ship a tracking APK. We also unset them
-          # defensively, so reintroducing them at job/global scope can't leak the
-          # tracker into the bundle. If you ever want a branded APK WITH
-          # analytics, add the env back on this step deliberately — don't rely on
-          # the secret being unprovisioned.
-          unset PLAUSIBLE_DOMAIN PLAUSIBLE_ENDPOINT VITE_PLAUSIBLE_DOMAIN VITE_PLAUSIBLE_ENDPOINT
           npm ci
           # Mini App multiplayer rides a Rust crate compiled to wasm
           # (crates/webxdc-rt). `npx vite build` below does NOT fire the

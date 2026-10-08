@@ -23,10 +23,7 @@
 
 	<!--
 	  Empty because nothing here correlates the user with third-party data for
-	  advertising or measurement. The Plausible integration
-	  (`PlausibleProvider.tsx`) is cookieless and, more to the point, inert
-	  unless `PLAUSIBLE_DOMAIN` is set — which only a hosted web build
-	  does, never this one.
+	  advertising or measurement. The client contains no analytics at all.
 	-->
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>

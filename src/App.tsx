@@ -17,7 +17,6 @@ import { DeepLinkWarmup } from "@/components/DeepLinkWarmup";
 import { MeshProvider } from "@/components/MeshProvider";
 import { MutedPubkeysProvider } from "@/components/MutedPubkeysProvider";
 import NostrProvider from "@/components/NostrProvider";
-import { PlausibleProvider } from "@/components/PlausibleProvider";
 import { ReadStateProvider } from "@/components/ReadStateProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import WalletProvider from "@/components/WalletProvider";
@@ -94,34 +93,32 @@ export function App() {
   return (
     <AppProvider storageKey={APP_CONFIG_STORAGE_KEY}>
       <ArmadaDBProvider>
-        <PlausibleProvider>
-          <QueryClientProvider client={queryClient}>
-            <NostrLoginProvider storageKey={LOGIN_STORAGE_KEY} storage={secureStorage}>
-              <ActiveAccountSync />
-              {/* Above the signed-in gate so it survives logout's removal of the login before reload. */}
-              <AccountExitGate />
-              <NostrProvider>
-                <WalletProvider>
-                  <TooltipProvider>
-                    <ReadStateProvider>
-                      <MutedPubkeysProvider>
-                      <SignedInServicesGate variant="core" />
-                      {/* Eager: overlaps a cold deep link's first REQ with React mounting the route. */}
-                      <DeepLinkWarmup />
-                      <WebPushNotifications>
-                        <SignedInServicesGate variant="push" />
-                        <MeshProvider>
-                          <AppRouter />
-                        </MeshProvider>
-                      </WebPushNotifications>
-                      </MutedPubkeysProvider>
-                    </ReadStateProvider>
-                  </TooltipProvider>
-                </WalletProvider>
-              </NostrProvider>
-            </NostrLoginProvider>
-          </QueryClientProvider>
-        </PlausibleProvider>
+        <QueryClientProvider client={queryClient}>
+          <NostrLoginProvider storageKey={LOGIN_STORAGE_KEY} storage={secureStorage}>
+            <ActiveAccountSync />
+            {/* Above the signed-in gate so it survives logout's removal of the login before reload. */}
+            <AccountExitGate />
+            <NostrProvider>
+              <WalletProvider>
+                <TooltipProvider>
+                  <ReadStateProvider>
+                    <MutedPubkeysProvider>
+                    <SignedInServicesGate variant="core" />
+                    {/* Eager: overlaps a cold deep link's first REQ with React mounting the route. */}
+                    <DeepLinkWarmup />
+                    <WebPushNotifications>
+                      <SignedInServicesGate variant="push" />
+                      <MeshProvider>
+                        <AppRouter />
+                      </MeshProvider>
+                    </WebPushNotifications>
+                    </MutedPubkeysProvider>
+                  </ReadStateProvider>
+                </TooltipProvider>
+              </WalletProvider>
+            </NostrProvider>
+          </NostrLoginProvider>
+        </QueryClientProvider>
       </ArmadaDBProvider>
     </AppProvider>
   );
