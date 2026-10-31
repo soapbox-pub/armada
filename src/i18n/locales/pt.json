@@ -2488,6 +2488,7 @@
   "membersView.showAll": "Mostrar todos",
   "membersView.showAllCount": "Mostrar todos os {count}",
   "membersView.showThem": "Mostrar",
+  "membersView.sortName": "Por nome",
   "membersView.sortNewest": "Membros mais novos",
   "membersView.sortOldest": "Membros mais antigos",
   "membersView.sortPlaceholder": "Ordenar",

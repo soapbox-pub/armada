@@ -65,6 +65,7 @@ vi.mock("@/hooks/useMemberSearch", () => ({
     spies.useMemberSearch(roster, query);
     return null; // no search active
   },
+  useMemberNameOrder: () => (a: string, b: string) => a.localeCompare(b),
 }));
 vi.mock("@/components/chat/ProfilePreviewCard", () => ({
   ProfilePreviewCard: ({ children }: { children?: ReactNode }) => <>{children}</>,

@@ -165,8 +165,22 @@ export function MembersView({
       viaInvite: inviterFilter === "any",
       inviter: inviterFilter !== "all" && inviterFilter !== "any" ? inviterFilter : undefined,
     });
-    return hoistSuspicious(sortMemberRows(filtered, sortKey));
-  }, [allRows, query, roleFilter, behindOnly, suspiciousOnly, inviterFilter, sortKey, profileOf]);
+    const collator = new Intl.Collator(intl.locale, { sensitivity: "base", numeric: true });
+    const nameOf = (pk: string) => {
+      const m = profileOf.get(pk)?.metadata;
+      const name = m?.display_name || m?.name;
+      return typeof name === "string" && name.trim() ? name.trim() : undefined;
+    };
+    // Nameless members last.
+    const byName = (a: string, b: string) => {
+      const na = nameOf(a);
+      const nb = nameOf(b);
+      if (na && nb) return collator.compare(na, nb) || (a < b ? -1 : 1);
+      if (na || nb) return na ? -1 : 1;
+      return a < b ? -1 : 1;
+    };
+    return hoistSuspicious(sortMemberRows(filtered, sortKey, byName));
+  }, [allRows, query, roleFilter, behindOnly, suspiciousOnly, inviterFilter, sortKey, profileOf, intl.locale]);
 
   const visible = showAll ? rows : rows.slice(0, RENDER_CAP);
   const visibleOrder = useMemo(() => visible.map((r) => r.pubkey), [visible]);
@@ -415,6 +429,9 @@ export function MembersView({
           <SelectContent>
             <SelectItem value="role">
               <FormattedMessage id="membersView.sortRole" defaultMessage="By role" />
+            </SelectItem>
+            <SelectItem value="name">
+              <FormattedMessage id="membersView.sortName" defaultMessage="By name" />
             </SelectItem>
             <SelectItem value="seen">
               <FormattedMessage id="membersView.sortSeen" defaultMessage="Recently seen" />

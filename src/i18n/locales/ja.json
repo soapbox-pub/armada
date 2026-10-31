@@ -2488,6 +2488,7 @@
   "membersView.showAll": "すべて表示",
   "membersView.showAllCount": "{count} 件すべて表示",
   "membersView.showThem": "表示する",
+  "membersView.sortName": "名前順",
   "membersView.sortNewest": "新しいメンバー順",
   "membersView.sortOldest": "古いメンバー順",
   "membersView.sortPlaceholder": "並べ替え",

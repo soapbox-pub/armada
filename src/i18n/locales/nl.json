@@ -2488,6 +2488,7 @@
   "membersView.showAll": "Alles tonen",
   "membersView.showAllCount": "Alle {count} tonen",
   "membersView.showThem": "Tonen",
+  "membersView.sortName": "Op naam",
   "membersView.sortNewest": "Nieuwste leden",
   "membersView.sortOldest": "Oudste leden",
   "membersView.sortPlaceholder": "Sorteren",

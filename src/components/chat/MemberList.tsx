@@ -39,7 +39,7 @@ import { DisplayName } from "@/components/DisplayName";
 import { SearchField } from "@/components/ui/search-field";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
-import { useMemberSearch } from "@/hooks/useMemberSearch";
+import { useMemberNameOrder, useMemberSearch } from "@/hooks/useMemberSearch";
 import { useScopedIdentity } from "@/hooks/useScopedDisplayName";
 import { isStatusExpired, useUserStatus } from "@/hooks/useUserStatus";
 import { requestMention } from "@/hooks/useMentionBus";
@@ -416,7 +416,8 @@ export const MemberList = memo(function MemberList({
     if (!held?.length || !roleCatalog) return undefined;
     return roleCatalog.find((r) => r.channelName === undefined && held.includes(r.id));
   };
-  // NIP-29 `p` tag order isn't stable across refetches; sort owner first, then pubkey.
+  const byName = useMemberNameOrder(intl.locale);
+  // Owner first, then by name (`p` tag and grant order mean nothing to a reader).
   const isOwnerRole = (a: Nip29Admin) => a.roles.some((r) => r.toLowerCase() === "owner");
   // Muted people leave the roster entirely, filtered at the source so counts and
   // empty states agree.
@@ -425,11 +426,11 @@ export const MemberList = memo(function MemberList({
     .sort((a, b) => {
       const ao = isOwnerRole(a) ? 0 : 1;
       const bo = isOwnerRole(b) ? 0 : 1;
-      return ao - bo || a.pubkey.localeCompare(b.pubkey);
+      return ao - bo || byName(a.pubkey, b.pubkey);
     });
   const allRegulars = members
     .filter((pubkey) => !adminMap.has(pubkey) && !mutedPubkeys.has(pubkey))
-    .sort((a, b) => a.localeCompare(b));
+    .sort(byName);
 
   const roster = useMemo(
     () => [...sortedAdmins.map((a) => a.pubkey), ...allRegulars],
@@ -448,9 +449,9 @@ export const MemberList = memo(function MemberList({
   );
   const visibleSections = (roleSections ?? []).map((section) => ({
     ...section,
-    members: section.members.filter(
-      (pubkey) => !mutedPubkeys.has(pubkey) && (!matched || matched.has(pubkey)),
-    ),
+    members: section.members
+      .filter((pubkey) => !mutedPubkeys.has(pubkey) && (!matched || matched.has(pubkey)))
+      .sort(byName),
   }));
   const noMatches =
     searching &&

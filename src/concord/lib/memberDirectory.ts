@@ -72,10 +72,17 @@ export function buildMemberRows(input: {
   return rows;
 }
 
-export type MemberSortKey = "role" | "joined-newest" | "joined-oldest" | "seen";
+export type MemberSortKey = "role" | "name" | "joined-newest" | "joined-oldest" | "seen";
 
-/** Deterministic sort (pubkey as the final tiebreak); returns a new array. */
-export function sortMemberRows(rows: readonly MemberDirectoryRow[], key: MemberSortKey): MemberDirectoryRow[] {
+/**
+ * Deterministic sort (pubkey as the final tiebreak); returns a new array. `byName`
+ * orders pubkeys for "name" (the profile cache lives in the view).
+ */
+export function sortMemberRows(
+  rows: readonly MemberDirectoryRow[],
+  key: MemberSortKey,
+  byName?: (a: string, b: string) => number,
+): MemberDirectoryRow[] {
   const byPubkey = (a: MemberDirectoryRow, b: MemberDirectoryRow) => (a.pubkey < b.pubkey ? -1 : 1);
   const sorted = [...rows];
   switch (key) {
@@ -106,6 +113,9 @@ export function sortMemberRows(rows: readonly MemberDirectoryRow[], key: MemberS
         if (ja !== jb) return ja - jb;
         return byPubkey(a, b);
       });
+      break;
+    case "name":
+      sorted.sort((a, b) => (byName ? byName(a.pubkey, b.pubkey) : byPubkey(a, b)));
       break;
     case "seen":
       sorted.sort((a, b) => {

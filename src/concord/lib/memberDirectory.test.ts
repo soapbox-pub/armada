@@ -186,3 +186,12 @@ describe("suspicious members", () => {
     );
   });
 });
+
+describe("sortMemberRows by name", () => {
+  it("orders by the injected name comparator", () => {
+    const rows = ["c", "a", "b"].map((c) => ({ pubkey: c.repeat(64) }) as unknown as MemberDirectoryRow);
+    const names: Record<string, string> = { ["a".repeat(64)]: "Zoe", ["b".repeat(64)]: "amy", ["c".repeat(64)]: "Ben" };
+    const sorted = sortMemberRows(rows, "name", (x, y) => names[x].localeCompare(names[y], "en", { sensitivity: "base" }));
+    expect(sorted.map((r) => names[r.pubkey])).toEqual(["amy", "Ben", "Zoe"]);
+  });
+});

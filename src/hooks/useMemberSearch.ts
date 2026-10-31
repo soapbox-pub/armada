@@ -94,3 +94,60 @@ export function useMemberSearch(pubkeys: string[], query: string): Set<string> |
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, normalized, rosterKey, relayUrl, queryClient, version]);
 }
+
+/** The name a roster sorts by: server nickname, else the profile's own; never "Anonymous". */
+function sortName(queryClient: QueryClient, relayUrl: string | undefined, pubkey: string): string | undefined {
+  const scoped = relayUrl
+    ? queryClient.getQueryData<ServerProfile | null>(["server-profile", relayUrl, pubkey])
+    : undefined;
+  const metadata = queryClient.getQueryData<AuthorEntry>(["author", pubkey])?.metadata;
+  const name = scoped?.nickname || metadata?.display_name || metadata?.name;
+  return typeof name === "string" && name.trim() ? name.trim() : undefined;
+}
+
+/**
+ * A roster comparator: by name (locale-aware), nameless members last, then pubkey.
+ * Reads only cached profiles (fetching the roster's would spend the room's REQ
+ * budget), and changes only when a name it sorted by does.
+ */
+export function useMemberNameOrder(locale: string): (a: string, b: string) => number {
+  const queryClient = useQueryClient();
+  const relayUrl = useServerScope();
+  // The names the comparator has read; the subscription re-reads only these.
+  // Fresh per cache and scope, since a nickname is read under the scope's relay.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const names = useMemo(() => new Map<string, string | undefined>(), [queryClient, relayUrl]);
+  const version = useRef(0);
+  const subscribe = useCallback(
+    (onChange: () => void) =>
+      queryClient.getQueryCache().subscribe((event) => {
+        if (event.type !== "updated") return;
+        const key = event.query.queryKey;
+        const pubkey = key[0] === "author" ? key[1] : key[0] === "server-profile" && key[1] === relayUrl ? key[2] : undefined;
+        if (typeof pubkey !== "string" || !names.has(pubkey)) return;
+        const name = sortName(queryClient, relayUrl, pubkey);
+        if (name === names.get(pubkey)) return;
+        names.set(pubkey, name);
+        version.current += 1;
+        onChange();
+      }),
+    [queryClient, relayUrl, names],
+  );
+  const revision = useSyncExternalStore(subscribe, () => version.current);
+  return useMemo(() => {
+    const collator = new Intl.Collator(locale, { sensitivity: "base", numeric: true });
+    const nameOf = (pubkey: string) => {
+      if (!names.has(pubkey)) names.set(pubkey, sortName(queryClient, relayUrl, pubkey));
+      return names.get(pubkey);
+    };
+    return (a, b) => {
+      const na = nameOf(a);
+      const nb = nameOf(b);
+      if (na && nb) return collator.compare(na, nb) || a.localeCompare(b);
+      if (na || nb) return na ? -1 : 1;
+      return a.localeCompare(b);
+    };
+    // `revision` is the name-change tripwire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale, relayUrl, queryClient, names, revision]);
+}
