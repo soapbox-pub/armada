@@ -457,7 +457,7 @@ export function ThreadMessage({
         // A comment row has its own padding, so the strip sits inside its top edge.
         <div className={cn(
           "absolute right-2.5 z-20 flex flex-wrap justify-end items-center max-w-[calc(100%-1.25rem)] gap-0.5 vessel [--vessel-cut:0.45rem] px-1 py-0.5 select-none opacity-0 group-hover/threadmsg:opacity-100 focus-within:opacity-100 transition-opacity",
-          isComment ? "top-1" : continuation ? "-top-3" : "-top-2.5",
+          isComment ? "top-1" : continuation ? "-top-1" : "top-0",
         )}>
           {toolbar}
         </div>
