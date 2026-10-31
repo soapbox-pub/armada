@@ -5,6 +5,7 @@ import { createRef } from "react";
 import type { ChannelTimelineEntry } from "@/components/chat/channelTimeline";
 import { MessageTimeline, type MessageTimelineHandle } from "@/components/chat/MessageTimeline";
 import type { ChatMsg, ChatTransport } from "@/components/chat/transport";
+import { FLASH_WASH } from "@/components/chat/rowFlash";
 
 // The shared setup stubs ResizeObserver as a plain function; the timeline
 // constructs one to watch the scroller, so it needs a real constructor.
@@ -132,7 +133,7 @@ describe("MessageTimeline with generalized entries", () => {
     // calls `scrollIntoView`, which scrolled every ancestor (see rowFlash.ts).
     const row = await screen.findByText("chat:m5");
     await waitFor(() =>
-      expect(row.closest("[data-event-id]")?.classList.contains("bg-primary/10")).toBe(true),
+      expect(row.closest("[data-event-id]")?.classList.contains(FLASH_WASH)).toBe(true),
     );
   });
 });

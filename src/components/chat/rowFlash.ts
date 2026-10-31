@@ -3,8 +3,14 @@
  * panel so both permalink shapes look identical.
  */
 
-/** The permalink indicator: an inset shadow, so nothing shifts when it lands. */
+/** The jump indicator: an inset shadow, so nothing shifts when it lands. */
 const INDICATOR = "shadow-[inset_3px_0_0_0_hsl(var(--primary))]";
+
+/**
+ * The wash. Stronger than, and `!` over, the `bg-primary/10` a row that mentions
+ * the viewer already carries, so a jump to such a row is still visible.
+ */
+export const FLASH_WASH = "!bg-primary/25";
 
 /**
  * The row's own vertical scroller. Avoids `scrollIntoView`, which scrolls EVERY
@@ -34,8 +40,8 @@ function centerInScroller(row: HTMLElement): void {
 }
 
 /**
- * Center and flash `row`. `focus` (a permalink target) adds a primary bar that
- * outlasts the wash.
+ * Center and flash `row` with a wash and a primary bar. `focus` (a permalink
+ * target) holds both longer.
  */
 export function flashRow(row: HTMLElement, focus = false): void {
   // Unpainted rows above sit at their `contain-intrinsic-size` estimate and media
@@ -45,10 +51,9 @@ export function flashRow(row: HTMLElement, focus = false): void {
     centerInScroller(row);
     requestAnimationFrame(() => centerInScroller(row));
   });
-  row.classList.add("bg-primary/10", "transition-colors", "duration-1000", "rounded-md");
-  if (focus) row.classList.add(INDICATOR);
-  const washMs = focus ? 2200 : 1200;
-  setTimeout(() => row.classList.remove("bg-primary/10"), washMs);
+  row.classList.add(FLASH_WASH, INDICATOR, "transition-colors", "duration-1000", "rounded-md");
+  const washMs = focus ? 3000 : 2000;
+  setTimeout(() => row.classList.remove(FLASH_WASH), washMs);
   setTimeout(() => {
     row.classList.remove("transition-colors", "duration-1000", "rounded-md", INDICATOR);
   }, washMs + 1000);

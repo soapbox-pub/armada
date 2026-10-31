@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { flashRow } from "./rowFlash";
+import { FLASH_WASH, flashRow } from "./rowFlash";
 
 /**
  * The geometry that produced the frozen-touch bug, in miniature.
@@ -148,16 +148,13 @@ describe("flashRow", () => {
     expect(plain.scrollTop).toBe(0);
   });
 
-  it("still applies the permalink indicator only when focused", () => {
+  it("marks a reply jump as plainly as a permalink, over a mention's own tint", () => {
     const { row } = build();
     const indicator = "shadow-[inset_3px_0_0_0_hsl(var(--primary))]";
 
     flashRow(row);
-    expect(row.classList.contains(indicator)).toBe(false);
-    expect(row.classList.contains("bg-primary/10")).toBe(true);
-
-    const second = build();
-    flashRow(second.row, true);
-    expect(second.row.classList.contains(indicator)).toBe(true);
+    expect(row.classList.contains(indicator)).toBe(true);
+    expect(row.classList.contains(FLASH_WASH)).toBe(true);
+    expect(FLASH_WASH).not.toBe("bg-primary/10");
   });
 });
