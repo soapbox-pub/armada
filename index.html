@@ -73,6 +73,8 @@
          because the policy above permits no inline script. -->
     <script src="/standalone.js"></script>
     <script src="/theme.js"></script>
+    <!-- Without JavaScript the splash would cover the page forever. -->
+    <noscript><style>#root { display: none !important; } body { background: #100b15 !important; }</style></noscript>
   </head>
   <body>
     <!-- Static boot splash: the same animated Armada crest as BootSplash.tsx,
@@ -114,6 +116,15 @@
         </svg>
       </div>
     </div>
+    <noscript>
+      <div style="max-width:32rem;margin:6rem auto;padding:0 1.5rem;text-align:center;font:16px/1.5 system-ui,sans-serif;color:#ece8f2;">
+        <p>Armada needs JavaScript to run in a browser.</p>
+        <p style="margin-top:1.5rem;">
+          <a href="https://pkg.soapbox.pub/deb/soapbox.pub/buzz.armada.app" style="display:inline-block;padding:.75rem 1.25rem;border-radius:.5rem;background:#f472b6;color:#100b15;font-weight:600;text-decoration:none;">Download Armada</a>
+        </p>
+        <p style="margin-top:1rem;font-size:14px;opacity:.7;">Debian/Ubuntu, Flatpak and F-Droid packages, always the newest release.</p>
+      </div>
+    </noscript>
     <!-- Reveals the mark above unless this launch is headed for /welcome (see
          the file for why). Must stay HERE, after the splash markup it reads.
          External because the policy above permits no inline script. -->
