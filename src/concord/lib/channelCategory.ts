@@ -104,3 +104,18 @@ export function groupChannelsByCategory<T extends { name: string }>(
 
   return { uncategorized, categories };
 }
+
+/** Muted channels it takes to fold them into the sidebar's "Muted" group. */
+const MUTED_GROUP_MIN = 3;
+
+/**
+ * The channels the sidebar folds into its "Muted" group: none below
+ * {@link MUTED_GROUP_MIN}, and none when every channel is muted (a muted
+ * community), since then there is nothing to set them apart from.
+ */
+export function mutedGroupIds(channels: readonly { idHex: string }[], isMuted: (idHex: string) => boolean): Set<string> {
+  const muted = channels.filter((c) => isMuted(c.idHex));
+  return muted.length >= MUTED_GROUP_MIN && muted.length < channels.length
+    ? new Set(muted.map((c) => c.idHex))
+    : new Set();
+}

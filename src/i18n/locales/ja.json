@@ -1042,6 +1042,7 @@
   "concordPage.menu.unmuteChannel": "チャンネルのミュートを解除",
   "concordPage.menu.viewAsChat": "チャットとして表示",
   "concordPage.menu.viewAsPosts": "投稿として表示",
+  "concordPage.mutedChannels": "ミュート中 · {count}",
   "concordPage.newCategory": "新しいカテゴリー",
   "concordPage.newThreadReplies": "スレッドの新しい返信",
   "concordPage.notReady": "準備ができていません。",

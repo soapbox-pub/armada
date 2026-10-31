@@ -1042,6 +1042,7 @@
   "concordPage.menu.unmuteChannel": "Réactiver les notifications du salon",
   "concordPage.menu.viewAsChat": "Afficher en discussion",
   "concordPage.menu.viewAsPosts": "Afficher en publications",
+  "concordPage.mutedChannels": "En sourdine · {count}",
   "concordPage.newCategory": "Nouvelle catégorie",
   "concordPage.newThreadReplies": "Nouvelles réponses dans les fils",
   "concordPage.notReady": "Pas prêt.",

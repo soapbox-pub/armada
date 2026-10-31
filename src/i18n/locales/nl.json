@@ -1042,6 +1042,7 @@
   "concordPage.menu.unmuteChannel": "Kanaal niet meer dempen",
   "concordPage.menu.viewAsChat": "Als chat bekijken",
   "concordPage.menu.viewAsPosts": "Als berichten bekijken",
+  "concordPage.mutedChannels": "Gedempt · {count}",
   "concordPage.newCategory": "Nieuwe categorie",
   "concordPage.newThreadReplies": "Nieuwe reacties in threads",
   "concordPage.notReady": "Niet klaar.",

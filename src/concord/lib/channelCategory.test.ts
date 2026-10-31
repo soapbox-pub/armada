@@ -5,6 +5,7 @@ import {
   categoryNames,
   channelCategory,
   groupChannelsByCategory,
+  mutedGroupIds,
   withChannelCategory,
 } from "@/concord/lib/channelCategory";
 import { ARMADA_GIT_CHANNEL_METADATA_KEY, NAME_MAX_BYTES } from "@/concord/lib/types";
@@ -173,5 +174,18 @@ describe("visibility follows the channels", () => {
     const { uncategorized, categories } = groupChannelsByCategory([] as TestChannel[], categoryOf);
     expect(uncategorized).toEqual([]);
     expect(categories).toEqual([]);
+  });
+});
+
+describe("mutedGroupIds", () => {
+  const channels = ["a", "b", "c", "d", "e"].map((idHex) => ({ idHex }));
+
+  it("folds three or more muted channels", () => {
+    expect([...mutedGroupIds(channels, (id) => "abc".includes(id))]).toEqual(["a", "b", "c"]);
+  });
+
+  it("leaves fewer alone, and a fully muted community alone", () => {
+    expect(mutedGroupIds(channels, (id) => "ab".includes(id)).size).toBe(0);
+    expect(mutedGroupIds(channels, () => true).size).toBe(0);
   });
 });

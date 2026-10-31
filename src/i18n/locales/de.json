@@ -1042,6 +1042,7 @@
   "concordPage.menu.unmuteChannel": "Stummschaltung des Kanals aufheben",
   "concordPage.menu.viewAsChat": "Als Chat anzeigen",
   "concordPage.menu.viewAsPosts": "Als Beiträge anzeigen",
+  "concordPage.mutedChannels": "Stummgeschaltet · {count}",
   "concordPage.newCategory": "Neue Kategorie",
   "concordPage.newThreadReplies": "Neue Antworten in Threads",
   "concordPage.notReady": "Nicht bereit.",

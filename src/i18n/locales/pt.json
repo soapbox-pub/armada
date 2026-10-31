@@ -1042,6 +1042,7 @@
   "concordPage.menu.unmuteChannel": "Reativar som do canal",
   "concordPage.menu.viewAsChat": "Ver como chat",
   "concordPage.menu.viewAsPosts": "Ver como publicações",
+  "concordPage.mutedChannels": "Silenciados · {count}",
   "concordPage.newCategory": "Nova categoria",
   "concordPage.newThreadReplies": "Novas respostas em threads",
   "concordPage.notReady": "Não está pronto.",

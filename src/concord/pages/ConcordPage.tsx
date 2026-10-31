@@ -17,7 +17,7 @@ import type { RolePickerOption } from "@/components/chat/RolePickerItems";
 import { ProfileRelayHints } from "@/components/ProfileRelayHints";
 import { ChannelCategoryHeading } from "@/concord/components/ChannelCategoryHeading";
 import { CategoryNameDialog } from "@/concord/components/CategoryNameDialog";
-import { categoryKey, categoryNames, groupChannelsByCategory } from "@/concord/lib/channelCategory";
+import { categoryKey, categoryNames, groupChannelsByCategory, mutedGroupIds } from "@/concord/lib/channelCategory";
 import {
   applyArrangement,
   arrangementChanges,
@@ -255,6 +255,9 @@ const PANE_HEADERS: Record<
     },
   },
 };
+
+/** Stored in `collapsedChannelCategories` while the "Muted" group is OPEN (it starts folded). */
+const MUTED_GROUP_OPEN = "\u0000muted-open";
 
 /** The community's decrypted icon for the channel-list title; nothing if none. */
 function TitleIcon({ icon }: { icon: ImagePointer | undefined }) {
@@ -1051,7 +1054,7 @@ function ConcordCommunityPage() {
   const covered = usePageCovered();
   const composerBoundsRef = useRef<HTMLElement | null>(null);
   const { config, updateConfig } = useAppContext();
-  const { mutedChannels, isCommunityMuted, toggleCommunityMute, toggleConcordChannelMute } = useMutes();
+  const { mutedChannels, isCommunityMuted, isConcordChannelMuted, toggleCommunityMute, toggleConcordChannelMute } = useMutes();
   const lastChannelKey = communityId ? `c2:${communityId}` : "";
 
   // Navigating in makes this community "live" for the session (see wire/activation).
@@ -1122,6 +1125,14 @@ function ConcordCommunityPage() {
     () => new Map(renderedChannels.map((c, index) => [c.idHex, index])),
     [renderedChannels],
   );
+
+  // Three or more muted channels fold into a trailing "Muted" group, a local view
+  // only: the arrangement (and so every drop index) stays the real one.
+  const mutedChannelIds = useMemo(() => {
+    const idHex = community?.idHex;
+    if (!idHex) return new Set<string>();
+    return mutedGroupIds(arrangedChannels, (channelIdHex) => isConcordChannelMuted("c2", idHex, channelIdHex));
+  }, [arrangedChannels, community?.idHex, isConcordChannelMuted]);
 
   const collapsedCategories = useMemo(
     () => new Set(config.collapsedChannelCategories[community?.idHex ?? ""] ?? []),
@@ -2835,7 +2846,7 @@ function ConcordCommunityPage() {
     });
   };
 
-  const renderChannelRow = (c: Channel) => {
+  const renderChannelRow = (c: Channel, draggable = true) => {
     if (!community) return null;
     const index = renderedIndexOf.get(c.idHex) ?? 0;
     const inCall = Boolean(activeCall?.concord && activeCall.concord.channel.idHex === c.idHex);
@@ -2844,10 +2855,10 @@ function ConcordCommunityPage() {
     return (
       <div
         key={c.idHex}
-        data-ch-slot
-        data-ch-index={index}
-        data-ch-category={c.category ?? ""}
-        onPointerDown={channelDrag.onPointerDown(c.idHex)}
+        data-ch-slot={draggable || undefined}
+        data-ch-index={draggable ? index : undefined}
+        data-ch-category={draggable ? (c.category ?? "") : undefined}
+        onPointerDown={draggable ? channelDrag.onPointerDown(c.idHex) : undefined}
         // `touch-none` while draggable, or Chrome claims the drag as a pan
         // (pointercancel). On touch only an armed row drags; the rest scroll natively.
         className={cn("relative", canManageChannels && (!isTouchDevice || armed) && "touch-none")}
@@ -2867,7 +2878,7 @@ function ConcordCommunityPage() {
         categories={categoryPicklist}
         onSetCategory={canManageChannels ? handleSetCategory : undefined}
         onNewCategory={handleNewCategory}
-        onMove={canManageChannels && isTouchDevice ? channelDrag.arm : undefined}
+        onMove={draggable && canManageChannels && isTouchDevice ? channelDrag.arm : undefined}
       />
       </span>
       {dragged && (
@@ -3149,16 +3160,18 @@ function ConcordCommunityPage() {
         ) : null
       ) : (
         <>
-          {uncategorizedChannels.map(renderChannelRow)}
+          {uncategorizedChannels.filter((c) => !mutedChannelIds.has(c.idHex)).map((c) => renderChannelRow(c))}
           {channelCategories.map((group) => {
+            const unmuted = group.channels.filter((c) => !mutedChannelIds.has(c.idHex));
+            if (unmuted.length === 0) return null;
             const collapsed = collapsedCategories.has(group.key);
             // A collapsed category still shows the active channel and anything unread.
             const shown = collapsed
-              ? group.channels.filter(
+              ? unmuted.filter(
                   (c) =>
                     (view === "channel" && channel?.idHex === c.idHex) || unreadByChannel[c.idHex],
                 )
-              : group.channels;
+              : unmuted;
             return (
               // `space-y-0.5` mirrors the sidebar's row spacing for nested rows.
               <div key={group.key} className="space-y-0.5">
@@ -3181,10 +3194,31 @@ function ConcordCommunityPage() {
                     canManageChannels ? () => void refileCategory(group.channels, undefined) : undefined
                   }
                 />
-                {shown.map(renderChannelRow)}
+                {shown.map((c) => renderChannelRow(c))}
               </div>
             );
           })}
+          {mutedChannelIds.size > 0 && (() => {
+            const muted = renderedChannels.filter((c) => mutedChannelIds.has(c.idHex));
+            const collapsed = !collapsedCategories.has(MUTED_GROUP_OPEN);
+            // Collapsed still shows the active channel (a muted one never counts as unread).
+            const shown = collapsed
+              ? muted.filter((c) => view === "channel" && channel?.idHex === c.idHex)
+              : muted;
+            return (
+              <div className="space-y-0.5">
+                <ChannelCategoryHeading
+                  name={intl.formatMessage(
+                    { id: "concordPage.mutedChannels", defaultMessage: "Muted · {count}" },
+                    { count: muted.length },
+                  )}
+                  collapsed={collapsed}
+                  onToggle={() => toggleCategory(MUTED_GROUP_OPEN)}
+                />
+                {shown.map((c) => renderChannelRow(c, false))}
+              </div>
+            );
+          })()}
           {/* Trailing drop zone (drag only): names a new category for the channel. */}
           {channelDrag.dragging && (
             <div
