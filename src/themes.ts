@@ -37,7 +37,7 @@ export interface ThemeFont {
 export interface ThemeConfig {
   title?: string;
   colors: CoreThemeColors;
-  /** Body font, app-wide. Only catalog families load (see `appThemeFont`). */
+  /** Body font, app-wide. Catalog families, or the user's own uploaded one (see `appThemeFont`). */
   font?: ThemeFont;
   /** Heading font; falls back to `font`. */
   titleFont?: ThemeFont;

@@ -10,6 +10,7 @@ import {
 } from "@/lib/activeAccount";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { appThemeFont } from "@/lib/fontLoader";
+import { parseProxyList } from "@/lib/mediaPolicy";
 import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { setPowDifficulty } from "@/lib/pow";
 import { useThemePreview } from "@/lib/themePreview";
@@ -21,6 +22,7 @@ import {
   resolveTheme,
   resolveThemeColors,
   type CoreThemeColors,
+  type ThemeFont,
 } from "@/themes";
 
 /** Validate each key individually so one corrupt field doesn't reset everything. */
@@ -194,23 +196,27 @@ function ThemeBackgroundSync({ config }: { config: AppConfig }) {
  */
 function ThemeFontSync({ config }: { config: AppConfig }) {
   const custom = resolveTheme(config.theme) === "custom" ? config.customTheme : undefined;
-  const family = custom?.font?.family;
-  const nameFamily = custom?.titleFont?.family;
+  // An adopted theme's uploaded font is someone else's URL; see appThemeFont.
+  const own = !custom?.source;
+  // The provider's own config, since this renders where useMediaPolicy can't read it yet.
+  const proxy = parseProxyList((config.mediaProxies ?? []).join("\n"))[0] ?? "";
 
-  useThemeFontProperty("--theme-font", family);
-  useThemeFontProperty("--theme-name-font", nameFamily);
+  useThemeFontProperty("--theme-font", custom?.font, own, proxy);
+  useThemeFontProperty("--theme-name-font", custom?.titleFont, own, proxy);
 
   return null;
 }
 
-function useThemeFontProperty(property: string, family: string | undefined) {
+function useThemeFontProperty(property: string, font: ThemeFont | undefined, ownFont: boolean, proxy: string) {
+  const family = font?.family;
+  const url = font?.url;
   useLayoutEffect(() => {
-    const value = appThemeFont(family ? { family } : undefined);
+    const value = appThemeFont(family ? { family, url } : undefined, { ownFont, policy: { proxy } });
     if (!value) return;
     const root = document.documentElement;
     root.style.setProperty(property, value);
     return () => {
       root.style.removeProperty(property);
     };
-  }, [property, family]);
+  }, [property, family, url, ownFont, proxy]);
 }

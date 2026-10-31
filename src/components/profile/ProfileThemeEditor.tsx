@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { ChromeDialogContent, Dialog } from "@/components/ui/dialog";
 import { usePublishProfileTheme } from "@/hooks/usePublishProfileTheme";
 import { FormattedMessage, t, useIntl } from "@/i18n";
+import { claimedThemeFont } from "@/lib/fontLoader";
 import { toast } from "@/hooks/useToast";
 
-import { builderStarterColors, type CoreThemeColors } from "@/themes";
+import { builderStarterColors, type CoreThemeColors, type ThemeFont } from "@/themes";
 import type { DittoTheme, ThemeBackground } from "@/lib/themeEvent";
 
 /** Edit and publish the profile theme (kind 16767, Ditto-compatible). Save and Remove are the only publishes. */
@@ -40,21 +41,21 @@ function ThemeEditorForm({ current, onDone }: { current?: DittoTheme; onDone: ()
 
   const [colors, setColors] = useState<CoreThemeColors>(current?.colors ?? builderStarterColors);
   const [title, setTitle] = useState(current?.title === "Untitled theme" ? "" : current?.title ?? "");
-  const [fontFamily, setFontFamily] = useState(current?.font?.family ?? "");
-  const [titleFontFamily, setTitleFontFamily] = useState(current?.titleFont?.family ?? "");
+  const [font, setFont] = useState<ThemeFont | undefined>(current?.font);
+  const [titleFont, setTitleFont] = useState<ThemeFont | undefined>(current?.titleFont);
   const [background, setBackground] = useState<ThemeBackground | undefined>(current?.background);
 
   const unchanged = !!current
-    && JSON.stringify([colors, background, fontFamily, titleFontFamily])
-      === JSON.stringify([current.colors, current.background, current.font?.family ?? "", current.titleFont?.family ?? ""]);
+    && JSON.stringify([colors, background, font, titleFont])
+      === JSON.stringify([current.colors, current.background, current.font, current.titleFont]);
 
   const doSave = async () => {
     try {
       await save({
         colors,
         title: title.trim() || undefined,
-        font: fontFamily ? { family: fontFamily } : undefined,
-        titleFont: titleFontFamily ? { family: titleFontFamily } : undefined,
+        font: unchanged ? font : claimedThemeFont(font, current),
+        titleFont: unchanged ? titleFont : claimedThemeFont(titleFont, current),
         background,
         description: current?.description,
         // The creator stays credited only while the theme is still their work.
@@ -104,10 +105,10 @@ function ThemeEditorForm({ current, onDone }: { current?: DittoTheme; onDone: ()
       />
 
       <ThemeFontFields
-        font={fontFamily}
-        onFontChange={setFontFamily}
-        titleFont={titleFontFamily}
-        onTitleFontChange={setTitleFontFamily}
+        font={font}
+        onFontChange={setFont}
+        titleFont={titleFont}
+        onTitleFontChange={setTitleFont}
       />
 
       <ThemeBackgroundField value={background} onChange={setBackground} onUploadingChange={setUploading} />

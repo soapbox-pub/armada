@@ -24,8 +24,9 @@ import { useTheme } from "@/hooks/useTheme";
 import { useThemeLibrary } from "@/hooks/useThemeLibrary";
 import { toast } from "@/hooks/useToast";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
+import { claimedThemeFont } from "@/lib/fontLoader";
 
-import { builderStarterColors, type CoreThemeColors, type ThemeBackground, type ThemeConfig } from "@/themes";
+import { builderStarterColors, type CoreThemeColors, type ThemeBackground, type ThemeConfig, type ThemeFont } from "@/themes";
 import type { UserTheme } from "@/hooks/useUserThemes";
 
 /**
@@ -64,8 +65,8 @@ function ThemeCreatorForm({ editing, initial, onDone }: { editing?: UserTheme; i
   const seed = editing ?? initial;
   const [colors, setColors] = useState<CoreThemeColors>(seed?.colors ?? builderStarterColors);
   const [name, setName] = useState(seed?.title ?? "");
-  const [fontFamily, setFontFamily] = useState(seed?.font?.family ?? "");
-  const [titleFontFamily, setTitleFontFamily] = useState(seed?.titleFont?.family ?? "");
+  const [font, setFont] = useState<ThemeFont | undefined>(seed?.font);
+  const [titleFont, setTitleFont] = useState<ThemeFont | undefined>(seed?.titleFont);
   const [background, setBackground] = useState<ThemeBackground | undefined>(seed?.background);
   const [uploading, setUploading] = useState(false);
   const [applyToMine, setApplyToMine] = useState(!editing);
@@ -88,10 +89,10 @@ function ThemeCreatorForm({ editing, initial, onDone }: { editing?: UserTheme; i
     if (!canPublish) return;
     const title = name.trim();
     // A credited copy stays credited only while it is still the creator's work.
-    const font = fontFamily ? { family: fontFamily } : undefined;
-    const titleFont = titleFontFamily ? { family: titleFontFamily } : undefined;
-    const unchanged = !!seed && JSON.stringify([colors, background, fontFamily, titleFontFamily])
-      === JSON.stringify([seed.colors, seed.background, seed.font?.family ?? "", seed.titleFont?.family ?? ""]);
+    const unchanged = !!seed && JSON.stringify([colors, background, font, titleFont])
+      === JSON.stringify([seed.colors, seed.background, seed.font, seed.titleFont]);
+    const ownFont = unchanged ? font : claimedThemeFont(font, seed);
+    const ownTitleFont = unchanged ? titleFont : claimedThemeFont(titleFont, seed);
 
     let result: Awaited<ReturnType<typeof publishTheme>>;
     try {
@@ -99,8 +100,8 @@ function ThemeCreatorForm({ editing, initial, onDone }: { editing?: UserTheme; i
         title,
         colors,
         background,
-        font,
-        titleFont,
+        font: ownFont,
+        titleFont: ownTitleFont,
         description: editing?.description,
         source: unchanged ? seed?.source : undefined,
         editing,
@@ -120,8 +121,8 @@ function ThemeCreatorForm({ editing, initial, onDone }: { editing?: UserTheme; i
       applyCustomTheme({
         title,
         colors,
-        ...(font && { font }),
-        ...(titleFont && { titleFont }),
+        ...(ownFont && { font: ownFont }),
+        ...(ownTitleFont && { titleFont: ownTitleFont }),
         ...(background && { background }),
         ...(unchanged && seed?.source && { source: seed.source }),
       });
@@ -190,10 +191,10 @@ function ThemeCreatorForm({ editing, initial, onDone }: { editing?: UserTheme; i
       />
 
       <ThemeFontFields
-        font={fontFamily}
-        onFontChange={setFontFamily}
-        titleFont={titleFontFamily}
-        onTitleFontChange={setTitleFontFamily}
+        font={font}
+        onFontChange={setFont}
+        titleFont={titleFont}
+        onTitleFontChange={setTitleFont}
       />
 
       <ThemeBackgroundField value={background} onChange={setBackground} onUploadingChange={setUploading} />

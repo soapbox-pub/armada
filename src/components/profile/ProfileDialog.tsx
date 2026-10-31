@@ -55,7 +55,7 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useFollowList } from "@/hooks/useFollowList";
 import { useFollowerCount, useFollowingOf, useSharedFollowers } from "@/hooks/useFollowStats";
 import { useFollowToggle } from "@/hooks/useFollowToggle";
-import { useMediaSrc } from "@/hooks/useMediaPolicy";
+import { useMediaPolicy, useMediaSrc } from "@/hooks/useMediaPolicy";
 import { useUserModeration } from "@/hooks/useUserModeration";
 import { UserModerationMenuSection } from "@/components/chat/ModerationMenuSection";
 import { useNsite } from "@/hooks/useNsite";
@@ -260,12 +260,13 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
   const picture = sanitizeImageSrc(metadata?.picture);
   const viewedSrc = viewing === "picture" ? picture : viewing === "banner" ? banner : undefined;
 
+  const mediaPolicy = useMediaPolicy();
   const pageStyle = useMemo(() => {
     if (!theme) return undefined;
     const style: Record<string, string> = buildThemeVarStyle(theme.colors);
-    const bodyFont = loadThemeFont(theme.font);
+    const bodyFont = loadThemeFont(theme.font, mediaPolicy);
     // Title font falls back to the body font (matching Ditto).
-    const titleFont = loadThemeFont(theme.titleFont) ?? bodyFont;
+    const titleFont = loadThemeFont(theme.titleFont, mediaPolicy) ?? bodyFont;
     if (bodyFont) {
       style.fontFamily = bodyFont;
       // Overrides the app theme's font for `font-sans` descendants too.
@@ -273,7 +274,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
     }
     if (titleFont) style["--title-font-family"] = titleFont;
     return style as CSSProperties;
-  }, [theme]);
+  }, [theme, mediaPolicy]);
 
   const background = theme?.background;
   // Theme background loads under the media policy.

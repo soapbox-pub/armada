@@ -28,7 +28,7 @@ vi.mock("@/hooks/useUserThemes", () => ({
 vi.mock("@/hooks/useCurrentUser", () => ({
   useCurrentUser: () => ({ user: h.user }),
 }));
-vi.mock("@/hooks/useMediaPolicy", () => ({ useMediaSrc: () => undefined }));
+vi.mock("@/hooks/useMediaPolicy", () => ({ useMediaSrc: () => undefined, useMediaPolicy: () => ({ proxy: "" }) }));
 vi.mock("@/hooks/useAuthor", () => ({
   useAuthor: (pubkey?: string) => ({ data: pubkey ? { metadata: { name: "Ana" } } : undefined }),
 }));
@@ -139,6 +139,20 @@ describe("ThemeSelector", () => {
     fireEvent.click(screen.getByRole("button", { name: "Change background" }));
     fireEvent.click(screen.getByRole("button", { name: "Apply theme" }));
     expect(h.applyCustomTheme.mock.lastCall![0].source).toBeUndefined();
+  });
+
+  it("doesn't claim the creator's uploaded font once the credit is dropped", () => {
+    const font = { family: "Their Font", url: "https://blossom.example/" + "f".repeat(64) + ".woff2" };
+    h.user = undefined;
+    h.customTheme = { ...ADOPTED, font, titleFont: font };
+    render(<ThemeSelector />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Dusk" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change background" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply theme" }));
+    const applied = h.applyCustomTheme.mock.lastCall![0] as ThemeConfig;
+    expect(applied.source).toBeUndefined();
+    expect(applied.font).toBeUndefined();
+    expect(applied.titleFont).toBeUndefined();
   });
 
   it("builds on this device when signed out", () => {

@@ -9,11 +9,11 @@ import { Button } from "@/components/ui/button";
 import { ChromeDialogContent, Dialog } from "@/components/ui/dialog";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { useMediaSrc } from "@/hooks/useMediaPolicy";
+import { useMediaPolicy, useMediaSrc } from "@/hooks/useMediaPolicy";
 import { useTheme } from "@/hooks/useTheme";
 import { useUserThemes, type UserTheme } from "@/hooks/useUserThemes";
 import { common, FormattedMessage, useIntl } from "@/i18n";
-import { loadThemeFont } from "@/lib/fontLoader";
+import { claimedThemeFont, loadThemeFont } from "@/lib/fontLoader";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { themeToConfig } from "@/lib/themeEvent";
 import { cn } from "@/lib/utils";
@@ -34,7 +34,7 @@ import type { Theme } from "@/contexts/AppContext";
 
 /** What makes two themes look the same: colors, background image and body font. */
 function lookKey(t: { colors: CoreThemeColors; background?: ThemeBackground; font?: ThemeFont }): string {
-  return JSON.stringify([t.colors, t.background?.url ?? "", t.font?.family ?? ""]);
+  return JSON.stringify([t.colors, t.background?.url ?? "", t.font?.family ?? "", t.font?.url ?? ""]);
 }
 
 /** Same creator's same theme. Adopting can rehost the background, so the look alone can't tell. */
@@ -77,6 +77,7 @@ function MiniPage({ tokens, font, className }: { tokens: ThemeTokens; font?: str
 function Swatch({ colors, background, font }: { colors: CoreThemeColors; background?: ThemeBackground; font?: ThemeFont }) {
   const tokens = useMemo(() => coreToTokens(colors), [colors]);
   const backgroundSrc = useMediaSrc(background?.url);
+  const mediaPolicy = useMediaPolicy();
   return (
     <div className="relative size-full" style={{ backgroundColor: `hsl(${tokens.background})` }}>
       {backgroundSrc && (
@@ -89,7 +90,7 @@ function Swatch({ colors, background, font }: { colors: CoreThemeColors; backgro
           loading="lazy"
         />
       )}
-      <MiniPage tokens={tokens} font={loadThemeFont(font)} />
+      <MiniPage tokens={tokens} font={loadThemeFont(font, mediaPolicy)} />
     </div>
   );
 }
@@ -342,8 +343,8 @@ function LocalThemeBuilderDialog({
   const intl = useIntl();
   const [colors, setColors] = useState<CoreThemeColors>(initial?.colors ?? builderStarterColors);
   const [title, setTitle] = useState(initial?.title ?? "");
-  const [fontFamily, setFontFamily] = useState(initial?.font?.family ?? "");
-  const [titleFontFamily, setTitleFontFamily] = useState(initial?.titleFont?.family ?? "");
+  const [font, setFont] = useState<ThemeFont | undefined>(initial?.font);
+  const [titleFont, setTitleFont] = useState<ThemeFont | undefined>(initial?.titleFont);
   const [background, setBackground] = useState<ThemeBackground | undefined>(initial?.background);
   const [uploading, setUploading] = useState(false);
 
@@ -375,10 +376,10 @@ function LocalThemeBuilderDialog({
           />
 
           <ThemeFontFields
-            font={fontFamily}
-            onFontChange={setFontFamily}
-            titleFont={titleFontFamily}
-            onTitleFontChange={setTitleFontFamily}
+            font={font}
+            onFontChange={setFont}
+            titleFont={titleFont}
+            onTitleFontChange={setTitleFont}
           />
 
           <ThemeBackgroundField value={background} onChange={setBackground} onUploadingChange={setUploading} />
@@ -392,13 +393,15 @@ function LocalThemeBuilderDialog({
               disabled={uploading}
               onClick={() => {
                 // The creator stays credited only while the theme is still their work.
-                const unchanged = !!initial && JSON.stringify([colors, background, fontFamily, titleFontFamily])
-                  === JSON.stringify([initial.colors, initial.background, initial.font?.family ?? "", initial.titleFont?.family ?? ""]);
+                const unchanged = !!initial && JSON.stringify([colors, background, font, titleFont])
+                  === JSON.stringify([initial.colors, initial.background, initial.font, initial.titleFont]);
+                const ownFont = unchanged ? font : claimedThemeFont(font, initial);
+                const ownTitleFont = unchanged ? titleFont : claimedThemeFont(titleFont, initial);
                 onApply({
                   title: title.trim() || "Custom",
                   colors,
-                  ...(fontFamily && { font: { family: fontFamily } }),
-                  ...(titleFontFamily && { titleFont: { family: titleFontFamily } }),
+                  ...(ownFont && { font: ownFont }),
+                  ...(ownTitleFont && { titleFont: ownTitleFont }),
                   ...(background && { background }),
                   ...(unchanged && initial?.source && { source: initial.source }),
                 });
