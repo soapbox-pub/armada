@@ -17,16 +17,29 @@
  * membership, so without the pubkey key another account could read it.
  */
 import { isUnsealedRow } from "@/concord/lib/outgoing";
-import { readFolded, writeFolded } from "@/lib/foldedCache";
+import { listFoldedKeys, readFolded, writeFolded } from "@/lib/foldedCache";
 import { perfMark } from "@/lib/perf";
+import { isRemovedMessageId } from "@/lib/removedMessages";
 
 import type { QueryClient } from "@tanstack/react-query";
 import type { OpenedChat } from "@/concord/lib/chat";
 
 const SNAP_WINDOW = 40;
 
+const SNAP_PREFIX = "c2-timeline-snap:";
+
 function snapKey(viewerPubkey: string, channelIdHex: string): string {
-  return `c2-timeline-snap:${viewerPubkey}:${channelIdHex}`;
+  return `${SNAP_PREFIX}${viewerPubkey}:${channelIdHex}`;
+}
+
+/** Rewrite every channel snapshot holding `rumorId` without it (removed from this device). */
+export async function scrubTimelineSnapshots(rumorId: string): Promise<void> {
+  const keys = await listFoldedKeys(SNAP_PREFIX).catch(() => []);
+  await Promise.all(keys.map(async (key) => {
+    const snap = await readFolded<OpenedChat[]>(key);
+    if (!snap?.some((m) => m.rumorId === rumorId)) return;
+    await writeFolded(key, snap.filter((m) => m.rumorId !== rumorId));
+  }));
 }
 
 const prewarmed = new Set<string>();
@@ -49,7 +62,7 @@ export async function prewarmTimelineSnapshot(
     perfMark("snap.prewarm", `${channelIdHex.slice(0, 8)} miss`);
     return;
   }
-  const own = snap.filter((m) => m.channelIdHex === channelIdHex && !isUnsealedRow(m));
+  const own = snap.filter((m) => m.channelIdHex === channelIdHex && !isUnsealedRow(m) && !isRemovedMessageId(m.rumorId));
   if (own.length === 0) return;
   // The real store read may have landed meanwhile; it wins.
   if ((queryClient.getQueryData<OpenedChat[]>(queryKey)?.length ?? 0) > 0) return;
@@ -64,7 +77,7 @@ export function persistTimelineSnapshot(
   channelIdHex: string,
   window: OpenedChat[],
 ): Promise<void> {
-  const sealed = window.filter((m) => !isUnsealedRow(m));
+  const sealed = window.filter((m) => !isUnsealedRow(m) && !isRemovedMessageId(m.rumorId));
   if (sealed.length === 0) return Promise.resolve();
   const key = snapKey(viewerPubkey, channelIdHex);
   const newest = sealed.sort((a, b) => b.ms - a.ms).slice(0, SNAP_WINDOW);

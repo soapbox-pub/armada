@@ -34,8 +34,8 @@ describe("evictMessageMedia", () => {
   });
 
   it("acts once per removed message", () => {
-    evictRemovedMessageMedia("m1", [], `see https://blossom.example/${A}.png`);
-    evictRemovedMessageMedia("m1", [], `see https://blossom.example/${A}.png`);
+    void evictRemovedMessageMedia("m1", [], `see https://blossom.example/${A}.png`);
+    void evictRemovedMessageMedia("m1", [], `see https://blossom.example/${A}.png`);
     expect(calls.evicted).toHaveLength(1);
   });
 });

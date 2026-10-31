@@ -5,13 +5,13 @@ import { evictAttachment } from "@/lib/encryptedMedia";
 const URL_FIELDS = new Set(["url", "thumb", "image", "fallback"]);
 const HASH_FIELDS = new Set(["x", "ox"]);
 
-interface MediaRefs {
+export interface MediaRefs {
   urls: Set<string>;
   hashes: Set<string>;
 }
 
 /** Every URL and blob hash a message's `imeta` and body name. */
-function mediaRefs(tags: readonly string[][], content: string, into: MediaRefs = { urls: new Set(), hashes: new Set() }): MediaRefs {
+export function mediaRefs(tags: readonly string[][], content: string, into: MediaRefs = { urls: new Set(), hashes: new Set() }): MediaRefs {
   for (const tag of tags) {
     if (tag[0] !== "imeta") continue;
     for (const part of tag.slice(1)) {
@@ -38,11 +38,9 @@ export interface KeptMessage {
 }
 
 /**
- * Forget every copy this device keeps of a removed message's media: the
- * decrypted object URLs and the cached blobs, under each URL it names and each
- * hash its `imeta` declares. Media a `kept` message also names stays, or a
- * forward still on screen would lose it. Relays and media servers still hold
- * their copies.
+ * Forget this device's copies of a removed message's media (decrypted object
+ * URLs and cached blobs, by URL and `imeta` hash), except what a `kept` message
+ * also names: a forward on screen still shows it.
  */
 export function evictMessageMedia(tags: readonly string[][], content = "", kept: Iterable<KeptMessage> = []): void {
   const refs = mediaRefs(tags, content);
@@ -55,16 +53,29 @@ export function evictMessageMedia(tags: readonly string[][], content = "", kept:
 /** Removed messages whose media was already evicted; rumor ids, so cleared on logout. */
 const evicted = new Set<string>();
 
-/** {@link evictMessageMedia} once per removed message id. */
-export function evictRemovedMessageMedia(
+/**
+ * {@link evictMessageMedia} once per removed message id. `alsoInUse` adds the
+ * store's other users of its media; if it fails nothing is evicted.
+ */
+export async function evictRemovedMessageMedia(
   id: string,
   tags: readonly string[][],
   content = "",
   kept: Iterable<KeptMessage> = [],
-): void {
+  alsoInUse?: () => Promise<Iterable<KeptMessage>>,
+): Promise<void> {
   if (evicted.has(id)) return;
   evicted.add(id);
-  evictMessageMedia(tags, content, kept);
+  const keep = [...kept];
+  if (alsoInUse) {
+    try {
+      keep.push(...await alsoInUse());
+    } catch {
+      evicted.delete(id);
+      return;
+    }
+  }
+  evictMessageMedia(tags, content, keep);
 }
 
 export function clearEvictedMediaMemory(): void {

@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Braces, ChevronDown, Copy, EyeOff, Flag, Link2, Link as LinkIcon, Loader2, Maximize2, MessagesSquare, Minimize2, Pencil, Reply, Trash2, X, Zap } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -60,6 +61,8 @@ import { sendsOnEnter } from "@/lib/sendOnEnter";
 import { fullDateTime, shortClockTime, shortTimeAgo } from "@/lib/formatTime";
 import { writeClipboardText } from "@/lib/clipboard";
 import { reportDestination, type ReportTarget } from "@/lib/report";
+import { getActivePubkey } from "@/lib/activeAccount";
+import { removeMessageFromDevice } from "@/lib/removeMessageFromDevice";
 import { chatUrl, type ChatRoute } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { common, FormattedMessage, useIntl } from "@/i18n";
@@ -186,6 +189,11 @@ export function ThreadMessage({
   // Blocking needs no destination; hiding is viewer-local.
   const personModeration = useUserModeration(event.pubkey, { report: false });
   const hiddenMessages = useHiddenMessages();
+  const queryClient = useQueryClient();
+  const removeLocal = useCallback(() => {
+    const viewer = getActivePubkey();
+    if (viewer) void removeMessageFromDevice(viewer, event, { queryClient });
+  }, [event, queryClient]);
   const reportTarget: ReportTarget =
     isRumor && reportTo?.kind === "network"
       ? { pubkey: event.pubkey }
@@ -524,6 +532,7 @@ export function ThreadMessage({
         onOpenChange={setReportOpen}
         destination={reportTo}
         target={reportTarget}
+        onRemoveLocal={removeLocal}
       />
     )}
     {jsonOpen && (

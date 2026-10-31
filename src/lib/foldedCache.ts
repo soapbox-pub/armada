@@ -116,6 +116,12 @@ function rememberEncoding(key: string, json: string): void {
   sharedDecoded.delete(oldest);
 }
 
+/** The keys (as callers spell them) of every fold starting with `prefix`. */
+export async function listFoldedKeys(prefix: string): Promise<string[]> {
+  const entries = await getArmadaDB().kv.list({ prefix: foldedKey(prefix) });
+  return entries.map(({ key }) => key.slice(KEY_PREFIX.length));
+}
+
 export async function readFolded<T>(key: string): Promise<T | undefined> {
   try {
     if (import.meta.env.VITE_PROFILE === "1") {

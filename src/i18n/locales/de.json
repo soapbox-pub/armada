@@ -3323,6 +3323,7 @@
   "report.reason.profanity": "Belästigung oder Hassrede",
   "report.reason.spam": "Spam oder Betrug",
   "reportDialog.alsoBlock": "{name} auch blockieren",
+  "reportDialog.alsoRemove": "Auch von diesem Gerät entfernen",
   "reportDialog.blockFailed.description": "Deine Blockierliste konnte nicht aktualisiert werden.",
   "reportDialog.blockFailed.title": "Gemeldet, aber nicht blockiert",
   "reportDialog.chooseReason": "Grund auswählen",

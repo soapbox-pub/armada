@@ -3323,6 +3323,7 @@
   "report.reason.profanity": "Assédio ou discurso de ódio",
   "report.reason.spam": "Spam ou golpe",
   "reportDialog.alsoBlock": "Bloquear {name} também",
+  "reportDialog.alsoRemove": "Remover também deste dispositivo",
   "reportDialog.blockFailed.description": "Falha ao atualizar sua lista de bloqueios.",
   "reportDialog.blockFailed.title": "Denunciado, mas não foi possível bloquear",
   "reportDialog.chooseReason": "Escolha um motivo",

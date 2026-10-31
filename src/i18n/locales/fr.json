@@ -3323,6 +3323,7 @@
   "report.reason.profanity": "Harcèlement ou discours haineux",
   "report.reason.spam": "Spam ou arnaque",
   "reportDialog.alsoBlock": "Bloquer aussi {name}",
+  "reportDialog.alsoRemove": "Le retirer aussi de cet appareil",
   "reportDialog.blockFailed.description": "Impossible de mettre à jour votre liste de blocage.",
   "reportDialog.blockFailed.title": "Signalé, mais impossible de bloquer",
   "reportDialog.chooseReason": "Choisissez un motif",

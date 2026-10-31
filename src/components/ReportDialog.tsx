@@ -35,13 +35,18 @@ interface ReportDialogProps {
   onOpenChange: (open: boolean) => void;
   target: ReportTarget;
   destination: ReportDestination;
+  /**
+   * Remove the reported message from this device; offered (checked) when given.
+   * Only message rows pass it: a DM report's target names only the person.
+   */
+  onRemoveLocal?: () => void;
 }
 
 /**
  * The one report dialog for every surface. Doesn't ask where the report goes
  * ({@link reportDestination} decides). Mute is checked by default, omitted if already muted.
  */
-export function ReportDialog({ open, onOpenChange, target, destination }: ReportDialogProps) {
+export function ReportDialog({ open, onOpenChange, target, destination, onRemoveLocal }: ReportDialogProps) {
   const intl = useIntl();
   const author = useAuthor(target.pubkey);
   const name = useScopedDisplayName(target.pubkey, author.data?.metadata);
@@ -52,6 +57,8 @@ export function ReportDialog({ open, onOpenChange, target, destination }: Report
   const [reason, setReason] = useState<ReportReason | "">("");
   const [comment, setComment] = useState("");
   const [alsoMute, setAlsoMute] = useState(true);
+  const [alsoRemove, setAlsoRemove] = useState(true);
+  const canRemove = onRemoveLocal !== undefined;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -63,6 +70,7 @@ export function ReportDialog({ open, onOpenChange, target, destination }: Report
     setReason("");
     setComment("");
     setAlsoMute(true);
+    setAlsoRemove(true);
     setError(null);
     setBusy(false);
   }, [open]);
@@ -96,6 +104,9 @@ export function ReportDialog({ open, onOpenChange, target, destination }: Report
       setBusy(false);
       return;
     }
+
+    // Local and infallible, so before the mute that can still fail.
+    if (canRemove && alsoRemove) onRemoveLocal?.();
 
     // The report landed; a mute failure mustn't read as a failed report (invites duplicates).
     if (alsoMute && !alreadyMuted) {
@@ -149,6 +160,13 @@ export function ReportDialog({ open, onOpenChange, target, destination }: Report
             rows={3}
             aria-label={intl.formatMessage({ id: "reportDialog.details", defaultMessage: "Details" })}
           />
+
+          {canRemove && (
+            <Label className="flex items-center gap-2 font-normal">
+              <Checkbox checked={alsoRemove} onCheckedChange={(v) => setAlsoRemove(v === true)} />
+              <FormattedMessage id="reportDialog.alsoRemove" defaultMessage="Also remove it from this device" />
+            </Label>
+          )}
 
           {!alreadyMuted && (
             <Label className="flex items-center gap-2 font-normal">

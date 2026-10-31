@@ -69,6 +69,19 @@ export function clearChatDecodeMemo(): void {
   skippedNoKey.clear();
 }
 
+/**
+ * Drop a removed message's decrypted copy. Kept as a remembered failure, so its
+ * wrap is not opened again this session.
+ */
+export function forgetChatRumor(rumorId: string): void {
+  for (const [key, opened] of decodeMemo) {
+    if (opened?.rumorId === rumorId) {
+      decodeMemo.set(key, null);
+      skippedNoKey.delete(key);
+    }
+  }
+}
+
 /** Test seam. */
 export const _resetChatMemoForTests = clearChatDecodeMemo;
 

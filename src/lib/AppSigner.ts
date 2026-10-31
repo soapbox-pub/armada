@@ -1,9 +1,18 @@
 import { getArmadaDB } from "@/lib/db/armadaDB";
+import {
+  decryptCacheId,
+  decryptCacheKey,
+  recentDecrypts,
+  rememberDecrypt,
+  type DecryptMethod,
+} from "@/lib/decryptCache";
 import { perfCount } from "@/lib/perf";
 import { minePowFor } from "@/lib/pow";
 
 import type { NostrSigner } from "@nostrify/nostrify";
 import type { BtcSigner } from "@/lib/bitcoin-signers";
+
+export { clearRecentDecrypts, decryptCacheKey } from "@/lib/decryptCache";
 
 // AppSigner: wraps the user-facing signer (see `useCurrentUser`) with a
 // persistent content-addressed decrypt cache, since extension/bunker decrypts
@@ -14,9 +23,6 @@ import type { BtcSigner } from "@/lib/bitcoin-signers";
 // Trust: persists DECRYPTED plaintext at rest (deliberate, like the fold
 // cache); wiped on final logout by `purgeClientStorage`.
 
-/** KV key for a derived cache id (the KV namespace is shared, so prefixed). */
-export const decryptCacheKey = (id: string): string => `decrypt:${id}`;
-
 type CryptoMethods = NonNullable<NostrSigner["nip04"]>;
 
 /**
@@ -26,9 +32,6 @@ type CryptoMethods = NonNullable<NostrSigner["nip04"]>;
 export interface CachingCryptoMethods extends CryptoMethods {
   decrypt(counterparty: string, ciphertext: string, opts?: { cache?: boolean }): Promise<string>;
 }
-
-/** Folded into the cache id so nip44 entries are never served for nip04 calls. */
-type DecryptMethod = "nip04" | "nip44";
 
 export class AppSigner implements NostrSigner {
   readonly #upstream: NostrSigner;
@@ -129,18 +132,8 @@ export class AppSigner implements NostrSigner {
     return pending;
   }
 
-  /**
-   * Cache id: sha256(`${method}\0${pubkey}\0${counterparty}\0${ciphertext}`).
-   * Namespaced per account; ciphertext is immutable so entries never go stale.
-   */
-  async #deriveId(method: DecryptMethod, counterparty: string, ciphertext: string): Promise<string> {
-    const data = new TextEncoder().encode(
-      `${method}\u0000${this.#pubkey}\u0000${counterparty}\u0000${ciphertext}`,
-    );
-    const digest = await crypto.subtle.digest("SHA-256", data);
-    let hex = "";
-    for (const b of new Uint8Array(digest)) hex += b.toString(16).padStart(2, "0");
-    return hex;
+  #deriveId(method: DecryptMethod, counterparty: string, ciphertext: string): Promise<string> {
+    return decryptCacheId(method, this.#pubkey, counterparty, ciphertext);
   }
 
   async #get(id: string): Promise<string | undefined> {
@@ -167,27 +160,6 @@ export class AppSigner implements NostrSigner {
     } catch {
       // best-effort
     }
-  }
-}
-
-/**
- * In-memory LRU in front of the persistent cache: the same ciphertexts recur
- * constantly, and each Android persistent read is a native round trip.
- */
-const recentDecrypts = new Map<string, string>();
-const MAX_RECENT_DECRYPTS = 2_048;
-
-/** Drop every in-memory decrypt (logout: see purgeClientStorage). */
-export function clearRecentDecrypts(): void {
-  recentDecrypts.clear();
-}
-
-function rememberDecrypt(id: string, plaintext: string): void {
-  recentDecrypts.delete(id);
-  recentDecrypts.set(id, plaintext);
-  if (recentDecrypts.size > MAX_RECENT_DECRYPTS) {
-    const oldest = recentDecrypts.keys().next().value;
-    if (oldest !== undefined) recentDecrypts.delete(oldest);
   }
 }
 

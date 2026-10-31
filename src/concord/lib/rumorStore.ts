@@ -40,6 +40,7 @@ import { resolveMs, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib
 import { messageMatchesMedia, type SearchMedia } from "@/concord/lib/search";
 import { emitWireScopes } from "@/wire/bus";
 import { ARMADA_TENANTS, getArmadaDB } from "@/lib/db/armadaDB";
+import { isRemovedMessageId } from "@/lib/removedMessages";
 import { literalSearch } from "@/lib/db/ParsedFilter";
 import type { NRumorStore } from "@/lib/db/types";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -769,6 +770,15 @@ function sealKey(communityIdHex: string, rumorId: string): string {
 }
 
 /**
+ * Delete the seal a removed rumor arrived in, in every community given: it opens
+ * back to the message under a channel key this device still holds.
+ */
+export async function forgetStoredSeals(communityIds: Iterable<string>, rumorId: string): Promise<void> {
+  const kv = getArmadaDB().kv;
+  await Promise.all([...communityIds].map((cid) => kv.delete(sealKey(cid, rumorId)).catch(() => undefined)));
+}
+
+/**
  * The seal a stored rumor arrived in, or undefined. Prefer one already on the
  * {@link OpenedEvent} (this session, or a legacy `seal` tag); this is the fallback.
  */
@@ -804,7 +814,8 @@ function writeStored(
     writes.push(s.event(openedToStored(o)));
     // Keep seals for plaintext editions (compaction) and Pin-provable kinds
     // (CORD-04 §7), else those stop being pinnable once out of memory.
-    if (o.seal && (o.sealKind === KIND_SEAL_PLAINTEXT || PIN_PROVABLE_KINDS.has(o.kind))) {
+    // A removed rumor is refused by the store, but its seal is a KV value it never sees.
+    if (o.seal && (o.sealKind === KIND_SEAL_PLAINTEXT || PIN_PROVABLE_KINDS.has(o.kind)) && !isRemovedMessageId(o.rumorId)) {
       // Seal write failures are swallowed: the rumor is the record, and quota
       // errors mustn't mark a committed batch as failed. Once per rumor per
       // session (channel syncs re-fetch the newest page).

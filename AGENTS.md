@@ -796,6 +796,20 @@ Things to know before touching it:
   conversation" is not a deletion anyone should be able to ask for), never
   matched row-wise, and refused outright rather than approximated — two of them,
   or a namespace that isn't one, fail closed.
+- **A message removed from this device is refused by the ENGINE, not by its
+  callers.** `ArmadaDB.forget(ids)` deletes the ids from every tenant and
+  records them in `removed_rumors` (IndexedDB: NUL-prefixed keys in the KV
+  database's `termed` store), and
+  `reserveSeq` answers a removed id like a stored one inside the lookup it
+  already runs, so the Android service, the iOS extension and the service worker
+  refuse it with no rule of their own. The table was added without a
+  `user_version` bump: it is additive and created on every open, and a bump would
+  make an older iOS build refuse the file. IndexedDB avoids a version bump for the
+  same kind of reason: an upgrade waits on every open connection, and a tab of an
+  older build never closes its own. Plaintext held outside the rumor
+  stores (thread snapshots, the signer's decrypt cache, session memos, queries) is
+  scrubbed by `removeMessageFromDevice`; a new cache of decrypted messages needs a
+  line there too.
 - **A migration converts to the CURRENT shape; it does not copy rows across.**
   Planes read back by kind, which is sound only because `writeOpened` refuses a
   rumor whose kind doesn't belong to the plane that opened its wrap — a

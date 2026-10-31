@@ -54,6 +54,12 @@ export async function decryptCached(
 }
 
 /** Drop the render memo (logout/identity switch); the signer's persistent cache is handled separately. */
+/** Drop one message's plaintext (removed from this device). */
+export function forgetRenderedPlaintext(id: string): void {
+  plaintextById.delete(id);
+  inflightById.delete(id);
+}
+
 export function clearRenderedPlaintext(): void {
   plaintextById.clear();
   inflightById.clear();

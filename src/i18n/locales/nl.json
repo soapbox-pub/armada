@@ -3323,6 +3323,7 @@
   "report.reason.profanity": "Intimidatie of haatzaaiende taal",
   "report.reason.spam": "Spam of oplichting",
   "reportDialog.alsoBlock": "{name} ook blokkeren",
+  "reportDialog.alsoRemove": "Ook van dit apparaat verwijderen",
   "reportDialog.blockFailed.description": "Kon je blokkeerlijst niet bijwerken.",
   "reportDialog.blockFailed.title": "Gerapporteerd, maar blokkeren mislukt",
   "reportDialog.chooseReason": "Kies een reden",

@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Braces, Copy, CornerDownRight, EyeOff, Flag, Forward, Link, Link2, MessagesSquare, Pencil, Pin, PinOff, Reply, Trash2, User, Zap } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
@@ -57,6 +58,8 @@ import { KIND_GROUP_CHAT } from "@/lib/nip29";
 import { expirationOf, KIND_DM_CHAT } from "@/lib/nip17/protocol";
 import { parseProxyTag } from "@/lib/nip48";
 import { reportDestination, type ReportTarget } from "@/lib/report";
+import { getActivePubkey } from "@/lib/activeAccount";
+import { removeMessageFromDevice } from "@/lib/removeMessageFromDevice";
 import { requestCommand } from "@/hooks/useCommandBus";
 import { commandLine } from "@/lib/botCommands";
 import { isMeAction, meActionText } from "@/lib/slashCommands";
@@ -509,6 +512,12 @@ const ChatMessageInner = memo(function ChatMessageInner({
   const isRumor = rumor !== undefined;
   // A PUBLIC report (DM) names only the person: a rumor id nobody can fetch
   // proves nothing. Elsewhere the id resolves for the report's recipients.
+  // Reporting can also remove the message from this device: stored copies, media, and any re-delivery.
+  const queryClient = useQueryClient();
+  const removeLocal = useCallback(() => {
+    const viewer = getActivePubkey();
+    if (viewer) void removeMessageFromDevice(viewer, event, { queryClient });
+  }, [event, queryClient]);
   const reportTarget: ReportTarget =
     isRumor && reportTo?.kind === "network"
       ? { pubkey: event.pubkey }
@@ -978,6 +987,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
         onOpenChange={setReportOpen}
         destination={reportTo}
         target={reportTarget}
+        onRemoveLocal={removeLocal}
       />
     )}
     {jsonOpen && (

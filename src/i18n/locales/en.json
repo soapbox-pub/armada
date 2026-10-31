@@ -3323,6 +3323,7 @@
   "report.reason.profanity": "Harassment or hateful speech",
   "report.reason.spam": "Spam or scam",
   "reportDialog.alsoBlock": "Also block {name}",
+  "reportDialog.alsoRemove": "Also remove it from this device",
   "reportDialog.blockFailed.description": "Failed to update your block list.",
   "reportDialog.blockFailed.title": "Reported, but couldn't block",
   "reportDialog.chooseReason": "Choose a reason",

@@ -19,7 +19,9 @@ import { getConversationKey, encrypt as nip44Encrypt } from "nostr-tools/nip44";
 import { generateSecretKey, getEventHash } from "nostr-tools/pure";
 import type { EventTemplate, NostrEvent, UnsignedEvent } from "nostr-tools/pure";
 
+import { forgetDecrypt } from "@/lib/decryptCache";
 import { finalizePowEvent } from "@/lib/pow";
+import { isRemovedMessageId } from "@/lib/removedMessages";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
 
@@ -414,6 +416,14 @@ export async function openDmWrap(
       pubkey: rumor.pubkey,
     });
     if (rumor.id !== undefined && rumor.id !== computedId) return undefined;
+    // Removed from this device: what opening it just cached goes too.
+    if (isRemovedMessageId(computedId)) {
+      await Promise.all([
+        forgetDecrypt(self, "nip44", wrap.pubkey, wrap.content),
+        forgetDecrypt(self, "nip44", seal.pubkey, seal.content),
+      ]);
+      return undefined;
+    }
 
     const peers = dmPeersOf(rumor, self);
     if (!peers) return undefined;

@@ -9,8 +9,9 @@
  * can't come back from cache. The rumors are already stored decrypted in
  * dm17Store, so no new at-rest exposure; purged on logout with the KV.
  */
-import { readFolded, writeFolded } from "@/lib/foldedCache";
+import { listFoldedKeys, readFolded, writeFolded } from "@/lib/foldedCache";
 import { isExpired } from "@/lib/nip17/protocol";
+import { isRemovedMessageId } from "@/lib/removedMessages";
 import { dmConvKey } from "@/lib/nip17/conversation";
 import { perfCount, perfMark } from "@/lib/perf";
 
@@ -24,8 +25,20 @@ import type { QueryClient } from "@tanstack/react-query";
  */
 const SNAP_WINDOW = 80;
 
+const SNAP_PREFIX = "dm17-thread-snap:";
+
 function snapKey(self: string, conversation: string): string {
-  return `dm17-thread-snap:${self}:${conversation}`;
+  return `${SNAP_PREFIX}${self}:${conversation}`;
+}
+
+/** Rewrite every conversation snapshot holding `rumorId` without it (removed from this device). */
+export async function scrubDm17ThreadSnapshots(rumorId: string): Promise<void> {
+  const keys = await listFoldedKeys(SNAP_PREFIX).catch(() => []);
+  await Promise.all(keys.map(async (key) => {
+    const snap = await readFolded<OpenedDm[]>(key);
+    if (!snap?.some((m) => m.rumorId === rumorId)) return;
+    await writeFolded(key, snap.filter((m) => m.rumorId !== rumorId));
+  }));
 }
 
 /**
@@ -59,7 +72,7 @@ export async function prewarmDm17ThreadSnapshot(
   const now = Math.floor(Date.now() / 1000);
   // Re-check rows against their conversation so a corrupted snapshot can't cross-paint.
   const own = snap.filter(
-    (m) => dmConvKey(m.peers ?? []) === conversation && !isExpired(m.tags, now),
+    (m) => dmConvKey(m.peers ?? []) === conversation && !isExpired(m.tags, now) && !isRemovedMessageId(m.rumorId),
   );
   if (own.length === 0) return;
   // The real store read may have landed during the await; it wins.
@@ -78,7 +91,7 @@ export function persistDm17ThreadSnapshot(
   if (window.length === 0) return Promise.resolve();
   const now = Math.floor(Date.now() / 1000);
   const newest = window
-    .filter((m) => !isExpired(m.tags, now))
+    .filter((m) => !isExpired(m.tags, now) && !isRemovedMessageId(m.rumorId))
     .sort((a, b) => b.createdAt - a.createdAt || (a.rumorId < b.rumorId ? -1 : 1))
     .slice(0, SNAP_WINDOW);
   if (newest.length === 0) return Promise.resolve();

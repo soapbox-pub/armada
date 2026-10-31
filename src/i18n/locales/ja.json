@@ -3323,6 +3323,7 @@
   "report.reason.profanity": "嫌がらせまたはヘイトスピーチ",
   "report.reason.spam": "スパムまたは詐欺",
   "reportDialog.alsoBlock": "{name} もブロックする",
+  "reportDialog.alsoRemove": "このデバイスからも削除",
   "reportDialog.blockFailed.description": "ブロックリストを更新できませんでした。",
   "reportDialog.blockFailed.title": "報告しましたが、ブロックできませんでした",
   "reportDialog.chooseReason": "理由を選択",
