@@ -86,14 +86,17 @@ function CommunityAvatar({
   name,
   communityId,
   icon,
+  held = false,
   className,
 }: {
   name: string;
   communityId: string;
   icon: ImagePointer | undefined;
+  /** A stranger's invite: its art isn't fetched (it is theirs to choose), the wash stands in. */
+  held?: boolean;
   className?: string;
 }) {
-  const iconUrl = useDecryptedImage(icon);
+  const iconUrl = useDecryptedImage(held ? undefined : icon);
 
   return (
     <span
@@ -339,6 +342,7 @@ function InviteRow({
         name={invite.name}
         communityId={invite.communityId}
         icon={invite.bundle.icon}
+        held={request}
         className="size-11 text-lg"
       />
       <div className="min-w-0 flex-1">
@@ -431,8 +435,13 @@ export function InviteDetail({
   const relays = relayUrls.length;
   const description = bundle.description?.trim();
   const expired = directInviteExpired(bundle);
-  const bannerUrl = useDecryptedImage(bundle.banner);
-  const iconUrl = useDecryptedImage(bundle.icon);
+  // A stranger's invite shows its art only on request, like a stranger's media in
+  // a chat: an image they chose is otherwise fetched just by opening the invite.
+  const [revealedArt, setRevealedArt] = useState<string | undefined>(undefined);
+  const artHeld = isRequest && revealedArt !== communityId;
+  const hasArt = Boolean(bundle.banner || bundle.icon);
+  const bannerUrl = useDecryptedImage(artHeld ? undefined : bundle.banner);
+  const iconUrl = useDecryptedImage(artHeld ? undefined : bundle.icon);
 
   const senderAuthor = useAuthor(sender);
   const senderMeta = senderAuthor.data?.metadata;
@@ -582,6 +591,7 @@ export function InviteDetail({
               name={name}
               communityId={communityId}
               icon={bundle.icon}
+              held={artHeld}
               className="size-20 text-3xl sm:size-24 sm:text-4xl"
             />
           </div>
@@ -670,6 +680,18 @@ export function InviteDetail({
                     id="invitesPage.detail.requestNotice"
                     defaultMessage="You don’t know this sender. Only accept invites from people you trust."
                   />
+                  {artHeld && hasArt && (
+                    <>
+                      {" "}
+                      <button
+                        type="button"
+                        className="underline underline-offset-2 hover:text-foreground"
+                        onClick={() => setRevealedArt(communityId)}
+                      >
+                        <FormattedMessage id="invitesPage.detail.showArt" defaultMessage="Show the community’s images" />
+                      </button>
+                    </>
+                  )}
                 </p>
               )}
             </div>

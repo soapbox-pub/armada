@@ -2096,6 +2096,7 @@
   "invitesPage.detail.relaysHint": "Servidores que transportan los mensajes de esta comunidad.",
   "invitesPage.detail.requestNotice": "No conoces a este remitente. Acepta solo invitaciones de personas en las que confíes.",
   "invitesPage.detail.sent": "Enviada {time}",
+  "invitesPage.detail.showArt": "Mostrar las imágenes de la comunidad",
   "invitesPage.detail.title": "Invitación a una comunidad cifrada",
   "invitesPage.detail.titleCatchUp": "Claves de la comunidad actualizadas",
   "invitesPage.empty": "No hay invitaciones. Cuando alguien te dé las claves de una comunidad cifrada, aparecerá aquí.",

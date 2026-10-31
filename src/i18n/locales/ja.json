@@ -2096,6 +2096,7 @@
   "invitesPage.detail.relaysHint": "このコミュニティのメッセージを中継するサーバーです。",
   "invitesPage.detail.requestNotice": "この送信者は知らない人です。信頼できる人からの招待だけを承認してください。",
   "invitesPage.detail.sent": "{time} に送信",
+  "invitesPage.detail.showArt": "コミュニティの画像を表示",
   "invitesPage.detail.title": "暗号化コミュニティへの招待",
   "invitesPage.detail.titleCatchUp": "コミュニティの鍵が更新されました",
   "invitesPage.empty": "招待はありません。暗号化コミュニティの鍵を誰かから受け取ると、ここに表示されます。",

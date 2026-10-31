@@ -2096,6 +2096,7 @@
   "invitesPage.detail.relaysHint": "I server che trasportano i messaggi di questa community.",
   "invitesPage.detail.requestNotice": "Non conosci questo mittente. Accetta solo inviti da persone di cui ti fidi.",
   "invitesPage.detail.sent": "Inviato {time}",
+  "invitesPage.detail.showArt": "Mostra le immagini della community",
   "invitesPage.detail.title": "Invito a una community crittografata",
   "invitesPage.detail.titleCatchUp": "Chiavi della community aggiornate",
   "invitesPage.empty": "Nessun invito. Quando qualcuno ti consegnerà le chiavi di una community crittografata, comparirà qui.",

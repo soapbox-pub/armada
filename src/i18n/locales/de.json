@@ -2096,6 +2096,7 @@
   "invitesPage.detail.relaysHint": "Server, die die Nachrichten dieser Community übertragen.",
   "invitesPage.detail.requestNotice": "Du kennst diesen Absender nicht. Nimm nur Einladungen von Leuten an, denen du vertraust.",
   "invitesPage.detail.sent": "Gesendet {time}",
+  "invitesPage.detail.showArt": "Bilder der Community anzeigen",
   "invitesPage.detail.title": "Einladung zu einer verschlüsselten Community",
   "invitesPage.detail.titleCatchUp": "Aktualisierte Community-Schlüssel",
   "invitesPage.empty": "Keine Einladungen. Wenn dir jemand die Schlüssel zu einer verschlüsselten Community gibt, erscheint sie hier.",

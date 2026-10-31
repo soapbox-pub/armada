@@ -2096,6 +2096,7 @@
   "invitesPage.detail.relaysHint": "Servers that carry this community's messages.",
   "invitesPage.detail.requestNotice": "You don’t know this sender. Only accept invites from people you trust.",
   "invitesPage.detail.sent": "Sent {time}",
+  "invitesPage.detail.showArt": "Show the community’s images",
   "invitesPage.detail.title": "Encrypted community invite",
   "invitesPage.detail.titleCatchUp": "Updated community keys",
   "invitesPage.empty": "No invites. When someone hands you the keys to an encrypted community, it’ll show up here.",

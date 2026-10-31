@@ -2096,6 +2096,7 @@
   "invitesPage.detail.relaysHint": "Les serveurs qui transportent les messages de cette communauté.",
   "invitesPage.detail.requestNotice": "Vous ne connaissez pas cet expéditeur. N’acceptez que les invitations de personnes de confiance.",
   "invitesPage.detail.sent": "Envoyée {time}",
+  "invitesPage.detail.showArt": "Afficher les images de la communauté",
   "invitesPage.detail.title": "Invitation à une communauté chiffrée",
   "invitesPage.detail.titleCatchUp": "Clés de la communauté mises à jour",
   "invitesPage.empty": "Aucune invitation. Quand quelqu’un vous remettra les clés d’une communauté chiffrée, elle apparaîtra ici.",

@@ -2096,6 +2096,7 @@
   "invitesPage.detail.relaysHint": "Servers die de berichten van deze community doorgeven.",
   "invitesPage.detail.requestNotice": "Je kent deze afzender niet. Accepteer alleen uitnodigingen van mensen die je vertrouwt.",
   "invitesPage.detail.sent": "Verstuurd {time}",
+  "invitesPage.detail.showArt": "Afbeeldingen van de community tonen",
   "invitesPage.detail.title": "Uitnodiging voor versleutelde community",
   "invitesPage.detail.titleCatchUp": "Bijgewerkte communitysleutels",
   "invitesPage.empty": "Geen uitnodigingen. Als iemand je de sleutels van een versleutelde community geeft, verschijnt die hier.",
