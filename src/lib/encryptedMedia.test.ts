@@ -8,6 +8,7 @@ import {
   decryptBytes,
   encryptBytes,
   encryptFileWithParams,
+  evictAttachment,
   fetchCapped,
   FileTooLargeError,
   peekAttachmentObjectURL,
@@ -334,6 +335,33 @@ describe("peekAttachmentObjectURL", () => {
 
 describe("clearAttachmentCache", () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it("revokes the object URL of a decrypt evicted while it was still in flight", async () => {
+    const key = "3".repeat(64);
+    const nonce = "4".repeat(32);
+    const ciphertext = await encryptBytes(new TextEncoder().encode("removed picture"), key, nonce);
+    let respond!: () => void;
+    vi.stubGlobal("fetch", () => new Promise<Response>((resolve) => {
+      respond = () => resolve(new Response(ciphertext));
+    }));
+    const revoked: string[] = [];
+    let n = 0;
+    class StubURL extends URL {
+      static override createObjectURL = () => `blob:inflight-${++n}`;
+      static override revokeObjectURL = (u: string) => void revoked.push(u);
+    }
+    vi.stubGlobal("URL", StubURL);
+    const url = "https://blossom.example/inflight";
+
+    const pending = decryptAttachmentToObjectURL(url, { algorithm: "aes-gcm", key, nonce }, "image/jpeg");
+    await new Promise((r) => setTimeout(r, 0));
+    evictAttachment(url);
+    respond();
+    const objectUrl = await pending.catch(() => undefined);
+
+    // Nothing holds it any more, so it must not keep the plaintext alive for the session.
+    if (objectUrl) expect(revoked).toContain(objectUrl);
+  });
 
   it("revokes every cached object URL at once and forgets the entries", () => {
     const revoked: string[] = [];

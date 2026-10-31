@@ -156,6 +156,8 @@ interface Entry {
   /** Decrypted byte size (0 until resolved). */
   bytes: number;
   url?: string;
+  /** Evicted or cleared before it resolved: its object URL is revoked as it lands. */
+  dropped?: boolean;
 }
 
 /** key = `${url}\n${key}\n${nonce}`; insertion order = LRU order. */
@@ -184,11 +186,26 @@ function evictToBudget(keep: string): void {
 }
 
 /**
+ * Drop every cached decrypt of `url` (whatever key opened it) and revoke its
+ * object URL now: a moderator removed the message it came in.
+ */
+export function evictAttachment(url: string): void {
+  for (const [k, entry] of cache) {
+    if (!k.startsWith(`${url}\n`)) continue;
+    cache.delete(k);
+    totalBytes -= entry.bytes;
+    entry.dropped = true;
+    if (entry.url) URL.revokeObjectURL(entry.url);
+  }
+}
+
+/**
  * Drop every cached decrypt and revoke its object URL now (logout): these are
- * the previous account's plaintext. A decrypt still in flight is not cached.
+ * the previous account's plaintext. A decrypt still in flight is revoked as it lands.
  */
 export function clearAttachmentCache(): void {
   for (const entry of cache.values()) {
+    entry.dropped = true;
     if (entry.url) URL.revokeObjectURL(entry.url);
   }
   cache.clear();
@@ -288,6 +305,10 @@ export async function decryptAttachmentToObjectURL(
     await verifyPlaintextHash(new Uint8Array(plaintext), enc.ox);
     const blob = new Blob([plaintext], { type: mime || "application/octet-stream" });
     const objectUrl = URL.createObjectURL(blob);
+    if (entry.dropped) {
+      URL.revokeObjectURL(objectUrl);
+      return objectUrl;
+    }
     if (cache.get(k) === entry) {
       entry.bytes = plaintext.byteLength;
       entry.url = objectUrl;

@@ -7,6 +7,7 @@ import { clearCharacterCardCache } from "@/lib/characterCard";
 import { ARMADA_DB_NAME, purgeArmadaDB } from "@/lib/db/armadaDB";
 import { resetKvCaches } from "@/lib/db/kvCache";
 import { resetDecryptConsent } from "@/lib/decryptConsent";
+import { clearEvictedMediaMemory } from "@/lib/evictMessageMedia";
 import { FONT_SCALE_KEY } from "@/lib/fontScale";
 import { closeDmEphemeralSubs } from "@/lib/nip17/ephemeralInbox";
 import { clearFoldedMemory } from "@/lib/foldedCache";
@@ -160,6 +161,7 @@ function clearSessionMemos(): void {
   clearMuteListMemos();
   clearGroupListMemo();
   clearAttachmentCache();
+  clearEvictedMediaMemory();
   clearCharacterCardCache();
   clearImageDims();
   clearMediaCacheMemory();

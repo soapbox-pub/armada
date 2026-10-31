@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { blobHashOf, cachedBlob, clearMediaCacheMemory, isMediaCached, storeBlob } from "@/lib/mediaCache";
+import { fetchCapped } from "@/lib/encryptedMedia";
+import { blobHashOf, cachedBlob, clearMediaCacheMemory, forgetBlob, isMediaCached, storeBlob } from "@/lib/mediaCache";
 
 const H = "a".repeat(64);
 
@@ -53,5 +54,25 @@ describe("storeBlob / cachedBlob", () => {
     await storeBlob(H, new TextEncoder().encode("planted").buffer as ArrayBuffer, "image/jpeg");
     expect(isMediaCached(H)).toBe(false);
     expect(await cachedBlob(H)).toBeUndefined();
+  });
+
+  it("doesn't keep the bytes of media forgotten while its download was in flight", async () => {
+    const bytes = new TextEncoder().encode("a removed picture");
+    const hash = await hashOf(bytes);
+    let respond!: () => void;
+    vi.stubGlobal("fetch", () => new Promise<Response>((resolve) => {
+      respond = () => resolve(new Response(bytes, { headers: { "content-type": "image/jpeg" } }));
+    }));
+
+    const download = fetchCapped(`https://blossom.example/${hash}.jpg`);
+    await new Promise((r) => setTimeout(r, 0));
+    // Its message is removed from the device mid-download.
+    forgetBlob(hash);
+    respond();
+    await download;
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(isMediaCached(hash)).toBe(false);
+    expect(await cachedBlob(hash)).toBeUndefined();
   });
 });

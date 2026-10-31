@@ -417,6 +417,8 @@ export interface FoldedTimeline {
    * notice rows by the transport.
    */
   timerNotices: OpenedChat[];
+  /** Messages an authorized delete removed in this fold, so their cached media can go. */
+  removed: OpenedChat[];
 }
 
 /** Per-rumor CORD.md zap verdict cache (payment hash when valid, else null). Capped. */
@@ -642,13 +644,17 @@ export function foldTimeline(
   }
 
   // In-batch deletes: self-delete, or an authorized moderator delete.
+  const removed: OpenedChat[] = [];
   for (const [id, msg] of byId) {
     const deleters = deletes.get(id);
     if (!deleters) continue;
     const deleted =
       deleters.has(msg.author) ||
       (moderation && [...deleters].some(([d, act]) => moderation.canDelete(d, msg.author, act)));
-    if (deleted) byId.delete(id);
+    if (deleted) {
+      byId.delete(id);
+      removed.push(msg);
+    }
   }
 
   // Calendar deletes: same authorization as messages.
@@ -740,5 +746,6 @@ export function foldTimeline(
     calendarEvents: [...calendarById.values()],
     rsvps,
     timerNotices: timerNotices.sort((a, b) => (a.ms !== b.ms ? a.ms - b.ms : a.rumorId < b.rumorId ? -1 : 1)),
+    removed,
   };
 }

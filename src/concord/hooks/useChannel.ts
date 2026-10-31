@@ -76,6 +76,7 @@ import { invalidateSyncTopic } from "@/sync/syncManager";
 import { useSyncTopic } from "@/sync/useSyncTopic";
 import { useWireScopes } from "@/wire/useWireScopes";
 import { shareByRumorId } from "@/lib/shareRows";
+import { evictRemovedMessageMedia } from "@/lib/evictMessageMedia";
 
 import type { NostrEvent } from "@nostrify/nostrify";
 import { t } from "@/i18n";
@@ -918,6 +919,14 @@ export function useChannelTimeline(
     }
     return merged;
   }, [moderated, moderation, optimisticDeleted, readingUser?.pubkey, firstSeen, establishedSinceMs, pauseSince, community?.idHex, channelIdHex, memoryRev, revealTick]);
+
+  // A removed message's media leaves this device too: a moderator deleting it
+  // (abuse, CSAM) shouldn't leave its plaintext in the decrypt cache.
+  const removed = folded.removed;
+  const survivors = folded.messages;
+  useEffect(() => {
+    for (const msg of removed) evictRemovedMessageMedia(msg.rumorId, msg.tags, msg.content, survivors);
+  }, [removed, survivors]);
 
   // Wake the fold when a held future-dated message (FUTURE_HOLD_MS) comes due;
   // nothing else re-renders this timeline for it.

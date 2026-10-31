@@ -165,6 +165,8 @@ describe("chat plane (CORD-03)", () => {
       canDelete: (deleter) => deleter === mod.pubkey,
     });
     expect(folded.messages.length).toBe(0);
+    // Reported so its cached media can be evicted.
+    expect(folded.removed.map((m) => m.rumorId)).toEqual([msg.id]);
   });
 
   it("carries a moderation delete's citation through the fold, and parks an uncited one", async () => {

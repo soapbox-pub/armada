@@ -109,14 +109,27 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   return hex;
 }
 
+/** Hashes forgotten this session: a download already in flight must not store them back. */
+const forgotten = new Set<string>();
+
+/** Drop `hash`'s bytes from the cache (its message was removed). */
+export function forgetBlob(hash: string): void {
+  forgotten.add(hash);
+  if (!available() || !loadIndex()[hash]) return;
+  delete loadIndex()[hash];
+  persistIndex();
+  void caches.open(CACHE_NAME).then((cache) => cache.delete(keyOf(hash))).catch(() => undefined);
+}
+
 /** Keep `bytes` under `hash` if they are what the hash names. */
 export async function storeBlob(hash: string, bytes: ArrayBuffer, type: string): Promise<void> {
   if (!available() || bytes.byteLength === 0 || bytes.byteLength > MAX_ENTRY_BYTES) return;
   const idx = loadIndex();
-  if (idx[hash]) return;
+  if (idx[hash] || forgotten.has(hash)) return;
   try {
     if ((await sha256Hex(bytes)) !== hash) return;
     const cache = await caches.open(CACHE_NAME);
+    if (forgotten.has(hash)) return;
     await cache.put(keyOf(hash), new Response(bytes, { headers: { "content-type": type || "application/octet-stream" } }));
     idx[hash] = { b: bytes.byteLength, u: Date.now() };
     let total = 0;
@@ -179,6 +192,7 @@ export async function cachedMediaUrl(hash: string): Promise<string | undefined> 
 
 /** Logout: drop this session's object URLs (Cache Storage itself is purged with the rest). */
 export function clearMediaCacheMemory(): void {
+  forgotten.clear();
   for (const url of objectUrls.values()) URL.revokeObjectURL(url);
   objectUrls.clear();
   hashOfUrl.clear();
