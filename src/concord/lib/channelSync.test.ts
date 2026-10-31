@@ -118,6 +118,26 @@ function makePool(relays: Record<string, FakeRelay>) {
   return { relay: (url: string) => relays[url] };
 }
 
+/**
+ * A relay that answers `refuse` REQs with CLOSED ("too many subscriptions"),
+ * shaped like a batcher relay handle: `query()` resolves `[]` for it exactly as
+ * for an empty answer (NRelay1), and `queryStrict()` rejects.
+ */
+class RefusingRelay extends FakeRelay {
+  refuse = new Set<number>();
+  private reqs = 0;
+
+  override async query(filters: Filter[]): Promise<NostrEvent[]> {
+    if (this.refuse.has(this.reqs++)) return [];
+    return super.query(filters);
+  }
+
+  async queryStrict(filters: Filter[]): Promise<NostrEvent[]> {
+    if (this.refuse.has(this.reqs++)) throw new Error("Relay closed the subscription before EOSE");
+    return super.query(filters);
+  }
+}
+
 describe("channelSync — the c2: topic handler", () => {
   beforeEach(() => {
     (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
@@ -332,6 +352,25 @@ describe("history coverage", () => {
     const r = await m.backfillStore(makePool({ a: dense, b: sparse }), ["a", "b"], channel, new AbortController().signal, { maxPages: 1 });
     expect(r.oldest).toBe(51);
     expect(r.coveredDownTo).toBe(510);
+  });
+
+  it("a page the relays refuse with CLOSED is a failure, never the bottom of history", { timeout: 30_000 }, async () => {
+    const m = await freshModules();
+    const channel = makeChannel(m);
+    const alice = signer();
+    const wraps = await Promise.all(Array.from({ length: 150 }, (_, i) => wrapChatAt(m, channel, alice, `h${i}`, i + 1)));
+    const a = new RefusingRelay();
+    const b = new RefusingRelay();
+    a.events = wraps;
+    b.events = wraps;
+    // Both relays share the client's load, so both hit their cap on page two.
+    a.refuse.add(1);
+    b.refuse.add(1);
+    const r = await m.backfillStore(makePool({ a, b }), ["a", "b"], channel, new AbortController().signal, { maxPages: 6 });
+    expect(r.count).toBe(100); // page one from each relay
+    expect(r.exhausted).toBe(false);
+    expect(r.failed).toBe(true);
+    expect(r.coveredDownTo).toBeUndefined();
   });
 
   it("fills an offline gap bigger than one round's budget across rounds, then advances newest", { timeout: 60_000 }, async () => {

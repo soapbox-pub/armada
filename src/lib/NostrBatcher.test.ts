@@ -133,6 +133,22 @@ function makeCoalescePool() {
 }
 
 describe("NostrBatcher — relay()/group() query coalescing", () => {
+  it("queryStrict rejects a REQ the relay CLOSEs, which query() reads as empty", async () => {
+    const closing = {
+      query: vi.fn(async () => []),
+      req: vi.fn(() => (async function* () {
+        yield ["CLOSED", "sub", "error: too many subscriptions"];
+      })()),
+    };
+    const batcher = new NostrBatcher({ relay: () => closing } as unknown as NPool);
+    const filter = [{ kinds: [1059], authors: ["s"], until: 100, limit: 50 }];
+
+    await expect(batcher.relay("wss://r1").query(filter)).resolves.toEqual([]);
+    await expect(
+      (batcher.relay("wss://r1") as unknown as { queryStrict: (f: NostrFilter[]) => Promise<NostrEvent[]> }).queryStrict(filter),
+    ).rejects.toThrow("closed the subscription");
+  });
+
   it("collapses concurrent identical relay().query() onto one upstream REQ", async () => {
     const { pool, queryCalls } = makeCoalescePool();
     const batcher = new NostrBatcher(pool);

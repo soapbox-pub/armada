@@ -31,6 +31,8 @@ import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 interface NostrLike {
   relay(url: string): {
     query(filters: NostrFilter[], opts?: { signal?: AbortSignal }): Promise<NostrEvent[]>;
+    /** Like `query`, but rejects when the relay CLOSEs the REQ (the batcher's relay handles). */
+    queryStrict?(filters: NostrFilter[], opts?: { signal?: AbortSignal }): Promise<NostrEvent[]>;
   };
 }
 
@@ -160,11 +162,13 @@ export async function backfillStore(
           // Per-relay auth gate: each relay waits only for ITS OWN stream AUTHs.
           await opts.beforeRelay?.(relay.url);
           if (pageSignal.aborted) return { relay, events: [] as NostrEvent[], ok: false };
-          const events = await nostr
-            .relay(relay.url)
-            .query(filters, {
-              signal: AbortSignal.any([pageSignal, AbortSignal.timeout(8000)]),
-            });
+          const handle = nostr.relay(relay.url);
+          const querySignal = AbortSignal.any([pageSignal, AbortSignal.timeout(8000)]);
+          // A CLOSED page ("too many subscriptions", rate-limited) must fail, not
+          // read as an empty one: that would seal the channel's history as exhausted.
+          const events = handle.queryStrict
+            ? await handle.queryStrict(filters, { signal: querySignal })
+            : await handle.query(filters, { signal: querySignal });
           // Only a relay that HAS events starts the race clock; an instant empty EOSE must
           // not abort relays still mid-AUTH.
           if (events.length > 0) armGrace();

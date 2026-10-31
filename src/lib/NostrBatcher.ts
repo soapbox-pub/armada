@@ -4,6 +4,7 @@ import type { ArmadaEventStore } from '@/contexts/EventStoreContext';
 
 import { logNostrReq } from '@/lib/nostrQueryLog';
 import { perfCount } from '@/lib/perf';
+import { queryRelayStrict } from '@/lib/strictRelayQuery';
 
 /** The relay/group handle shape we wrap for caching: query + req. */
 type NRelayLike = ReturnType<NPool['relay']>;
@@ -886,6 +887,10 @@ export class NostrBatcher {
           return (filters: NostrFilter[], opts?: { signal?: AbortSignal }) =>
             coalescedQuery(target, via, scopeRelays, sourceUrl, filters, opts);
         }
+        if (prop === 'queryStrict') {
+          return (filters: NostrFilter[], opts?: { signal?: AbortSignal }) =>
+            coalescedQuery(target, via, scopeRelays, sourceUrl, filters, opts, true);
+        }
         if (prop === 'req') {
           return (filters: NostrFilter[], opts?: CachingReqOpts) =>
             coalescedReq(target, via, scopeRelays, sourceUrl, filters, opts);
@@ -908,15 +913,18 @@ export class NostrBatcher {
     sourceUrl: string | undefined,
     filters: NostrFilter[],
     opts?: { signal?: AbortSignal },
+    strict = false,
   ): Promise<NostrEvent[]> {
-    const key = `${via}::${coalesceKey(scopeRelays, filters)}`;
+    const key = `${via}::${strict ? 'strict::' : ''}${coalesceKey(scopeRelays, filters)}`;
     let shared = this.inflightQueries.get(key);
     if (!shared) {
       logNostrReq(scopeRelays, filters, via);
       // No caller signal, so one abort can't cancel it for others; the deadline is
       // its only signal (see SHARED_QUERY_DEADLINE_MS).
-      shared = target
-        .query(filters, { signal: AbortSignal.timeout(SHARED_QUERY_DEADLINE_MS) })
+      const deadline = AbortSignal.timeout(SHARED_QUERY_DEADLINE_MS);
+      shared = (strict
+        ? queryRelayStrict({ req: target.req.bind(target) }, filters, { signal: deadline })
+        : target.query(filters, { signal: deadline }))
         .then((events) => {
           this.cacheEvents(events, sourceUrl);
           return events;
