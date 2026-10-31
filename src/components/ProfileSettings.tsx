@@ -19,6 +19,7 @@ import { useUploadFile } from '@/hooks/useUploadFile';
 import { useUploadProfileImage } from '@/hooks/useUploadProfileImage';
 import { useMediaPolicy } from '@/hooks/useMediaPolicy';
 import { completeProfileImetaTags } from '@/lib/computeProfileImeta';
+import { carriedProfileTags } from '@/lib/profileImeta';
 import { useToast } from '@/hooks/useToast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -724,7 +725,10 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave, showNip05 = tr
       await publishEvent({
         kind: 0,
         content: JSON.stringify(data),
-        tags: await completeProfileImetaTags(data, [...uploadedImeta.current, ...(event?.tags ?? [])], mediaPolicy),
+        tags: [
+          ...carriedProfileTags(event?.tags ?? [], [...Object.keys(metadata ?? {}), ...Object.keys(data)]),
+          ...await completeProfileImetaTags(data, [...uploadedImeta.current, ...(event?.tags ?? [])], mediaPolicy),
+        ],
         prev: event,
       });
       queryClient.invalidateQueries({ queryKey: ['logins'] });

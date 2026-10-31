@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { imetaFor, imetaTagFromUpload, parseProfileImeta, profileImetaTags } from "./profileImeta";
+import { carriedProfileTags, imetaFor, imetaTagFromUpload, parseProfileImeta, profileImetaTags } from "./profileImeta";
 
 const PIC = "https://blossom.example/aa.jpg";
 const BANNER = "https://blossom.example/bb";
@@ -67,5 +67,23 @@ describe("profileImetaTags", () => {
 
   it("gives a hand-typed URL nothing", () => {
     expect(profileImetaTags({ picture: "https://pics.example/me.jpg" }, [uploaded])).toEqual([]);
+  });
+});
+
+describe("carriedProfileTags", () => {
+  it("keeps emoji and other tags, dropping imeta and mirrored content fields", () => {
+    const prev = [
+      ["emoji", "H", "https://example.com/h.png"],
+      ["alt", "User profile"],
+      ["name", ":H:enk"],
+      ["picture", PIC],
+      ["imeta", `url ${PIC}`],
+      ["published_at", "1700000000"],
+    ];
+    expect(carriedProfileTags(prev, ["name", "picture", "about"])).toEqual([
+      ["emoji", "H", "https://example.com/h.png"],
+      ["alt", "User profile"],
+      ["published_at", "1700000000"],
+    ]);
   });
 });

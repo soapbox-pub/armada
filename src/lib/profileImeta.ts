@@ -73,6 +73,17 @@ export function profileImetaTags(metadata: ProfileImages, candidates: readonly s
 }
 
 /**
+ * The previous kind 0's tags a profile save carries forward: everything but its
+ * `imeta` (recomputed by {@link profileImetaTags}) and tags mirroring a content
+ * field (Amethyst writes `["name", …]` beside the JSON), which the edit makes
+ * stale. NIP-30 `emoji` tags must survive, or `:shortcode:` names break.
+ */
+export function carriedProfileTags(prevTags: readonly string[][], fieldNames: Iterable<string>): string[][] {
+  const fields = new Set(fieldNames);
+  return prevTags.filter(([name]) => name !== "imeta" && !fields.has(name)).map((tag) => [...tag]);
+}
+
+/**
  * `picture` for a sink that can only take a URL (an OS notification icon, a
  * share shortcut, an exported page), or undefined when its imeta says it is
  * encrypted: the URL would only fetch ciphertext.
