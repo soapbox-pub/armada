@@ -746,6 +746,58 @@ describe.each(backends)("$name", ({ create }) => {
     });
   });
 
+  describe("forget (removed from this device)", () => {
+    it("deletes the id from every tenant and leaves the rest", async () => {
+      const gone = rumor({ id: "gone" });
+      const kept = rumor({ id: "kept" });
+      await db.tenant("a").event(gone);
+      await db.tenant("a").event(kept);
+      await db.tenant("b").event(gone);
+
+      await db.forget(["gone"]);
+
+      expect((await db.tenant("a").query([{}])).map((r) => r.id)).toEqual(["kept"]);
+      expect(await db.tenant("b").query([{}])).toEqual([]);
+    });
+
+    it("refuses the id afterwards in any tenant, in a batch and alone", async () => {
+      await db.forget(["gone"]);
+      const gone = rumor({ id: "gone" });
+      const other = rumor({ id: "other" });
+      await Promise.all([db.tenant("a").event(gone), db.tenant("a").event(other)]);
+      await db.tenant("never-opened").event(gone);
+
+      expect((await db.tenant("a").query([{}])).map((r) => r.id)).toEqual(["other"]);
+      expect(await db.tenant("never-opened").query([{}])).toEqual([]);
+    });
+
+    it("refuses a removed replaceable without superseding the stored version", async () => {
+      const store = db.tenant("t");
+      const old = rumor({ id: "old", kind: 10000, pubkey: "alice", created_at: 100 });
+      await store.event(old);
+      await db.forget(["newer"]);
+
+      await store.event(rumor({ id: "newer", kind: 10000, pubkey: "alice", created_at: 200 }));
+
+      expect(await store.query([{ kinds: [10000] }])).toEqual([old]);
+    });
+
+    it("the wipe forgets what was removed", async () => {
+      if (!("wipe" in db)) return; // IndexedDB's logout deletes the databases instead.
+      await db.forget(["gone"]);
+      await (db as unknown as { wipe(): Promise<void> }).wipe();
+      await db.tenant("t").event(rumor({ id: "gone" }));
+      expect((await db.tenant("t").query([{}])).map((r) => r.id)).toEqual(["gone"]);
+    });
+
+    it("refuses a write queued before the call", async () => {
+      const queued = db.tenant("t").event(rumor({ id: "racing" }));
+      await db.forget(["racing"]);
+      await queued;
+      expect(await db.tenant("t").query([{ ids: ["racing"] }])).toEqual([]);
+    });
+  });
+
   describe("kv", () => {
     it("returns undefined for a key that was never set", async () => {
       expect(await db.kv.get("missing")).toBeUndefined();

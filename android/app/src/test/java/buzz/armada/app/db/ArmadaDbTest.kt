@@ -290,6 +290,57 @@ class ArmadaDbTest {
         assertEquals(listOf("two"), db.query("b", filters("{}")).map { it.id })
     }
 
+    // ── forget (removed from this device) ─────────────────────────────────────
+
+    @Test
+    fun `forget deletes the id from every tenant and leaves the rest`() {
+        val db = open()
+        db.event("a", rumor(id = "gone"))
+        db.event("a", rumor(id = "kept"))
+        db.event("b", rumor(id = "gone"))
+
+        db.forget(listOf("gone"))
+
+        assertEquals(listOf("kept"), db.query("a", filters("{}")).map { it.id })
+        assertEquals(emptyList<String>(), db.query("b", filters("{}")).map { it.id })
+    }
+
+    @Test
+    fun `forget refuses the id afterwards in any tenant, in a batch and alone`() {
+        val db = open()
+        db.forget(listOf("gone"))
+        db.write(
+            listOf(
+                SqliteArmadaDb.Write("a", rumor(id = "gone")),
+                SqliteArmadaDb.Write("a", rumor(id = "other")),
+            ),
+        )
+        db.event("never-opened", rumor(id = "gone"))
+
+        assertEquals(listOf("other"), db.query("a", filters("{}")).map { it.id })
+        assertEquals(emptyList<String>(), db.query("never-opened", filters("{}")).map { it.id })
+    }
+
+    @Test
+    fun `a removed replaceable is refused without superseding the stored version`() {
+        val db = open()
+        db.event("t", rumor(id = "old", kind = 10000, pubkey = "alice", createdAt = 100))
+        db.forget(listOf("newer"))
+        db.event("t", rumor(id = "newer", kind = 10000, pubkey = "alice", createdAt = 200))
+
+        assertEquals(listOf("old"), db.query("t", filters("{\"kinds\":[10000]}")).map { it.id })
+    }
+
+    @Test
+    fun `the wipe forgets what was removed`() {
+        val db = open()
+        db.forget(listOf("gone"))
+        db.wipe()
+        db.event("t", rumor(id = "gone"))
+
+        assertEquals(listOf("gone"), db.query("t", filters("{}")).map { it.id })
+    }
+
     // ── NIP-09 deletion ───────────────────────────────────────────────────────
 
     @Test

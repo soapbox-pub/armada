@@ -167,6 +167,7 @@ class SqliteArmadaDb(
                 db.run("DELETE FROM rumor_terms")
                 db.run("DELETE FROM rumor_term_tenants")
                 db.run("DELETE FROM tenants")
+                db.run("DELETE FROM removed_rumors")
                 db.run("DELETE FROM kv")
             }
             // Interned ids are reallocated from scratch after this, so a
@@ -263,6 +264,10 @@ class SqliteArmadaDb(
         val ord = internTenant(tenant)
         val prefix = "t$ord"
         val terms = termsOf(rumor, tenant)
+
+        // Before anything below can supersede or delete on a removed rumor's behalf.
+        val removed = db.query("SELECT 1 FROM removed_rumors WHERE id = ?", listOf(rumor.id)) { true }
+        if (removed.isNotEmpty()) return
 
         if (Kinds.replaceable(rumor.kind) || Kinds.addressable(rumor.kind)) {
             val coord = coordOf(rumor)
@@ -364,16 +369,19 @@ class SqliteArmadaDb(
         // otherwise reserve a rowid and collide on the unique index.
         if (batch.staged(ord, rumor.id)) return null
 
+        // A removed id (see [forget]) answers like a stored one, in the same lookup.
         val row = db.query(
             """SELECT (SELECT seq FROM rumors WHERE tenant = ? AND id = ?) AS existing,
+                (SELECT 1 FROM removed_rumors WHERE id = ?) AS removed,
                 (SELECT MAX(seq) FROM rumors WHERE seq >= ? AND seq < ?) AS last""".collapseWhitespace(),
-            listOf(ord, rumor.id, base, base + SEQ_SPACE),
-        ) { Pair(it.longOrNull(0), it.longOrNull(1)) }.firstOrNull()
+            listOf(ord, rumor.id, rumor.id, base, base + SEQ_SPACE),
+        ) { Triple(it.longOrNull(0), it.longOrNull(1), it.longOrNull(2)) }.firstOrNull()
 
         // Already stored: a re-delivered rumor is a no-op.
         if (row?.first != null) return null
+        if (row?.second != null) return null
 
-        val stored = row?.second
+        val stored = row?.third
         val seq = maxOf(stored ?: (base - 1), batch.lastSeq(base) ?: (base - 1)) + 1
 
         // One second may hold 2²⁰ rumors. Anything that manages more of them at
@@ -1491,6 +1499,39 @@ class SqliteArmadaDb(
         }
 
         Count(query(tenant, filters).size.toLong())
+    }
+
+    /**
+     * Remove rumors from this device: delete them from every tenant and refuse
+     * them in any tenant from now on, whichever writer delivers them. The
+     * tombstones land first, in the same transaction. Mirrors `SqliteArmadaDB.forget`.
+     */
+    fun forget(ids: List<String>) = lock.withLock {
+        val unique = ids.filter { it.isNotEmpty() }.distinct()
+        if (unique.isEmpty()) return@withLock
+
+        transaction {
+            for (chunk in Sql.batch(unique, MAX_PARAMS)) {
+                db.run(
+                    "INSERT OR IGNORE INTO removed_rumors (id) VALUES ${chunk.joinToString(", ") { "(?)" }}",
+                    chunk,
+                )
+            }
+            // `rumors_id` is (tenant, id): one probe per tenant, not a table scan.
+            val ords = db.query("SELECT ord FROM tenants") { it.long(0).toInt() }
+            for (ord in ords) {
+                val seqs = ArrayList<Long>()
+                for (chunk in Sql.batch(unique, MAX_PARAMS - 1)) {
+                    seqs.addAll(
+                        db.query(
+                            "SELECT seq FROM rumors WHERE tenant = ? AND ${Sql.memberOf("id", chunk)}",
+                            listOf(ord) + chunk,
+                        ) { it.long(0) },
+                    )
+                }
+                deleteRumors(ord, seqs)
+            }
+        }
     }
 
     /** Remove every rumor in [tenant] matching the filters. */

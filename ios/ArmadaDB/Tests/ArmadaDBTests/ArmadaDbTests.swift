@@ -376,6 +376,67 @@ final class ArmadaDbTests: XCTestCase {
         XCTAssertEqual(try db.query(tenant: "b", filters: filters("{}")).map { $0.id }, ["two"])
     }
 
+    // MARK: - forget (removed from this device)
+
+    func testForgetDeletesTheIdFromEveryTenantAndLeavesTheRest() throws {
+        let db = try open()
+        try db.event(tenant: "a", rumor: try rumor(id: "gone"))
+        try db.event(tenant: "a", rumor: try rumor(id: "kept"))
+        try db.event(tenant: "b", rumor: try rumor(id: "gone"))
+
+        try db.forget(ids: ["gone"])
+
+        XCTAssertEqual(try db.query(tenant: "a", filters: filters("{}")).map { $0.id }, ["kept"])
+        XCTAssertEqual(try db.query(tenant: "b", filters: filters("{}")).map { $0.id }, [])
+    }
+
+    func testForgetRefusesTheIdAfterwardsInAnyTenantInABatchAndAlone() throws {
+        let db = try open()
+        try db.forget(ids: ["gone"])
+        try db.write([
+            SqliteArmadaDb.Write(tenant: "a", rumor: try rumor(id: "gone")),
+            SqliteArmadaDb.Write(tenant: "a", rumor: try rumor(id: "other")),
+        ])
+        try db.event(tenant: "never-opened", rumor: try rumor(id: "gone"))
+
+        XCTAssertEqual(try db.query(tenant: "a", filters: filters("{}")).map { $0.id }, ["other"])
+        XCTAssertEqual(try db.query(tenant: "never-opened", filters: filters("{}")).map { $0.id }, [])
+    }
+
+    func testARemovedReplaceableIsRefusedWithoutSupersedingTheStoredVersion() throws {
+        let db = try open()
+        try db.event(
+            tenant: "t",
+            rumor: try rumor(id: "old", pubkey: "alice", createdAt: 100, kind: 10000)
+        )
+        try db.forget(ids: ["newer"])
+        try db.event(
+            tenant: "t",
+            rumor: try rumor(id: "newer", pubkey: "alice", createdAt: 200, kind: 10000)
+        )
+
+        XCTAssertEqual(
+            try db.query(tenant: "t", filters: filters(#"{"kinds":[10000]}"#)).map { $0.id }, ["old"]
+        )
+    }
+
+    func testTheWipeForgetsWhatWasRemoved() throws {
+        let db = try open()
+        try db.forget(ids: ["gone"])
+        try db.wipe()
+        try db.event(tenant: "t", rumor: try rumor(id: "gone"))
+
+        XCTAssertEqual(try db.query(tenant: "t", filters: filters("{}")).map { $0.id }, ["gone"])
+    }
+
+    func testTheBridgeForgetsAJsonArrayOfIds() throws {
+        let db = try open()
+        try db.event(tenant: "t", rumor: try rumor(id: "gone"))
+        try ArmadaDbBridge(db: db).forget(ids: #"["gone"]"#)
+
+        XCTAssertEqual(try db.query(tenant: "t", filters: filters("{}")).map { $0.id }, [])
+    }
+
     // MARK: - NIP-09 deletion
 
     func testAKind5DeletesTheAuthorsOwnTargetedRumor() throws {

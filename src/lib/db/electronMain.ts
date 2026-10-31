@@ -164,6 +164,10 @@ export function openArmadaDbServer(file: string): ArmadaDbServer {
     async wipe() {
       await db.wipe();
     },
+
+    async forget({ ids }) {
+      await db.forget(JSON.parse(String(ids)) as string[]);
+    },
   };
 
   return {

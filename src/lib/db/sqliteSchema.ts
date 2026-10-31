@@ -26,6 +26,8 @@
  *                  per-tenant backfill marker with policy generation
  *                  (`SqliteArmadaDB.backfillTerms`).
  *   rumor_coords   replaceable/addressable coordinate → current rumor.
+ *   removed_rumors ids removed from this device ({@link ArmadaDB.forget}): no
+ *                  tenant stores one again, whichever writer delivers it.
  *   kv             {@link ArmadaKV}: JSON text by key.
  *
  * REQUIRES FTS5 ≥ 3.43 (contentless deletes). Native
@@ -38,6 +40,9 @@
  *   2  adds `rumor_terms` and `rumor_term_tenants` (with generation; see
  *      {@link TenantOpts.termsGeneration}). Creating them empty is the whole
  *      migration — the per-tenant backfill builds the cache.
+ *
+ * `removed_rumors` came later WITHOUT a bump: it is additive and created on
+ * every open, and the Swift port refuses a file of a newer version.
  */
 export const ARMADA_DB_VERSION = 2;
 
@@ -113,6 +118,10 @@ export const ARMADA_DB_SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS rumor_term_tenants (
     tenant INTEGER PRIMARY KEY,
     generation INTEGER NOT NULL
+  ) WITHOUT ROWID`,
+  // Across tenants: a removed message is refused wherever it would land.
+  `CREATE TABLE IF NOT EXISTS removed_rumors (
+    id TEXT PRIMARY KEY
   ) WITHOUT ROWID`,
 ];
 

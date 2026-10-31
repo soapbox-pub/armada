@@ -59,6 +59,8 @@ export interface ArmadaDBPlugin {
   kvOps(options: { ops: string }): Promise<{ results: string }>;
   /** Empty every table (logout purge). The file and its schema survive. */
   wipe(): Promise<void>;
+  /** `ArmadaDB.forget`: `ids` is a JSON array string. */
+  forget(options: { ids: string }): Promise<void>;
 }
 
 let bridge: ArmadaDBPlugin | undefined;
@@ -109,6 +111,12 @@ export class NativeArmadaDB implements ArmadaDB {
   async tenantIds(): Promise<string[]> {
     const { tenants } = await this.bridge.tenants();
     return JSON.parse(tenants) as string[];
+  }
+
+  /** A write still queued here crosses after this and is refused natively. */
+  async forget(ids: readonly string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await perfTime("db.forget", () => this.bridge.forget({ ids: JSON.stringify([...ids]) }));
   }
 
   /** Empty every table. Unlike the IndexedDB purge this keeps the connection. */

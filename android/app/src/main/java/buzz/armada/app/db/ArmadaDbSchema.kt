@@ -40,6 +40,9 @@ internal object ArmadaDbSchema {
      * only thing that can build it is the per-tenant backfill — which is gated
      * on `rumor_term_tenants` and so is indifferent to the version the file
      * arrived from. Creating the two tables empty is the whole migration.
+     *
+     * `removed_rumors` came later WITHOUT a bump: additive and created on every
+     * open, while a bump would make an older iOS build refuse the file.
      */
     const val VERSION = 2L
 
@@ -149,6 +152,11 @@ internal object ArmadaDbSchema {
         """CREATE TABLE IF NOT EXISTS rumor_term_tenants (
             tenant INTEGER PRIMARY KEY,
             generation INTEGER NOT NULL
+        ) WITHOUT ROWID""",
+        // Ids removed from this device (`forget`), across tenants: refused
+        // wherever they would land, by the WebView and this service alike.
+        """CREATE TABLE IF NOT EXISTS removed_rumors (
+            id TEXT PRIMARY KEY
         ) WITHOUT ROWID""",
     )
 

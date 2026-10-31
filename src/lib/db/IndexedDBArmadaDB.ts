@@ -292,6 +292,8 @@ class IndexedDBRumorStore implements NRumorStore {
     indexTags: (rumor: NostrRumor) => string[][],
     label: string,
     private readonly tenantId: string,
+    /** Which of these ids were removed from this device (`ArmadaDB.forget`). */
+    private readonly removedAmong: (ids: string[]) => Promise<Set<string>> = async () => new Set(),
   ) {
     // Terms ride in the ordinary tag index under the reserved `TERM_TAG` (the
     // only hook `NIndexedDB` offers); `defaultIndexTags` refuses that name from senders.
@@ -612,6 +614,15 @@ class IndexedDBRumorStore implements NRumorStore {
     }
   >();
   private gateScheduled = false;
+  /** The scheduled gate pass, and writes it started that haven't committed (see {@link quiesce}). */
+  private gateTask: Promise<void> = Promise.resolve();
+  private readonly inflight = new Set<Promise<unknown>>();
+
+  /** Settle once every write accepted so far has committed or been refused. */
+  async quiesce(): Promise<void> {
+    await this.gateTask;
+    await Promise.allSettled([...this.inflight]);
+  }
 
   event(event: NostrRumor, opts?: { signal?: AbortSignal }): Promise<void> {
     // A re-write of an id can store nothing new. `written` covers this session;
@@ -631,7 +642,9 @@ class IndexedDBRumorStore implements NRumorStore {
       if (!this.gateScheduled) {
         this.gateScheduled = true;
         // One macrotask captures a synchronous burst for one readonly check.
-        setTimeout(() => void this.flushGate(), 0);
+        this.gateTask = new Promise<void>((done) => {
+          setTimeout(() => void this.flushGate().finally(done), 0);
+        });
       }
     });
   }
@@ -648,18 +661,31 @@ class IndexedDBRumorStore implements NRumorStore {
     if (batch.size === 0) return;
 
     let existing = new Set<string>();
+    let removed = new Set<string>();
     try {
-      const rows = await perfTime(
+      const [rows, refused] = await perfTime(
         this.op("precheck"),
-        () => this.settled(this.store.query([{ ids: [...batch.keys()] }])),
-        (found) => found.length,
+        () => Promise.all([
+          this.settled(this.store.query([{ ids: [...batch.keys()] }])),
+          // Read per batch, not cached: the page and the service worker both write here.
+          this.removedAmong([...batch.keys()]),
+        ]),
+        ([found]) => found.length,
       );
       existing = new Set(rows.map((row) => row.id));
+      removed = refused;
     } catch {
       // Unanswerable: treat every row as missing.
     }
 
+    const writes: Array<{ id: string; write: Promise<void> }> = [];
     for (const [id, entry] of batch) {
+      // Removed from this device: refused like a stored row, and not remembered
+      // as written (it isn't).
+      if (removed.has(id)) {
+        for (const settler of entry.settlers) settler.resolve();
+        continue;
+      }
       if (existing.has(id)) {
         this.written.add(id);
         perfCount(`db.write ${this.label} (on disk)`, 0, 1, "events");
@@ -669,11 +695,14 @@ class IndexedDBRumorStore implements NRumorStore {
       // Counts index entries: every tag <20 chars is indexed (multiEntry), so
       // one event can be hundreds of index rows.
       perfCount("db.index entries", 0, this.indexTags(entry.rumor).length, "entries");
-      void perfTime(this.op("write"), async () => {
+      const write = perfTime(this.op("write"), async () => {
         await this.settled(this.store.event(toEvent(entry.rumor), entry.opts));
         // After the commit: callers treat resolution as durable (parked-wrap ACKs).
         this.written.add(id);
-      }).then(
+      });
+      this.inflight.add(write);
+      void write.finally(() => this.inflight.delete(write)).catch(() => undefined);
+      void write.then(
         () => {
           for (const settler of entry.settlers) settler.resolve();
         },
@@ -681,7 +710,25 @@ class IndexedDBRumorStore implements NRumorStore {
           for (const settler of entry.settlers) settler.reject(error);
         },
       );
+      writes.push({ id, write });
     }
+    if (writes.length > 0) this.sweepRemoved(writes);
+  }
+
+  /**
+   * Another context can `forget` an id between this batch's precheck and commit,
+   * missing our row. Its tombstone lands before its delete, so re-reading the
+   * tombstones after our commit catches what it missed.
+   */
+  private sweepRemoved(writes: Array<{ id: string; write: Promise<void> }>): void {
+    const sweep = (async () => {
+      await Promise.allSettled(writes.map(({ write }) => write));
+      const removed = await this.removedAmong(writes.map(({ id }) => id));
+      if (removed.size === 0) return;
+      await this.remove([{ ids: [...removed] }]);
+    })().catch(() => undefined);
+    this.inflight.add(sweep);
+    void sweep.finally(() => this.inflight.delete(sweep));
   }
 
   async count(
@@ -745,10 +792,18 @@ interface KVSchema extends DBSchema {
   /**
    * Tenant ids whose rows have been backfilled, valued by term-policy
    * GENERATION (a legacy `true` matches none, re-running once). SQLite's
-   * equivalent is `rumor_term_tenants`.
+   * equivalent is `rumor_term_tenants`. Also holds the removed-id tombstones
+   * under {@link REMOVED_KEY}, read only by exact key like the generations.
    */
   termed: { key: string; value: number | true };
 }
+
+/**
+ * Tombstone key for a removed id (SQLite's `removed_rumors`). In an existing store:
+ * a new one needs a version bump, which an older tab can block for good. The NUL
+ * keeps it clear of tenant ids.
+ */
+const REMOVED_KEY = (id: string) => `\u0000removed:${id}`;
 
 /**
  * IndexedDB store-layout version for this KV database; bump when {@link KVSchema}
@@ -772,16 +827,29 @@ class IndexedDBKV implements ArmadaKV {
     if (typeof indexedDB === "undefined") return null;
     try {
       // Every KV read queues behind the cold open.
-      return await perfTime("db.open kv", () =>
-        openDB<KVSchema>(name, KV_DB_VERSION, {
-          upgrade(db) {
-            // Idempotent across upgrades.
-            if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
-            if (!db.objectStoreNames.contains("tenants")) db.createObjectStore("tenants");
-            if (!db.objectStoreNames.contains("termed")) db.createObjectStore("termed");
-          },
-        }),
-      );
+      const callbacks = {
+        upgrade(db: IDBPDatabase<KVSchema>) {
+          // Idempotent across upgrades.
+          if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+          if (!db.objectStoreNames.contains("tenants")) db.createObjectStore("tenants");
+          if (!db.objectStoreNames.contains("termed")) db.createObjectStore("termed");
+        },
+        blocking(_current: number, _blocked: number | null, event: IDBVersionChangeEvent) {
+          // A newer build's upgrade waits on every open connection: release ours,
+          // or every KV read in that tab queues behind it forever.
+          (event.target as IDBDatabase | null)?.close();
+        },
+      };
+      return await perfTime("db.open kv", async () => {
+        try {
+          return await openDB<KVSchema>(name, KV_DB_VERSION, callbacks);
+        } catch (error) {
+          // Already at a later layout (a newer build ran here): open it as it is,
+          // since every layout keeps the stores this one reads.
+          if (!(error instanceof DOMException && error.name === "VersionError")) throw error;
+          return await openDB<KVSchema>(name, undefined, { blocking: callbacks.blocking });
+        }
+      });
     } catch {
       return null;
     }
@@ -818,6 +886,28 @@ class IndexedDBKV implements ArmadaKV {
       await db?.put("termed", generation, id);
     } catch {
       // The pass simply runs again next boot.
+    }
+  }
+
+  /** Record removed ids; rejects if they couldn't be (the caller must know). */
+  async addRemoved(ids: readonly string[]): Promise<void> {
+    const db = await this.db;
+    if (!db) return;
+    const tx = db.transaction("termed", "readwrite");
+    await Promise.all([...ids.map((id) => tx.store.put(true, REMOVED_KEY(id))), tx.done]);
+  }
+
+  /** Which of `ids` were removed. Unanswerable counts as none, like the precheck. */
+  async removedAmong(ids: readonly string[]): Promise<Set<string>> {
+    try {
+      const db = await this.db;
+      if (!db || ids.length === 0) return new Set();
+      const tx = db.transaction("termed", "readonly");
+      const hits = await Promise.all(ids.map((id) => tx.store.getKey(REMOVED_KEY(id))));
+      await tx.done;
+      return new Set(ids.filter((_, i) => hits[i] !== undefined));
+    } catch {
+      return new Set();
     }
   }
 
@@ -1011,6 +1101,7 @@ export class IndexedDBArmadaDB implements ArmadaDB {
         this.indexTags,
         tenantClass(id),
         id,
+        (ids) => this.kv.removedAmong(ids),
       );
       this.stores.set(id, store);
       // Registered on open: an empty tenant still has a database to purge.
@@ -1024,6 +1115,18 @@ export class IndexedDBArmadaDB implements ArmadaDB {
       );
     }
     return store;
+  }
+
+  /** See {@link ArmadaDB.forget}. The tombstones land before any row is deleted. */
+  async forget(ids: readonly string[]): Promise<void> {
+    const unique = [...new Set(ids)].filter((id) => typeof id === "string" && id !== "");
+    if (unique.length === 0) return;
+    await this.kv.addRemoved(unique);
+    // A write that passed its precheck before the tombstones landed commits
+    // first, so the delete below catches it.
+    await Promise.all([...this.stores.values()].map((store) => store.quiesce()));
+    const tenants = await this.tenantIds();
+    await Promise.all(tenants.map((id) => this.tenant(id).remove([{ ids: unique }])));
   }
 
   /** Every tenant id with a database: registry plus opened-this-session. */

@@ -184,6 +184,21 @@ class ArmadaDbPlugin : Plugin() {
         }
     }
 
+    /** Remove rumors from this device for good (`ArmadaDB.forget`); `ids` is a JSON array. */
+    @PluginMethod
+    fun forget(call: PluginCall) = onDbThread { profiled(call, "forget") { forgetNow(call) } }
+
+    private fun forgetNow(call: PluginCall) {
+        val ids = call.getString("ids") ?: return call.reject("ids is required")
+        try {
+            val array = JSONArray(ids)
+            db.forget((0 until array.length()).map { array.getString(it) })
+            call.resolve()
+        } catch (error: Exception) {
+            call.reject(error.message, error)
+        }
+    }
+
     /** Every tenant that has ever been written to (the logout purge reads this). */
     @PluginMethod
     fun tenants(call: PluginCall) = onDbThread { profiled(call, "tenants") { tenantsNow(call) } }

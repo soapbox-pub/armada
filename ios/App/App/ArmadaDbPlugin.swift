@@ -37,6 +37,7 @@ public class ArmadaDbPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "kvList", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "kvOps", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "wipe", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "forget", returnType: CAPPluginReturnPromise),
     ]
 
     /// The store, opened on first use.
@@ -127,6 +128,19 @@ public class ArmadaDbPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// Empty every table (logout purge). The file and its schema survive.
+    @objc func forget(_ call: CAPPluginCall) {
+        guard let ids = call.getString("ids") else {
+            return call.reject("ids is required")
+        }
+
+        do {
+            try db().forget(ids: ids)
+            call.resolve()
+        } catch {
+            call.reject("\(error)")
+        }
+    }
+
     @objc func wipe(_ call: CAPPluginCall) {
         do {
             try db().wipe()

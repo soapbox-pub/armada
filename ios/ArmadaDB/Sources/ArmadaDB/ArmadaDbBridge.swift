@@ -97,6 +97,14 @@ public final class ArmadaDbBridge {
         try db.wipe()
     }
 
+    /// Remove rumors from this device for good (`ArmadaDB.forget`); `ids` is a JSON array.
+    public func forget(ids: String) throws {
+        guard let array = try JSONSerialization.jsonObject(with: Data(ids.utf8)) as? [Any] else {
+            throw ArmadaDbError.unusable("ids must be a JSON array")
+        }
+        try db.forget(ids: array.compactMap { $0 as? String })
+    }
+
     // MARK: - KV
     //
     // Values cross as the JSON text the WebView serialized. Nothing here parses

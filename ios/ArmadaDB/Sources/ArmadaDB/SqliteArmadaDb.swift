@@ -218,6 +218,7 @@ public final class SqliteArmadaDb {
             try db.run("DELETE FROM rumor_terms")
             try db.run("DELETE FROM rumor_term_tenants")
             try db.run("DELETE FROM tenants")
+            try db.run("DELETE FROM removed_rumors")
             try db.run("DELETE FROM kv")
         }
         // Interned ids are reallocated from scratch after this, so a remembered
@@ -313,6 +314,12 @@ public final class SqliteArmadaDb {
         let ord = try internTenant(tenant)
         let prefix = "t\(ord)"
         let terms = termsOf(rumor, tenant)
+
+        // Before anything below can supersede or delete on a removed rumor's behalf.
+        let removed = try db.query(
+            "SELECT 1 FROM removed_rumors WHERE id = ?", [.text(rumor.id)]
+        ) { $0.int(0) }
+        if !removed.isEmpty { return }
 
         if Kinds.replaceable(rumor.kind) || Kinds.addressable(rumor.kind) {
             let coord = Self.coordOf(rumor)
@@ -419,18 +426,21 @@ public final class SqliteArmadaDb {
         // otherwise reserve a rowid and collide on the unique index.
         if batch.staged(ord, rumor.id) { return nil }
 
+        // A removed id (see `forget`) answers like a stored one, in the same lookup.
         let row = try db.query(
             """
             SELECT (SELECT seq FROM rumors WHERE tenant = ? AND id = ?) AS existing,
+                (SELECT 1 FROM removed_rumors WHERE id = ?) AS removed,
                 (SELECT MAX(seq) FROM rumors WHERE seq >= ? AND seq < ?) AS last
             """.collapsedWhitespace,
-            [.int(Int64(ord)), .text(rumor.id), .int(base), .int(base + Self.seqSpace)]
-        ) { ($0.intOrNull(0), $0.intOrNull(1)) }.first
+            [.int(Int64(ord)), .text(rumor.id), .text(rumor.id), .int(base), .int(base + Self.seqSpace)]
+        ) { ($0.intOrNull(0), $0.intOrNull(1), $0.intOrNull(2)) }.first
 
         // Already stored: a re-delivered rumor is a no-op.
         if row?.0 != nil { return nil }
+        if row?.1 != nil { return nil }
 
-        let stored = row?.1 ?? base - 1
+        let stored = row?.2 ?? base - 1
         let seq = Swift.max(stored, batch.lastSeq(base) ?? base - 1) + 1
 
         // One second may hold 2²⁰ rumors. Anything that manages more of them at
@@ -1621,6 +1631,41 @@ public final class SqliteArmadaDb {
     }
 
     /// Remove every rumor in `tenant` matching the filters.
+    /// Remove rumors from this device: delete them from every tenant and refuse
+    /// them in any tenant from now on, whichever writer delivers them. The
+    /// tombstones land first, in the same transaction. Mirrors `SqliteArmadaDB.forget`.
+    public func forget(ids: [String]) throws {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var seen = Set<String>()
+        let unique = ids.filter { !$0.isEmpty && seen.insert($0).inserted }
+        if unique.isEmpty { return }
+
+        try transaction {
+            for chunk in Sql.batch(unique, Self.maxParams) {
+                try db.run(
+                    "INSERT OR IGNORE INTO removed_rumors (id) VALUES \(chunk.map { _ in "(?)" }.joined(separator: ", "))",
+                    chunk.map { SqlValue.text($0) }
+                )
+            }
+            // `rumors_id` is (tenant, id): one probe per tenant, not a table scan.
+            let ords = try db.query("SELECT ord FROM tenants") { Int($0.int(0)) }
+            for ord in ords {
+                var seqs = [Int64]()
+                for chunk in Sql.batch(unique, Self.maxParams - 1) {
+                    seqs.append(
+                        contentsOf: try db.query(
+                            "SELECT seq FROM rumors WHERE tenant = ? AND \(Sql.memberOf("id", chunk.count))",
+                            [.int(Int64(ord))] + chunk.map { SqlValue.text($0) }
+                        ) { $0.int(0) }
+                    )
+                }
+                try deleteRumors(ord, seqs)
+            }
+        }
+    }
+
     public func remove(tenant: String, filters: [[String: Any]]) throws {
         lock.lock()
         defer { lock.unlock() }

@@ -127,6 +127,11 @@ export interface ArmadaDB {
   /** The event store for `id`, created on first use; same id → same store (writes batch). */
   tenant(id: string, opts?: TenantOpts): NRumorStore;
   kv: ArmadaKV;
+  /**
+   * Delete rumors from every tenant and refuse them from now on, whichever writer
+   * delivers them (the Android service and iOS extension share the engine).
+   */
+  forget(ids: readonly string[]): Promise<void>;
 }
 
 export interface ArmadaDBOpts {

@@ -271,6 +271,7 @@ export class SqliteArmadaDB implements ArmadaDB {
       await this.run(`DELETE FROM rumor_terms`);
       await this.run(`DELETE FROM rumor_term_tenants`);
       await this.run(`DELETE FROM tenants`);
+      await this.run(`DELETE FROM removed_rumors`);
       await this.run(`DELETE FROM kv`);
     });
 
@@ -366,6 +367,10 @@ export class SqliteArmadaDB implements ArmadaDB {
     const terms = this.termsOf(tenant, rumor);
     let seq: number | undefined;
 
+    // Before anything below can supersede or delete on a removed rumor's behalf.
+    const [removed] = await this.all(`SELECT 1 AS hit FROM removed_rumors WHERE id = ?`, [rumor.id]);
+    if (removed) return;
+
     if (NKinds.replaceable(rumor.kind) || NKinds.addressable(rumor.kind)) {
       const coord = getCoord(rumor);
 
@@ -457,13 +462,16 @@ export class SqliteArmadaDB implements ArmadaDB {
     // Same id twice in one burst would collide on the unique index.
     if (batch.staged(ord, rumor.id)) return undefined;
 
+    // A removed id (see `forget`) answers like a stored one, in the same lookup.
     const [row] = await this.all(
       `SELECT (SELECT seq FROM rumors WHERE tenant = ? AND id = ?) AS existing,
+        (SELECT 1 FROM removed_rumors WHERE id = ?) AS removed,
         (SELECT MAX(seq) FROM rumors WHERE seq >= ? AND seq < ?) AS last`,
-      [ord, rumor.id, base, base + SEQ_SPACE],
+      [ord, rumor.id, rumor.id, base, base + SEQ_SPACE],
     );
 
     if (row?.existing !== null && row?.existing !== undefined) return undefined;
+    if (row?.removed !== null && row?.removed !== undefined) return undefined;
 
     const stored = row?.last === null || row?.last === undefined ? undefined : Number(row.last);
     const seq = Math.max(stored ?? base - 1, batch.lastSeq(base) ?? base - 1) + 1;
@@ -1350,6 +1358,38 @@ export class SqliteArmadaDB implements ArmadaDB {
       }
 
       await this.deleteRumors(ord, seqs);
+    });
+  }
+
+  /**
+   * Delete these rumors from every tenant and refuse them in any tenant from now
+   * on. The tombstone lands first in the same transaction, so a write queued
+   * before this call is refused too rather than racing it.
+   */
+  async forget(ids: readonly string[]): Promise<void> {
+    const unique = [...new Set(ids)].filter((id) => typeof id === "string" && id !== "");
+    if (unique.length === 0) return;
+    await this.ready;
+
+    await this.transaction(async () => {
+      for (const chunk of batch(unique, MAX_PARAMS)) {
+        await this.run(
+          `INSERT OR IGNORE INTO removed_rumors (id) VALUES ${chunk.map(() => "(?)").join(", ")}`,
+          chunk,
+        );
+      }
+      // `rumors_id` is (tenant, id): one probe per tenant, not a table scan.
+      for (const { ord } of await this.all(`SELECT ord FROM tenants`)) {
+        const seqs: number[] = [];
+        for (const chunk of batch(unique, MAX_PARAMS - 1)) {
+          const rows = await this.all(
+            `SELECT seq FROM rumors WHERE tenant = ? AND ${memberOf("id", chunk)}`,
+            [Number(ord), ...chunk],
+          );
+          for (const row of rows) seqs.push(Number(row.seq));
+        }
+        await this.deleteRumors(Number(ord), seqs);
+      }
     });
   }
 

@@ -47,6 +47,10 @@ enum ArmadaDbSchema {
     /// gated on `rumor_term_tenants` and so is indifferent to which version the
     /// file arrived at it from. Creating the two tables empty is the whole
     /// migration.
+    ///
+    /// `removed_rumors` came later WITHOUT a bump: it is additive and created on
+    /// every open, and a bump would make an older build refuse the file (above),
+    /// where one that ignores the table merely stores what this one refuses.
     static let version: Int64 = 2
 
     /// The tables, indexes and triggers every ArmadaDB file has.
@@ -172,6 +176,13 @@ enum ArmadaDbSchema {
         CREATE TABLE IF NOT EXISTS rumor_term_tenants (
             tenant INTEGER PRIMARY KEY,
             generation INTEGER NOT NULL
+        ) WITHOUT ROWID
+        """,
+        // Ids removed from this device (`forget`), across tenants: refused
+        // wherever they would land, by the app and the notification extension alike.
+        """
+        CREATE TABLE IF NOT EXISTS removed_rumors (
+            id TEXT PRIMARY KEY
         ) WITHOUT ROWID
         """,
     ]
