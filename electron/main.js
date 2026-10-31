@@ -183,9 +183,15 @@ function installBundleIpc() {
 
   // The renderer asks on mount too, since the check can finish before it
   // subscribes to armada:web-update-ready.
-  ipcMain.handle("armada:web-update-pending", () => pendingWebBundle !== null);
+  // A downloaded installer (electron-updater) is offered through the same toast.
+  ipcMain.handle("armada:web-update-pending", () => pendingWebBundle !== null || installerDownloaded);
   ipcMain.on("armada:web-update-restart", (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) return;
+    if (installerDownloaded) {
+      isQuitting = true;
+      autoUpdater.quitAndInstall(false, true);
+      return;
+    }
     if (pendingWebBundle === null) return;
     isQuitting = true;
     app.relaunch();
@@ -353,6 +359,8 @@ let macSelfUpdateEligible;
 let updateCheckTimer = null;
 // Id of a web bundle installed this run and awaiting a restart to activate.
 let pendingWebBundle = null;
+// electron-updater has an installer staged; it also installs on quit.
+let installerDownloaded = false;
 const pushToTalk = new PushToTalkController({
   platform: process.platform,
   env: process.env,
@@ -1062,7 +1070,15 @@ function installElectronUpdater() {
   });
 
   autoUpdater.on("update-downloaded", async (info) => {
+    installerDownloaded = true;
+    const wasManual = manualUpdateCheck;
     manualUpdateCheck = false;
+    // An unprompted check must not raise a modal: on Windows it takes focus from
+    // whatever app the user is in. The in-app toast offers the restart instead.
+    if (!wasManual) {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("armada:web-update-ready");
+      return;
+    }
     const { response } = await showUpdateMessage({
       type: "info",
       title: "Armada update ready",
