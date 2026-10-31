@@ -71,3 +71,26 @@ describe("ChatContent image previews", () => {
     expect(srcs(container)).toEqual([IMAGE]);
   });
 });
+
+describe("ChatContent unsized images", () => {
+  it("takes the image's own shape once it loads, rather than keeping the 4:3 placeholder", () => {
+    const url = "https://example.com/" + "d".repeat(16) + ".png";
+    const id = String(++seq).padStart(64, "0");
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <ChatContent event={{ id, pubkey: "c".repeat(64), created_at: 1700000000, kind: 9, tags: [], content: `look ${url} here` }} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const img = container.querySelector("img")!;
+    const box = img.parentElement!;
+    expect(box.style.aspectRatio).toBe("4 / 3");
+
+    Object.defineProperty(img, "naturalWidth", { value: 1000, configurable: true });
+    Object.defineProperty(img, "naturalHeight", { value: 250, configurable: true });
+    fireEvent.load(img);
+
+    expect(box.style.aspectRatio).toBe("1000 / 250");
+  });
+});

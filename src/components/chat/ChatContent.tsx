@@ -1873,8 +1873,9 @@ function InlineImage({
 }) {
   const [loaded, setLoaded] = useState(false);
   const [revealed, setRevealed] = useState(false);
-  // A remembered size is read once: switching layout mode on load would itself move rows.
-  const [knownDim] = useState(() => seenImageDim(image.url));
+  // A size measured by any earlier load, then this one's: the timeline's resize
+  // anchoring keeps the reader's place when the box takes the image's shape.
+  const [knownDim, setKnownDim] = useState(() => seenImageDim(image.url));
   const { resolved, onError, failed, fallbackProps, getSrc } = useShownImage(image);
   const menu = useImageMenu(image, getSrc, onOpen, onActivate);
   const covered = image.spoiler && !revealed;
@@ -1884,10 +1885,10 @@ function InlineImage({
     return <MediaFallback {...fallbackProps} kind="image" />;
   }
 
-  // The box never changes on load, or rows move under the reader. A known `dim`
-  // reserves the exact final box; without one the image is fitted inside a fixed
-  // box. Widths are explicit: a button (and the card wrapper) shrink-to-fit, so a
-  // percentage width would collapse to the not-yet-loaded content, 0×0.
+  // A known `dim` reserves the exact final box; without one the image is fitted
+  // inside a fixed box until it loads and its own size is known. Widths are
+  // explicit: a button (and the card wrapper) shrink-to-fit, so a percentage
+  // width would collapse to the not-yet-loaded content, 0×0.
   const box = fitImageBox(image.dim ?? knownDim) ?? UNSIZED_IMAGE_BOX;
   const fitted = box === UNSIZED_IMAGE_BOX;
 
@@ -1930,7 +1931,9 @@ function InlineImage({
             onLoad={(e) => {
               setLoaded(true);
               captureLoadedMedia(resolved.src);
-              rememberImageDim(image.url, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight);
+              const { naturalWidth, naturalHeight } = e.currentTarget;
+              rememberImageDim(image.url, naturalWidth, naturalHeight);
+              if (fitted && naturalWidth && naturalHeight) setKnownDim(`${naturalWidth}x${naturalHeight}`);
             }}
             onError={onError}
           />
