@@ -36,7 +36,8 @@ export function ThemeBuilderFields({
         <div className="flex items-center gap-2">
           <span className="size-8 rounded-full" style={{ backgroundColor: `hsl(${tokens.primary})` }} />
           <div className="flex-1">
-            <div className="text-sm font-semibold">{title || <FormattedMessage id="themeBuilderFields.preview" defaultMessage="Preview" />}</div>
+            {/* Names in chat are drawn in Primary, so the sample's is too. */}
+            <div className="text-sm font-semibold" style={{ color: `hsl(${tokens.primary})` }}>{title || <FormattedMessage id="themeBuilderFields.preview" defaultMessage="Preview" />}</div>
             <div className="text-xs" style={{ color: `hsl(${tokens.mutedForeground})` }}>
               <FormattedMessage id="themeBuilderFields.sampleText" defaultMessage="The quick brown fox." />
             </div>

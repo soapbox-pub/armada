@@ -62,6 +62,8 @@ export default {
 			fontFamily: {
 				// `--theme-font` is the active theme's font (AppProvider's ThemeFontSync).
 				sans: ['var(--theme-font, "Inter Variable")', 'Inter Variable', 'Inter', 'system-ui', 'var(--emoji-fonts)', 'sans-serif'],
+				// Display names: the theme's name font, else the body font.
+				name: ['var(--theme-name-font, var(--theme-font, "Inter Variable"))', 'Inter Variable', 'Inter', 'system-ui', 'var(--emoji-fonts)', 'sans-serif'],
 				emoji: ['var(--emoji-fonts)', 'EmojiSymbols', 'sans-serif'],
 			},
 			colors: {

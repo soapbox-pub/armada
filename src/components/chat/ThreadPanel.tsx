@@ -383,7 +383,7 @@ export function ThreadMessage({
             <div className="min-w-0 flex flex-col justify-center">
               <div className="flex min-w-0 items-center gap-2">
                 <ProfilePreviewCard pubkey={event.pubkey}>
-                  <button type="button" className="text-chat font-semibold text-primary truncate text-left hover:underline focus:outline-none">
+                  <button type="button" className="text-chat font-name font-semibold text-primary truncate text-left hover:underline focus:outline-none">
                     <DisplayName pubkey={event.pubkey} name={displayName} />
                   </button>
                 </ProfilePreviewCard>
@@ -420,7 +420,7 @@ export function ThreadMessage({
         {!continuation && (
           <div className="flex items-baseline gap-2">
             <ProfilePreviewCard pubkey={event.pubkey}>
-              <button type="button" className="text-chat font-semibold text-primary truncate hover:underline focus:outline-none">
+              <button type="button" className="text-chat font-name font-semibold text-primary truncate hover:underline focus:outline-none">
                 <DisplayName pubkey={event.pubkey} name={displayName} />
               </button>
             </ProfilePreviewCard>

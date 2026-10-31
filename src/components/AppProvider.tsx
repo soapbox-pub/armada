@@ -188,19 +188,29 @@ function ThemeBackgroundSync({ config }: { config: AppConfig }) {
   return null;
 }
 
-/** Publish the active theme's body font as `--theme-font` (read by Tailwind's `font-sans`). */
+/**
+ * Publish the active theme's body font as `--theme-font` (read by Tailwind's
+ * `font-sans`) and its name font as `--theme-name-font` (read by `font-name`).
+ */
 function ThemeFontSync({ config }: { config: AppConfig }) {
-  const family = resolveTheme(config.theme) === "custom" ? config.customTheme?.font?.family : undefined;
+  const custom = resolveTheme(config.theme) === "custom" ? config.customTheme : undefined;
+  const family = custom?.font?.family;
+  const nameFamily = custom?.titleFont?.family;
 
+  useThemeFontProperty("--theme-font", family);
+  useThemeFontProperty("--theme-name-font", nameFamily);
+
+  return null;
+}
+
+function useThemeFontProperty(property: string, family: string | undefined) {
   useLayoutEffect(() => {
     const value = appThemeFont(family ? { family } : undefined);
     if (!value) return;
     const root = document.documentElement;
-    root.style.setProperty("--theme-font", value);
+    root.style.setProperty(property, value);
     return () => {
-      root.style.removeProperty("--theme-font");
+      root.style.removeProperty(property);
     };
-  }, [family]);
-
-  return null;
+  }, [property, family]);
 }

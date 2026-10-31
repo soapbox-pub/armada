@@ -283,7 +283,7 @@ export const MessageRow = memo(function MessageRow({
                 >
                   <button
                     type="button"
-                    className="text-chat font-semibold text-primary truncate min-w-0 inline-flex items-baseline gap-1 hover:underline focus:outline-none"
+                    className="text-chat font-name font-semibold text-primary truncate min-w-0 inline-flex items-baseline gap-1 hover:underline focus:outline-none"
                     style={color ? { color } : undefined}
                   >
                     <span className="truncate">{displayName}</span>
@@ -296,7 +296,7 @@ export const MessageRow = memo(function MessageRow({
                 </MeshProfilePreviewCard>
               ) : (
                 <span
-                  className="text-chat font-semibold text-primary truncate min-w-0 inline-flex items-baseline gap-1"
+                  className="text-chat font-name font-semibold text-primary truncate min-w-0 inline-flex items-baseline gap-1"
                   style={color ? { color } : undefined}
                 >
                   <span className="truncate">{displayName}</span>
@@ -311,7 +311,7 @@ export const MessageRow = memo(function MessageRow({
               <ProfilePreviewCard pubkey={pubkey}>
                 <button
                   type="button"
-                  className={cn("text-chat font-semibold text-primary truncate min-w-0 hover:underline focus:outline-none", !color && ultra?.name && ULTRA_NAME_CLASS)}
+                  className={cn("text-chat font-name font-semibold text-primary truncate min-w-0 hover:underline focus:outline-none", !color && ultra?.name && ULTRA_NAME_CLASS)}
                   style={color ? { color } : nameStyleCss(ultra?.name)}
                 >
                   <DisplayName pubkey={pubkey} name={displayName} tags={author.data?.event?.tags ?? NO_TAGS} />
