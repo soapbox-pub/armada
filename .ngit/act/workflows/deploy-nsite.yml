@@ -152,6 +152,11 @@ jobs:
         env:
           WEBXDC_RT_REQUIRED: "1"
 
+      # Spellcheck dictionaries for the desktop app (SPELL_DICTIONARY_URL in
+      # electron/main.js). Served from the site only: not in the web bundle.
+      - name: Fetch spellcheck dictionaries
+        run: scripts/fetch-spell-dictionaries.sh dist/dictionaries
+
       # The web bundle as one archive, served beside the site. The desktop
       # shell (electron/webBundleUpdate.js) reads its hash and servers from the
       # signed site manifest this deploy publishes, fetches it from Blossom,
@@ -163,7 +168,7 @@ jobs:
           set -eu
           mkdir -p dist/downloads
           tar -C dist --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
-            --exclude=./downloads -cf - . | gzip -n > dist/downloads/armada-web.tar.gz
+            --exclude=./downloads --exclude=./dictionaries -cf - . | gzip -n > dist/downloads/armada-web.tar.gz
           ls -l dist/downloads/armada-web.tar.gz
 
       - name: Publish to Blossom + relays

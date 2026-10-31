@@ -269,6 +269,7 @@ const DEV_URL = (() => {
   }
 })();
 const DEV_ORIGIN = DEV_URL ? new URL(DEV_URL).origin : "";
+const SPELL_DICTIONARY_URL = "https://armada.buzz/dictionaries/";
 const START_URL = DEV_URL || APP_START_URL;
 
 /**
@@ -1912,6 +1913,10 @@ if (!gotLock) {
       webRequest: session.defaultSession.webRequest,
       isPackaged: app.isPackaged,
     });
+    // Hunspell dictionaries (Windows/Linux) from our site, not Google's CDN.
+    // The deploy publishes them (scripts/fetch-spell-dictionaries.sh); a locale
+    // it lacks gets no spellcheck rather than a request to Google.
+    session.defaultSession.setSpellCheckerDictionaryDownloadURL(SPELL_DICTIONARY_URL);
     // Before createWindow(): these bind through `web-contents-created`, so
     // they have to be listening before the first webContents exists.
     installNavigationHandlers();

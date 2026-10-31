@@ -654,7 +654,10 @@ Things to know before touching it:
   which is why the Electron major is a storage dependency, not just a Chromium
   one: `node:sqlite` landed in Node 22.5, so Electron 33 (Node 20) could not
   host the store at all. Electron 43 is Node 24 / SQLite 3.53. Check both when
-  bumping, and don't drop below a major that has it.
+  bumping, and don't drop below a major that has it. A bump can also change the
+  spellcheck dictionary file versions Chromium asks for; re-pin
+  `scripts/fetch-spell-dictionaries.sh` when it does, or the desktop app's
+  Windows/Linux spellcheck goes quiet.
 - **The desktop store is the same TypeScript engine the tests run.**
   `src/lib/db/electronMain.ts` is bundled to `electron/db.cjs`
   (`vite.config.electron.ts`, `npm run build:electron-db`) and `require`d by
