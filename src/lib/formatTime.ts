@@ -68,22 +68,40 @@ export function relativeTime(timestamp: number): string {
 // toLocaleTimeString builds a new Intl.DateTimeFormat per call; every row calls this.
 let clockFormat: { locale: string; format: Intl.DateTimeFormat } | undefined;
 
+/**
+ * A unix-seconds timestamp as a Date, or undefined outside JS's date range: a
+ * sender sets `created_at`, and formatting an invalid Date throws RangeError.
+ */
+function validDate(timestamp: number): Date | undefined {
+  const date = new Date(timestamp * 1000);
+  return Number.isFinite(date.getTime()) ? date : undefined;
+}
+
+/** A `<time dateTime>` value; undefined for a timestamp no Date can hold. */
+export function isoDateTime(timestamp: number): string | undefined {
+  return validDate(timestamp)?.toISOString();
+}
+
 /** Format a unix-seconds timestamp as a short local clock time ("3:07 PM"). */
 export function shortClockTime(timestamp: number): string {
+  const date = validDate(timestamp);
+  if (!date) return "";
   const locale = getLocale();
   if (clockFormat?.locale !== locale) {
     clockFormat = { locale, format: new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }) };
   }
-  return clockFormat.format.format(new Date(timestamp * 1000));
+  return clockFormat.format.format(date);
 }
 
 let fullFormat: { locale: string; format: Intl.DateTimeFormat } | undefined;
 
 /** Full local date and time, for surfaces without day dividers. */
 export function fullDateTime(timestamp: number): string {
+  const date = validDate(timestamp);
+  if (!date) return "";
   const locale = getLocale();
   if (fullFormat?.locale !== locale) {
     fullFormat = { locale, format: new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }) };
   }
-  return fullFormat.format.format(new Date(timestamp * 1000));
+  return fullFormat.format.format(date);
 }

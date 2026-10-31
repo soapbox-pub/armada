@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { shortTimeAgo } from "./formatTime";
+import { fullDateTime, isoDateTime, shortClockTime, shortTimeAgo } from "./formatTime";
 
 const NOW = 1_700_000_000;
 const ago = (seconds: number) => shortTimeAgo(NOW - seconds);
@@ -42,5 +42,16 @@ describe("shortTimeAgo", () => {
 
   it("reads a clock skewed into the future as now", () => {
     expect(shortTimeAgo(NOW + DAY)).toBe("now");
+  });
+});
+
+describe("a sender's created_at past the Date range", () => {
+  // NIP-29 rows carry it unbounded; formatting an invalid Date throws RangeError.
+  it("formats as blank instead of throwing", () => {
+    const forged = 10_000_000_000_000;
+    expect(isoDateTime(forged)).toBeUndefined();
+    expect(fullDateTime(forged)).toBe("");
+    expect(shortClockTime(forged)).toBe("");
+    expect(isoDateTime(NOW)).toBe(new Date(NOW * 1000).toISOString());
   });
 });
