@@ -2564,6 +2564,7 @@
   "messageTimeline.flood.similarTitle": "Several accounts posted near-identical messages at once. Nothing was removed.",
   "messageTimeline.jumpToLatest": "Jump to the latest messages",
   "messageTimeline.jumpToPresent": "Jump to present",
+  "messageTimeline.jumpToUnread": "Jump to unread",
   "messageTimeline.keyRotated": "Key rotated",
   "messageTimeline.keyRotatedLabel": "Key rotated. Earlier messages use a previous key",
   "messageTimeline.keyRotatedTitle": "The community's encryption key was rotated here. Messages above were sealed under a previous key.",

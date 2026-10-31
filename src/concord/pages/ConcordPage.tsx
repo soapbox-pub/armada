@@ -1559,7 +1559,7 @@ function ConcordCommunityPage() {
       })),
     [mixedEntries],
   );
-  const newDividerId = useNewMessagesDivider(channel?.idHex ?? "", dividerEntries, user?.pubkey);
+  const newDividerId = useNewMessagesDivider(channel?.idHex ?? "", dividerEntries, user?.pubkey, baseTransport.hasMore);
   const openProjectItem = useCallback((item: ProjectWorkItem) => {
     const ticket = projects.ticketsById.get(item.id);
     if (!ticket) return;

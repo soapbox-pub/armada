@@ -2564,6 +2564,7 @@
   "messageTimeline.flood.similarTitle": "Plusieurs comptes ont publié des messages quasi identiques en même temps. Rien n’a été supprimé.",
   "messageTimeline.jumpToLatest": "Aller aux messages les plus récents",
   "messageTimeline.jumpToPresent": "Revenir au présent",
+  "messageTimeline.jumpToUnread": "Aller aux non lus",
   "messageTimeline.keyRotated": "Clé renouvelée",
   "messageTimeline.keyRotatedLabel": "Clé renouvelée. Les messages précédents utilisent une ancienne clé",
   "messageTimeline.keyRotatedTitle": "La clé de chiffrement de la communauté a été renouvelée ici. Les messages au-dessus ont été scellés avec une ancienne clé.",

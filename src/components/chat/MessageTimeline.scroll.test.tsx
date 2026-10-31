@@ -488,3 +488,61 @@ describe("MessageTimeline detached run", () => {
     expect(returnToPresent).toHaveBeenCalled();
   });
 });
+
+describe("MessageTimeline jump to unread", () => {
+  function mountWithDivider(dividerId: string) {
+    const messages = Array.from({ length: 100 }, (_, index) => message(index));
+    return render(
+      <MessageTimeline
+        transport={transportOf(messages)}
+        newDividerId={dividerId}
+        renderMessage={(msg) => <span data-event-id={msg.id}>chat:{msg.id}</span>}
+      />,
+    );
+  }
+
+  it("offers a jump to a NEW divider above the rendered window, and goes there", async () => {
+    mountWithDivider("m50");
+    const pill = await screen.findByRole("button", { name: "Jump to unread" });
+    expect(screen.queryByText("chat:m50")).toBeNull();
+
+    fireEvent.click(pill);
+
+    await screen.findByText("chat:m50");
+    expect(screen.queryByRole("button", { name: "Jump to unread" })).toBeNull();
+  });
+
+  it("goes to a divider that sits on a non-chat entry", async () => {
+    const messages = Array.from({ length: 100 }, (_, index) => message(index));
+    const entries = messages.map((msg) => ({ type: "chat", id: `chat:${msg.id}`, createdAt: msg.created_at, message: msg }));
+    // The first unread item is git activity, between m49 and m50.
+    entries.splice(50, 0, {
+      type: "git-ticket-opened",
+      id: "t1",
+      createdAt: messages[49].created_at,
+      activity: { id: "t1", ticket: { id: "t1", author: "t1", type: "issue" }, repository: { coordinate: "30617:x:repo" } },
+    } as never);
+    render(
+      <MessageTimeline
+        transport={transportOf(messages)}
+        entries={entries as never}
+        newDividerId="t1"
+        renderMessage={(msg) => <span data-event-id={msg.id}>chat:{msg.id}</span>}
+        renderEntry={(entry) => <span>git:{entry.id}</span>}
+      />,
+    );
+    const pill = await screen.findByRole("button", { name: "Jump to unread" });
+    expect(screen.queryByText("git:t1")).toBeNull();
+
+    fireEvent.click(pill);
+
+    await screen.findByText("git:t1");
+  });
+
+  it("offers nothing when the divider is already in view", async () => {
+    mountWithDivider("m98");
+    await screen.findByText("chat:m98");
+    await act(() => new Promise((resolve) => requestAnimationFrame(() => resolve(null))));
+    expect(screen.queryByRole("button", { name: "Jump to unread" })).toBeNull();
+  });
+});

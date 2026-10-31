@@ -2564,6 +2564,7 @@
   "messageTimeline.flood.similarTitle": "Meerdere accounts plaatsten tegelijk vrijwel identieke berichten. Er is niets verwijderd.",
   "messageTimeline.jumpToLatest": "Naar de nieuwste berichten",
   "messageTimeline.jumpToPresent": "Naar het heden",
+  "messageTimeline.jumpToUnread": "Naar ongelezen",
   "messageTimeline.keyRotated": "Sleutel geroteerd",
   "messageTimeline.keyRotatedLabel": "Sleutel geroteerd. Eerdere berichten gebruiken een vorige sleutel",
   "messageTimeline.keyRotatedTitle": "De versleutelingssleutel van de community is hier geroteerd. De berichten hierboven zijn verzegeld met een vorige sleutel.",

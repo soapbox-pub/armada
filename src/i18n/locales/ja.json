@@ -2564,6 +2564,7 @@
   "messageTimeline.flood.similarTitle": "複数のアカウントがほぼ同じメッセージを同時に投稿しました。削除されたものはありません。",
   "messageTimeline.jumpToLatest": "最新のメッセージへ移動",
   "messageTimeline.jumpToPresent": "現在へ移動",
+  "messageTimeline.jumpToUnread": "未読へ移動",
   "messageTimeline.keyRotated": "鍵をローテーションしました",
   "messageTimeline.keyRotatedLabel": "鍵をローテーションしました。これより前のメッセージは以前の鍵を使用しています",
   "messageTimeline.keyRotatedTitle": "ここでコミュニティの暗号鍵がローテーションされました。上のメッセージは以前の鍵で封印されています。",

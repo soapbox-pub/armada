@@ -2564,6 +2564,7 @@
   "messageTimeline.flood.similarTitle": "Mehrere Konten haben gleichzeitig fast identische Nachrichten gepostet. Nichts wurde entfernt.",
   "messageTimeline.jumpToLatest": "Zu den neuesten Nachrichten springen",
   "messageTimeline.jumpToPresent": "Zur Gegenwart springen",
+  "messageTimeline.jumpToUnread": "Zu ungelesenen springen",
   "messageTimeline.keyRotated": "Schlüssel rotiert",
   "messageTimeline.keyRotatedLabel": "Schlüssel rotiert. Frühere Nachrichten nutzen einen vorherigen Schlüssel",
   "messageTimeline.keyRotatedTitle": "Der Verschlüsselungsschlüssel der Community wurde hier rotiert. Die Nachrichten darüber wurden mit einem vorherigen Schlüssel versiegelt.",

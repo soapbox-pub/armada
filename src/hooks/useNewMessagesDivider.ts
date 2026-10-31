@@ -11,12 +11,15 @@ export interface ReadableTimelineEntry {
 /**
  * Where the "NEW" divider belongs: the oldest message after last read. The last-read stamp is
  * captured on the first render per `readKey` (before mark-read) and frozen for the visit. Own
- * messages never count.
+ * messages never count. While the loaded history starts after last read and `hasOlder` says
+ * more exists, the true first unread isn't loaded yet: the divider sits on the oldest loaded
+ * unread and moves back as older pages arrive, then freezes.
  */
 export function useNewMessagesDivider(
   readKey: string,
   messages: readonly ReadableTimelineEntry[],
   selfPubkey?: string,
+  hasOlder = false,
 ): string | undefined {
   const { getLastRead } = useReadState();
 
@@ -36,7 +39,8 @@ export function useNewMessagesDivider(
 
   // A never-read conversation shows no divider.
   if (!state.settled && messages.length > 0) {
-    state.settled = true;
+    const reachesLastRead = messages[0].createdAt <= state.lastRead;
+    state.settled = state.lastRead <= 0 || reachesLastRead || !hasOlder;
     if (state.lastRead > 0) {
       state.dividerId = messages.find(
         (m) => m.createdAt > state.lastRead && m.author !== selfPubkey,

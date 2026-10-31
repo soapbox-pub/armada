@@ -2564,6 +2564,7 @@
   "messageTimeline.flood.similarTitle": "Várias contas publicaram mensagens quase idênticas ao mesmo tempo. Nada foi removido.",
   "messageTimeline.jumpToLatest": "Ir para as mensagens mais recentes",
   "messageTimeline.jumpToPresent": "Ir para o presente",
+  "messageTimeline.jumpToUnread": "Ir para não lidas",
   "messageTimeline.keyRotated": "Chave rotacionada",
   "messageTimeline.keyRotatedLabel": "Chave rotacionada. Mensagens anteriores usam uma chave antiga",
   "messageTimeline.keyRotatedTitle": "A chave de criptografia da comunidade foi rotacionada aqui. As mensagens acima foram seladas com uma chave anterior.",

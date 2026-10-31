@@ -1,4 +1,4 @@
-import { ChevronDown, KeyRound, Loader2, MessagesSquare, Pause } from "lucide-react";
+import { ChevronDown, ChevronUp, KeyRound, Loader2, MessagesSquare, Pause } from "lucide-react";
 import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -387,6 +387,15 @@ const TimelineSkeleton = memo(function TimelineSkeleton() {
  *   after reveals/prepends/growth (explicitly; WebKit lacks CSS scroll anchoring).
  * - **Stick-to-bottom** preserves distance from the bottom rather than snapping.
  */
+/** Jump target naming the NEW divider row rather than a message. */
+const UNREAD_DIVIDER_TARGET = "\u0000unread-divider";
+
+function jumpTargetRow(content: HTMLElement | null, id: string): HTMLElement | null | undefined {
+  return content?.querySelector<HTMLElement>(
+    id === UNREAD_DIVIDER_TARGET ? '[data-scroll-anchor="unread-divider"]' : `[data-event-id="${id}"]`,
+  );
+}
+
 export function MessageTimeline({
   transport,
   renderMessage,
@@ -525,6 +534,27 @@ export function MessageTimeline({
   if (!listVisible) pinBottomRef.current = true;
 
   const [showJumpPill, setShowJumpPill] = useState(false);
+  // "Jump to unread": shown while the NEW divider sits above the viewport (or
+  // outside the rendered window), until the reader reaches it once.
+  const [showUnreadPill, setShowUnreadPill] = useState(false);
+  const reachedDividerRef = useRef<string | undefined>(undefined);
+  const dividerIdRef = useRef(newDividerId);
+  dividerIdRef.current = newDividerId;
+  const checkUnreadPill = useCallback(() => {
+    const id = dividerIdRef.current;
+    const el = scrollRef.current;
+    if (!id || !el || reachedDividerRef.current === id) {
+      setShowUnreadPill(false);
+      return;
+    }
+    const row = contentRef.current?.querySelector<HTMLElement>('[data-scroll-anchor="unread-divider"]');
+    if (row && row.getBoundingClientRect().top >= el.getBoundingClientRect().top) {
+      reachedDividerRef.current = id;
+      setShowUnreadPill(false);
+      return;
+    }
+    setShowUnreadPill(true);
+  }, []);
 
   // Oldest message currently rendered. `null` = the newest INITIAL_WINDOW.
   const [windowStartId, setWindowStartId] = useState<string | null>(null);
@@ -696,7 +726,7 @@ export function MessageTimeline({
     const el = scrollRef.current;
     if (!hold || !el) return false;
     const row = performance.now() < hold.until
-      ? contentRef.current?.querySelector<HTMLElement>(`[data-event-id="${hold.id}"]`)
+      ? jumpTargetRow(contentRef.current, hold.id)
       : null;
     if (!row) {
       jumpHoldRef.current = null;
@@ -762,13 +792,13 @@ export function MessageTimeline({
     const el = scrollRef.current;
     if (!el) return;
     const settle = () => {
-      const row = contentRef.current?.querySelector<HTMLElement>(`[data-event-id="${id}"]`);
+      const row = jumpTargetRow(contentRef.current, id);
       if (!row) return;
-      flashRow(row, focus);
+      if (id !== UNREAD_DIVIDER_TARGET) flashRow(row, focus);
       jumpHoldRef.current = { id, until: performance.now() + JUMP_HOLD_MS };
       holdJumpTarget();
     };
-    if (contentRef.current?.querySelector(`[data-event-id="${id}"]`)) {
+    if (jumpTargetRow(contentRef.current, id)) {
       settle();
       return;
     }
@@ -1052,12 +1082,19 @@ export function MessageTimeline({
     const distance = readerDistance(el);
     if (movingUp || distance <= distanceRef.current) distanceRef.current = distance;
     setShowJumpPill(distanceRef.current > JUMP_PILL_PX);
+    checkUnreadPill();
     if (el.scrollTop === top) captureReadingAnchor();
     if (movingUp) {
       chainedRevealsRef.current = 0;
       maybeExtend();
     } else if (movingDown) maybeExtendDown();
-  }, [captureReadingAnchor, readerDistance, maybeExtend, maybeExtendDown]);
+  }, [captureReadingAnchor, readerDistance, maybeExtend, maybeExtendDown, checkUnreadPill]);
+
+  // After the pin-to-bottom layout settles, so a divider already in view counts as reached.
+  useEffect(() => {
+    const frame = requestAnimationFrame(checkUnreadPill);
+    return () => cancelAnimationFrame(frame);
+  }, [items, newDividerId, listVisible, checkUnreadPill]);
 
   // Let rows that have been laid out once be skipped offscreen (`.timeline-row`).
   // Two frames: the size `contain-intrinsic-size: auto` remembers is recorded
@@ -1092,25 +1129,43 @@ export function MessageTimeline({
   }, [timelineEntries, startIndex, setWindowStart]);
 
   // Moves the window first if the target is outside it, keeping it bounded.
-  const scrollToMessage = useCallback(
-    (id: string, focus = false) => {
-      // Entry-space indexes; callers jump by message id.
+  /** Jump to the row `target` names, at entry `index` (entry-space), moving the window there first. */
+  const jumpToEntry = useCallback(
+    (index: number, target: string, focus: boolean) => {
       const all = entriesRef.current;
-      const index = all.findIndex((entry) => entry.type === "chat" && entry.message.id === id);
-      if (index === -1) return false;
       if (index < startIndexRef.current || index >= endIndexRef.current) {
-        pendingJumpRef.current = { id, focus };
+        pendingJumpRef.current = { id: target, focus };
         const from = Math.max(0, index - JUMP_CONTEXT);
         const to = stepForwardRows(all, from, MAX_WINDOW, isFolded);
         setWindowStart(all[from].id);
         setWindowEndId(to >= all.length ? null : all[to - 1].id);
-        return true;
+        return;
       }
-      jumpToRow(id, focus);
-      return true;
+      jumpToRow(target, focus);
     },
     [jumpToRow, isFolded, setWindowStart],
   );
+
+  const scrollToMessage = useCallback(
+    (id: string, focus = false) => {
+      // Entry-space indexes; callers jump by message id.
+      const index = entriesRef.current.findIndex((entry) => entry.type === "chat" && entry.message.id === id);
+      if (index === -1) return false;
+      jumpToEntry(index, id, focus);
+      return true;
+    },
+    [jumpToEntry],
+  );
+
+  const jumpToUnread = useCallback(() => {
+    const id = dividerIdRef.current;
+    // The divider names a message id for chat and an entry id otherwise (see `items`).
+    const index = id ? entriesRef.current.findIndex((entry) => (entry.type === "chat" ? entry.message.id : entry.id) === id) : -1;
+    if (index === -1) return;
+    reachedDividerRef.current = id;
+    setShowUnreadPill(false);
+    jumpToEntry(index, UNREAD_DIVIDER_TARGET, false);
+  }, [jumpToEntry]);
 
   /** Back to the newest message; a window ending above it is re-anchored there first. */
   const returnToPresent = useCallback(() => {
@@ -1212,6 +1267,18 @@ export function MessageTimeline({
               <div className="h-4" aria-hidden />
             </div>
           </div>
+          {showUnreadPill && (
+            <div className="absolute top-3 inset-x-0 z-10 flex justify-center pointer-events-none">
+              <button
+                type="button"
+                onClick={jumpToUnread}
+                className="pointer-events-auto inline-flex items-center gap-2 clip-corner-lg bg-primary/90 backdrop-blur px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-lg hover:bg-primary transition-colors"
+              >
+                <ChevronUp className="size-4" />
+                <FormattedMessage id="messageTimeline.jumpToUnread" defaultMessage="Jump to unread" />
+              </button>
+            </div>
+          )}
           {showJumpPill && (
             <div className="absolute bottom-3 inset-x-0 z-10 flex justify-center pointer-events-none">
               <button
