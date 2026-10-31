@@ -30,14 +30,10 @@ export function needsNativeYouTubePlayer(): boolean {
 }
 
 /**
- * Fallback for older iOS binaries without the native player. Keep synchronous
+ * Open a validated video/playlist in the user's ordinary YouTube client: the
+ * fallback for older iOS binaries without the native player. Keep synchronous
  * from a click so WebKit retains user activation.
  */
-export function openYouTubeWatchPage(videoId: string): boolean {
-  return openYouTubeTargetPage({ videoId });
-}
-
-/** Open a validated video/playlist in the user's ordinary YouTube client. */
 export function openYouTubeTargetPage(target: NativeYouTubeTarget): boolean {
   if (typeof window === "undefined") return false;
   if (target.videoId !== undefined && !/^[A-Za-z0-9_-]{11}$/.test(target.videoId)) return false;
@@ -57,12 +53,10 @@ export function openYouTubeTargetPage(target: NativeYouTubeTarget): boolean {
   return true;
 }
 
-/** Present one video natively; false (not throw) when the bridge is unavailable. */
-export async function openNativeYouTubeVideo(videoId: string): Promise<boolean> {
-  return openNativeYouTube({ videoId });
-}
-
-/** Present a video or playlist at the shared playback position on iOS. */
+/**
+ * Present a video or playlist at the shared playback position on iOS; false
+ * (not throw) when the bridge is unavailable.
+ */
 export async function openNativeYouTube(target: NativeYouTubeTarget): Promise<boolean> {
   if (!hasNativeYouTubePlayer()) return false;
   if (target.videoId !== undefined && !/^[A-Za-z0-9_-]{11}$/.test(target.videoId)) return false;

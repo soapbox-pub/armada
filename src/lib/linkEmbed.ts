@@ -18,6 +18,25 @@ export function extractYouTubeId(url: string): string | null {
   return null;
 }
 
+/**
+ * The start time a YouTube link asks for, in whole seconds: `t=` or `start=`
+ * as `90`, `90s` or `1h2m30s`, in the query or the `#t=` fragment.
+ */
+export function youTubeStartSeconds(url: string): number | undefined {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return undefined;
+  }
+  const fragment = new URLSearchParams(u.hash.slice(1));
+  const raw = u.searchParams.get("t") ?? u.searchParams.get("start") ?? fragment.get("t");
+  const m = raw ? /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/.exec(raw) : null;
+  if (!m) return undefined;
+  const seconds = Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
+  return seconds >= 1 ? seconds : undefined;
+}
+
 /** A YouTube watch target: a single video, a playlist, or both. */
 export interface YouTubeTarget {
   videoId?: string;

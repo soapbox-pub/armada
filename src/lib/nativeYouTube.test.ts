@@ -22,9 +22,7 @@ const {
   hasNativeYouTubePlayer,
   needsNativeYouTubePlayer,
   openNativeYouTube,
-  openNativeYouTubeVideo,
   openYouTubeTargetPage,
-  openYouTubeWatchPage,
 } = await import("@/lib/nativeYouTube");
 
 beforeEach(() => {
@@ -64,9 +62,9 @@ describe("needsNativeYouTubePlayer", () => {
   });
 });
 
-describe("openNativeYouTubeVideo", () => {
+describe("openNativeYouTube", () => {
   it("passes a valid video id to the native player", async () => {
-    await expect(openNativeYouTubeVideo("dQw4w9WgXcQ")).resolves.toBe(true);
+    await expect(openNativeYouTube({ videoId: "dQw4w9WgXcQ" })).resolves.toBe(true);
     expect(open).toHaveBeenCalledWith({ videoId: "dQw4w9WgXcQ", startSeconds: undefined });
   });
 
@@ -92,7 +90,7 @@ describe("openNativeYouTubeVideo", () => {
   });
 
   it("does not call native code for a malformed id", async () => {
-    await expect(openNativeYouTubeVideo("https://evil.test")).resolves.toBe(false);
+    await expect(openNativeYouTube({ videoId: "https://evil.test" })).resolves.toBe(false);
     expect(open).not.toHaveBeenCalled();
   });
 
@@ -104,21 +102,21 @@ describe("openNativeYouTubeVideo", () => {
 
   it("does not call the iOS bridge on another platform", async () => {
     getPlatform.mockReturnValue("android");
-    await expect(openNativeYouTubeVideo("dQw4w9WgXcQ")).resolves.toBe(false);
+    await expect(openNativeYouTube({ videoId: "dQw4w9WgXcQ" })).resolves.toBe(false);
     expect(open).not.toHaveBeenCalled();
   });
 
   it("turns a native presentation failure into a safe fallback signal", async () => {
     open.mockRejectedValue(new Error("presentation failed"));
-    await expect(openNativeYouTubeVideo("dQw4w9WgXcQ")).resolves.toBe(false);
+    await expect(openNativeYouTube({ videoId: "dQw4w9WgXcQ" })).resolves.toBe(false);
   });
 });
 
-describe("openYouTubeWatchPage", () => {
+describe("openYouTubeTargetPage", () => {
   it("opens a validated video on YouTube without embedding it", () => {
     const openWindow = vi.spyOn(window, "open").mockImplementation(() => null);
 
-    expect(openYouTubeWatchPage("dQw4w9WgXcQ")).toBe(true);
+    expect(openYouTubeTargetPage({ videoId: "dQw4w9WgXcQ" })).toBe(true);
     expect(openWindow).toHaveBeenCalledWith(
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       "_blank",
@@ -129,7 +127,7 @@ describe("openYouTubeWatchPage", () => {
   it("refuses malformed video ids", () => {
     const openWindow = vi.spyOn(window, "open").mockImplementation(() => null);
 
-    expect(openYouTubeWatchPage("https://evil.test")).toBe(false);
+    expect(openYouTubeTargetPage({ videoId: "https://evil.test" })).toBe(false);
     expect(openWindow).not.toHaveBeenCalled();
   });
 

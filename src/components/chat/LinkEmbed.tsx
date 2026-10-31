@@ -24,6 +24,7 @@ import {
   pickPeerTubeFile,
   type PeerTubeFile,
   tenorMp4FromThumbnail,
+  youTubeStartSeconds,
 } from "@/lib/linkEmbed";
 import { faviconUrl } from "@/lib/faviconUrl";
 import { fullDateTime } from "@/lib/formatTime";
@@ -33,8 +34,8 @@ import { FormattedMessage, common, t, useIntl } from "@/i18n";
 import {
   hasNativeYouTubePlayer,
   needsNativeYouTubePlayer,
-  openNativeYouTubeVideo,
-  openYouTubeWatchPage,
+  openNativeYouTube,
+  openYouTubeTargetPage,
 } from "@/lib/nativeYouTube";
 import { cn } from "@/lib/utils";
 
@@ -68,7 +69,7 @@ export function LinkEmbed({ url, className }: LinkEmbedProps) {
   if (youtubeId) {
     return (
       <div className={cn("max-w-md", className)}>
-        <YouTubeEmbed videoId={youtubeId} />
+        <YouTubeEmbed videoId={youtubeId} start={youTubeStartSeconds(url)} />
         <EmbedInfoBar url={url} />
       </div>
     );
@@ -636,7 +637,7 @@ function findThumbnail(videoId: string): Promise<string | null> {
 }
 
 /** Click-to-load facade: no requests to YouTube until play. */
-export function YouTubeEmbed({ videoId, className }: { videoId: string; className?: string }) {
+export function YouTubeEmbed({ videoId, start, className }: { videoId: string; start?: number; className?: string }) {
   const intl = useIntl();
   // Pausing media bumps the epoch, returning the embed to its facade.
   const pauseEpoch = useEmbedPauseEpoch();
@@ -652,17 +653,17 @@ export function YouTubeEmbed({ videoId, className }: { videoId: string; classNam
       return;
     }
     if (nativeOpenFailed) {
-      openYouTubeWatchPage(videoId);
+      openYouTubeTargetPage({ videoId, startSeconds: start });
       return;
     }
 
     // WKWebView can't send a Referer from capacitor://localhost (YouTube error 153):
     // use the native player; older binaries without it open the watch page.
     if (!hasNativeYouTubePlayer()) {
-      openYouTubeWatchPage(videoId);
+      openYouTubeTargetPage({ videoId, startSeconds: start });
       return;
     }
-    void openNativeYouTubeVideo(videoId).then((opened) => {
+    void openNativeYouTube({ videoId, startSeconds: start }).then((opened) => {
       setNativeOpenFailed(!opened);
     });
   };
@@ -689,7 +690,7 @@ export function YouTubeEmbed({ videoId, className }: { videoId: string; classNam
       <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
         {activated ? (
           <iframe
-            src={`https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1`}
+            src={`https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1${start ? `&start=${start}` : ""}`}
             title={intl.formatMessage({ id: "linkEmbed.youtubeVideo", defaultMessage: "YouTube video" })}
             // YouTube requires a Referer; send this deployment's own origin.
             referrerPolicy="strict-origin-when-cross-origin"

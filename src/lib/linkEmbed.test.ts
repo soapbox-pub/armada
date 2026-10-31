@@ -9,6 +9,7 @@ import {
   peerTubeApiUrl,
   pickPeerTubeFile,
   tenorMp4FromThumbnail,
+  youTubeStartSeconds,
 } from "@/lib/linkEmbed";
 
 describe("extractInstagramShortcode", () => {
@@ -184,5 +185,21 @@ describe("pickPeerTubeFile", () => {
     expect(pickPeerTubeFile({ files: [{ fileUrl: 1 }, null, f(480)] })?.fileUrl).toBe("https://x.test/480.mp4");
     expect(pickPeerTubeFile({ files: "x" })).toBeNull();
     expect(pickPeerTubeFile(null)).toBeNull();
+  });
+});
+
+describe("youTubeStartSeconds", () => {
+  it("reads every start-time spelling YouTube links carry", () => {
+    expect(youTubeStartSeconds("https://youtu.be/dQw4w9WgXcQ?t=90")).toBe(90);
+    expect(youTubeStartSeconds("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1m30s")).toBe(90);
+    expect(youTubeStartSeconds("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1h2m3s")).toBe(3723);
+    expect(youTubeStartSeconds("https://www.youtube.com/embed/dQw4w9WgXcQ?start=42")).toBe(42);
+    expect(youTubeStartSeconds("https://www.youtube.com/watch?v=dQw4w9WgXcQ#t=15s")).toBe(15);
+  });
+
+  it("is undefined for none, zero or garbage", () => {
+    expect(youTubeStartSeconds("https://youtu.be/dQw4w9WgXcQ")).toBeUndefined();
+    expect(youTubeStartSeconds("https://youtu.be/dQw4w9WgXcQ?t=0")).toBeUndefined();
+    expect(youTubeStartSeconds("https://youtu.be/dQw4w9WgXcQ?t=abc")).toBeUndefined();
   });
 });
