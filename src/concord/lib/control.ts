@@ -79,7 +79,7 @@ import {
   type CommunityMetadata,
   type Community,
 } from "@/concord/lib/types";
-import { bootstrapHead, bytesEq, fold, type Edition } from "@/concord/lib/version";
+import { bootstrapHead, bytesEq, fold } from "@/concord/lib/version";
 
 /**
  * One held root epoch's Control Plane read view (CORD-02 §5). SPLIT epoch: held
@@ -410,6 +410,28 @@ function pushEdition(m: Map<string, ParsedEdition[]>, key: string, p: ParsedEdit
   else m.set(key, [p]);
 }
 
+/** Which editions may decide an entity's chain (see headCandidates). */
+interface HeadAdmit {
+  admit: (p: ParsedEdition) => boolean;
+  mode: "filter" | "retry";
+}
+
+/**
+ * The editions `admit` keeps, plus every edition a kept one builds on
+ * (transitively): an author who has since lost the permission still wrote a real
+ * link of the chain, and the authorized edition citing it as `prev` vouches for it.
+ */
+function admittedChain(editions: ParsedEdition[], admit: (p: ParsedEdition) => boolean): ParsedEdition[] {
+  const kept = new Set(editions.filter(admit));
+  let frontier = [...kept];
+  while (frontier.length > 0) {
+    const cited = new Set(frontier.flatMap((e) => (e.prevHash ? [bytesToHex(e.prevHash)] : [])));
+    frontier = editions.filter((e) => !kept.has(e) && cited.has(bytesToHex(e.selfHash)));
+    for (const e of frontier) kept.add(e);
+  }
+  return kept.size === editions.length ? editions : editions.filter((e) => kept.has(e));
+}
+
 /**
  * Fold one entity's editions into an ORDERED candidate list: the chain-verified
  * fold head first, then every other edition version-DESCENDING (tiebreak winner
@@ -425,44 +447,72 @@ function pushEdition(m: Map<string, ParsedEdition[]>, key: string, p: ParsedEdit
  * `snapshot` (post-Refounding): the entity folds by BOOTSTRAP (highest signed
  * version, floor as version-only refuse-downgrade), never the chain walk. A re-wrap
  * can't raise the signed version, so a re-served stale edition always loses.
+ *
+ * `admit` keeps junk out of gap detection: any keyholder can seal a skipped
+ * version, and counting it would freeze the entity for tracking clients and
+ * abort every rotation. With `filter`, editions it refuses never enter the walk
+ * (Vector's authority pre-filter) unless an admitted one builds on them
+ * ({@link admittedChain}); everything served at/above the floor being
+ * refused is a rejection, not withholding. With `retry` (roles and grants,
+ * whose authority isn't settled yet), the filtered walk is used only when it
+ * closes a gap the full one hit.
  */
 function headCandidates(
   editions: ParsedEdition[],
   floor?: EntityHead,
   snapshot?: ParsedEdition[],
   onGap?: () => void,
+  admit?: HeadAdmit,
 ): ParsedEdition[] {
   const ordered: ParsedEdition[] = [];
   const seenRumors = new Set<string>();
   let gapped = false;
+  let walked = admit?.mode === "filter" ? admittedChain(editions, admit.admit) : editions;
+  // Junk above a SERVED floor head is a rejection; with the head itself missing it was withheld.
+  const refusedAtFloor = (): boolean =>
+    floor !== undefined &&
+    walked.length < editions.length &&
+    editions.some((e) => e.version === floor.version && bytesEq(e.selfHash, floor.hash)) &&
+    !walked.some((e) => e.version >= floor.version) &&
+    editions.some((e) => e.version >= floor.version);
 
   if (snapshot) {
     // Snapshot presence selects the arm; the head is chosen over ALL editions, so
     // relays serving only a stale re-wrap can't outrank a higher head in our store.
-    const idx = bootstrapHead(editions.map(toFoldEdition), floor?.version ?? 0n);
+    const idx = bootstrapHead(walked.map(toFoldEdition), floor?.version ?? 0n);
     if (idx !== null) {
-      ordered.push(editions[idx]);
-      seenRumors.add(bytesToHex(editions[idx].rumorId));
-    } else if (floor !== undefined) {
+      ordered.push(walked[idx]);
+      seenRumors.add(bytesToHex(walked[idx].rumorId));
+    } else if (floor !== undefined && !refusedAtFloor()) {
       // Nothing at/above our floor served: the accepted head was withheld; fail closed.
       gapped = true;
       onGap?.();
     }
   } else {
-    const folds: Edition[] = editions.map(toFoldEdition);
-    const result = fold(folds, floor?.version ?? 0n, floor?.hash);
+    let result = fold(walked.map(toFoldEdition), floor?.version ?? 0n, floor?.hash);
 
     // A gap, or a null head under a floor (everything served was below it — `fold`
     // doesn't report that as a gap): refuse anything above the floor.
-    gapped = floor !== undefined && (result.gap || result.head === null);
+    gapped = floor !== undefined && (result.gap || (result.head === null && !refusedAtFloor()));
+    if (gapped && admit?.mode === "retry") {
+      const kept = admittedChain(editions, admit.admit);
+      if (kept.length < editions.length) {
+        const retry = fold(kept.map(toFoldEdition), floor!.version, floor!.hash);
+        if (!retry.gap && retry.head !== null) {
+          walked = kept;
+          result = retry;
+          gapped = false;
+        }
+      }
+    }
     if (gapped) onGap?.();
 
     if (result.head !== null && !gapped) {
-      ordered.push(editions[result.head]);
-      seenRumors.add(bytesToHex(editions[result.head].rumorId));
+      ordered.push(walked[result.head]);
+      seenRumors.add(bytesToHex(walked[result.head].rumorId));
     }
   }
-  const rest = editions
+  const rest = walked
     .filter((e) => {
       const id = bytesToHex(e.rumorId);
       if (seenRumors.has(id)) return false;
@@ -927,7 +977,7 @@ function foldOnce(
   const headEditions = new Map<string, ParsedEdition>();
   const gapHeld = new Set<string>();
   /** Ordered head candidates per entity of one vsk (floored per prior head). */
-  const candidatesOf = (vsk: string): Map<string, ParsedEdition[]> => {
+  const candidatesOf = (vsk: string, admit?: HeadAdmit): Map<string, ParsedEdition[]> => {
     const out = new Map<string, ParsedEdition[]>();
     for (const [eid, list] of byVsk.get(vsk) ?? new Map<string, ParsedEdition[]>()) {
       // If any edition arrived under the current control group, anchor there (see
@@ -935,34 +985,73 @@ function foldOnce(
       const snap = snapshotIds ? list.filter((p: ParsedEdition) => snapshotIds.has(bytesToHex(p.rumorId))) : [];
       out.set(
         eid,
-        headCandidates(list, priorHeads?.get(eid), snap.length > 0 ? snap : undefined, () => gapHeld.add(eid)),
+        headCandidates(list, priorHeads?.get(eid), snap.length > 0 ? snap : undefined, () => gapHeld.add(eid), admit),
       );
     }
     return out;
   };
 
   // 2. Roster (owner-rooted fixpoint) — resolved before any gated entity.
-  const roleCandidates = new Map<string, Array<{ role: Role; author: string; parsed: ParsedEdition }>>();
-  for (const [eid, candidates] of candidatesOf(VSK_ROLE)) {
-    const parsed = candidates
-      .map((p) => ({ role: roleFromJSON(p.content), author: p.author, parsed: p }))
-      // The entity coordinate must be the role's own id (anti-spoofing).
-      .filter((c): c is { role: Role; author: string; parsed: ParsedEdition } =>
-        Boolean(c.role && bytesToHex(hex32(c.role.roleId)) === eid),
-      );
-    if (parsed.length > 0) roleCandidates.set(eid, parsed);
+  const resolveRoster = (admit?: HeadAdmit) => {
+    const roleCandidates = new Map<string, Array<{ role: Role; author: string; parsed: ParsedEdition }>>();
+    for (const [eid, candidates] of candidatesOf(VSK_ROLE, admit)) {
+      const parsed = candidates
+        .map((p) => ({ role: roleFromJSON(p.content), author: p.author, parsed: p }))
+        // The entity coordinate must be the role's own id (anti-spoofing).
+        .filter((c): c is { role: Role; author: string; parsed: ParsedEdition } =>
+          Boolean(c.role && bytesToHex(hex32(c.role.roleId)) === eid),
+        );
+      if (parsed.length > 0) roleCandidates.set(eid, parsed);
+    }
+    const grantCandidates = new Map<string, Array<{ grant: MemberGrant; author: string; parsed: ParsedEdition }>>();
+    for (const [eid, candidates] of candidatesOf(VSK_GRANT, admit)) {
+      const parsed = candidates
+        .map((p) => ({ grant: grantFromJSON(p.content), author: p.author, parsed: p }))
+        // The coordinate must be the member's grant locator (anti-spoofing).
+        .filter((c): c is { grant: MemberGrant; author: string; parsed: ParsedEdition } =>
+          Boolean(c.grant && bytesToHex(grantLocator(communityId, hex32(c.grant.member))) === eid),
+        );
+      if (parsed.length > 0) grantCandidates.set(eid, parsed);
+    }
+    heads.clear();
+    headEditions.clear();
+    return authorizeDelegation(roleCandidates, grantCandidates, communityId, ownerHex, heads, headEditions);
+  };
+  let roster = resolveRoster();
+  // Who may edit a role or grant is only known once the roster is: re-walk each
+  // gapped one over the MANAGE_ROLES holders the last pass settled, and re-resolve
+  // until the roster's heads stop moving (a promotion one pass un-gaps admits that
+  // admin's edits on the next). Not settling in the bound fails closed: every gap held.
+  const rosterEids = new Set([...(byVsk.get(VSK_ROLE)?.keys() ?? []), ...(byVsk.get(VSK_GRANT)?.keys() ?? [])]);
+  const rosterHeads = (): string =>
+    [...rosterEids].sort().map((eid) => {
+      const h = heads.get(eid);
+      return h ? `${eid}:${h.version}:${bytesToHex(h.hash)}` : eid;
+    }).join(",");
+  const rewalked = new Set<string>();
+  let lastHeads = rosterHeads();
+  for (let pass = 0; ; pass++) {
+    const fresh = [...gapHeld].filter((eid) => rosterEids.has(eid) && !rewalked.has(eid));
+    if (fresh.length === 0 && pass > 0) {
+      const now = rosterHeads();
+      if (now === lastHeads) break;
+      lastHeads = now;
+    }
+    if (rewalked.size === 0 && fresh.length === 0) break;
+    if (pass > rosterEids.size + 1) {
+      gapHeld.clear();
+      roster = resolveRoster();
+      break;
+    }
+    for (const eid of fresh) rewalked.add(eid);
+    for (const eid of rosterEids) gapHeld.delete(eid);
+    const settled = roster;
+    roster = resolveRoster({
+      mode: "retry",
+      admit: (p) =>
+        !rewalked.has(bytesToHex(p.entityId)) || isAuthorized(settled, p.author, ownerHex, Permissions.MANAGE_ROLES),
+    });
   }
-  const grantCandidates = new Map<string, Array<{ grant: MemberGrant; author: string; parsed: ParsedEdition }>>();
-  for (const [eid, candidates] of candidatesOf(VSK_GRANT)) {
-    const parsed = candidates
-      .map((p) => ({ grant: grantFromJSON(p.content), author: p.author, parsed: p }))
-      // The coordinate must be the member's grant locator (anti-spoofing).
-      .filter((c): c is { grant: MemberGrant; author: string; parsed: ParsedEdition } =>
-        Boolean(c.grant && bytesToHex(grantLocator(communityId, hex32(c.grant.member))) === eid),
-      );
-    if (parsed.length > 0) grantCandidates.set(eid, parsed);
-  }
-  const roster = authorizeDelegation(roleCandidates, grantCandidates, communityId, ownerHex, heads, headEditions);
 
   // The `vac` check (CORD-04 §5): a non-owner action MUST cite the exact Grant it
   // acts under (eid, version, hash), and is honored only once we hold that Grant at
@@ -972,6 +1061,12 @@ function foldOnce(
   const citationOk = (p: ParsedEdition): boolean =>
     citationSatisfied({ heads, ownerHex }, communityId, p.author, p.authority);
 
+  /** Editions by a holder of `permission` citing a Grant we hold: the authority pre-filter. */
+  const holders = (...permissions: bigint[]): HeadAdmit => ({
+    mode: "filter",
+    admit: (p) => permissions.some((permission) => isAuthorized(roster, p.author, ownerHex, permission)) && citationOk(p),
+  });
+
   /** Authority order for equal-version tiebreaks: owner first, then position. */
   const rankOf = (author: string): number =>
     author === ownerHex ? -1 : (highestPosition(roster, author) ?? Number.MAX_SAFE_INTEGER);
@@ -979,7 +1074,7 @@ function foldOnce(
   // 3. Metadata (vsk 0): must be the community's own entity + an authorized actor.
   let metadata: CommunityMetadata | undefined;
   {
-    const candidates = candidatesOf(VSK_METADATA).get(cidHex) ?? [];
+    const candidates = candidatesOf(VSK_METADATA, holders(Permissions.MANAGE_METADATA)).get(cidHex) ?? [];
     const head = pickHead(candidates, heads, headEditions, (p) => {
       if (!isAuthorized(roster, p.author, ownerHex, Permissions.MANAGE_METADATA)) return false;
       if (!citationOk(p)) return false;
@@ -1006,7 +1101,7 @@ function foldOnce(
 
   // 4. Channels (vsk 2), each gated by MANAGE_CHANNELS.
   const channels = new Map<string, FoldedChannel>();
-  for (const [eid, candidates] of candidatesOf(VSK_CHANNEL)) {
+  for (const [eid, candidates] of candidatesOf(VSK_CHANNEL, holders(Permissions.MANAGE_CHANNELS))) {
     const channelGate = (p: ParsedEdition): boolean => {
       if (!isAuthorized(roster, p.author, ownerHex, Permissions.MANAGE_CHANNELS)) return false;
       if (!citationOk(p)) return false;
@@ -1045,7 +1140,7 @@ function foldOnce(
   const bannedAt = new Map<string, number>();
   {
     const eid = bytesToHex(banlistLocator(communityId));
-    const candidates = candidatesOf(VSK_BANLIST).get(eid) ?? [];
+    const candidates = candidatesOf(VSK_BANLIST, holders(Permissions.BAN)).get(eid) ?? [];
     /** The npubs an edition names, normalized; undefined if it is not a list. */
     const parseList = (p: ParsedEdition): string[] | undefined => {
       let list: unknown;
@@ -1121,7 +1216,11 @@ function foldOnce(
   // Public/Private source of truth (CORD-05 §5).
   const liveInviteLinks = new Set<string>();
   const registriesByCreator = new Map<string, string[]>();
-  for (const [eid, candidates] of candidatesOf(VSK_INVITE_REGISTRY)) {
+  for (const [eid, candidates] of candidatesOf(VSK_INVITE_REGISTRY, {
+    mode: "filter",
+    // A registry is its creator's own list: another holder's edition of it is junk.
+    admit: (p) => holders(Permissions.CREATE_INVITE).admit(p) && bytesToHex(inviteLinksLocator(communityId, hex32(p.author))) === bytesToHex(p.entityId),
+  })) {
     const head = pickHead(candidates, heads, headEditions, (p) => {
       if (bytesToHex(inviteLinksLocator(communityId, hex32(p.author))) !== eid) return false;
       if (!isAuthorized(roster, p.author, ownerHex, Permissions.CREATE_INVITE)) return false;
@@ -1143,7 +1242,7 @@ function foldOnce(
   // 7. Pin Lists (vsk 11), gated by PIN_MESSAGES (CORD-04 §7); content carried
   // verbatim (a violating list reads as empty).
   const pinLists = new Map<string, { content: string; author: string }>();
-  for (const [eid, candidates] of candidatesOf(VSK_PINS)) {
+  for (const [eid, candidates] of candidatesOf(VSK_PINS, holders(Permissions.PIN_MESSAGES))) {
     const head = pickHead(candidates, heads, headEditions, (p) => {
       if (!isAuthorized(roster, p.author, ownerHex, Permissions.PIN_MESSAGES)) return false;
       return citationOk(p);
@@ -1156,7 +1255,7 @@ function foldOnce(
   // SIGNAL_GATES tokens have a coordinate (looked up exactly), so unknown ones stay
   // invisible — the forward-compat contract.
   const signals = new Map<string, FoldedSignal>();
-  const signalCands = candidatesOf(VSK_SIGNALS);
+  const signalCands = candidatesOf(VSK_SIGNALS, holders(...Object.values(SIGNAL_GATES)));
   for (const [signalId, gate] of Object.entries(SIGNAL_GATES)) {
     const candidates = signalCands.get(bytesToHex(signalLocator(communityId, signalId))) ?? [];
     const head = pickHead(candidates, heads, headEditions, (p) => {

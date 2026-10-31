@@ -1703,6 +1703,334 @@ describe("control plane fold (CORD-04)", () => {
     expect(healed.incomplete).toEqual([]);
   });
 
+  it("a keyholder's junk edition skipping a version neither freezes the entity nor gates a rotation", async () => {
+    // Any member holds the control key, so anyone can seal metadata v3 with no v2.
+    // Counted as a withheld middle, it froze the owner's later rename for every
+    // tracking client and failed useRefound's completeness check for good.
+    const { owner, communityId, control } = await makeCommunity();
+    const member = signer();
+    const m1 = buildMetadataEdition(communityId, { name: "Real", relays: [] }, { actorPubkey: owner.pubkey, version: 1n });
+    const w1 = await sealEdition(m1, control, owner);
+    const p1 = openControlWraps([w1], [control])[0];
+    const first = foldControlState([p1], communityId, owner.pubkey);
+    const junk = await sealEdition(
+      buildMetadataEdition(communityId, { name: "junk", relays: [] }, { actorPubkey: member.pubkey, version: 3n, prevHash: new Uint8Array(32) }),
+      control,
+      member,
+    );
+
+    const gate = foldControlState(openControlWraps([w1, junk], [control]), communityId, owner.pubkey, first.heads);
+    expect(gate.incomplete).toEqual([]);
+    expect(gate.metadata?.name).toBe("Real");
+
+    const rename = await sealEdition(
+      buildMetadataEdition(communityId, { name: "Renamed", relays: [] }, { actorPubkey: owner.pubkey, version: 2n, prevHash: p1.selfHash }),
+      control,
+      owner,
+    );
+    const tracking = foldControlState(openControlWraps([w1, rename, junk], [control]), communityId, owner.pubkey, first.heads);
+    expect(tracking.metadata?.name).toBe("Renamed");
+    expect(tracking.incomplete).toEqual([]);
+  });
+
+  it("a member's junk grant edition neither freezes that grant nor gates a rotation", async () => {
+    const { owner, communityId, control } = await makeCommunity();
+    const member = signer();
+    const rando = signer();
+    const adm = adminRole(bytesToHex(random32()));
+    const role = await sealEdition(buildRoleEdition(adm, { actorPubkey: owner.pubkey, version: 1n }), control, owner);
+    const g1 = await sealEdition(
+      buildGrantEdition(communityId, { member: member.pubkey, roleIds: [adm.roleId] }, { actorPubkey: owner.pubkey, version: 1n }),
+      control,
+      owner,
+    );
+    const first = foldControlState(openControlWraps([role, g1], [control]), communityId, owner.pubkey);
+    expect(isAdmin(first.roster, member.pubkey)).toBe(true);
+    const junk = await sealEdition(
+      buildGrantEdition(communityId, { member: member.pubkey, roleIds: [] }, { actorPubkey: rando.pubkey, version: 3n, prevHash: new Uint8Array(32) }),
+      control,
+      rando,
+    );
+
+    const gate = foldControlState(openControlWraps([role, g1, junk], [control]), communityId, owner.pubkey, first.heads);
+    expect(gate.incomplete).toEqual([]);
+    expect(isAdmin(gate.roster, member.pubkey)).toBe(true);
+
+    // The owner's real demotion still lands for a tracking client.
+    const p1 = openControlWraps([g1], [control])[0];
+    const g2 = await sealEdition(
+      buildGrantEdition(communityId, { member: member.pubkey, roleIds: [] }, { actorPubkey: owner.pubkey, version: 2n, prevHash: p1.selfHash }),
+      control,
+      owner,
+    );
+    const tracking = foldControlState(openControlWraps([role, g1, g2, junk], [control]), communityId, owner.pubkey, first.heads);
+    expect(isAdmin(tracking.roster, member.pubkey)).toBe(false);
+    expect(tracking.incomplete).toEqual([]);
+  });
+
+  it("a demoted admin's junk grant edition is set aside like any member's", async () => {
+    const { owner, communityId, control } = await makeCommunity();
+    const admin = signer();
+    const member = signer();
+    const adm = adminRole(bytesToHex(random32()));
+    const role = await sealEdition(buildRoleEdition(adm, { actorPubkey: owner.pubkey, version: 1n }), control, owner);
+    const a1 = await sealEdition(
+      buildGrantEdition(communityId, { member: admin.pubkey, roleIds: [adm.roleId] }, { actorPubkey: owner.pubkey, version: 1n }),
+      control,
+      owner,
+    );
+    const pa1 = openControlWraps([a1], [control])[0];
+    const a2 = await sealEdition(
+      buildGrantEdition(communityId, { member: admin.pubkey, roleIds: [] }, { actorPubkey: owner.pubkey, version: 2n, prevHash: pa1.selfHash }),
+      control,
+      owner,
+    );
+    const m1 = await sealEdition(
+      buildGrantEdition(communityId, { member: member.pubkey, roleIds: [adm.roleId] }, { actorPubkey: owner.pubkey, version: 1n }),
+      control,
+      owner,
+    );
+    const base = [role, a1, a2, m1];
+    const first = foldControlState(openControlWraps(base, [control]), communityId, owner.pubkey);
+    expect(isAdmin(first.roster, admin.pubkey)).toBe(false);
+
+    const junk = await sealEdition(
+      buildGrantEdition(
+        communityId,
+        { member: member.pubkey, roleIds: [] },
+        { actorPubkey: admin.pubkey, version: 3n, prevHash: new Uint8Array(32), authority: citeGrant(a1, control) },
+      ),
+      control,
+      admin,
+    );
+    const gate = foldControlState(openControlWraps([...base, junk], [control]), communityId, owner.pubkey, first.heads);
+    expect(gate.incomplete).toEqual([]);
+    expect(isAdmin(gate.roster, member.pubkey)).toBe(true);
+  });
+
+  it("a grant whose real middle edition is withheld still fails closed", async () => {
+    const { owner, communityId, control } = await makeCommunity();
+    const member = signer();
+    const adm = adminRole(bytesToHex(random32()));
+    const role = await sealEdition(buildRoleEdition(adm, { actorPubkey: owner.pubkey, version: 1n }), control, owner);
+    const grant = (version: bigint, roleIds: string[], prevHash?: Uint8Array) =>
+      buildGrantEdition(communityId, { member: member.pubkey, roleIds }, { actorPubkey: owner.pubkey, version, prevHash });
+    const g1 = await sealEdition(grant(1n, [adm.roleId]), control, owner);
+    const p1 = openControlWraps([g1], [control])[0];
+    const p2 = openControlWraps([await sealEdition(grant(2n, [], p1.selfHash), control, owner)], [control])[0];
+    const g3 = await sealEdition(grant(3n, [adm.roleId], p2.selfHash), control, owner);
+    const first = foldControlState(openControlWraps([role, g1], [control]), communityId, owner.pubkey);
+
+    const starved = foldControlState(openControlWraps([role, g1, g3], [control]), communityId, owner.pubkey, first.heads);
+    expect(starved.incomplete).toContain(bytesToHex(grantLocator(communityId, hex32(member.pubkey))));
+  });
+
+  it("an edition citing a Grant it doesn't hold is set aside before the gap check, as Vector does", async () => {
+    const { owner, communityId, control } = await makeCommunity();
+    const admin = signer();
+    const adm = adminRole(bytesToHex(random32()));
+    const role = await sealEdition(buildRoleEdition(adm, { actorPubkey: owner.pubkey, version: 1n }), control, owner);
+    const a1 = await sealEdition(
+      buildGrantEdition(communityId, { member: admin.pubkey, roleIds: [adm.roleId] }, { actorPubkey: owner.pubkey, version: 1n }),
+      control,
+      owner,
+    );
+    const m1 = await sealEdition(
+      buildMetadataEdition(communityId, { name: "Real", relays: [] }, { actorPubkey: owner.pubkey, version: 1n }),
+      control,
+      owner,
+    );
+    const first = foldControlState(openControlWraps([role, a1, m1], [control]), communityId, owner.pubkey);
+    const skip = (authority: ReturnType<typeof citeGrant>) =>
+      sealEdition(
+        buildMetadataEdition(communityId, { name: "skip", relays: [] }, { actorPubkey: admin.pubkey, version: 3n, prevHash: new Uint8Array(32), authority }),
+        control,
+        admin,
+      );
+
+    const forged = await skip({ ...citeGrant(a1, control), editionHash: random32() });
+    const gate = foldControlState(openControlWraps([role, a1, m1, forged], [control]), communityId, owner.pubkey, first.heads);
+    expect(gate.incomplete).toEqual([]);
+
+    // A properly citing admin's v3 means a real v2 is missing.
+    const cited = await skip(citeGrant(a1, control));
+    const withheld = foldControlState(openControlWraps([role, a1, m1, cited], [control]), communityId, owner.pubkey, first.heads);
+    expect(withheld.incomplete).toContain(bytesToHex(communityId));
+  });
+
+  it("junk at both a promotion and the grant the promoted admin then edited can't roll that edit back", async () => {
+    const { owner, communityId, control } = await makeCommunity();
+    const admin = signer();
+    const mod = signer();
+    const rando = signer();
+    const adm = adminRole(bytesToHex(random32()));
+    const modRole = moderatorRole(bytesToHex(random32()));
+    const roles = [
+      await sealEdition(buildRoleEdition(adm, { actorPubkey: owner.pubkey, version: 1n }), control, owner),
+      await sealEdition(buildRoleEdition(modRole, { actorPubkey: owner.pubkey, version: 1n }), control, owner),
+    ];
+    const grant = (member: string, roleIds: string[], version: bigint, actor = owner, prevHash?: Uint8Array, authority?: ReturnType<typeof citeGrant>) =>
+      sealEdition(buildGrantEdition(communityId, { member, roleIds }, { actorPubkey: actor.pubkey, version, prevHash, authority }), control, actor);
+    const x1 = await grant(admin.pubkey, [], 1n);
+    const y1 = await grant(mod.pubkey, [modRole.roleId], 1n);
+    const first = foldControlState(openControlWraps([...roles, x1, y1], [control]), communityId, owner.pubkey);
+    expect(hasPermission(first.roster, mod.pubkey, Permissions.KICK)).toBe(true);
+
+    // The owner promotes the admin, who then revokes the moderator.
+    const [px1, py1] = openControlWraps([x1, y1], [control]);
+    const x2 = await grant(admin.pubkey, [adm.roleId], 2n, owner, px1.selfHash);
+    const y2 = await grant(mod.pubkey, [], 2n, admin, py1.selfHash, citeGrant(x2, control, 2n));
+    const real = [...roles, x1, x2, y1, y2];
+    const clean = foldControlState(openControlWraps(real, [control]), communityId, owner.pubkey, first.heads);
+    expect(hasPermission(clean.roster, mod.pubkey, Permissions.KICK)).toBe(false);
+
+    // A keyholder's junk skipping versions on both grants.
+    const junk = [
+      await grant(admin.pubkey, [], 4n, rando, new Uint8Array(32)),
+      await grant(mod.pubkey, [modRole.roleId], 4n, rando, new Uint8Array(32)),
+    ];
+    const tracking = foldControlState(openControlWraps([...real, ...junk], [control]), communityId, owner.pubkey, first.heads);
+    expect(isAdmin(tracking.roster, admin.pubkey)).toBe(true);
+    expect(hasPermission(tracking.roster, mod.pubkey, Permissions.KICK)).toBe(false);
+  });
+
+  it("a withheld head with only junk served above it still fails closed", async () => {
+    const { owner, communityId, control } = await makeCommunity();
+    const member = signer();
+    const w1 = await sealEdition(
+      buildMetadataEdition(communityId, { name: "One", relays: [] }, { actorPubkey: owner.pubkey, version: 1n }),
+      control,
+      owner,
+    );
+    const p1 = openControlWraps([w1], [control])[0];
+    const w2 = await sealEdition(
+      buildMetadataEdition(communityId, { name: "Two", relays: [] }, { actorPubkey: owner.pubkey, version: 2n, prevHash: p1.selfHash }),
+      control,
+      owner,
+    );
+    const first = foldControlState(openControlWraps([w1, w2], [control]), communityId, owner.pubkey);
+    expect(first.metadata?.name).toBe("Two");
+    const junk = await sealEdition(
+      buildMetadataEdition(communityId, { name: "junk", relays: [] }, { actorPubkey: member.pubkey, version: 9n, prevHash: new Uint8Array(32) }),
+      control,
+      member,
+    );
+
+    // The floor head (v2) is withheld; the junk above it must not read as a rejection of it.
+    const starved = foldControlState(openControlWraps([w1, junk], [control]), communityId, owner.pubkey, first.heads);
+    expect(starved.incomplete).toContain(bytesToHex(communityId));
+  });
+
+  it("a gap among authorized editions still fails closed", async () => {
+    const { owner, communityId, control } = await makeCommunity();
+    const m1 = buildMetadataEdition(communityId, { name: "One", relays: [] }, { actorPubkey: owner.pubkey, version: 1n });
+    const w1 = await sealEdition(m1, control, owner);
+    const p1 = openControlWraps([w1], [control])[0];
+    const first = foldControlState([p1], communityId, owner.pubkey);
+    const m2 = buildMetadataEdition(communityId, { name: "Two", relays: [] }, { actorPubkey: owner.pubkey, version: 2n, prevHash: p1.selfHash });
+    const p2 = openControlWraps([await sealEdition(m2, control, owner)], [control])[0];
+    const m3 = buildMetadataEdition(communityId, { name: "Three", relays: [] }, { actorPubkey: owner.pubkey, version: 3n, prevHash: p2.selfHash });
+    const w3 = await sealEdition(m3, control, owner);
+
+    // The owner's v2 is withheld: v3 is real, so this is data loss, not junk.
+    const starved = foldControlState(openControlWraps([w1, w3], [control]), communityId, owner.pubkey, first.heads);
+    expect(starved.incomplete).toContain(bytesToHex(communityId));
+    expect(starved.metadata?.name).toBe("One");
+  });
+
+  it("a demoted admin's past edition stays a link of the chain an authorized edition built on", async () => {
+    const { owner, communityId, control } = await makeCommunity();
+    const admin = signer();
+    const member = signer();
+    const adm = adminRole(bytesToHex(random32()));
+    const role = await sealEdition(buildRoleEdition(adm, { actorPubkey: owner.pubkey, version: 1n }), control, owner);
+    const a1 = await sealEdition(
+      buildGrantEdition(communityId, { member: admin.pubkey, roleIds: [adm.roleId] }, { actorPubkey: owner.pubkey, version: 1n }),
+      control,
+      owner,
+    );
+    const m1 = await sealEdition(buildMetadataEdition(communityId, { name: "One", relays: [] }, { actorPubkey: owner.pubkey, version: 1n }), control, owner);
+    const first = foldControlState(openControlWraps([role, a1, m1], [control]), communityId, owner.pubkey);
+    const [pm1, pa1] = openControlWraps([m1, a1], [control]);
+    const m2 = await sealEdition(
+      buildMetadataEdition(communityId, { name: "Two", relays: [] }, { actorPubkey: admin.pubkey, version: 2n, prevHash: pm1.selfHash, authority: citeGrant(a1, control) }),
+      control,
+      admin,
+    );
+    const pm2 = openControlWraps([m2], [control])[0];
+    const a2 = await sealEdition(
+      buildGrantEdition(communityId, { member: admin.pubkey, roleIds: [] }, { actorPubkey: owner.pubkey, version: 2n, prevHash: pa1.selfHash }),
+      control,
+      owner,
+    );
+    const m3 = await sealEdition(
+      buildMetadataEdition(communityId, { name: "Three", relays: [] }, { actorPubkey: owner.pubkey, version: 3n, prevHash: pm2.selfHash }),
+      control,
+      owner,
+    );
+    const junk = await sealEdition(
+      buildMetadataEdition(communityId, { name: "junk", relays: [] }, { actorPubkey: member.pubkey, version: 5n, prevHash: new Uint8Array(32) }),
+      control,
+      member,
+    );
+
+    for (const wraps of [[role, a1, a2, m1, m2, m3], [role, a1, a2, m1, m2, m3, junk]]) {
+      const all = openControlWraps(wraps, [control]);
+      const fresh = foldControlState(all, communityId, owner.pubkey);
+      const tracking = foldControlState(all, communityId, owner.pubkey, first.heads);
+      expect(fresh.metadata?.name).toBe("Three");
+      expect(tracking.metadata?.name).toBe("Three");
+      expect(tracking.incomplete).toEqual([]);
+    }
+  });
+
+  it("a grant a demoted admin once edited still folds past a junk edition", async () => {
+    const { owner, communityId, control } = await makeCommunity();
+    const admin = signer();
+    const member = signer();
+    const rando = signer();
+    const adm = adminRole(bytesToHex(random32()));
+    const role = await sealEdition(buildRoleEdition(adm, { actorPubkey: owner.pubkey, version: 1n }), control, owner);
+    const a1 = await sealEdition(
+      buildGrantEdition(communityId, { member: admin.pubkey, roleIds: [adm.roleId] }, { actorPubkey: owner.pubkey, version: 1n }),
+      control,
+      owner,
+    );
+    const g1 = await sealEdition(
+      buildGrantEdition(communityId, { member: member.pubkey, roleIds: [] }, { actorPubkey: owner.pubkey, version: 1n }),
+      control,
+      owner,
+    );
+    const first = foldControlState(openControlWraps([role, a1, g1], [control]), communityId, owner.pubkey);
+    const [pg1, pa1] = openControlWraps([g1, a1], [control]);
+    const g2 = await sealEdition(
+      buildGrantEdition(communityId, { member: member.pubkey, roleIds: [adm.roleId] }, { actorPubkey: admin.pubkey, version: 2n, prevHash: pg1.selfHash, authority: citeGrant(a1, control) }),
+      control,
+      admin,
+    );
+    const pg2 = openControlWraps([g2], [control])[0];
+    const a2 = await sealEdition(
+      buildGrantEdition(communityId, { member: admin.pubkey, roleIds: [] }, { actorPubkey: owner.pubkey, version: 2n, prevHash: pa1.selfHash }),
+      control,
+      owner,
+    );
+    const g3 = await sealEdition(
+      buildGrantEdition(communityId, { member: member.pubkey, roleIds: [] }, { actorPubkey: owner.pubkey, version: 3n, prevHash: pg2.selfHash }),
+      control,
+      owner,
+    );
+    const junk = await sealEdition(
+      buildGrantEdition(communityId, { member: member.pubkey, roleIds: [adm.roleId] }, { actorPubkey: rando.pubkey, version: 5n, prevHash: new Uint8Array(32) }),
+      control,
+      rando,
+    );
+
+    const tracking = foldControlState(openControlWraps([role, a1, a2, g1, g2, g3, junk], [control]), communityId, owner.pubkey, first.heads);
+    expect(tracking.incomplete).toEqual([]);
+    expect(tracking.heads.get(bytesToHex(grantLocator(communityId, hex32(member.pubkey))))?.version).toBe(3n);
+    expect(isAdmin(tracking.roster, member.pubkey)).toBe(false);
+  });
+
   it("bannedAt records the newest AUTHORIZED ban time per npub; forgeries excluded", async () => {
     const { owner, communityId, control } = await makeCommunity();
     const target = signer();
