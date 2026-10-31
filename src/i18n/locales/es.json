@@ -617,6 +617,7 @@
   "chatComposer.gifs": "GIFs",
   "chatComposer.loadingQuote": "Cargando publicación citada…",
   "chatComposer.messageNotSent": "Mensaje no enviado",
+  "chatComposer.metadataNotRemovable": "Armada no puede quitar la ubicación ni los datos de la cámara de esta imagen aquí, así que no se ha enviado.",
   "chatComposer.micDenied": "Acceso al micrófono denegado",
   "chatComposer.micDeniedDescription": "Permite el acceso al micrófono para grabar mensajes de voz.",
   "chatComposer.moreOptions": "Más opciones",

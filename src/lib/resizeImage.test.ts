@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { makeImageThumb, resizeImage } from "./resizeImage";
+import { canDecodeImage, makeImageThumb, resizeImage } from "./resizeImage";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -179,5 +179,71 @@ describe("makeImageThumb", () => {
     // A browser without a WebP encoder hands back PNG.
     stubCanvas(new Blob([new Uint8Array(40_000)], { type: "image/png" }));
     expect(await makeImageThumb(photo(3_000_000, "image/png"))).toBeUndefined();
+  });
+});
+
+describe("resizeImage of an SVG", () => {
+  /**
+   * Chromium as measured: `createImageBitmap` rejects an SVG Blob outright, and an
+   * `<img>` of one without natural dimensions unless resize options are given.
+   */
+  function stubChromiumSvg(natural: { width: number; height: number; intrinsic?: boolean }) {
+    vi.stubGlobal("createImageBitmap", async (source: unknown, options?: ImageBitmapOptions) => {
+      if (source instanceof Blob) throw new DOMException("The source image could not be decoded.", "InvalidStateError");
+      const img = source as { naturalWidth: number; naturalHeight: number };
+      if (natural.intrinsic === false && !options?.resizeWidth) {
+        throw new DOMException("The image element contains an SVG image without natural dimensions", "InvalidStateError");
+      }
+      return { width: options?.resizeWidth ?? img.naturalWidth, height: options?.resizeHeight ?? img.naturalHeight, close: () => undefined };
+    });
+    vi.stubGlobal("Image", class {
+      src = "";
+      naturalWidth = natural.width;
+      naturalHeight = natural.height;
+      decode = async () => undefined;
+    });
+    vi.stubGlobal("URL", class extends URL {
+      static override createObjectURL = () => "blob:svg";
+      static override revokeObjectURL = () => undefined;
+    });
+  }
+
+  const svg = (markup: string) => new File([markup], "logo.svg", { type: "image/svg+xml" });
+
+  it("sizes one with natural dimensions instead of failing the upload", async () => {
+    stubChromiumSvg({ width: 10, height: 20 });
+    const out = await resizeImage(svg('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="20"/>'));
+    expect(out.dimensions).toBe("10x20");
+  });
+
+  it("sizes a viewBox-only one by its aspect", async () => {
+    // Chromium still reports a default natural size (300x150) for it.
+    stubChromiumSvg({ width: 300, height: 150, intrinsic: false });
+    const out = await resizeImage(svg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 15"/>'));
+    const [w, h] = out.dimensions.split("x").map(Number);
+    expect(w / h).toBe(2);
+  });
+});
+
+describe("canDecodeImage", () => {
+  const raw = new File([new Uint8Array([0x49, 0x49, 0x2a, 0])], "IMG_1608.CR2", { type: "image/x-canon-cr2" });
+
+  it("trusts the common web types without decoding", async () => {
+    const decode = vi.fn();
+    vi.stubGlobal("createImageBitmap", decode);
+    expect(await canDecodeImage(raw, "image/jpeg")).toBe(true);
+    expect(decode).not.toHaveBeenCalled();
+  });
+
+  it("probes anything else, so a camera RAW the browser can't read becomes a file", async () => {
+    vi.stubGlobal("createImageBitmap", async () => {
+      throw new DOMException("The source image could not be decoded.", "InvalidStateError");
+    });
+    expect(await canDecodeImage(raw, "image/x-canon-cr2")).toBe(false);
+  });
+
+  it("keeps an unusual type inline when this browser decodes it", async () => {
+    stubBitmap(10, 10);
+    expect(await canDecodeImage(raw, "image/heic")).toBe(true);
   });
 });

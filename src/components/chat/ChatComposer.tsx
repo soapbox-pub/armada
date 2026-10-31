@@ -89,8 +89,9 @@ import { MAX_ENCRYPTED_BYTES, deviceInputLimit, keepUserFields, mimeOfPicked } f
 import { attachmentExpiration } from "@/lib/blossom";
 import { describeRefusal, uploadFailureReason } from "@/lib/blossomPreflight";
 import { KIND_GROUP_CHAT, relayRejectionMessage } from "@/lib/nip29";
-import { makeImageThumb, resizeImage } from "@/lib/resizeImage";
+import { canDecodeImage, makeImageThumb, resizeImage } from "@/lib/resizeImage";
 import { parseChatRoute, roomPath } from "@/lib/routes";
+import { undecodableImageAsFile } from "@/lib/undecodableImage";
 import { consumeShareFor, onShareStashChanged } from "@/lib/shareTarget";
 import { recordSent } from "@/lib/shareTargets";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
@@ -1120,7 +1121,7 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
         return;
       }
       slotHeld = true;
-      const file = source instanceof File ? source : await source.load();
+      let file = source instanceof File ? source : await source.load();
       if (abort.signal.aborted) return;
       if (!previewUrl && file.type.startsWith("image/") && file.size < 40 * 1024 * 1024) {
         previewUrl = URL.createObjectURL(file);
@@ -1131,7 +1132,32 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
       // A 3D model's extension always wins: browsers report nothing or nonsense for them.
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
       const modelMime = modelMimeFromExt(ext);
-      const mime = modelMime ?? (file.type || mimeFromExt(ext));
+      let mime = modelMime ?? (file.type || mimeFromExt(ext));
+      // No decoder for it here (a camera RAW, TIFF, HEIC outside Safari): sent as a
+      // file card with its metadata blanked, or not at all where that can't be done.
+      if (mime.startsWith("image/") && !(await canDecodeImage(file, mime))) {
+        const stripped = await undecodableImageAsFile(file);
+        if (abort.signal.aborted) return;
+        if (!stripped) {
+          toast({
+            title: t({ id: "chatComposer.cantUpload", defaultMessage: "Can't upload this file" }),
+            description: t({
+              id: "chatComposer.metadataNotRemovable",
+              defaultMessage: "Armada can't remove the location and camera details from this image here, so it wasn't sent.",
+            }),
+            variant: "destructive",
+          });
+          return;
+        }
+        file = stripped;
+        mime = file.type;
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl);
+          previewUrl = undefined;
+          patchPending({ previewUrl });
+        }
+      }
+      if (abort.signal.aborted) return;
       const model = modelFormat(mime);
       const isImage = mime.startsWith("image/");
       const isVideo = mime.startsWith("video/");

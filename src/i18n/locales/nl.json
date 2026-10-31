@@ -617,6 +617,7 @@
   "chatComposer.gifs": "GIF’s",
   "chatComposer.loadingQuote": "Geciteerde post laden…",
   "chatComposer.messageNotSent": "Bericht niet verzonden",
+  "chatComposer.metadataNotRemovable": "Armada kan de locatie- en cameragegevens hier niet uit deze afbeelding verwijderen, dus deze is niet verzonden.",
   "chatComposer.micDenied": "Microfoontoegang geweigerd",
   "chatComposer.micDeniedDescription": "Sta microfoontoegang toe om spraakberichten op te nemen.",
   "chatComposer.moreOptions": "Meer opties",

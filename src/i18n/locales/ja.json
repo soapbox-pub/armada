@@ -617,6 +617,7 @@
   "chatComposer.gifs": "GIF",
   "chatComposer.loadingQuote": "引用した投稿を読み込み中…",
   "chatComposer.messageNotSent": "メッセージを送信できませんでした",
+  "chatComposer.metadataNotRemovable": "この環境ではArmadaがこの画像から位置情報とカメラ情報を削除できないため、送信しませんでした。",
   "chatComposer.micDenied": "マイクへのアクセスが拒否されました",
   "chatComposer.micDeniedDescription": "ボイスメッセージを録音するには、マイクへのアクセスを許可してください。",
   "chatComposer.moreOptions": "その他のオプション",

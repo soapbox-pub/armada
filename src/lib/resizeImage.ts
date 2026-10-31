@@ -131,6 +131,26 @@ export async function makeImageThumb(file: File): Promise<File | undefined> {
   }
 }
 
+/** Types every engine Armada runs on decodes; anything else is probed. */
+const DECODABLE_IMAGE_TYPES = new Set([
+  "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/bmp", "image/svg+xml",
+]);
+
+/**
+ * Whether this `image/*` file can be shown inline. An OS may type a camera RAW,
+ * TIFF or HEIC as an image while the browser has no decoder for it; such a file
+ * is sent as a plain attachment rather than failing the upload.
+ */
+export async function canDecodeImage(file: File, mime: string): Promise<boolean> {
+  if (DECODABLE_IMAGE_TYPES.has(mime.toLowerCase())) return true;
+  try {
+    (await createImageBitmap(file)).close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Decode with EXIF rotation baked in, so dropping the orientation tag doesn't
  * leave photos sideways. Older Chromium WebViews reject `"from-image"` with a
@@ -140,8 +160,35 @@ async function decodeUpright(file: File): Promise<ImageBitmap> {
   try {
     return await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch (error) {
+    if (file.type === "image/svg+xml") return decodeSvg(file);
     if (!(error instanceof TypeError)) throw error;
     return createImageBitmap(file);
+  }
+}
+
+/** Raster width of an SVG with no natural size (a viewBox only), along its longer side. */
+const SVG_RASTER = 1024;
+
+/** Chromium won't bitmap an SVG Blob, but rasterizes one loaded as an `<img>`. */
+async function decodeSvg(file: File): Promise<ImageBitmap> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    try {
+      return await createImageBitmap(img);
+    } catch {
+      // No natural size: only resize options can give it one.
+    }
+    const viewBox = /\bviewBox\s*=\s*["']([^"']+)["']/.exec(await file.text())?.[1] ?? "";
+    const [, , w, h] = viewBox.trim().split(/[\s,]+/).map(Number);
+    const aspect = w > 0 && h > 0 ? w / h : 1;
+    return await createImageBitmap(img, aspect >= 1
+      ? { resizeWidth: SVG_RASTER, resizeHeight: Math.max(1, Math.round(SVG_RASTER / aspect)) }
+      : { resizeWidth: Math.max(1, Math.round(SVG_RASTER * aspect)), resizeHeight: SVG_RASTER });
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
