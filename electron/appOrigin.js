@@ -59,6 +59,19 @@ function isSignerHandoffUrl(value) {
 }
 
 /**
+ * Whether a URL is a BitTorrent magnet link, handed to the torrent client only
+ * for a click in the app's own top frame (see isSignerHandoffUrl): from any
+ * frame's window.open it would let embedded content start a download.
+ */
+function isMagnetUrl(value) {
+  try {
+    return new URL(value).protocol === "magnet:";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The in-app router path of a link to our OWN public web host, or null.
  *
  * A "Copy message link" produces `https://<host>/<chat-path>/m/<id>` — the same
@@ -95,5 +108,6 @@ module.exports = {
   isArmadaAppUrl,
   isExternallyOpenableUrl,
   isSignerHandoffUrl,
+  isMagnetUrl,
   internalAppLinkPath,
 };

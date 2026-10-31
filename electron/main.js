@@ -60,6 +60,7 @@ const {
   isArmadaAppUrl,
   isExternallyOpenableUrl,
   isSignerHandoffUrl,
+  isMagnetUrl,
   internalAppLinkPath,
 } = require("./appOrigin");
 const {
@@ -1544,17 +1545,17 @@ function installNavigationHandlers() {
     contents.on("will-navigate", (event, url) => {
       if (isAppOrigin(url)) return;
       event.preventDefault();
-      if (isSignerHandoffUrl(url)) {
-        // Only our own top frame may hand a pairing link to the signer: an
-        // embed with top-navigation rights must not pair it to a client of its
-        // choosing. A missing initiator (frame gone) is refused.
+      if (isSignerHandoffUrl(url) || isMagnetUrl(url)) {
+        // Only our own top frame may hand a pairing link to the signer, or a
+        // magnet link to the torrent client: an embed with top-navigation
+        // rights must not choose either. A missing initiator (frame gone) is refused.
         const initiator = event.initiator;
         if (initiator && !initiator.parent && isAppOrigin(initiator.url)) {
           shell.openExternal(url).catch((error) => {
-            console.warn("[shell] no handler for signer link", error);
+            console.warn("[shell] no handler for", new URL(url).protocol, error);
           });
         } else {
-          console.warn("[shell] refused signer link from", initiator?.url);
+          console.warn("[shell] refused", new URL(url).protocol, "link from", initiator?.url);
         }
         return;
       }

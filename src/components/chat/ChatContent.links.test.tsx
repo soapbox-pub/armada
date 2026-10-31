@@ -135,3 +135,24 @@ describe("ChatContent link canonicalization", () => {
     expect(hrefs(container)).toEqual(["https://youtu.be/dQw4w9WgXcQ"]);
   });
 });
+
+describe("ChatContent magnet links", () => {
+  const MAGNET =
+    "magnet:?xt=urn:btih:D0F23C109D8662A3FE9338F75839AF8D57E5D4A9&dn=Ubuntu+MATE+16.04.2&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80%2Fannounce";
+
+  it("links the whole URI, mid-sentence, leaving trailing punctuation as text", () => {
+    const { container } = renderContent(`grab ${MAGNET}. thanks`);
+    expect(hrefs(container)).toEqual([MAGNET]);
+    const link = container.querySelector("a")!;
+    expect(link.textContent).toBe(MAGNET);
+    // No new window: the click is a top-frame navigation, the one path the desktop shell hands on.
+    expect(link.hasAttribute("target")).toBe(false);
+    expect(container.textContent).toContain(". thanks");
+  });
+
+  it("leaves a magnet: that names no content hash as text", () => {
+    const { container } = renderContent("magnet:?dn=nothing-here");
+    expect(hrefs(container)).toEqual([]);
+    expect(container.textContent).toContain("magnet:?dn=nothing-here");
+  });
+});

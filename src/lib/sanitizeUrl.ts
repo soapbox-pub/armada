@@ -14,6 +14,20 @@ export function sanitizeUrl(raw: string | undefined | null): string | undefined 
   return undefined;
 }
 
+/** Longest magnet URI rendered as a link; tracker lists make real ones a few KB. */
+const MAGNET_MAX_LENGTH = 8192;
+
+/**
+ * Whether `raw` is a BitTorrent magnet URI naming its content by hash
+ * (`xt=urn:btih:` v1 or `urn:btmh:` v2), the only `magnet:` shape linked.
+ */
+export function isMagnetUri(raw: string): boolean {
+  if (raw.length > MAGNET_MAX_LENGTH || !/^magnet:\?/i.test(raw)) return false;
+  return new URLSearchParams(raw.slice(raw.indexOf("?") + 1))
+    .getAll("xt")
+    .some((xt) => /^urn:bt(?:ih|mh):[0-9a-z]+$/i.test(xt));
+}
+
 /**
  * Whether a URL targets a loopback/private address. Loading one from a public
  * page triggers Chrome's Local Network Access prompt for every viewer, so

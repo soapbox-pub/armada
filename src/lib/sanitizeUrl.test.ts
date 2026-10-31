@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isLocalNetworkUrl, sanitizeUrl } from "./sanitizeUrl";
+import { isLocalNetworkUrl, isMagnetUri, sanitizeUrl } from "./sanitizeUrl";
 
 describe("sanitizeUrl", () => {
   it("passes http(s) URLs", () => {
@@ -60,5 +60,19 @@ describe('IPv4-mapped IPv6 literals', () => {
 
   it('still allows a mapped public address', () => {
     expect(isLocalNetworkUrl('http://[::ffff:93.184.216.34]/x.png')).toBe(false);
+  });
+});
+
+describe("isMagnetUri", () => {
+  it("accepts a magnet naming its content by BitTorrent hash", () => {
+    expect(isMagnetUri("magnet:?xt=urn:btih:D0F23C109D8662A3FE9338F75839AF8D57E5D4A9&dn=Ubuntu&tr=udp%3A%2F%2Ft.example%3A80")).toBe(true);
+    expect(isMagnetUri("magnet:?dn=x&xt=urn:btmh:1220abcdef")).toBe(true);
+  });
+
+  it("refuses anything else spelled magnet:", () => {
+    expect(isMagnetUri("magnet:?dn=no-hash")).toBe(false);
+    expect(isMagnetUri("magnet:?xt=urn:sha1:abc")).toBe(false);
+    expect(isMagnetUri("magnet:xt=urn:btih:abc")).toBe(false);
+    expect(isMagnetUri(`magnet:?xt=urn:btih:abc&tr=${"a".repeat(9000)}`)).toBe(false);
   });
 });

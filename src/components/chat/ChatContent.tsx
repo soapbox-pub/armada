@@ -51,7 +51,7 @@ import { filenameFromUrl } from "@/lib/fileBytes";
 import { AUDIO_EXTS, EMBED_MEDIA_URL_REGEX, IMAGE_URL_REGEX, isGifLikeUrl, isUnplayableVideo, mimeFromExt } from "@/lib/mediaUrls";
 import { KIND_GROUP_METADATA, nip29GroupPath, parseGroupAddress, type GroupAddress } from "@/lib/nip29";
 import { normalizeRelayUrl, relayToRouteParam } from "@/lib/platform";
-import { sanitizeUrl } from "@/lib/sanitizeUrl";
+import { isMagnetUri, sanitizeUrl } from "@/lib/sanitizeUrl";
 import { parseSelfLink } from "@/lib/selfLink";
 import { stripTrackingParams } from "@/lib/trackingParams";
 import { WEBXDC_MIME, isWebxdcMime } from "@/lib/webxdcMime";
@@ -175,6 +175,8 @@ type ContentToken =
   | { type: "buzz-invite-embed"; url: string }
   | { type: "group-invite-embed"; url: string; group: GroupAddress }
   | { type: "inline-link"; url: string }
+  /** A BitTorrent `magnet:` URI, handed to the OS's torrent client on click. */
+  | { type: "magnet-link"; url: string }
   /** An own-origin chat link alone on its line — the in-app preview card. */
   | { type: "self-chat-embed"; url: string; route: ChatRoute; path: string }
   /** An own-origin chat link mid-sentence — an internal router link. */
@@ -236,6 +238,7 @@ function isSpannable(token: ContentToken): boolean {
     case "hashtag":
     case "relay-link":
     case "inline-link":
+    case "magnet-link":
     case "self-link":
     case "md-link":
       return true;
@@ -433,7 +436,7 @@ function cacheTokens(id: string, content: string, tokens: ContentToken[]): Conte
 
 /**
  * The body tokenizer's alternation: markdown image | BOLT11 | URL |
- * `nostr:` NIP-19 | bare/`@` NIP-19 | hashtag | Cashu. Compiled once; shared
+ * `nostr:` NIP-19 | bare/`@` NIP-19 | hashtag | Cashu | magnet. Compiled once; shared
  * `lastIndex` is reset by {@link tokenizeSegment} (synchronous, non-reentrant).
  */
 const SEGMENT_RE = new RegExp(
@@ -450,8 +453,9 @@ const SEGMENT_RE = new RegExp(
   "|nostr:(npub1|note1|nprofile1|nevent1|naddr1)([023456789acdefghjklmnpqrstuvwxyz]+)" +
   "|@?(npub1|note1|nprofile1|nevent1|naddr1)([023456789acdefghjklmnpqrstuvwxyz]+)" +
   `|(${HASHTAG_PATTERN})` +
-  // Cashu last so the group numbers above are untouched.
-  `|(${CASHU_TOKEN_PATTERN})`,
+  // New alternatives go last so the group numbers above are untouched.
+  `|(${CASHU_TOKEN_PATTERN})` +
+  "|(magnet:\\?[^\\s<>|]+)",
   "giu",
 );
 
@@ -521,6 +525,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         const forceImage = Boolean(mdImageUrl);
         const hashtag = match[8];
         const cashu = match[9];
+        const magnet = match[10];
         const { 4: nostrPrefix, 5: nostrData, 6: barePrefix, 7: bareData } = match;
         const index = match.index;
 
@@ -530,6 +535,11 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
 
         if (bolt11) {
           out.push({ type: "lightning-invoice", invoice: bolt11.toLowerCase() });
+        } else if (magnet) {
+          const trimmed = magnet.replace(/[.,;:!?)\]]+$/, "");
+          out.push(isMagnetUri(trimmed) ? { type: "magnet-link", url: trimmed } : { type: "text", value: trimmed });
+          lastIndex = index + trimmed.length;
+          continue;
         } else if (cashu) {
           // Only if it decodes; otherwise a `cashu`-lookalike renders verbatim.
           out.push(
@@ -1274,6 +1284,18 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         return selfLink(key, token.url, token.path);
       case "inline-link":
         return inlineLink(key, token.url);
+      case "magnet-link":
+        return (
+          <a
+            key={key}
+            href={token.url}
+            rel="noopener noreferrer"
+            className="text-primary hover:underline break-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {token.url}
+          </a>
+        );
       case "media-embed": {
         if (inQuote) return inlineLink(key, token.url);
         const imeta = imetaMap.get(token.url);
