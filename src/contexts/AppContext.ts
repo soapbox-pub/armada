@@ -69,6 +69,9 @@ export interface AppConfig {
    * Per-device, not synced.
    */
   memberListVisible?: boolean;
+  /** Desktop channel-list and member-list widths in px, dragged by the user. Per-device. */
+  channelListWidth?: number;
+  memberListWidth?: number;
   /**
    * App relays for non-NIP-29 traffic (profiles, lists…). Seeded from
    * APP_RELAYS; user-editable. Group-scoped events never route here.
@@ -378,6 +381,8 @@ export const PER_DEVICE_CONFIG_KEYS = [
   "railOpenFolders",
   "collapsedChannelCategories",
   "memberListVisible",
+  "channelListWidth",
+  "memberListWidth",
   "lastChannelByServer",
   "meshIncognito",
   "meshEnabled",

@@ -21,6 +21,7 @@ import { MessageTimeline } from "@/components/chat/MessageTimeline";
 import { SlashCommandAutocomplete } from "@/components/chat/SlashCommandAutocomplete";
 import { LoginArea } from "@/components/auth/LoginArea";
 import { ChannelSidebarView } from "@/components/layout/ChannelSidebarView";
+import { PaneResizeHandle } from "@/components/layout/PaneResizeHandle";
 import { ServerRail } from "@/components/layout/ServerRail";
 import { SwipeReveal } from "@/components/layout/SwipeReveal";
 import { Button } from "@/components/ui/button";
@@ -252,7 +253,7 @@ export function MeshPage() {
             onSetEnabled={(enabled) => mesh.setEnabled(enabled)}
             onOpenBroadcast={() => setView({ type: "broadcast" })}
             onOpenDM={(peerID) => setView({ type: "dm", peerID })}
-            className="flex-1 sidebar:flex-none sidebar:w-60"
+            className="flex-1 sidebar:flex-none"
           />
         </>
       }
@@ -708,20 +709,21 @@ function MeshMemberPanel({
       className={cn(
         "overflow-hidden",
         "absolute inset-0 z-20 sidebar:static sidebar:z-auto",
-        "sidebar:shrink-0 sidebar:w-0 sidebar:transition-[width] sidebar:duration-200 sidebar:ease-out",
+        "sidebar:shrink-0 sidebar:w-0 sidebar:transition-[width] sidebar:duration-200 sidebar:ease-out [[data-pane-resizing]_&]:transition-none",
         open ? "" : "pointer-events-none sidebar:pointer-events-auto",
-        visible && "sidebar:w-[16.5rem]",
+        visible && "sidebar:w-[var(--member-list-w,16.5rem)]",
       )}
     >
       <div
         className={cn(
-          "relative h-full flex w-full sidebar:w-[16.5rem] transition-transform duration-200 ease-out",
+          "relative h-full flex w-full sidebar:w-[var(--member-list-w,16.5rem)] transition-transform duration-200 ease-out",
           open ? "transform-none" : "translate-x-full",
           visible ? "sidebar:transform-none" : "sidebar:translate-x-full",
         )}
       >
         <div aria-hidden className="absolute inset-0 -z-10 bg-background sidebar:hidden" />
-        <aside className="flex flex-col h-full w-full sidebar:w-[16.5rem] mx-gutter mt-3 mb-2 clip-corner-lg bg-chrome overflow-hidden">
+        {visible && <PaneResizeHandle pane="member" />}
+        <aside className="flex flex-col h-full w-full sidebar:w-[var(--member-list-w,16.5rem)] mx-gutter mt-3 mb-2 clip-corner-lg bg-chrome overflow-hidden">
           <div className="flex items-center justify-between px-4 h-12 shrink-0 sidebar:hidden">
             <span className="text-sm font-semibold">
               <FormattedMessage id="meshPage.nearby" defaultMessage="Nearby" />

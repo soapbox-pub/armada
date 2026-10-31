@@ -2879,6 +2879,8 @@
   "onchainZapContent.to": "Aan:",
   "onchainZapContent.unattributed": "Omdat we je transactie niet kunnen zien, wordt deze zap niet aan jou toegeschreven. De ontvanger krijgt de Bitcoin wel.",
   "onchainZapContent.unsupported": "{signer, select, extension {Je browserextensie kan geen Bitcoin-transacties ondertekenen.} bunker {Je externe signer kan geen Bitcoin-transacties ondertekenen.} other {Je signer kan geen Bitcoin-transacties ondertekenen.}} Je kunt toch zappen door deze QR te scannen met een willekeurige Bitcoin-wallet.",
+  "paneResizeHandle.channel": "Formaat van kanaallijst wijzigen",
+  "paneResizeHandle.member": "Formaat van ledenlijst wijzigen",
   "paymentTargets.placeholder.ethereum": "0x… (Ethereum-adres)",
   "paymentTargets.placeholder.monero": "4… (Monero-adres)",
   "paymentTargets.placeholder.nano": "nano_… (Nano-adres)",

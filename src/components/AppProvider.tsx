@@ -15,6 +15,7 @@ import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { setPowDifficulty } from "@/lib/pow";
 import { useThemePreview } from "@/lib/themePreview";
 import { hslStringToHex, isDarkTheme } from "@/lib/colorUtils";
+import { applyPaneWidth } from "@/lib/paneWidth";
 import { syncNativeStatusBar } from "@/lib/statusBar";
 import {
   buildThemeCssFromCore,
@@ -153,6 +154,7 @@ export function AppProvider({ storageKey, children }: AppProviderProps) {
     <AppContext.Provider value={value}>
       <ThemeBackgroundSync config={paintedConfig} />
       <ThemeFontSync config={paintedConfig} />
+      <PaneWidthSync config={config} />
       {children}
     </AppContext.Provider>
   );
@@ -187,6 +189,13 @@ function ThemeBackgroundSync({ config }: { config: AppConfig }) {
     };
   }, [src, tile]);
 
+  return null;
+}
+
+/** Publish the dragged desktop pane widths (see PaneResizeHandle) as CSS variables. */
+function PaneWidthSync({ config }: { config: AppConfig }) {
+  useLayoutEffect(() => applyPaneWidth("channel", config.channelListWidth), [config.channelListWidth]);
+  useLayoutEffect(() => applyPaneWidth("member", config.memberListWidth), [config.memberListWidth]);
   return null;
 }
 

@@ -2879,6 +2879,8 @@
   "onchainZapContent.to": "À :",
   "onchainZapContent.unattributed": "Comme nous ne pouvons pas voir votre transaction, ce zap ne vous sera pas attribué. Le destinataire recevra tout de même les Bitcoin.",
   "onchainZapContent.unsupported": "{signer, select, extension {Votre extension de navigateur ne peut pas signer de transactions Bitcoin.} bunker {Votre signataire distant ne peut pas signer de transactions Bitcoin.} other {Votre signataire ne peut pas signer de transactions Bitcoin.}} Vous pouvez quand même envoyer un zap en scannant ce QR depuis n’importe quel portefeuille Bitcoin.",
+  "paneResizeHandle.channel": "Redimensionner la liste des salons",
+  "paneResizeHandle.member": "Redimensionner la liste des membres",
   "paymentTargets.placeholder.ethereum": "0x… (adresse Ethereum)",
   "paymentTargets.placeholder.monero": "4… (adresse Monero)",
   "paymentTargets.placeholder.nano": "nano_… (adresse Nano)",

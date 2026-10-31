@@ -1,6 +1,7 @@
 import { Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { PaneResizeHandle } from "@/components/layout/PaneResizeHandle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { common, FormattedMessage, useIntl } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -74,7 +75,7 @@ export function ChannelSidebarView({
   return (
     <aside
       className={cn(
-        "relative flex flex-col w-60 shrink-0 bg-chrome",
+        "relative flex flex-col w-60 sidebar:w-[var(--channel-list-w,15rem)] shrink-0 bg-chrome",
         className,
       )}
     >
@@ -160,6 +161,7 @@ export function ChannelSidebarView({
       </div>
 
       {footer}
+      <PaneResizeHandle pane="channel" />
     </aside>
   );
 }

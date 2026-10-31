@@ -2879,6 +2879,8 @@
   "onchainZapContent.to": "宛先:",
   "onchainZapContent.unattributed": "あなたのトランザクションを確認できないため、このZapはあなたによるものとして記録されません。受取人にはBitcoinが届きます。",
   "onchainZapContent.unsupported": "{signer, select, extension {ブラウザ拡張機能はBitcoinトランザクションに署名できません。} bunker {リモート署名アプリはBitcoinトランザクションに署名できません。} other {署名アプリはBitcoinトランザクションに署名できません。}}任意のBitcoinウォレットでこのQRをスキャンすればZapできます。",
+  "paneResizeHandle.channel": "チャンネル一覧の幅を変更",
+  "paneResizeHandle.member": "メンバー一覧の幅を変更",
   "paymentTargets.placeholder.ethereum": "0x…（Ethereumアドレス）",
   "paymentTargets.placeholder.monero": "4…（Moneroアドレス）",
   "paymentTargets.placeholder.nano": "nano_…（Nanoアドレス）",

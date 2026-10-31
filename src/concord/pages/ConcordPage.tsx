@@ -61,6 +61,7 @@ import { useSelfRemove } from "@/concord/hooks/useSelfRemove";
 import { useLinkAuthorityWatch, useLinkFreshnessWatch, useRetireCommunityLinks, type RetirementOutcome } from "@/concord/hooks/useInvites";
 import { dissolveMissToast } from "@/concord/components/dissolveMissToast";
 import { ChannelSidebarView } from "@/components/layout/ChannelSidebarView";
+import { PaneResizeHandle } from "@/components/layout/PaneResizeHandle";
 import { ServerRail } from "@/components/layout/ServerRail";
 import {
   ChatHeader,
@@ -3969,19 +3970,20 @@ function ConcordCommunityPage() {
               className={cn(
                 "overflow-hidden",
                 "absolute inset-0 z-20 sidebar:static sidebar:z-auto",
-                "sidebar:shrink-0 sidebar:w-0 sidebar:transition-[width] sidebar:duration-200 sidebar:ease-out",
+                "sidebar:shrink-0 sidebar:w-0 sidebar:transition-[width] sidebar:duration-200 sidebar:ease-out [[data-pane-resizing]_&]:transition-none",
                 membersOpen ? "" : "pointer-events-none sidebar:pointer-events-auto",
-                membersVisible && "sidebar:w-[16.5rem]",
+                membersVisible && "sidebar:w-[var(--member-list-w,16.5rem)]",
               )}
             >
               <div
                 className={cn(
-                  "relative h-full flex w-full sidebar:w-[16.5rem] transition-transform duration-200 ease-out",
+                  "relative h-full flex w-full sidebar:w-[var(--member-list-w,16.5rem)] transition-transform duration-200 ease-out",
                   membersOpen ? "transform-none" : "translate-x-full",
                   membersVisible ? "sidebar:transform-none" : "sidebar:translate-x-full",
                 )}
               >
                 <div aria-hidden className="absolute inset-0 -z-10 bg-background sidebar:hidden" />
+                {membersVisible && <PaneResizeHandle pane="member" />}
                 <MemberList
                   admins={panelAdmins}
                   members={panelMembers}

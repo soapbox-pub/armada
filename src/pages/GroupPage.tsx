@@ -32,6 +32,7 @@ import { GroupSettingsDialog } from "@/components/dialogs/GroupSettingsDialog";
 import { InvitePeopleDialog } from "@/components/dialogs/InvitePeopleDialog";
 import { ServerProfileDialog } from "@/components/dialogs/ServerProfileDialog";
 import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
+import { PaneResizeHandle } from "@/components/layout/PaneResizeHandle";
 import { ServerRail } from "@/components/layout/ServerRail";
 import { SwipeReveal } from "@/components/layout/SwipeReveal";
 import { Button } from "@/components/ui/button";
@@ -707,19 +708,20 @@ export function GroupPage() {
             className={cn(
               "overflow-hidden",
               "absolute inset-0 z-20 sidebar:static sidebar:z-auto",
-              "sidebar:shrink-0 sidebar:w-0 sidebar:transition-[width] sidebar:duration-200 sidebar:ease-out",
+              "sidebar:shrink-0 sidebar:w-0 sidebar:transition-[width] sidebar:duration-200 sidebar:ease-out [[data-pane-resizing]_&]:transition-none",
               membersOpen ? "" : "pointer-events-none sidebar:pointer-events-auto",
-              membersVisible && "sidebar:w-[16.5rem]",
+              membersVisible && "sidebar:w-[var(--member-list-w,16.5rem)]",
             )}
           >
             <div
               className={cn(
-                "relative h-full flex w-full sidebar:w-[16.5rem] transition-transform duration-200 ease-out",
+                "relative h-full flex w-full sidebar:w-[var(--member-list-w,16.5rem)] transition-transform duration-200 ease-out",
                 membersOpen ? "transform-none" : "translate-x-full",
                 membersVisible ? "sidebar:transform-none" : "sidebar:translate-x-full",
               )}
             >
               <div aria-hidden className="absolute inset-0 -z-10 bg-background sidebar:hidden" />
+              {membersVisible && <PaneResizeHandle pane="member" />}
               <MemberList
                 admins={mergedAdmins}
                 members={details?.members ?? []}

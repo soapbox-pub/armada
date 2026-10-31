@@ -2879,6 +2879,8 @@
   "onchainZapContent.to": "An:",
   "onchainZapContent.unattributed": "Da wir deine Transaktion nicht sehen können, wird dir dieser Zap nicht zugeordnet. Die empfangende Person erhält die Bitcoin trotzdem.",
   "onchainZapContent.unsupported": "{signer, select, extension {Deine Browser-Erweiterung kann keine Bitcoin-Transaktionen signieren.} bunker {Dein Remote-Signer kann keine Bitcoin-Transaktionen signieren.} other {Dein Signer kann keine Bitcoin-Transaktionen signieren.}} Du kannst trotzdem zappen, indem du diesen QR-Code mit einer beliebigen Bitcoin-Wallet scannst.",
+  "paneResizeHandle.channel": "Kanalliste anpassen",
+  "paneResizeHandle.member": "Mitgliederliste anpassen",
   "paymentTargets.placeholder.ethereum": "0x… (Ethereum-Adresse)",
   "paymentTargets.placeholder.monero": "4… (Monero-Adresse)",
   "paymentTargets.placeholder.nano": "nano_… (Nano-Adresse)",
