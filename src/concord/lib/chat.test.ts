@@ -398,6 +398,26 @@ describe("chat plane (CORD-03)", () => {
     expect(filterEpochCutoff(rows, uncapped)).toBe(rows);
   });
 
+  it("filterEpochCutoff leaves an epoch number a live stream shares uncapped", () => {
+    // A private channel born at key epoch 0, rotated on a ban, then made public:
+    // root epoch 0 is current, and the retired key's epoch is also 0. Capping by
+    // number hid every new public message while each still opened and notified.
+    const rootStream = { epoch: 0n, group: channelGroupKey(root, channelId, 0) };
+    const keyNow = { epoch: 1n, group: channelGroupKey(new Uint8Array(32).fill(7), channelId, 1) };
+    const keyThen = { epoch: 0n, group: channelGroupKey(new Uint8Array(32).fill(8), channelId, 0), retiredAt: 5 };
+    const channel: Channel = {
+      id: channelId,
+      idHex: channelIdHex,
+      name: "general",
+      isPrivate: false,
+      voice: { room: voiceGroupKey(root, channelId, 0), mediaKey: voiceMediaKey(root, channelId, 0) },
+      streams: [rootStream, keyNow, keyThen],
+      current: rootStream,
+    };
+    const row = { rumorId: "new", author: "a".repeat(64), kind: KIND_MESSAGE, content: "new", tags: [], ms: 9000, createdAt: 9, channelIdHex, epoch: 0n };
+    expect(filterEpochCutoff([row], channel).map((m) => m.content)).toEqual(["new"]);
+  });
+
   it("drops only banned authors — a retired epoch is not an author filter (CORD-02 §5)", () => {
     const member = "aa".repeat(32);
     const banned = "bb".repeat(32);

@@ -142,15 +142,23 @@ function finishChat(pending: PendingChat, channel: Channel, remember: boolean): 
 
 /**
  * Drop stored events violating their epoch's retirement cutoff — rows stored
- * before the rotation was adopted locally.
+ * before the rotation was adopted locally. A stored row names only its epoch
+ * NUMBER, and root and channel-key epochs share one number space (a once-private
+ * channel's key epoch 0 beside root epoch 0), so a number a live stream also
+ * carries has no cutoff here: the open path already applied the opening
+ * stream's own.
  */
 export function filterEpochCutoff(events: OpenedChat[], channel: Channel): OpenedChat[] {
   let cutoffs: Map<string, number> | undefined;
   for (const s of channel.streams) {
     if (s.retiredAt === undefined) continue;
-    (cutoffs ??= new Map()).set(s.epoch.toString(), s.retiredAt);
+    const epoch = s.epoch.toString();
+    const prev = cutoffs?.get(epoch);
+    (cutoffs ??= new Map()).set(epoch, prev === undefined ? s.retiredAt : Math.max(prev, s.retiredAt));
   }
   if (!cutoffs) return events;
+  for (const s of channel.streams) if (s.retiredAt === undefined) cutoffs.delete(s.epoch.toString());
+  if (cutoffs.size === 0) return events;
   const caps = cutoffs;
   return events.filter((ev) => {
     const cap = caps.get(ev.epoch.toString());
