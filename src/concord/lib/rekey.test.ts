@@ -24,9 +24,11 @@ import {
   encodeWrappedKey,
   findBlob,
   groupRotations,
+  REKEY_BASE_BLOBS_PER_EVENT,
   REKEY_BLOBS_PER_EVENT,
   REKEY_RUMOR_MAX_BYTES,
   type ParsedRekey,
+  type RekeyRotation,
   lowerKeyWins,
   mintOrReuseRotationKey,
   myLocator,
@@ -139,10 +141,10 @@ describe("rekey events (CORD-06 §1–2)", () => {
     expect(parseRekey(openWrap(wrap, address)).authority).toBeUndefined();
   });
 
-  it("chunks at 120 blobs and completes only with every chunk", () => {
+  it("chunks a base rotation at 60 blobs and completes only with every chunk", () => {
     const rotator = signer();
     const prevCommit = bytesToHex(epochKeyCommitment(0n, random32()));
-    const blobs: RekeyBlob[] = Array.from({ length: 250 }, () => ({
+    const blobs: RekeyBlob[] = Array.from({ length: 150 }, () => ({
       locator: bytesToHex(random32()),
       wrapped: "AA",
     }));
@@ -172,7 +174,7 @@ describe("rekey events (CORD-06 §1–2)", () => {
     const full = groupRotations(parsed);
     expect(full.length).toBe(1);
     expect(full[0].complete).toBe(true);
-    expect([...full[0].chunks.values()].reduce((n, c) => n + c.blobs.length, 0)).toBe(250);
+    expect([...full[0].chunks.values()].reduce((n, c) => n + c.blobs.length, 0)).toBe(150);
   });
 
   it("continuity: match adopts, higher prevepoch is a gap, mismatch is a fork", () => {
@@ -254,7 +256,7 @@ describe("exclusion vs. history (join-onto-a-past-Refounding, liveness-only bug)
     // Two chunks of one rotation, published at different times → the newest.
     const rotator = signer();
     const prevCommit = bytesToHex(epochKeyCommitment(0n, random32()));
-    const blobs: RekeyBlob[] = Array.from({ length: 130 }, () => ({
+    const blobs: RekeyBlob[] = Array.from({ length: 100 }, () => ({
       locator: bytesToHex(random32()),
       wrapped: "AA",
     }));
@@ -435,21 +437,29 @@ describe("rekey chunking (CORD-06 §1)", () => {
         NIP44_MAX_PLAINTEXT,
       );
       // Throws StreamError("oversize") rather than publishing, if it doesn't.
-      expect(openWrap(await wrapSeal(seal, address), address).rumorId).toBe(rumor.id);
+      const wrap = await wrapSeal(seal, address);
+      // CORD-02 Appendix B: the outer event fits a 64 KB relay event.
+      expect(utf8Len(JSON.stringify(wrap)), "the published event").toBeLessThanOrEqual(65_536);
+      expect(openWrap(wrap, address).rumorId).toBe(rumor.id);
     }
   });
 
-  it("lets the count cap bind for channel blobs and the byte budget bind for base blobs", () => {
+  it("lets CORD-06 §1's count caps bind for every blob width", () => {
     const rotator = signer();
-    const largest = (width: number) =>
-      largestChunk(buildRekeyRumors(rotator.pubkey, rotation(bytesToHex(random32())), blobsOf(width, 500), Date.now()));
-    // 72-byte blobs fit more than 120 in a rumor, so CORD-06 §1's count is
-    // still what stops them: channel rotations are byte-for-byte unchanged.
-    expect(largest(72)).toBe(REKEY_BLOBS_PER_EVENT);
-    // The wider base forms run out of bytes first, and the wider of the two
-    // first of all.
-    expect(largest(104)).toBeLessThan(REKEY_BLOBS_PER_EVENT);
-    expect(largest(136)).toBeLessThan(largest(104));
+    const largest = (width: number, scope: RekeyRotation["scope"]) =>
+      largestChunk(
+        buildRekeyRumors(
+          rotator.pubkey,
+          { ...rotation(bytesToHex(random32())), scope },
+          blobsOf(width, 500),
+          Date.now(),
+          wideVac(),
+        ),
+      );
+    const channel = { kind: "channel", channelId: random32() } as const;
+    expect(largest(72, channel)).toBe(REKEY_BLOBS_PER_EVENT);
+    expect(largest(104, { kind: "root" })).toBe(REKEY_BASE_BLOBS_PER_EVENT);
+    expect(largest(136, { kind: "root" })).toBe(REKEY_BASE_BLOBS_PER_EVENT);
   });
 
   it("still emits one empty chunk for a rotation with no recipients", () => {

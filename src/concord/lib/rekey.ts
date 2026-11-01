@@ -2,7 +2,7 @@
  * Concord Rekeys & Refoundings — CORD-06.
  *
  * A rotation mints a fresh key at the next epoch and delivers per-recipient
- * blobs (kind 3303, ≤120 per event, chunked) at an address derived from the
+ * blobs (kind 3303, ≤80 per event or 60 for a base rotation, chunked) at an address derived from the
  * PRIOR secret; a removed member finding no blob across ALL chunks knows they're out.
  *
  * Blob plaintext is fixed-width per form (CORD-06 §1), NIP-44 under the
@@ -22,18 +22,20 @@ import { buildRumor, type OpenedEvent } from "@/concord/lib/stream";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { readFolded, writeFolded } from "@/lib/foldedCache";
 
-/** Per-recipient blobs per rekey event (CORD-06 §1). */
-export const REKEY_BLOBS_PER_EVENT = 120;
+/** Per-recipient blobs per Channel rekey event (CORD-06 §1). */
+export const REKEY_BLOBS_PER_EVENT = 80;
+
+/** Per-recipient blobs per base rekey event, whose blobs are wider (CORD-06 §1). */
+export const REKEY_BASE_BLOBS_PER_EVENT = 60;
 
 /**
- * Byte ceiling on one rekey rumor's JSON, alongside the 120-blob count cap.
- * Base blobs are wider, and 120 of them pushed the wrap's NIP-44 plaintext past
- * 65,535 bytes. 40,960 is the top of the NIP-44 padding bucket that still wraps
- * (76,965-byte event); one byte more and the wrap refuses. Capacity: 126 blobs
- * at 72 bytes (count cap still binds), 99 at 104, 90 at 136. Finer chunking is
- * always wire-legal (see {@link parseRekey}).
+ * Byte ceiling on one rekey rumor's JSON, alongside the count caps. 28,672 is
+ * the top of the NIP-44 padding bucket whose seal and wrap still serialize
+ * under the 64 KB relay event limit (CORD-02 Appendix B), about 55 KB, so the
+ * count caps bind for every real blob width. Finer chunking is always
+ * wire-legal (see {@link parseRekey}).
  */
-export const REKEY_RUMOR_MAX_BYTES = 40_960;
+export const REKEY_RUMOR_MAX_BYTES = 28_672;
 
 /**
  * How many channel epochs past the held one to watch. Watching only `held + 1`
@@ -196,6 +198,7 @@ export function buildRekeyRumors(
     buildRumor({ kind: KIND_REKEY, content: "", tags: tagsFor(widest, widest), pubkey: rotatorPubkey, ms }),
   ));
   const budget = REKEY_RUMOR_MAX_BYTES - envelope;
+  const perEvent = rotation.scope.kind === "root" ? REKEY_BASE_BLOBS_PER_EVENT : REKEY_BLOBS_PER_EVENT;
 
   const chunks: RekeyBlob[][] = [];
   let current: RekeyBlob[] = [];
@@ -203,7 +206,7 @@ export function buildRekeyRumors(
   for (const blob of blobs) {
     const cost = escapedJsonLen(blob);
     // `+ 1` for the comma. A lone over-budget blob is kept (blobs are indivisible).
-    if (current.length > 0 && (current.length >= REKEY_BLOBS_PER_EVENT || used + 1 + cost > budget)) {
+    if (current.length > 0 && (current.length >= perEvent || used + 1 + cost > budget)) {
       chunks.push(current);
       current = [];
       used = 2;
