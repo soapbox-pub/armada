@@ -1660,6 +1660,28 @@ function ConcordVoiceRoom({
     });
   }, [strandedFrom, elsewhereOrigin, communityBrokers, ctx, joinConcordCall]);
 
+  // CORD-07 §4: a member on a transport we don't speak is in the call, just not one we can hear.
+  const warnedOtherTransport = useRef(false);
+  const otherTransportCount = fold.otherTransport.length;
+  useEffect(() => {
+    if (warnedOtherTransport.current || !tokenData || otherTransportCount === 0) return;
+    warnedOtherTransport.current = true;
+    toast({
+      title: t(
+        {
+          id: "persistentVoiceRoom.otherTransport.title",
+          defaultMessage:
+            "{count, plural, one {# member is} other {# members are}} in this call peer to peer",
+        },
+        { count: otherTransportCount },
+      ),
+      description: t({
+        id: "persistentVoiceRoom.otherTransport.description",
+        defaultMessage: "Armada can't join peer-to-peer calls yet, so you won't hear each other.",
+      }),
+    });
+  }, [tokenData, otherTransportCount]);
+
   // Others render as members only under a sole fresh presence claim (§4).
   const resolveIdentity = useCallback<VoiceIdentityResolver>(
     (identity) => {

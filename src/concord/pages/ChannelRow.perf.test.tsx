@@ -41,7 +41,7 @@ vi.mock("@/concord/hooks/useVoice", async (importOriginal) => {
     },
     useVoicePresence: (community?: Community, channel?: Channel) => {
       spies.useVoicePresence(community, channel);
-      return { present: [], claims: [] };
+      return { present: [], claims: [], otherTransport: [] };
     },
   };
 });

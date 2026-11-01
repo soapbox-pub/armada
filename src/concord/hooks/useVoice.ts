@@ -39,7 +39,7 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import { t } from "@/i18n";
 
 /** The stable empty fold (so idle rows keep constant props). */
-const EMPTY_FOLD: VoicePresenceFold = { present: [], claims: new Map() };
+const EMPTY_FOLD: VoicePresenceFold = { present: [], claims: new Map(), otherTransport: [] };
 
 function sameClaims(left: Map<string, string[]>, right: Map<string, string[]>): boolean {
   if (left.size !== right.size) return false;
@@ -116,7 +116,11 @@ export function useVoicePresence(
               p.screenShareIdentities.join("\0") ===
                 next.present[i].screenShareIdentities.join("\0"),
           ) &&
-          sameClaims(prev.claims, next.claims)
+          sameClaims(prev.claims, next.claims) &&
+          prev.otherTransport.length === next.otherTransport.length &&
+          prev.otherTransport.every(
+            (p, i) => p.author === next.otherTransport[i].author && p.transport === next.otherTransport[i].transport,
+          )
         ) {
           return prev;
         }

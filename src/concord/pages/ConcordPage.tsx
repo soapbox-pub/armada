@@ -515,7 +515,11 @@ export const ChannelRow = memo(function ChannelRow({
   const muted = community
     ? isConcordChannelMuted("c2", community.idHex, channel.idHex)
     : false;
-  const foldedParticipants = useMemo(() => fold.present.map((p) => p.author), [fold]);
+  // Members on another transport are in the call too (CORD-07 §4), just not one we can hear.
+  const foldedParticipants = useMemo(
+    () => [...fold.present.map((p) => p.author), ...fold.otherTransport.map((p) => p.author)],
+    [fold],
+  );
   // Raised hands come off the presence fold, visible even when not joined.
   const raisedVoice = useMemo(
     () => new Set(fold.present.filter((p) => p.hand).map((p) => p.author)),
@@ -530,8 +534,13 @@ export const ChannelRow = memo(function ChannelRow({
     () => new Set(fold.present.filter((p) => p.noRecord).map((p) => p.author)),
     [fold],
   );
+  const otherTransportVoice = useMemo(() => new Set(fold.otherTransport.map((p) => p.author)), [fold]);
   // While in this call, LiveKit's live roster is authoritative (presence lags).
-  const participants = inCall && voiceRoomPubkeys ? voiceRoomPubkeys : foldedParticipants;
+  const participants = useMemo(() => {
+    if (!inCall || !voiceRoomPubkeys) return foldedParticipants;
+    if (fold.otherTransport.length === 0) return voiceRoomPubkeys;
+    return [...new Set([...voiceRoomPubkeys, ...fold.otherTransport.map((p) => p.author)])];
+  }, [inCall, voiceRoomPubkeys, foldedParticipants, fold]);
 
   const hasUnread = Boolean(unread);
   const hasMention = Boolean(unread?.mention);
@@ -618,6 +627,7 @@ export const ChannelRow = memo(function ChannelRow({
               raised={raisedVoice}
               recording={recordingVoice}
               refusing={refusingVoice}
+              otherTransport={otherTransportVoice}
             />
           )}
         </div>

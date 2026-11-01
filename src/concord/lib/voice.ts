@@ -226,6 +226,12 @@ export interface VoicePresenceEntry {
    * presence lacks it, so an unknown member is never recorded either.
    */
   noRecord?: boolean;
+  /**
+   * A transport other than the brokered call (CORD-07 §4 Transports), e.g.
+   * `"iroh"`; absent for a brokered `joined`. Such a member is in the call on a
+   * transport Armada doesn't speak, never dropped.
+   */
+  transport?: string;
   /** Millisecond ordering basis (CORD-02 §4). */
   ms: number;
   /** The rumor id — the equal-ms tiebreak. */
@@ -335,7 +341,9 @@ export function parsePresence(opened: OpenedEvent): VoicePresenceEntry | null {
   )].filter((candidate) => candidate !== identities[0]);
   const rawBroker = opened.tags.find((t) => t[0] === "broker")?.[1];
   const identity = status === "joined" ? identities[0] : undefined;
-  if (status === "joined" && !identity) return null;
+  const transport = status === "joined" ? otherTransport(opened.tags) : undefined;
+  if (transport === null) return null;
+  if (status === "joined" && !identity && !transport) return null;
   const broker =
     status === "joined" && typeof rawBroker === "string" && rawBroker.length <= 512
       ? canonicalOrigin(rawBroker) ?? undefined
@@ -352,9 +360,26 @@ export function parsePresence(opened: OpenedEvent): VoicePresenceEntry | null {
     hand: flag("hand"),
     recording: flag("recording"),
     noRecord: flag("norecord"),
+    ...(transport ? { transport } : {}),
     ms: opened.ms,
     rumorId: opened.rumorId,
   };
+}
+
+/**
+ * The `transport` a `joined` names, when it isn't the brokered call: undefined
+ * for brokered presence, null for a malformed one (CORD-07 §4: an iroh
+ * `joined` whose endpoint isn't 64 hex digits is dropped).
+ */
+function otherTransport(tags: string[][]): string | undefined | null {
+  const transport = tags.find((t) => t[0] === "transport")?.[1];
+  if (typeof transport !== "string" || transport.length === 0) return undefined;
+  if (transport.length > 32) return null;
+  if (transport === "iroh") {
+    const endpoint = tags.find((t) => t[0] === "endpoint")?.[1];
+    if (typeof endpoint !== "string" || !/^[0-9a-f]{64}$/i.test(endpoint)) return null;
+  }
+  return transport;
 }
 
 /** A verified-present participant: one fresh `joined` per author. */
@@ -382,6 +407,18 @@ export interface VoicePresenceFold {
    * ONE author claims its identity (§4).
    */
   claims: Map<string, string[]>;
+  /**
+   * Fresh `joined` authors on a transport Armada doesn't speak (CORD-07 §4):
+   * in the call, but in a group we can't hear. Never in `present` or `claims`.
+   */
+  otherTransport: VoiceOtherTransport[];
+}
+
+/** A member in the call on another transport. */
+export interface VoiceOtherTransport {
+  author: string;
+  transport: string;
+  ms: number;
 }
 
 /**
@@ -398,9 +435,15 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
   }
   const present: VoicePresent[] = [];
   const claims = new Map<string, string[]>();
+  const otherTransport: VoiceOtherTransport[] = [];
   for (const e of latest.values()) {
-    if (e.status !== "joined" || !e.identity) continue;
+    if (e.status !== "joined") continue;
     if (nowMs - e.ms > VOICE_STALE_MS) continue;
+    if (e.transport) {
+      otherTransport.push({ author: e.author, transport: e.transport, ms: e.ms });
+      continue;
+    }
+    if (!e.identity) continue;
     present.push({
       author: e.author,
       identity: e.identity,
@@ -418,7 +461,8 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
     }
   }
   present.sort((a, b) => a.ms - b.ms || (a.author < b.author ? -1 : 1));
-  return { present, claims };
+  otherTransport.sort((a, b) => a.ms - b.ms || (a.author < b.author ? -1 : 1));
+  return { present, claims, otherTransport };
 }
 
 /** The author behind an SFU identity, or undefined if unclaimed or contested. */

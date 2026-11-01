@@ -263,6 +263,25 @@ describe("parsePresence (§4)", () => {
     expect(p?.identities).toEqual(["id-1", "hevc-1", "hevc-2", "hevc-3"]);
     expect(p?.screenShareIdentities).toEqual(["hevc-1"]);
   });
+
+  it("keeps a peer-to-peer joined that names no identity (CORD-07 §4 Transports)", () => {
+    const endpoint = "c".repeat(64);
+    const p = parsePresence(openedPresence({
+      tags: [["transport", "iroh"], ["endpoint", endpoint], ["relay", "https://relay.example/"]],
+    }));
+    expect(p?.status).toBe("joined");
+    expect(p?.transport).toBe("iroh");
+    expect(p?.identity).toBeUndefined();
+  });
+
+  it("drops an iroh joined whose endpoint isn't 64 hex digits", () => {
+    expect(parsePresence(openedPresence({ tags: [["transport", "iroh"]] }))).toBeNull();
+    expect(parsePresence(openedPresence({ tags: [["transport", "iroh"], ["endpoint", "xyz"]] }))).toBeNull();
+  });
+
+  it("keeps a joined on a transport it has never heard of", () => {
+    expect(parsePresence(openedPresence({ tags: [["transport", "future"]] }))?.transport).toBe("future");
+  });
 });
 
 describe("presence tags (client extensions)", () => {
@@ -364,6 +383,17 @@ describe("foldVoicePresence (§4)", () => {
     expect(isVerifiedScreenShareIdentity(fold, "hevc-1")).toBe(true);
     expect(isVerifiedScreenShareIdentity(fold, "id-1")).toBe(false);
     expect(fold.present).toHaveLength(1);
+  });
+
+  it("lists a member on another transport apart, claiming no identity", () => {
+    const fold = foldVoicePresence(
+      [entry({}), entry({ author: "b".repeat(64), identity: undefined, broker: undefined, transport: "iroh", rumorId: "r2" })],
+      now,
+    );
+    expect(fold.present.map((p) => p.author)).toEqual(["a".repeat(64)]);
+    expect(fold.otherTransport).toEqual([{ author: "b".repeat(64), transport: "iroh", ms: now - 1000 }]);
+    expect([...fold.claims.keys()]).toEqual(["id-1"]);
+    expect(foldVoicePresence([entry({ transport: "iroh", ms: now - VOICE_STALE_MS - 1 })], now).otherTransport).toEqual([]);
   });
 });
 
