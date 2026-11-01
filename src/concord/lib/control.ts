@@ -18,6 +18,7 @@ import {
   controlGroupKey,
   controlSignerGroupKey,
   dissolvedGroupKey,
+  editionBinding,
   grantLocator,
   hex32,
   inviteLinksLocator,
@@ -774,6 +775,11 @@ export function foldControlState(
     return hit;
   }
 
+  // CORD-04 §1: a marked edition bound to another Community is refused.
+  const binding = bytesToHex(editionBinding(communityId));
+  if (editions.some((e) => e.binding && bytesToHex(e.binding) !== binding)) {
+    editions = editions.filter((e) => !e.binding || bytesToHex(e.binding) === binding);
+  }
   const first = foldOnce(editions, communityId, ownerHex, priorHeads, snapshotIds);
   // The owner is supreme (CORD-04 §2): strip them from `banned` HERE, on the set
   // every reader consumes, or a BAN holder could silence the owner everywhere.

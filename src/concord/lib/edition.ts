@@ -7,6 +7,7 @@
  *   ["ev",  n]                — this edition's version, climbing from 1
  *   ["ep",  hex32]            — prev edition hash (absent on the first)
  *   ["vac", eid, ver, hash]   — the authority citation (absent when the owner acts)
+ *   ["eh", "2"], ["eb", hex]  — MARKED: the hash covers the signer, bound to a Community
  *
  * Deliberately NO version tag: absence means this spec (CORD-02 Appendix B).
  */
@@ -17,13 +18,15 @@ import { bytesToHex } from "@/concord/lib/derive";
 import { KIND_CONTROL, KIND_SEAL_PLAINTEXT } from "@/concord/lib/kinds";
 import { buildRumor, type OpenedEvent } from "@/concord/lib/stream";
 import type { NostrRumor } from "@/lib/nostrRumor";
-import { editionHash, type Edition } from "@/concord/lib/version";
+import { editionHash, markedEditionHash, type Edition } from "@/concord/lib/version";
 
 const TAG_SUBKIND = "vsk";
 const TAG_ENTITY = "eid";
 const TAG_EVERSION = "ev";
 const TAG_EPREV = "ep";
 const TAG_CITATION = "vac";
+const TAG_EHASH = "eh";
+const TAG_EBIND = "eb";
 
 const HEX64 = /^[0-9a-f]{64}$/i;
 
@@ -67,6 +70,8 @@ export function buildEditionRumor(opts: {
   actorPubkey: string;
   createdAtSecs?: number;
   authority?: AuthorityCitation;
+  /** `edition_binding(community_id)` (CORD-04 §1): when given, the edition is MARKED. */
+  binding?: Uint8Array;
 }): NostrRumor {
   const tags: string[][] = [
     [TAG_SUBKIND, opts.vsk],
@@ -75,6 +80,7 @@ export function buildEditionRumor(opts: {
   ];
   if (opts.prevHash) tags.push([TAG_EPREV, bytesToHex(opts.prevHash)]);
   if (opts.authority) tags.push(citationToTag(opts.authority));
+  if (opts.binding) tags.push([TAG_EHASH, "2"], [TAG_EBIND, bytesToHex(opts.binding)]);
   return buildRumor({
     kind: KIND_CONTROL,
     content: opts.content,
@@ -95,6 +101,11 @@ export interface ParsedEdition {
   content: string;
   /** `editionHash` of this edition — what the next edition's `ep` cites. */
   selfHash: Uint8Array;
+  /**
+   * The Community a MARKED edition binds itself to (`eb`, CORD-04 §1); absent for
+   * an unmarked edition, whose hash covers no signer.
+   */
+  binding?: Uint8Array;
   createdAt: number;
   /** The rumor id (bytes) — the equal-version fold tiebreak. */
   rumorId: Uint8Array;
@@ -129,7 +140,7 @@ export function parseEdition(opened: OpenedEvent): ParsedEdition {
     throw new EditionError("bad-field", "seal-kind");
   }
 
-  for (const name of [TAG_SUBKIND, TAG_ENTITY, TAG_EVERSION, TAG_EPREV, TAG_CITATION]) {
+  for (const name of [TAG_SUBKIND, TAG_ENTITY, TAG_EVERSION, TAG_EPREV, TAG_CITATION, TAG_EHASH, TAG_EBIND]) {
     if (opened.tags.filter((t) => t[0] === name).length > 1) {
       throw new EditionError("bad-field", `duplicate tag: ${name}`);
     }
@@ -146,7 +157,20 @@ export function parseEdition(opened: OpenedEvent): ParsedEdition {
   const epStr = get(TAG_EPREV);
   const prevHash = epStr !== undefined ? decodeHash(epStr, "ep") : undefined;
 
-  const selfHash = editionHash(entityId, version, prevHash, new TextEncoder().encode(opened.content));
+  // A marked edition is bound and covers its signer; any other marker is a form
+  // this reader doesn't know. An `eb` without `eh` is ignored (CORD-04 §1).
+  const eh = get(TAG_EHASH);
+  let binding: Uint8Array | undefined;
+  if (eh !== undefined) {
+    if (eh !== "2") throw new EditionError("bad-field", "eh");
+    const eb = get(TAG_EBIND);
+    if (eb === undefined) throw new EditionError("missing-field", "eb");
+    binding = decodeHash(eb, "eb");
+  }
+  const content = new TextEncoder().encode(opened.content);
+  const selfHash = binding
+    ? markedEditionHash(entityId, version, prevHash, content, hexToBytes(opened.author))
+    : editionHash(entityId, version, prevHash, content);
 
   return {
     author: opened.author,
@@ -156,6 +180,7 @@ export function parseEdition(opened: OpenedEvent): ParsedEdition {
     prevHash,
     content: opened.content,
     selfHash,
+    ...(binding ? { binding } : {}),
     createdAt: opened.createdAt,
     rumorId: hexToBytes(opened.rumorId),
     authority: citationFromTags(opened.tags),

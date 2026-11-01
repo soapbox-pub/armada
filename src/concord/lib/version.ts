@@ -60,6 +60,28 @@ export function editionHash(
   return sha256(editionPreimage(entityId, version, prevHash, content));
 }
 
+const EDITION_SIGNER_LABEL = new TextEncoder().encode("concord/edition-signer");
+
+/**
+ * A MARKED edition's hash (CORD-04 §1): `SHA-256(signing_bytes ‖
+ * utf8("concord/edition-signer") ‖ signer[32])`, the label raw, so a copy
+ * re-signed under another key is another edition.
+ */
+export function markedEditionHash(
+  entityId: Uint8Array,
+  version: bigint,
+  prevHash: Uint8Array | undefined,
+  content: Uint8Array,
+  signer: Uint8Array,
+): Uint8Array {
+  const pre = editionPreimage(entityId, version, prevHash, content);
+  const out = new Uint8Array(pre.length + EDITION_SIGNER_LABEL.length + 32);
+  out.set(pre, 0);
+  out.set(EDITION_SIGNER_LABEL, pre.length);
+  out.set(signer, pre.length + EDITION_SIGNER_LABEL.length);
+  return sha256(out);
+}
+
 /** One fetched edition of an entity, reduced to what the fold needs. */
 export interface Edition {
   version: bigint;
