@@ -53,4 +53,19 @@ describe("IndexedDB KV upgrade", () => {
     expect(await settled(newer, 3000)).toBe("settled");
     (await newer).close();
   });
+
+  it("keeps answering after releasing its KV to a newer build's upgrade", async () => {
+    const db = new IndexedDBArmadaDB("armada");
+    await db.kv.set("k", "v");
+
+    const newer = await openDB("armada:kv", 99, { upgrade() {} });
+    await newer.put("kv", "theirs", "k2");
+    newer.close();
+
+    // Reopened on the later layout rather than left closed.
+    expect(await db.kv.get("k")).toBe("v");
+    expect(await db.kv.get("k2")).toBe("theirs");
+    await db.kv.set("k3", "w");
+    expect(await db.kv.get("k3")).toBe("w");
+  });
 });

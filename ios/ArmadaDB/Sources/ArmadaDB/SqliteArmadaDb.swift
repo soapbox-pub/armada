@@ -1630,7 +1630,6 @@ public final class SqliteArmadaDb {
         return Count(Int64(try query(tenant: tenant, filters: filters).count))
     }
 
-    /// Remove every rumor in `tenant` matching the filters.
     /// Remove rumors from this device: delete them from every tenant and refuse
     /// them in any tenant from now on, whichever writer delivers them. The
     /// tombstones land first, in the same transaction. Mirrors `SqliteArmadaDB.forget`.
@@ -1666,6 +1665,7 @@ public final class SqliteArmadaDb {
         }
     }
 
+    /// Remove every rumor in `tenant` matching the filters.
     public func remove(tenant: String, filters: [[String: Any]]) throws {
         lock.lock()
         defer { lock.unlock() }

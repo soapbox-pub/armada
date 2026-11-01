@@ -816,15 +816,16 @@ const KV_DB_VERSION = 3;
  * stored natively. No-op when IndexedDB is unavailable (iOS Lockdown Mode, etc.).
  */
 class IndexedDBKV implements ArmadaKV {
-  private readonly db: Promise<IDBPDatabase<KVSchema> | null>;
+  private db: Promise<IDBPDatabase<KVSchema> | null>;
   private readonly registered = new Set<string>();
 
-  constructor(name: string) {
-    this.db = IndexedDBKV.open(name);
+  constructor(private readonly name: string) {
+    this.db = this.open();
   }
 
-  private static async open(name: string): Promise<IDBPDatabase<KVSchema> | null> {
+  private async open(): Promise<IDBPDatabase<KVSchema> | null> {
     if (typeof indexedDB === "undefined") return null;
+    const name = this.name;
     try {
       // Every KV read queues behind the cold open.
       const callbacks = {
@@ -834,10 +835,14 @@ class IndexedDBKV implements ArmadaKV {
           if (!db.objectStoreNames.contains("tenants")) db.createObjectStore("tenants");
           if (!db.objectStoreNames.contains("termed")) db.createObjectStore("termed");
         },
-        blocking(_current: number, _blocked: number | null, event: IDBVersionChangeEvent) {
+        blocking: (_current: number, blocked: number | null, event: IDBVersionChangeEvent) => {
           // A newer build's upgrade waits on every open connection: release ours,
-          // or every KV read in that tab queues behind it forever.
+          // or every KV read in that tab queues behind it forever. The reopen
+          // queues behind that upgrade and lands on its layout (the VersionError
+          // arm below), so this tab's KV keeps answering. A deletion (`blocked`
+          // null: the logout purge) is not followed back in.
           (event.target as IDBDatabase | null)?.close();
+          if (blocked !== null) this.db = this.open();
         },
       };
       return await perfTime("db.open kv", async () => {

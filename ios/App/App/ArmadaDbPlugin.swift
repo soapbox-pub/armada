@@ -127,7 +127,7 @@ public class ArmadaDbPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// Empty every table (logout purge). The file and its schema survive.
+    /// Remove rumors from this device for good (`ArmadaDB.forget`); `ids` is a JSON array.
     @objc func forget(_ call: CAPPluginCall) {
         guard let ids = call.getString("ids") else {
             return call.reject("ids is required")
@@ -141,6 +141,7 @@ public class ArmadaDbPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// Empty every table (logout purge). The file and its schema survive.
     @objc func wipe(_ call: CAPPluginCall) {
         do {
             try db().wipe()

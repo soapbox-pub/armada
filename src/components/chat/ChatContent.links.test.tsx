@@ -150,6 +150,12 @@ describe("ChatContent magnet links", () => {
     expect(container.textContent).toContain(". thanks");
   });
 
+  it("leaves a closing quote around the URI as text", () => {
+    const { container } = renderContent(`try "${MAGNET}"`);
+    expect(hrefs(container)).toEqual([MAGNET]);
+    expect(container.textContent).toContain(`"${MAGNET}"`);
+  });
+
   it("leaves a magnet: that names no content hash as text", () => {
     const { container } = renderContent("magnet:?dn=nothing-here");
     expect(hrefs(container)).toEqual([]);

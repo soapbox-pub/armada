@@ -92,6 +92,17 @@ describe("undecodableImageAsFile", () => {
     });
   }
 
+  it("blanks a DNG's camera serial number in IFD0, where no Exif IFD covers it", async () => {
+    const bytes = new Uint8Array(tiff());
+    // Retag IFD0's first entry (Make) as CameraSerialNumber.
+    new DataView(bytes.buffer).setUint16(8 + 2, 0xc62f, true);
+    const sent = await undecodableImageAsFile(new File([bytes], "IMG_0001.dng", { type: "image/x-adobe-dng" }));
+    expect(sent).toBeDefined();
+    const out = await bytesOf(sent!);
+    expect(contains(out, ascii(CAMERA))).toBe(false);
+    expect(contains(out, PIXELS)).toBe(true);
+  });
+
   it("refuses a TIFF whose metadata pointer leads outside the file", async () => {
     const bytes = new Uint8Array(tiff());
     // GPSInfo is IFD0's fourth entry; its value is the GPS IFD's offset.

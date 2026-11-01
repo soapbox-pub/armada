@@ -51,6 +51,11 @@ const TIFF_METADATA_TAGS = new Set([
   0xa430, 0xa431, 0xa432, 0xa433, 0xa434, 0xa435, // owner, serial, lens (also in Exif IFD)
   0xc614, // DNG UniqueCameraModel
   0xc615, // DNG LocalizedCameraModel
+  0xc62f, // DNG CameraSerialNumber
+  0xc65d, // DNG RawDataUniqueID
+  0xc68b, // DNG OriginalRawFileName
+  0xc68c, // DNG OriginalRawFileData (a whole embedded original, metadata included)
+  0xc71b, // DNG PreviewDateTime
 ]);
 /** Image IFDs reachable as children (DNG/RAW SubIFDs), walked like IFD0. */
 const TIFF_SUB_IFDS = 0x014a;

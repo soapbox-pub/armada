@@ -536,7 +536,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         if (bolt11) {
           out.push({ type: "lightning-invoice", invoice: bolt11.toLowerCase() });
         } else if (magnet) {
-          const trimmed = magnet.replace(/[.,;:!?)\]]+$/, "");
+          const trimmed = magnet.replace(/[.,;:!?)\]"']+$/, "");
           out.push(isMagnetUri(trimmed) ? { type: "magnet-link", url: trimmed } : { type: "text", value: trimmed });
           lastIndex = index + trimmed.length;
           continue;
