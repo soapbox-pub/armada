@@ -73,6 +73,18 @@ describe("encoding", () => {
     expect(g[0].entries[0].seed).toBeDefined();
   });
 
+  it("rev is written after name only when non-zero, and reads back (CORD-02 §8)", () => {
+    const revised = { ...jm("x"), rev: 41 };
+    const bytes = serializeFragList(fragment(listOf([entry(revised, revised)]))[0]);
+    expect(bytes).toContain(`"name":"x","rev":41}`);
+    expect(defragment([parseFragList(bytes)]).entries[0].current.rev).toBe(41);
+    expect(serializeFragList(fragment(listOf([entry(jm("x"), jm("x"))]))[0])).not.toContain('"rev"');
+    // Past 2^53 − 1 reads as 0 rather than rejecting the fragment.
+    const wild = bytes.replace('"rev":41', '"rev":18446744073709551615');
+    expect(defragment([parseFragList(wild)]).entries[0].current.rev).toBeUndefined();
+    expect(() => parseFragList(bytes.replace('"rev":41', '"rev":-1'))).toThrow();
+  });
+
   it("a tombstoned entry is dropped but its tombstone is not", () => {
     const l = listOf([entry(jm("x"), jm("x"))]);
     l.tombstones.push({ community_id: hex32(0x11), removed_at: l.entries[0].added_at + 1 });

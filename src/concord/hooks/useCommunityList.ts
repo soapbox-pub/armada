@@ -21,6 +21,7 @@ import {
   refreshChannels,
   refreshCurrent,
   refreshRelays,
+  reviseSnapshots,
   rehydrateCommunity,
   removeFromList,
   replayedAddStanding,
@@ -916,9 +917,13 @@ export async function syncCommunityList(
   }
   const liveAndLocal = local ? mergeCommunityLists(local, set.list) : set.list;
   // Fold in leaves taken during the rescue round, or this write restores them on disk.
-  const merged = withLocalTombstones(
-    retired ? mergeCommunityLists(liveAndLocal, retired) : liveAndLocal,
-    queryClient.getQueryData<ListData>(queryKey)?.list,
+  // Revised against the wire (CORD-02 §8), so a union the reconcile publishes outranks the copy it read.
+  const merged = reviseSnapshots(
+    set.list,
+    withLocalTombstones(
+      retired ? mergeCommunityLists(liveAndLocal, retired) : liveAndLocal,
+      queryClient.getQueryData<ListData>(queryKey)?.list,
+    ),
   );
   const next: ListData = {
     event: set.newestEvent,
@@ -1197,7 +1202,8 @@ export async function updateCommunityList(
       return current;
     }
   }
-  const next = applyAction(current, action);
+  // Revisions count against what the wire holds (CORD-02 §8).
+  const next = reviseSnapshots(relayList, applyAction(current, action));
 
   const newest = await publishFragments(
     nostr,

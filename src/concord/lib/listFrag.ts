@@ -14,6 +14,7 @@ import {
   canonicalJson,
   heldChannelKeys,
   isLive,
+  snapshotRev,
   type CommunityList,
   type CommunityListEntry,
   type CommunityTombstone,
@@ -58,6 +59,8 @@ export interface FragMaterial {
   channels: FragChannel[];
   relays: string[];
   name: string;
+  /** CORD-02 §8 revision; 0 is never written. */
+  rev: number;
   extra: Record<string, unknown>;
 }
 
@@ -107,7 +110,7 @@ function unb64(value: string): string {
 }
 
 /** The named (non-extra) keys at each wire level, in serde's declared order. */
-const MATERIAL_KEYS = ["owner", "owner_salt", "community_root", "root_epoch", "control_pk", "control_root", "channels", "relays", "name"] as const;
+const MATERIAL_KEYS = ["owner", "owner_salt", "community_root", "root_epoch", "control_pk", "control_root", "channels", "relays", "name", "rev"] as const;
 const CHANNEL_KEYS = ["id", "key", "epoch", "name"] as const;
 const ENTRY_KEYS = ["community_id", "seed", "current", "added_at"] as const;
 const TOMBSTONE_KEYS = ["community_id", "removed_at"] as const;
@@ -142,6 +145,7 @@ function material(src: JoinMaterial): FragMaterial {
     channels: heldChannelKeys(src.channels).map(channel),
     relays: Array.isArray(src.relays) ? [...src.relays] : [],
     name: src.name,
+    rev: snapshotRev(src),
     extra: splitExtra(src, [...MATERIAL_KEYS, "community_id"]),
   };
   if (typeof src.control_pk === "string") out.control_pk = b64(src.control_pk);
@@ -183,6 +187,7 @@ function unmaterial(src: FragMaterial, communityId: string): JoinMaterial {
   };
   if (typeof src.control_pk === "string") jm.control_pk = unb64(src.control_pk);
   if (typeof src.control_root === "string") jm.control_root = unb64(src.control_root);
+  if (src.rev > 0) jm.rev = src.rev;
   return jm;
 }
 
@@ -251,6 +256,7 @@ function serializeMaterial(m: FragMaterial): string {
   if (m.channels.length > 0) parts.push(`"channels":[${m.channels.map(serializeChannel).join(",")}]`);
   if (m.relays.length > 0) parts.push(`"relays":[${m.relays.map((r) => JSON.stringify(r)).join(",")}]`);
   parts.push(`"name":${JSON.stringify(m.name)}`);
+  if (m.rev > 0) parts.push(`"rev":${JSON.stringify(m.rev)}`);
   emitExtras(m.extra, parts);
   return `{${parts.join(",")}}`;
 }
@@ -299,6 +305,14 @@ function asU64(v: unknown, what: string): number {
   return v;
 }
 
+/** A u64 like {@link asU64}, except one past 2^53 − 1 reads as 0 (CORD-02 §8) rather than failing. */
+function asRev(v: unknown, what: string): number {
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || Object.is(v, -0)) {
+    throw new FragParseError(`${what} is not an unsigned integer`);
+  }
+  return Number.isSafeInteger(v) ? v : 0;
+}
+
 function asString(v: unknown, what: string): string {
   if (typeof v !== "string") throw new FragParseError(`${what} is not a string`);
   return v;
@@ -330,6 +344,7 @@ function parseMaterial(v: unknown, what: string): FragMaterial {
     channels: o.channels === undefined ? [] : (Array.isArray(o.channels) ? o.channels.map(parseChannel) : (() => { throw new FragParseError(`${what}.channels is not an array`); })()),
     relays: o.relays === undefined ? [] : (Array.isArray(o.relays) ? o.relays.map((r) => asString(r, `${what}.relays[]`)) : (() => { throw new FragParseError(`${what}.relays is not an array`); })()),
     name: asString(o.name, `${what}.name`),
+    rev: absent(o.rev) ? 0 : asRev(o.rev, `${what}.rev`),
     extra: splitExtra(o, [...MATERIAL_KEYS]),
   };
   if (!absent(o.control_pk)) out.control_pk = asString(o.control_pk, `${what}.control_pk`);
