@@ -21,7 +21,65 @@ export const Permissions = {
   MENTION_EVERYONE: 1n << 9n,
   PIN_MESSAGES: 1n << 11n,
   // Reserved: MANAGE_EMOJI=1<<10, MANAGE_EVENTS=1<<12.
+  // Channel permissions (CORD-04 §3, §8): what a member may do IN a Channel.
+  VIEW_CHANNEL: 1n << 13n,
+  SEND_MESSAGES: 1n << 14n,
+  SEND_IN_THREADS: 1n << 15n,
+  ATTACH_FILES: 1n << 16n,
+  ADD_REACTIONS: 1n << 17n,
+  READ_MESSAGE_HISTORY: 1n << 18n,
+  CONNECT: 1n << 19n,
+  SPEAK: 1n << 20n,
+  VIDEO: 1n << 21n,
+  PRIORITY_SPEAKER: 1n << 22n,
+  MUTE_MEMBERS: 1n << 23n,
+  DEAFEN_MEMBERS: 1n << 24n,
+  MOVE_MEMBERS: 1n << 25n,
+  MODERATE_MEMBERS: 1n << 26n,
+  // Reserved: BYPASS_SLOWMODE=1<<27, CREATE_PRIVATE_THREADS=1<<30, MANAGE_THREADS=1<<31.
+  MANAGE_NICKNAMES: 1n << 28n,
+  CHANGE_NICKNAME: 1n << 29n,
 } as const;
+
+/** Every bit a u64 permission field holds: the owner holds them all, in every Channel. */
+export const ALL_PERMISSIONS = (1n << 64n) - 1n;
+
+/**
+ * The bits an overwrite may touch (CORD-04 §8): MANAGE_MESSAGES and bits 13 to 26.
+ * Everything else, staff bits above all, means the same in every Channel.
+ */
+export const OVERWRITABLE =
+  Permissions.MANAGE_MESSAGES |
+  Permissions.VIEW_CHANNEL |
+  Permissions.SEND_MESSAGES |
+  Permissions.SEND_IN_THREADS |
+  Permissions.ATTACH_FILES |
+  Permissions.ADD_REACTIONS |
+  Permissions.READ_MESSAGE_HISTORY |
+  Permissions.CONNECT |
+  Permissions.SPEAK |
+  Permissions.VIDEO |
+  Permissions.PRIORITY_SPEAKER |
+  Permissions.MUTE_MEMBERS |
+  Permissions.DEAFEN_MEMBERS |
+  Permissions.MOVE_MEMBERS |
+  Permissions.MODERATE_MEMBERS;
+
+/** What the switching `@everyone` holds (CORD-04 §3): the chat and voice basics, and their own Nickname. */
+export const EVERYONE_DEFAULT =
+  Permissions.VIEW_CHANNEL |
+  Permissions.SEND_MESSAGES |
+  Permissions.SEND_IN_THREADS |
+  Permissions.ATTACH_FILES |
+  Permissions.ADD_REACTIONS |
+  Permissions.READ_MESSAGE_HISTORY |
+  Permissions.CONNECT |
+  Permissions.SPEAK |
+  Permissions.VIDEO |
+  Permissions.CHANGE_NICKNAME;
+
+/** Beneath every Role: `@everyone`'s place, and a roleless member's (u32::MAX, as Vector). */
+export const BENEATH_EVERY_ROLE = 0xffffffff;
 
 /**
  * Every currently-defined management bit (an "Admin" role). No all-powerful bit:
@@ -158,8 +216,18 @@ export type RoleScope = { kind: "server" } | { kind: "channel"; channelId: strin
 export interface Role {
   roleId: string;
   name: string;
-  /** Lower = higher authority. The owner is the implicit position 0, never a Role. */
+  /**
+   * Lower = higher authority. The owner is the implicit position 0, never a Role.
+   * On the vsk-13 Roster it is the dense rank of {@link Role.rank} among the keys
+   * in play, assigned at fold time, so every comparison it answers is the keys'.
+   */
   position: number;
+  /** The vsk-13 rank key (CORD-04 §3); absent on a legacy Role. */
+  rank?: string;
+  /** Any member may @mention it (CORD-03 §3, vsk 13). */
+  mentionable?: boolean;
+  /** Unknown fields, round-tripped by an editor (CORD-02 §6, vsk 13). */
+  extra?: Record<string, unknown>;
   permissions: bigint;
   scope: RoleScope;
   /** Cosmetic badge tint; 0 = theme default. */
@@ -370,9 +438,36 @@ export function grantFromJSON(json: string): MemberGrant | undefined {
   }
 }
 
+/** Who an overwrite applies to (CORD-04 §8). */
+export type OverwriteTarget = { kind: "everyone" } | { kind: "role"; id: string } | { kind: "member"; id: string };
+
+/** One overwrite in one Channel or Category (CORD-04 §8), its bits masked to {@link OVERWRITABLE}. */
+export interface Overwrite {
+  /** The Channel or Category id, lowercase hex. */
+  scope: string;
+  target: OverwriteTarget;
+  allow: bigint;
+  deny: bigint;
+}
+
 export interface CommunityRoles {
   roles: Role[];
   grants: MemberGrant[];
+  /** What every member holds before any Role (CORD-04 §2); present once the Community is on the vsk-13 Roster. */
+  everyone?: bigint;
+  /** Channel and Category overwrites (CORD-04 §8), on the vsk-13 Roster. */
+  overwrites?: Overwrite[];
+  /** Channel → the Category whose overwrites it takes (CORD-04 §8). */
+  syncs?: Record<string, string>;
+  /** The Channels that stood before the switch (CORD-04 §2): the only ones an unmarked Channel edition still describes. */
+  legacyChannels?: string[];
+  /** Private Channel → its sealed `creator` (CORD-03 §2). */
+  creators?: Record<string, string>;
+}
+
+/** Whether a roster is the vsk-13 one (CORD-04 §2): `@everyone` stands. */
+export function onRolesV2(roles: CommunityRoles | undefined): boolean {
+  return roles?.everyone !== undefined;
 }
 
 export function emptyRoles(): CommunityRoles {
@@ -395,8 +490,82 @@ export function rolesOf(roles: CommunityRoles, memberHex: string): Role[] {
   return out;
 }
 
+/** `@everyone` and every granted Role's bits (CORD-04 §3). */
 export function effectivePermissions(roles: CommunityRoles, memberHex: string): bigint {
-  return rolesOf(roles, memberHex).reduce((acc, r) => acc | r.permissions, 0n);
+  return rolesOf(roles, memberHex).reduce((acc, r) => acc | r.permissions, roles.everyone ?? 0n);
+}
+
+/**
+ * The bits a member holds through Roles positioned strictly above `bound`: the only
+ * standing an action on something at `bound` may draw on (CORD-04 §3, downward
+ * support). `@everyone` lends nothing.
+ */
+export function permissionsAbove(roles: CommunityRoles, memberHex: string, bound: number): bigint {
+  return rolesOf(roles, memberHex).reduce((acc, r) => (r.position < bound ? acc | r.permissions : acc), 0n);
+}
+
+/**
+ * A member's permissions in one Channel (CORD-04 §8), resolved Discord's way:
+ * server bits, the `@everyone` overwrite, a Private Channel closed to `@everyone`,
+ * the Roles' denies then allows, the sealed creator let in, the member's own
+ * overwrite last, and nothing at all without VIEW_CHANNEL. The owner holds everything.
+ */
+export function channelPermissions(
+  roles: CommunityRoles,
+  ownerHex: string | undefined,
+  memberHex: string,
+  channelHex: string,
+  isPrivate: boolean,
+  heldRoleIds?: readonly string[],
+): bigint {
+  if (ownerHex === memberHex) return ALL_PERMISSIONS;
+  const held = (heldRoleIds ?? rolesOf(roles, memberHex).map((r) => r.roleId))
+    .map((id) => roleById(roles, id))
+    .filter((r): r is Role => r !== undefined);
+  let p = held.reduce((acc, r) => acc | r.permissions, roles.everyone ?? 0n);
+  const channel = channelHex.toLowerCase();
+  const created = (p & Permissions.MANAGE_CHANNELS) !== 0n && roles.creators?.[channel] === memberHex;
+  const scope = roles.syncs?.[channel] ?? channel;
+  const here = (roles.overwrites ?? []).filter((o) => o.scope === scope);
+  const everyone = here.find((o) => o.target.kind === "everyone");
+  if (everyone) p = (p & ~everyone.deny) | everyone.allow;
+  if (isPrivate) p &= ~Permissions.VIEW_CHANNEL;
+  let deny = 0n;
+  let allow = 0n;
+  for (const o of here) {
+    if (o.target.kind === "role" && held.some((r) => r.roleId === (o.target as { id: string }).id)) {
+      deny |= o.deny;
+      allow |= o.allow;
+    }
+  }
+  p = (p & ~deny) | allow;
+  if (created) p |= Permissions.VIEW_CHANNEL;
+  const mine = here.find((o) => o.target.kind === "member" && o.target.id === memberHex);
+  if (mine) p = (p & ~mine.deny) | mine.allow;
+  return (p & Permissions.VIEW_CHANNEL) === 0n ? 0n : p & ALL_PERMISSIONS;
+}
+
+/**
+ * Whether `@everyone`, resolved up to the View Channel step, may post in a Channel: one
+ * where it can't is restricted (CORD-03 §1). A legacy Roster restricts nothing.
+ */
+export function everyoneSends(roles: CommunityRoles, channelHex: string): boolean {
+  if (roles.everyone === undefined) return true;
+  const channel = channelHex.toLowerCase();
+  const scope = roles.syncs?.[channel] ?? channel;
+  const row = (roles.overwrites ?? []).find((o) => o.scope === scope && o.target.kind === "everyone");
+  const p = row ? (roles.everyone & ~row.deny) | row.allow : roles.everyone;
+  return (p & Permissions.SEND_MESSAGES) !== 0n;
+}
+
+/**
+ * May `actorHex` set `targetHex`'s Nickname (CORD-04 §10)? Their own takes
+ * CHANGE_NICKNAME (`@everyone`'s counted, a legacy Roster restricting nobody);
+ * anyone else's MANAGE_NICKNAMES and a strict outrank.
+ */
+export function mayName(roles: CommunityRoles, actorHex: string, ownerHex: string | undefined, targetHex: string): boolean {
+  if (actorHex !== targetHex) return canActOnMember(roles, actorHex, ownerHex, targetHex, Permissions.MANAGE_NICKNAMES);
+  return ownerHex === actorHex || roles.everyone === undefined || hasPermission(roles, actorHex, Permissions.CHANGE_NICKNAME);
 }
 
 /**
