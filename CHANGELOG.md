@@ -4,6 +4,48 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.67.2] - 2026-11-01
+
+You can now remove a reported message from your device entirely, resize the
+channel and member lists on desktop, and jump straight to your first unread
+message. Odysee and PeerTube videos play inline, magnet links open in your
+torrent app, and themes can use your own font. Plus a long list of fixes for
+notifications, sync and message display.
+
+### Added
+- Remove a reported message from this device, including every decrypted copy and its media
+- Resize the channel and member lists on desktop by dragging their edge
+- A Jump to unread button while the new-messages divider is out of view
+- Odysee and PeerTube videos play inline in messages
+- Magnet links in messages open in your torrent app
+- Themes can use an uploaded font file
+- Three or more muted channels fold into a collapsed Muted group at the end of the channel list
+- Sort the Members page by name
+- Hover over a message's time to see the full date and time
+- A download button on the web page when JavaScript is turned off
+
+### Changed
+- The member sidebar is sorted by name, with nameless members last
+- A stranger's invite artwork stays hidden in the invite inbox until you ask to see it
+- YouTube links with a start time start playing there
+- Desktop updates are offered in an in-app notice instead of a pop-up dialog
+- Jumping to a replied-to message highlights it more clearly and keeps it centered while the messages around it load
+- The desktop spellchecker downloads its dictionaries from armada.buzz instead of Google
+- History sync holds back on metered connections on Android
+- Blocked communities are kept out of background sync, calls, invites, Discover and link previews
+- Thread replies in relay-hosted servers stay out of the main timeline
+
+### Fixed
+- Images the browser can't display are sent as files, with their location and camera details removed
+- Saving your profile keeps its custom emoji
+- Deleting a community message also removes its media from your device
+- The message toolbar no longer covers the message above it
+- Inline images without a known size take their real shape once loaded
+- A custom theme's name font applies to author names
+- Search closes when you switch channels
+- Web notifications for a room close once you've read it, and encrypted messages the background can't open are shown by an open Armada tab
+- Channels whose history the relay cut off no longer look complete, and communities with some invalid admin changes no longer stop loading
+
 ## [0.67.1] - 2026-10-30
 
 You can now add your pronouns to your profile. They show under your name on
