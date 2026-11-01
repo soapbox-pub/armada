@@ -64,8 +64,9 @@ final class StringsTests: XCTestCase {
     func testFallsBackToEnglish() {
         XCTAssertEqual(Strings(locale: nil).language, "en")
         XCTAssertEqual(Strings(locale: "").language, "en")
-        XCTAssertEqual(Strings(locale: "pt").language, "en")
-        XCTAssertEqual(Strings(locale: "pt").anonymous, "Anonymous")
+        XCTAssertEqual(Strings(locale: "ko").language, "en")
+        XCTAssertEqual(Strings(locale: "ko").anonymous, "Anonymous")
+        XCTAssertEqual(Strings(locale: "pt-BR").language, "pt")
         XCTAssertEqual(Strings(locale: "de-AT").language, "de")
         XCTAssertEqual(Strings(locale: "JA").chat, "チャット")
     }
