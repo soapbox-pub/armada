@@ -26,7 +26,9 @@ import {
   capBundleDescription,
   EMPTY_INVITE_LIST,
   InviteError,
+  inviteTombstoneFor,
   mergeInviteLists,
+  pruneExpiredInvites,
   mintLinkSigner,
   mintToken,
   parseInviteLink,
@@ -262,7 +264,7 @@ export function useInviteList() {
             try {
               const content = await user!.signer.nip44!.encrypt(
                 user!.pubkey,
-                JSON.stringify(merged),
+                JSON.stringify(pruneExpiredInvites(merged, Math.floor(Date.now() / 1000))),
               );
               const event = await user!.signer.signEvent({
                 kind: KIND_INVITE_LIST,
@@ -365,9 +367,9 @@ export async function updateInviteList(
       t({ id: "useInvites.listUnconfirmed", defaultMessage: "Couldn't confirm your creator invite list on an account-state relay; not saving to avoid overwriting it." }),
     );
   }
-  const next = mergeInviteLists(
-    mergeInviteLists(read.list, optimistic),
-    patch,
+  const next = pruneExpiredInvites(
+    mergeInviteLists(mergeInviteLists(read.list, optimistic), patch),
+    Math.floor(Date.now() / 1000),
   );
 
   const createdAt = Math.max(
@@ -615,6 +617,7 @@ export function useInviteActions(community: Community | undefined) {
             ...(label ? { label } : {}),
             created_at: Math.floor(Date.now() / 1000),
             ...(expiresAtMs ? { expires_at: Math.floor(expiresAtMs / 1000) } : {}),
+            epoch: bundle.root_epoch,
           },
         ],
         tombstones: [],
@@ -652,7 +655,7 @@ export function useInviteActions(community: Community | undefined) {
 
       await updateInviteList({
         entries: [],
-        tombstones: [{ token: entry.token, community_id: community.idHex }],
+        tombstones: [inviteTombstoneFor(entry)],
       });
 
       const mine = new Set(folded?.registriesByCreator.get(user.pubkey) ?? []);
@@ -700,7 +703,7 @@ export function useInviteActions(community: Community | undefined) {
       if (revoked.length > 0) {
         await updateInviteList({
           entries: [],
-          tombstones: revoked.map((e) => ({ token: e.token, community_id: community.idHex })),
+          tombstones: revoked.map(inviteTombstoneFor),
         });
       }
 

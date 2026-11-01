@@ -450,13 +450,18 @@ export interface InviteListEntry {
   url: string;
   label?: string;
   created_at: number;
+  /** Unix seconds, like `created_at` (the bundle's is ms). */
   expires_at?: number;
+  /** The root epoch it was minted at (CORD-06 §3 Severing); absent reads as 0. */
+  epoch?: number;
   [k: string]: unknown;
 }
 
 export interface InviteListTombstone {
   token: string;
   community_id: string;
+  /** The retired link's `expires_at`, so the tombstone can be pruned with it (CORD-05 §4). */
+  expires_at?: number;
   [k: string]: unknown;
 }
 
@@ -492,6 +497,32 @@ export function mergeInviteLists(a: InviteList, b: InviteList): InviteList {
     entries: [...entries.values()].sort((x, y) => x.token.localeCompare(y.token)),
     tombstones: [...tombstones.values()].sort((x, y) => x.token.localeCompare(y.token)),
   };
+}
+
+/** The root epoch an entry was minted at (CORD-05 §4): absent or malformed reads as 0. */
+export function inviteEntryEpoch(entry: InviteListEntry): number {
+  return typeof entry.epoch === "number" && Number.isSafeInteger(entry.epoch) && entry.epoch > 0 ? entry.epoch : 0;
+}
+
+/** A tombstone for an entry, carrying its expiry (CORD-05 §4). */
+export function inviteTombstoneFor(entry: InviteListEntry): InviteListTombstone {
+  return {
+    token: entry.token,
+    community_id: entry.community_id,
+    ...(typeof entry.expires_at === "number" ? { expires_at: entry.expires_at } : {}),
+  };
+}
+
+/**
+ * Drop entries and tombstones past their `expires_at` (CORD-05 §4): an expired
+ * link admits no one, so one a stale device brings back is as dead as a retired one.
+ */
+export function pruneExpiredInvites(list: InviteList, nowSec: number): InviteList {
+  const live = (x: { expires_at?: unknown }) => typeof x.expires_at !== "number" || x.expires_at > nowSec;
+  const entries = list.entries.filter(live);
+  const tombstones = list.tombstones.filter(live);
+  if (entries.length === list.entries.length && tombstones.length === list.tombstones.length) return list;
+  return { ...list, entries, tombstones };
 }
 
 export function mintLinkSigner(): { sk: Uint8Array; pk: string } {

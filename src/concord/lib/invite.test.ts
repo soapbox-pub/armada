@@ -9,7 +9,10 @@ import {
   decodeFragment,
   encodeFragment,
   EMPTY_INVITE_LIST,
+  inviteEntryEpoch,
+  inviteTombstoneFor,
   mergeInviteLists,
+  pruneExpiredInvites,
   mintLinkSigner,
   mintToken,
   parseBundleEvent,
@@ -285,5 +288,30 @@ describe("invite list merge (CORD-05 §4)", () => {
     // A stale device re-merging the entry can't resurrect the revoked link.
     const c = mergeInviteLists(b, { entries: [entry], tombstones: [] });
     expect(c.entries.length).toBe(0);
+  });
+
+  it("prunes entries and tombstones past their expiry, and a tombstone inherits it", () => {
+    const entry = {
+      token: "aa".repeat(16),
+      signer_sk: "bb".repeat(32),
+      community_id: "cc".repeat(32),
+      url: "https://x/invite/naddr1xyz#frag",
+      created_at: 1000,
+      expires_at: 2000,
+    };
+    const tomb = inviteTombstoneFor(entry);
+    expect(tomb).toEqual({ token: entry.token, community_id: entry.community_id, expires_at: 2000 });
+    const forever = { ...entry, token: "dd".repeat(16), expires_at: undefined };
+    const list = { entries: [entry, forever], tombstones: [{ ...tomb, token: "ee".repeat(16) }] };
+    expect(pruneExpiredInvites(list, 1999)).toBe(list);
+    const pruned = pruneExpiredInvites(list, 2000);
+    expect(pruned.entries.map((e) => e.token)).toEqual([forever.token]);
+    expect(pruned.tombstones).toEqual([]);
+  });
+
+  it("reads an entry without an epoch as minted at epoch 0", () => {
+    const entry = { token: "aa".repeat(16), signer_sk: "bb".repeat(32), community_id: "cc".repeat(32), url: "", created_at: 1 };
+    expect(inviteEntryEpoch(entry)).toBe(0);
+    expect(inviteEntryEpoch({ ...entry, epoch: 4 })).toBe(4);
   });
 });
