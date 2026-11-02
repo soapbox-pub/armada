@@ -725,13 +725,13 @@ export function MessageTimeline({
     const hold = jumpHoldRef.current;
     const el = scrollRef.current;
     if (!hold || !el) return false;
-    const row = performance.now() < hold.until
-      ? jumpTargetRow(contentRef.current, hold.id)
-      : null;
-    if (!row) {
+    if (performance.now() >= hold.until) {
       jumpHoldRef.current = null;
       return false;
     }
+    // Briefly unrendered while a detached run re-renders: keep holding for its return.
+    const row = jumpTargetRow(contentRef.current, hold.id);
+    if (!row) return false;
     const rowBox = row.getBoundingClientRect();
     const delta = rowBox.top - el.getBoundingClientRect().top - (el.clientHeight - rowBox.height) / 2;
     // Sub-pixel writes are skipped: they cancel iOS momentum.
@@ -796,6 +796,9 @@ export function MessageTimeline({
       if (!row) return;
       if (id !== UNREAD_DIVIDER_TARGET) flashRow(row, focus);
       jumpHoldRef.current = { id, until: performance.now() + JUMP_HOLD_MS };
+      // A jump into a detached run lands after its loading skeleton, which asked
+      // for a pin to the bottom; the jump supersedes it.
+      pinBottomRef.current = false;
       holdJumpTarget();
     };
     if (jumpTargetRow(contentRef.current, id)) {
@@ -859,7 +862,9 @@ export function MessageTimeline({
       pinToBottomNow();
       return;
     }
-    if (distanceRef.current > AT_BOTTOM_PX && (holdJumpTarget() || restoreReadingAnchor())) {
+    // A held jump target wins even at the bottom: a detached run ends at it, and
+    // sticking to the bottom while newer rows load would push it out of view.
+    if (holdJumpTarget() || (distanceRef.current > AT_BOTTOM_PX && restoreReadingAnchor())) {
       // Scrolled up near the top with no gesture coming: re-check next frame.
       // Self-limiting (no-op outside the trigger band).
       if (continueRafRef.current == null) {
@@ -888,9 +893,8 @@ export function MessageTimeline({
       if (pinBottomRef.current || pendingJumpRef.current) return;
       const resized = el.clientHeight !== viewportHeight;
       viewportHeight = el.clientHeight;
-      if (distanceRef.current > AT_BOTTOM_PX) {
-        if (!holdJumpTarget()) restoreReadingAnchor();
-      }
+      if (holdJumpTarget()) return;
+      if (distanceRef.current > AT_BOTTOM_PX) restoreReadingAnchor();
       else if (resized && distanceRef.current > 1) {
         // The pane resized under a reader just short of the bottom (the composer
         // grew a line): keep what they're reading still rather than shifting it.
