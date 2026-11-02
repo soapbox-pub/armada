@@ -65,7 +65,7 @@ function InboxRow({
       <Avatar className="size-9 shrink-0">
         <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
         <AvatarFallback className="bg-primary/20 text-primary text-xs">
-          <AvatarInitial name={displayName} />
+          <AvatarInitial name={displayName} pubkey={event.pubkey} />
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">

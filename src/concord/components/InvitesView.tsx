@@ -559,7 +559,7 @@ function RegistryRow({
       <Avatar className="size-6 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          <AvatarInitial name={name} />
+          <AvatarInitial name={name} pubkey={creator} />
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1 truncate font-medium">
@@ -735,7 +735,7 @@ function ListingRow({
       <Avatar className="size-6 shrink-0">
         <AvatarImage src={profile.data?.metadata?.picture} imeta={profile.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          <AvatarInitial name={name} />
+          <AvatarInitial name={name} pubkey={author} />
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">

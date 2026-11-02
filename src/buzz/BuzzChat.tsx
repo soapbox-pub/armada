@@ -312,7 +312,7 @@ function BuzzForumPost({ event, transport, votes, onVote, isAgent }: BuzzForumPo
             <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-monogram font-semibold">
-                <AvatarInitial name={displayName} />
+                <AvatarInitial name={displayName} pubkey={event.pubkey} />
               </AvatarFallback>
             </Avatar>
             <span className="truncate font-medium text-foreground">

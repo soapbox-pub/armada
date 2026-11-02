@@ -37,7 +37,7 @@ function DmAvatarCell({
     >
       {!anonymous && <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />}
       <AvatarFallback className={cn("bg-primary/20 text-primary", tile && "rounded-none", fallbackClassName)}>
-        <AvatarInitial name={name} />
+        <AvatarInitial name={name} pubkey={pubkey} />
       </AvatarFallback>
     </Avatar>
   );

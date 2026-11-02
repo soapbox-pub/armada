@@ -305,7 +305,7 @@ function MentionItem({
       <Avatar shape={getAvatarShape(metadata)} className="size-8 shrink-0">
         <AvatarImage src={metadata.picture} imeta={parseProfileImeta(profile.event.tags, metadata)?.picture} alt={displayName} />
         <AvatarFallback className="bg-primary/20 text-primary text-xs">
-          <AvatarInitial name={displayName} />
+          <AvatarInitial name={displayName} pubkey={pubkey} />
         </AvatarFallback>
       </Avatar>
 

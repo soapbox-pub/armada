@@ -267,7 +267,7 @@ function StatusGroupRow({ entries, onOpen }: { entries: readonly Extract<GitChan
 function ActorAvatar({ pubkey }: { pubkey: string }) {
   const author = useAuthor(pubkey);
   const name = useScopedDisplayName(pubkey, author.data?.metadata);
-  return <><AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} /><AvatarFallback className="text-3xs font-semibold"><AvatarInitial name={name} /></AvatarFallback></>;
+  return <><AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} /><AvatarFallback className="text-3xs font-semibold"><AvatarInitial name={name} pubkey={pubkey} /></AvatarFallback></>;
 }
 
 const CI_OUTCOMES = defineMessages({

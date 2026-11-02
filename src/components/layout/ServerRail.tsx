@@ -224,7 +224,7 @@ function DmMiniIcon({ pubkey }: { pubkey: string }) {
         <Avatar shape={getAvatarShape(metadata)} className="size-full">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" draggable={false} />
           <AvatarFallback className="bg-primary/20 text-monogram font-semibold leading-none text-primary">
-            <AvatarInitial name={name} />
+            <AvatarInitial name={name} pubkey={pubkey} />
           </AvatarFallback>
         </Avatar>
       )}
@@ -394,7 +394,7 @@ function DmDragGhost({ pubkey }: { pubkey: string }) {
         <Avatar shape={getAvatarShape(metadata)} className="size-12 ring-2 ring-primary">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
           <AvatarFallback className="bg-primary/20 font-semibold text-primary">
-            <AvatarInitial name={name} />
+            <AvatarInitial name={name} pubkey={pubkey} />
           </AvatarFallback>
         </Avatar>
       )}
@@ -921,7 +921,7 @@ const DmButton = memo(function DmButton({
                         >
                           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
                           <AvatarFallback className="bg-primary/20 font-semibold text-primary">
-                            <AvatarInitial name={name} />
+                            <AvatarInitial name={name} pubkey={pubkey} />
                           </AvatarFallback>
                         </Avatar>
                       )}

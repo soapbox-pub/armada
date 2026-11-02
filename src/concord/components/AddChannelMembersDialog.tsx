@@ -206,7 +206,7 @@ function CandidateRow({ pubkey, added, busy, onAdd }: {
       <Avatar className="size-8 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          <AvatarInitial name={name} />
+          <AvatarInitial name={name} pubkey={pubkey} />
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1 truncate text-sm">

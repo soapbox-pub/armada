@@ -179,7 +179,7 @@ export function ReplyContextLine({
         <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
           <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-            <AvatarInitial name={name} />
+            <AvatarInitial name={name} pubkey={pubkey} />
           </AvatarFallback>
         </Avatar>
       )}
@@ -237,7 +237,7 @@ function ThreadParticipantAvatar({ pubkey }: { pubkey: string }) {
     <Avatar shape={getAvatarShape(metadata)} className="size-5 ring-2 ring-background">
       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
       <AvatarFallback className="bg-primary/25 text-primary text-monogram font-semibold">
-        <AvatarInitial name={name} />
+        <AvatarInitial name={name} pubkey={pubkey} />
       </AvatarFallback>
     </Avatar>
   );

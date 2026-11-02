@@ -2777,7 +2777,7 @@ function ReplyBanner({ event, onCancel, onJump }: { event: NostrRumor; onCancel?
           <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
             <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
             <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-              <AvatarInitial name={displayName} />
+              <AvatarInitial name={displayName} pubkey={event.pubkey} />
             </AvatarFallback>
           </Avatar>
           <span className="font-semibold text-primary shrink-0 truncate max-w-[45%]">
@@ -2854,7 +2854,7 @@ function QuoteBannerBody({ event }: { event: NostrRumor }) {
       <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
         <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
         <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-          <AvatarInitial name={displayName} />
+          <AvatarInitial name={displayName} pubkey={event.pubkey} />
         </AvatarFallback>
       </Avatar>
       <span className="font-semibold text-primary shrink-0 truncate max-w-[45%]">

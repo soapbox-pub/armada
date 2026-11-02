@@ -879,7 +879,7 @@ function OwnerRow({ pubkey }: { pubkey: string }) {
       <Avatar className="size-6 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
         <AvatarFallback className="bg-primary/20 text-primary text-3xs">
-          <AvatarInitial name={displayName} />
+          <AvatarInitial name={displayName} pubkey={pubkey} />
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1 truncate">

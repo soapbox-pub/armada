@@ -201,7 +201,7 @@ function NotificationRow({ item, onOpen }: { item: CenterItem; onOpen: (item: Ce
       <Avatar className="size-10 shrink-0">
         <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={authorName} />
         <AvatarFallback className="bg-primary/20 text-sm text-primary">
-          <AvatarInitial name={authorName} />
+          <AvatarInitial name={authorName} pubkey={item.author} />
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">

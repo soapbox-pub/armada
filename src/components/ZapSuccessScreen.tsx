@@ -74,7 +74,7 @@ export function ZapSuccessScreen({
         <Avatar shape={avatarShape} className="size-8 shrink-0">
           <AvatarImage src={metadata?.picture} imeta={author?.imeta?.picture} alt={displayName} />
           <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            <AvatarInitial name={displayName} />
+            <AvatarInitial name={displayName} pubkey={recipientPubkey} />
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0 text-left">

@@ -217,7 +217,7 @@ const MemberRow = memo(function MemberRow({
           <Avatar shape={getAvatarShape(metadata)} className="size-8 cursor-pointer transition-opacity hover:opacity-90">
             <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
             <AvatarFallback className="bg-primary/20 text-primary text-3xs">
-              <AvatarInitial name={displayName} />
+              <AvatarInitial name={displayName} pubkey={pubkey} />
             </AvatarFallback>
           </Avatar>
           {presence && (

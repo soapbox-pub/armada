@@ -23,6 +23,7 @@ import { DittoIcon } from "@/components/brand/DittoIcon";
 import { BotPill } from "@/components/BotPill";
 import { UltraEffect } from "@/components/UltraEffect";
 import { UltraPill } from "@/components/UltraPill";
+import { DisplayName } from "@/components/DisplayName";
 import { EmojifiedText } from "@/components/chat/CustomEmoji";
 import { ProfileImageLightbox } from "@/components/profile/ProfileImageLightbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -82,6 +83,8 @@ import { buildThemeVarStyle } from "@/themes";
 import type { CSSProperties } from "react";
 import type { ThemeBackground } from "@/lib/themeEvent";
 import { AvatarInitial } from "@/components/AvatarInitial";
+
+const NO_TAGS: string[][] = [];
 
 /** Lazy: only reachable from the viewer's own profile, behind a click. */
 const ProfileSettings = lazy(
@@ -360,7 +363,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
                     <Avatar shape={getAvatarShape(metadata)} className="size-20 md:size-24 border-4 border-background">
                       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
                       <AvatarFallback className="bg-primary/20 text-primary text-2xl">
-                        <AvatarInitial name={displayName} />
+                        <AvatarInitial name={displayName} pubkey={pubkey} />
                       </AvatarFallback>
                     </Avatar>
                   </button>
@@ -467,9 +470,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
                   className={cn("text-xl md:text-2xl font-bold truncate", ultra?.name && ULTRA_NAME_CLASS)}
                   style={{ fontFamily: "var(--title-font-family, inherit)", ...nameStyleCss(ultra?.name) }}
                 >
-                  {author.data?.event
-                    ? <EmojifiedText tags={author.data.event.tags}>{displayName}</EmojifiedText>
-                    : displayName}
+                  <DisplayName pubkey={pubkey} name={displayName} tags={author.data?.event?.tags ?? NO_TAGS} />
                 </h1>
                 <BotPill metadata={metadata} />
                 {ultra && <UltraPill force />}
@@ -834,7 +835,7 @@ function PersonRow({ pubkey }: { pubkey: string }) {
         <Avatar shape={getAvatarShape(metadata)} className="size-7 shrink-0">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
           <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            <AvatarInitial name={name} />
+            <AvatarInitial name={name} pubkey={pubkey} />
           </AvatarFallback>
         </Avatar>
         <span className="text-sm truncate">{name}</span>

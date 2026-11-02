@@ -132,7 +132,7 @@ export function ProfileCard({
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
 
   const displayName = metadata.name || metadata.display_name || intl.formatMessage({ id: 'profileCard.anonymous', defaultMessage: 'Anonymous' });
-  const initial = <AvatarInitial name={displayName} />;
+  const initial = <AvatarInitial name={displayName} pubkey={pubkey} />;
   const patch = (key: keyof NostrMetadata) => (v: string) => onChange?.({ [key]: v });
 
   const bannerUrl = sanitizeImageSrc(metadata.banner);

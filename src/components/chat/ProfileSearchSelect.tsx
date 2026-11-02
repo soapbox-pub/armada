@@ -162,7 +162,7 @@ function ProfileRow({
         <Avatar shape={getAvatarShape(metadata)} className="size-9">
           <AvatarImage src={metadata.picture} imeta={parseProfileImeta(profile.event.tags, metadata)?.picture} alt={displayName} />
           <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            <AvatarInitial name={displayName} />
+            <AvatarInitial name={displayName} pubkey={pubkey} />
           </AvatarFallback>
         </Avatar>
         {isFollowed && (

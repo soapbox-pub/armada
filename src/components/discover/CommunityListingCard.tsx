@@ -449,7 +449,7 @@ export function CommunityListingCard({
             <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-                <AvatarInitial name={displayName} />
+                <AvatarInitial name={displayName} pubkey={attributedPubkey} />
               </AvatarFallback>
             </Avatar>
             <span className="truncate">

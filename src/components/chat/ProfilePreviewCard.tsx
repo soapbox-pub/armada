@@ -7,6 +7,7 @@ import { DittoIcon } from "@/components/brand/DittoIcon";
 import { BotPill } from "@/components/BotPill";
 import { UltraEffect } from "@/components/UltraEffect";
 import { UltraPill } from "@/components/UltraPill";
+import { DisplayName } from "@/components/DisplayName";
 import { EmojifiedText } from "@/components/chat/CustomEmoji";
 import { UserModerationMenuSection } from "@/components/chat/ModerationMenuSection";
 import { RolePickerItems } from "@/components/chat/RolePickerItems";
@@ -52,6 +53,8 @@ import type { ImetaEntry } from "@/lib/imeta";
 import { buildThemeVarStyle } from "@/themes";
 import { FormattedMessage, t, useIntl } from "@/i18n";
 import { AvatarInitial } from "@/components/AvatarInitial";
+
+const NO_TAGS: string[][] = [];
 
 const MENU_PARTS = {
   Item: DropdownMenuItem,
@@ -207,7 +210,7 @@ function ProfilePreviewBody({
             <Avatar shape={avatarShape} className="size-16 border-[3px] border-background">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-lg">
-                <AvatarInitial name={displayName} />
+                <AvatarInitial name={displayName} pubkey={pubkey} />
               </AvatarFallback>
             </Avatar>
           </button>
@@ -215,9 +218,7 @@ function ProfilePreviewBody({
 
         <div className="flex items-center gap-1.5 min-w-0">
           <div className={cn("font-bold text-chat truncate", ultra?.name && ULTRA_NAME_CLASS)} style={nameStyleCss(ultra?.name)}>
-            {author.data?.event
-              ? <EmojifiedText tags={author.data.event.tags}>{displayName}</EmojifiedText>
-              : displayName}
+            <DisplayName pubkey={pubkey} name={displayName} tags={author.data?.event?.tags ?? NO_TAGS} />
           </div>
           <BotPill metadata={metadata} />
           {ultra && <UltraPill force />}

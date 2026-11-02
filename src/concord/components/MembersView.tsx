@@ -726,7 +726,7 @@ function MemberRow({
       <Avatar className="size-6 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          <AvatarInitial name={name} />
+          <AvatarInitial name={name} pubkey={row.pubkey} />
         </AvatarFallback>
       </Avatar>
       {/* flex-auto, not flex-1: with basis 0% the chips would crush the name. */}

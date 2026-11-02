@@ -274,7 +274,7 @@ function GenericEventCard({ event, sourceUrl, className }: { event: NostrRumor; 
               <Avatar shape={getAvatarShape(metadata)} className="size-5">
                 <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
                 <AvatarFallback className="bg-primary/20 text-primary text-3xs">
-                  <AvatarInitial name={displayName} />
+                  <AvatarInitial name={displayName} pubkey={event.pubkey} />
                 </AvatarFallback>
               </Avatar>
             </button>

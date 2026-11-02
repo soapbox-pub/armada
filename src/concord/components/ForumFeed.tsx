@@ -37,7 +37,7 @@ function AuthorAvatar({ pubkey, className }: { pubkey: string; className?: strin
   return (
     <Avatar shape={getAvatarShape(metadata)} className={cn("size-8", className)}>
       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="bg-primary/20 text-primary text-xs"><AvatarInitial name={name} /></AvatarFallback>
+      <AvatarFallback className="bg-primary/20 text-primary text-xs"><AvatarInitial name={name} pubkey={pubkey} /></AvatarFallback>
     </Avatar>
   );
 }

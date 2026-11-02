@@ -1610,7 +1610,7 @@ function RecipientSuggestion({
         <Avatar shape={getAvatarShape(metadata)} className="size-9 shrink-0">
           <AvatarImage src={picture} imeta={imeta?.picture} alt={name} />
           <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            <AvatarInitial name={name} />
+            <AvatarInitial name={name} pubkey={pubkey} />
           </AvatarFallback>
         </Avatar>
       )}
@@ -1669,7 +1669,7 @@ function RecipientChip({ pubkey, onRemove }: { pubkey: string; onRemove: () => v
       <Avatar shape={getAvatarShape(author.data?.metadata)} className="size-5 shrink-0">
         <AvatarImage src={sanitizeUrl(author.data?.metadata?.picture)} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-          <AvatarInitial name={name} />
+          <AvatarInitial name={name} pubkey={pubkey} />
         </AvatarFallback>
       </Avatar>
       <span className="truncate">{name}</span>

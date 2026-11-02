@@ -132,7 +132,7 @@ function AuditRowItem({ row, community }: { row: AuditRow; community: Community 
       <Avatar className="mt-0.5 size-6 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={actorName} />
         <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          <AvatarInitial name={actorName} />
+          <AvatarInitial name={actorName} pubkey={row.author} />
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">

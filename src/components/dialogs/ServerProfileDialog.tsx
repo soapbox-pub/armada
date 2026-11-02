@@ -110,7 +110,7 @@ export function ServerProfileDialog({ relayUrl, open, onOpenChange }: ServerProf
               <Avatar shape={getAvatarShape(metadata)} className="size-10 shrink-0">
                 <AvatarImage src={metadata?.picture} imeta={imeta?.picture} alt={previewName} />
                 <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                  <AvatarInitial name={previewName} />
+                  <AvatarInitial name={previewName} pubkey={user?.pubkey} />
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">

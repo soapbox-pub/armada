@@ -46,7 +46,7 @@ function MutedRow({ pubkey }: { pubkey: string }) {
       <Avatar shape={getAvatarShape(metadata)} className="size-8 shrink-0">
         <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
         <AvatarFallback className="bg-primary/20 text-primary text-xs">
-          <AvatarInitial name={displayName} />
+          <AvatarInitial name={displayName} pubkey={pubkey} />
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">

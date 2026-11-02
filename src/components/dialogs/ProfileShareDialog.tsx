@@ -89,7 +89,7 @@ export function ProfileShareDialog({ open, onOpenChange }: ProfileShareDialogPro
           <Avatar shape={getAvatarShape(metadata)} className="size-14 ring-2 ring-primary/20">
             <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
             <AvatarFallback className="text-lg font-semibold">
-              <AvatarInitial name={displayName} />
+              <AvatarInitial name={displayName} pubkey={user?.pubkey} />
             </AvatarFallback>
           </Avatar>
           <h2 className="chrome-dialog-title font-mono font-bold lowercase tracking-tight text-foreground">

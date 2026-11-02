@@ -219,7 +219,7 @@ function TargetRow({ pubkey }: { pubkey: string }) {
       <Avatar className="size-5 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-monogram text-primary">
-          <AvatarInitial name={name} />
+          <AvatarInitial name={name} pubkey={pubkey} />
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1 truncate">

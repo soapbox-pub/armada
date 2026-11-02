@@ -1,4 +1,5 @@
 import { isAnonymousName } from "@/lib/getDisplayName";
+import { pubkeyHue, pubkeyHueColor } from "@/lib/pubkeyHue";
 import { cn } from "@/lib/utils";
 
 /** A hat and glasses, drawn in `currentColor` to fill an avatar's circle. */
@@ -18,8 +19,28 @@ export function AnonymousFigure({ className }: { className?: string }) {
   );
 }
 
-/** A person's avatar fallback: their initial, or {@link AnonymousFigure} while they have no name. */
-export function AvatarInitial({ name }: { name: string | undefined }) {
-  if (isAnonymousName(name)) return <AnonymousFigure />;
+/**
+ * A person's avatar fallback: their initial, or {@link AnonymousFigure} while
+ * they have no name — tinted by their pubkey, so nameless people tell apart.
+ * The tint covers the whole avatar (the Avatar root is `relative`) over its
+ * call site's own fallback colors.
+ */
+export function AvatarInitial({ name, pubkey }: { name: string | undefined; pubkey?: string }) {
+  if (isAnonymousName(name)) {
+    const hue = pubkeyHue(pubkey);
+    if (hue === undefined) return <AnonymousFigure />;
+    return (
+      <span
+        aria-hidden
+        className="absolute inset-0 flex items-center justify-center bg-muted"
+        style={{
+          backgroundImage: `linear-gradient(hsl(${hue} 70% 55% / 0.28), hsl(${hue} 70% 55% / 0.28))`,
+          color: pubkeyHueColor(hue),
+        }}
+      >
+        <AnonymousFigure />
+      </span>
+    );
+  }
   return <>{name?.trim()[0]?.toUpperCase() || "?"}</>;
 }

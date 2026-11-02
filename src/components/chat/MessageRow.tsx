@@ -267,7 +267,7 @@ export const MessageRow = memo(function MessageRow({
             <Avatar shape={getAvatarShape(metadata)} className="size-10 cursor-pointer transition-opacity hover:opacity-90">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                <AvatarInitial name={displayName} />
+                <AvatarInitial name={displayName} pubkey={pubkey} />
               </AvatarFallback>
             </Avatar>
           </button>

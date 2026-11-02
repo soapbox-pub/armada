@@ -232,7 +232,7 @@ function FriendFace({ pubkey, className }: { pubkey: string; className?: string 
     >
       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
       <AvatarFallback className="bg-primary/20 text-monogram font-semibold text-primary">
-        <AvatarInitial name={name} />
+        <AvatarInitial name={name} pubkey={pubkey} />
       </AvatarFallback>
     </Avatar>
   );
@@ -644,7 +644,7 @@ export function InviteDetail({
                     <Avatar shape={getAvatarShape(senderMeta)} className="size-11">
                       <AvatarImage src={senderMeta?.picture} imeta={senderAuthor.data?.imeta?.picture} alt={senderName} />
                       <AvatarFallback className="bg-primary/20 font-semibold text-primary">
-                        <AvatarInitial name={senderName} />
+                        <AvatarInitial name={senderName} pubkey={sender} />
                       </AvatarFallback>
                     </Avatar>
                     {followsSender && (

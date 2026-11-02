@@ -568,7 +568,7 @@ const StageReactionFloater = memo(function StageReactionFloater({
         <Avatar className="size-4 shrink-0">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
           <AvatarFallback className="bg-primary/30 text-primary text-monogram">
-            <AvatarInitial name={displayName} />
+            <AvatarInitial name={displayName} pubkey={entry.author} />
           </AvatarFallback>
         </Avatar>
         <span className="truncate min-w-0">
@@ -723,7 +723,7 @@ function VideoTile({
           <Avatar shape={shape} className={cn("relative", large ? "size-24" : "size-16")}>
             <AvatarImage src={metadata?.picture} imeta={imeta?.picture} alt={displayName} />
             <AvatarFallback className="bg-primary/20 text-primary text-xl">
-              <AvatarInitial name={displayName} />
+              <AvatarInitial name={displayName} pubkey={pubkey} />
             </AvatarFallback>
           </Avatar>
         </>
@@ -1081,7 +1081,7 @@ function AvatarTile({
         <Avatar shape={shape} className={large ? "size-28" : "size-16"}>
           <AvatarImage src={metadata?.picture} imeta={imeta?.picture} alt={displayName} />
           <AvatarFallback className="bg-primary/20 text-primary text-xl">
-            <AvatarInitial name={displayName} />
+            <AvatarInitial name={displayName} pubkey={pubkey} />
           </AvatarFallback>
         </Avatar>
       </div>
@@ -1292,6 +1292,7 @@ const HERO_MAX_THEATER = 16;
 
 /** A hero avatar: large, in the person's own shape, glowing while they speak. */
 function HeroAvatarView({
+  pubkey,
   metadata,
   name,
   caption,
@@ -1306,6 +1307,7 @@ function HeroAvatarView({
   size,
   theater,
 }: {
+  pubkey: string | undefined;
   metadata: NostrMetadata | undefined;
   name: string;
   caption: string;
@@ -1342,7 +1344,7 @@ function HeroAvatarView({
           <Avatar shape={shape} className={cn("shadow-xl", s.avatar, pending && "opacity-80")}>
             <AvatarImage src={metadata?.picture} alt={name} />
             <AvatarFallback className={cn("bg-primary/20 text-primary", s.initial)}>
-              <AvatarInitial name={name} />
+              <AvatarInitial name={name} pubkey={pubkey} />
             </AvatarFallback>
           </Avatar>
         </div>
@@ -1409,6 +1411,7 @@ function HeroParticipant({
   const view = (
     <div>
       <HeroAvatarView
+        pubkey={verified ? pubkey : undefined}
         metadata={metadata}
         name={displayName}
         caption={participant.isLocal ? intl.formatMessage({ id: "callStage.you", defaultMessage: "You" }) : displayName}
@@ -1439,6 +1442,7 @@ function HeroPendingPeer({ pubkey, size, theater }: { pubkey: string; size: Hero
   const name = useScopedDisplayName(pubkey, metadata);
   return (
     <HeroAvatarView
+      pubkey={pubkey}
       metadata={metadata}
       name={name}
       caption={name}

@@ -116,7 +116,7 @@ export function UserPage() {
           <Avatar shape={getAvatarShape(metadata)} className="size-24 border-[3px] border-background">
             <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
             <AvatarFallback className="bg-primary/20 text-primary text-3xl">
-              <AvatarInitial name={displayName} />
+              <AvatarInitial name={displayName} pubkey={pubkey} />
             </AvatarFallback>
           </Avatar>
           <h2 className="text-2xl font-bold">
