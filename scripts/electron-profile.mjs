@@ -11,6 +11,8 @@
  *     --visible <s>    window shown, nobody touching anything (120)
  *     --hidden <s>     then hidden to the tray as the close button does (120)
  *     --reloads <n>    then reload the page n times, timing each (3)
+ *     --reduce-effects the Reduce effects switch on, every part included
+ *     --frames         10s of compositor tracing per phase: what draws frames
  *
  * Phases report PSS (proportional, so shared pages aren't double counted) and
  * CPU as % of one core, per process type; Chromium's memory-infra breakdown of
@@ -237,6 +239,30 @@ async function memoryInfra() {
   return out;
 }
 
+/** 10s of compositor tracing: frames drawn, and the busiest trace events by count. */
+async function frameCensus() {
+  const events = [];
+  const onData = (e) => events.push(...e.value);
+  browserCdp.on("Tracing.dataCollected", onData);
+  const done = new Promise((r) => browserCdp.once("Tracing.tracingComplete", r));
+  await browserCdp.send("Tracing.start", {
+    traceConfig: { includedCategories: ["disabled-by-default-devtools.timeline.frame", "viz", "cc", "gpu", "blink"] },
+    transferMode: "ReportEvents",
+  });
+  await sleep(10_000);
+  await browserCdp.send("Tracing.end");
+  await done;
+  browserCdp.off("Tracing.dataCollected", onData);
+  const counts = {};
+  for (const e of events) if (e.ph === "X" || e.ph === "B" || e.ph === "I" || e.ph === "i") counts[e.name] = (counts[e.name] ?? 0) + 1;
+  const per = (name) => r1((counts[name] ?? 0) / 10);
+  return {
+    drawFramePerSec: per("DrawFrame"),
+    beginFramePerSec: per("Scheduler::BeginFrame") || per("BeginFrame"),
+    top: Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `${k} ${r1(v / 10)}/s`),
+  };
+}
+
 async function pageState() {
   return page.evaluate(() => {
     const imgs = [...document.images];
@@ -281,6 +307,7 @@ async function phase(name, sec) {
     pageMainThreadPct: r1(((metricsB.TaskDuration - metricsA.TaskDuration) / wall) * 100),
     mainLag: await readLag(),
     infra: await memoryInfra(),
+    frames: flag("frames") ? await frameCensus() : undefined,
     page: await pageState(),
     pssPer30s: samples.map((s) => s.pss.totalMB),
     cpuPer30s: samples.map((s) => s.cpu.totalPct),
@@ -296,11 +323,12 @@ report.loggedOut = { pss: pssSummary(processes()) };
 
 const sk = generateSecretKey();
 const pk = getPublicKey(sk);
-await page.evaluate(([json, pk]) => {
+await page.evaluate(([json, pk, reduce]) => {
   localStorage.setItem("armada:login", json);
   localStorage.setItem("armada:active-pubkey", pk);
   localStorage.setItem(`armada:relay-prompt-shown:${pk}`, "1");
-}, [JSON.stringify([{ id: `nsec:${pk}`, type: "nsec", pubkey: pk, createdAt: new Date().toISOString(), data: { nsec: nip19.nsecEncode(sk) } }]), pk]);
+  if (reduce) localStorage.setItem("armada:reduce-effects", "1");
+}, [JSON.stringify([{ id: `nsec:${pk}`, type: "nsec", pubkey: pk, createdAt: new Date().toISOString(), data: { nsec: nip19.nsecEncode(sk) } }]), pk, flag("reduce-effects")]);
 const invite = new URL(INVITE);
 await page.goto(`app://armada${invite.pathname}${invite.hash}`);
 const accept = page.getByRole("button", { name: /accept invite/i });
@@ -320,7 +348,8 @@ await inMain(`(() => {
   w.webContents.send("armada:window-hidden");
   return true;
 })()`);
-await sleep(5000);
+// Past the page's rest grace (trayRest.ts).
+await sleep(15_000);
 report.hidden = await phase("hidden", HIDDEN);
 await inMain(`(() => { const { BrowserWindow } = process.mainModule.require("electron"); BrowserWindow.getAllWindows()[0].show(); return true; })()`);
 await sleep(3000);
@@ -342,7 +371,7 @@ for (let i = 0; i < RELOADS; i++) {
 
 mkdirSync(OUT, { recursive: true });
 writeFileSync(resolve(OUT, `electron-${LABEL}.json`), JSON.stringify(report, null, 2));
-const line = (p) => `PSS ${p.pss.totalMB} MB ${JSON.stringify(p.pss)} | CPU ${p.cpu.totalPct}% ${JSON.stringify(p.cpu)} | page main thread ${p.pageMainThreadPct}% | main lag ${JSON.stringify(p.mainLag)}\n    renderer infra ${JSON.stringify(p.infra)}\n    page ${JSON.stringify(p.page)}\n    PSS/30s ${p.pssPer30s.join(" ")}  CPU/30s ${p.cpuPer30s.join(" ")}`;
+const line = (p) => `PSS ${p.pss.totalMB} MB ${JSON.stringify(p.pss)} | CPU ${p.cpu.totalPct}% ${JSON.stringify(p.cpu)} | page main thread ${p.pageMainThreadPct}% | main lag ${JSON.stringify(p.mainLag)}\n    renderer infra ${JSON.stringify(p.infra)}\n    page ${JSON.stringify(p.page)}\n    frames ${JSON.stringify(p.frames)}\n    PSS/30s ${p.pssPer30s.join(" ")}  CPU/30s ${p.cpuPer30s.join(" ")}`;
 console.log(`\n══ electron-${LABEL} ══`);
 console.log(`logged out: PSS ${report.loggedOut.pss.totalMB} MB ${JSON.stringify(report.loggedOut.pss)}`);
 console.log(`visible: ${line(report.visible)}`);
