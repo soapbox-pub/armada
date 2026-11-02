@@ -362,6 +362,7 @@ function renderLinuxIcon(size) {
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
+let lastWindowBlurAt = 0;
 
 /**
  * IPC for the bridge, answered for the main window only. Only it has the
@@ -614,6 +615,9 @@ function createWindow({ show = !startHidden || !closeToTraySupported } = {}) {
   mainWindow.on("focus", () => {
     mainWindow?.flashFrame(false);
   });
+  mainWindow.on("blur", () => {
+    lastWindowBlurAt = Date.now();
+  });
 
   // Esc always leaves HTML fullscreen. An embed that went fullscreen (a Mini
   // App is sender-written code) has keyboard focus, and a key the page
@@ -741,14 +745,20 @@ function buildTrayContextMenu() {
   );
 }
 
+// Clicking the Windows tray takes focus from the window before the click
+// arrives, so a blur this recent still counts as the window having had focus.
+const TRAY_BLUR_GRACE_MS = 400;
+
 function toggleWindowFromTray() {
   // Every accessor on a destroyed BrowserWindow throws, and the tray outlives
   // the window on close-to-quit paths.
+  // A window that is open but buried under others is brought forward, not hidden.
   if (
     mainWindow &&
     !mainWindow.isDestroyed() &&
     mainWindow.isVisible() &&
-    !mainWindow.isMinimized()
+    !mainWindow.isMinimized() &&
+    (mainWindow.isFocused() || Date.now() - lastWindowBlurAt < TRAY_BLUR_GRACE_MS)
   ) {
     hideWindowToTray();
   } else {
