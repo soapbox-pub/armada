@@ -127,7 +127,13 @@ export function isManagement(perms: bigint): boolean {
 }
 
 /** Human-facing labels for the assignable permission bits, in display order (formatted on read). */
-export const PERMISSION_LABELS: Array<{ bit: bigint; readonly label: string; readonly hint: string }> = [
+export const PERMISSION_LABELS: Array<{
+  bit: bigint;
+  readonly label: string;
+  readonly hint: string;
+  /** Only meaningful on the vsk-13 Roster (CORD-04 §3): a legacy editor doesn't offer it. */
+  rolesV2?: true;
+}> = [
   {
     bit: Permissions.MANAGE_ROLES,
     get label() {
@@ -207,6 +213,166 @@ export const PERMISSION_LABELS: Array<{ bit: bigint; readonly label: string; rea
     },
     get hint() {
       return t({ id: "concordRoles.permission.mentionEveryone.hint", defaultMessage: "Use @everyone." });
+    },
+  },
+  {
+    bit: Permissions.VIEW_CHANNEL,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.viewChannels.label", defaultMessage: "View channels" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.viewChannels.hint", defaultMessage: "See channels and read their messages." });
+    },
+  },
+  {
+    bit: Permissions.SEND_MESSAGES,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.sendMessages.label", defaultMessage: "Send messages" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.sendMessages.hint", defaultMessage: "Post in channels." });
+    },
+  },
+  {
+    bit: Permissions.SEND_IN_THREADS,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.sendInThreads.label", defaultMessage: "Reply in threads" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.sendInThreads.hint", defaultMessage: "Post replies in threads." });
+    },
+  },
+  {
+    bit: Permissions.ATTACH_FILES,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.attachFiles.label", defaultMessage: "Attach files" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.attachFiles.hint", defaultMessage: "Upload images and files." });
+    },
+  },
+  {
+    bit: Permissions.ADD_REACTIONS,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.addReactions.label", defaultMessage: "Add reactions" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.addReactions.hint", defaultMessage: "React to messages." });
+    },
+  },
+  {
+    bit: Permissions.READ_MESSAGE_HISTORY,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.readHistory.label", defaultMessage: "Read message history" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.readHistory.hint", defaultMessage: "Read what was posted before they joined a channel." });
+    },
+  },
+  {
+    bit: Permissions.CONNECT,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.connect.label", defaultMessage: "Join calls" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.connect.hint", defaultMessage: "Join a channel's call." });
+    },
+  },
+  {
+    bit: Permissions.SPEAK,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.speak.label", defaultMessage: "Speak" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.speak.hint", defaultMessage: "Be heard in calls." });
+    },
+  },
+  {
+    bit: Permissions.VIDEO,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.video.label", defaultMessage: "Video" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.video.hint", defaultMessage: "Share a camera or screen in calls." });
+    },
+  },
+  {
+    bit: Permissions.PRIORITY_SPEAKER,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.prioritySpeaker.label", defaultMessage: "Priority speaker" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.prioritySpeaker.hint", defaultMessage: "Be heard over others in calls." });
+    },
+  },
+  {
+    bit: Permissions.MUTE_MEMBERS,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.muteMembers.label", defaultMessage: "Mute members" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.muteMembers.hint", defaultMessage: "Mute other members in calls." });
+    },
+  },
+  {
+    bit: Permissions.DEAFEN_MEMBERS,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.deafenMembers.label", defaultMessage: "Deafen members" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.deafenMembers.hint", defaultMessage: "Deafen other members in calls." });
+    },
+  },
+  {
+    bit: Permissions.MOVE_MEMBERS,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.moveMembers.label", defaultMessage: "Move members" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.moveMembers.hint", defaultMessage: "Move or disconnect members from calls." });
+    },
+  },
+  {
+    bit: Permissions.MODERATE_MEMBERS,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.timeoutMembers.label", defaultMessage: "Time out members" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.timeoutMembers.hint", defaultMessage: "Silence members for a while." });
+    },
+  },
+  {
+    bit: Permissions.MANAGE_NICKNAMES,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.manageNicknames.label", defaultMessage: "Manage nicknames" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.manageNicknames.hint", defaultMessage: "Change other members' nicknames." });
+    },
+  },
+  {
+    bit: Permissions.CHANGE_NICKNAME,
+    rolesV2: true,
+    get label() {
+      return t({ id: "concordRoles.permission.changeNickname.label", defaultMessage: "Change nickname" });
+    },
+    get hint() {
+      return t({ id: "concordRoles.permission.changeNickname.hint", defaultMessage: "Set their own nickname here." });
     },
   },
 ];

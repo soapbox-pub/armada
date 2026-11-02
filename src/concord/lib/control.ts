@@ -19,7 +19,9 @@ import {
   controlSignerGroupKey,
   dissolvedGroupKey,
   editionBinding,
+  everyoneLocator,
   grantLocator,
+  syncLocator,
   hex32,
   inviteLinksLocator,
   signalLocator,
@@ -60,10 +62,32 @@ import {
   Permissions,
   roleFromJSON,
   roleToJSON,
+  BENEATH_EVERY_ROLE,
   type CommunityRoles,
   type MemberGrant,
+  type Overwrite,
   type Role,
 } from "@/concord/lib/roles";
+import {
+  ALWAYS_MARKED_VSKS,
+  VSK_ACL,
+  VSK_CATEGORY,
+  VSK_SYNC,
+  cutName,
+  foldRosterV2,
+  isListed,
+  maySwapOverwrites,
+  overwriteAuthorized,
+  overwriteLocator,
+  parseOverwrite,
+  parseSync,
+  permissionsAboveIn,
+  rosterActivated,
+  sealOf,
+  type RosterFloors,
+  type SealedBy,
+} from "@/concord/lib/roster";
+import { isRankKey } from "@/concord/lib/rankKey";
 import { buildRumor, openWrap, sealRumor, wrapSeal, type OpenedEvent, type StreamSigner } from "@/concord/lib/stream";
 import { readFoldedShared } from "@/lib/foldedCache";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -313,6 +337,14 @@ export function buildSignalsEdition(
 export interface EntityHead {
   version: bigint;
   hash: Uint8Array;
+  /** The head's rumor id, so a same-version rival is judged against it (CORD-04 §1). */
+  rumorId?: string;
+  /** The head's signer. */
+  author?: string;
+}
+
+function headOf(p: ParsedEdition): EntityHead {
+  return { version: p.version, hash: p.selfHash, rumorId: bytesToHex(p.rumorId), author: p.author };
 }
 
 export interface FoldedChannel {
@@ -322,6 +354,31 @@ export interface FoldedChannel {
   deleted: boolean;
   /** Full normalized metadata, retained so mutations can round-trip extensions. */
   metadata: ChannelMetadata;
+  /**
+   * A Private Channel's SEALED metadata (CORD-03 §2): readable only with the
+   * Channel's key at `epoch`, so `name` and the rest stay empty until a holder opens it.
+   */
+  sealed?: SealedChannelMeta;
+}
+
+/** A Private Channel's sealed form as carried (CORD-03 §2). */
+export interface SealedChannelMeta {
+  epoch: bigint;
+  /** NIP-44 v2 payload under the Channel's conversation key at `epoch`. */
+  sealed: string;
+  /** The carrying edition's predecessor hash, which the seal must name as `prev`. */
+  prevHex?: string;
+}
+
+/** A Category (vsk 15, CORD-03 §4). */
+export interface FoldedCategory {
+  idHex: string;
+  name: string;
+  /** Rank key ordering Categories among themselves; absent sorts after every keyed one. */
+  position?: string;
+  deleted: boolean;
+  /** Unknown fields, round-tripped by an editor. */
+  extra: Record<string, unknown>;
 }
 
 /** Where a community's folded control snapshot is cached (`foldedCache`); here so non-React code can import it. */
@@ -377,6 +434,15 @@ export interface FoldedControl {
    * member. Same authority gate as `banned`.
    */
   bannedAt: Map<string, number>;
+  /**
+   * On the vsk-13 Roster (CORD-04 §2): `roster.everyone` stands, and Categories,
+   * overwrites and syncs fold. Absent on a snapshot from an earlier build.
+   */
+  rosterV2?: boolean;
+  /** Categories by id (CORD-03 §4), deleted ones included and flagged; empty off the vsk-13 Roster. */
+  categories?: Map<string, FoldedCategory>;
+  /** Each member's sealed standings (CORD-04 §9), from the Tenures the fold admits. */
+  tenure?: SealedBy;
 }
 
 /**
@@ -561,7 +627,7 @@ function pickHead(
     if (rankOf(p.author) < rankOf(head.author)) head = p;
   }
   if (head === undefined) return undefined;
-  heads.set(bytesToHex(head.entityId), { version: head.version, hash: head.selfHash });
+  heads.set(bytesToHex(head.entityId), headOf(head));
   headEditions.set(bytesToHex(head.entityId), head);
   return head;
 }
@@ -629,7 +695,7 @@ function authorizeDelegation(
   let ranksFrozen = false;
 
   const settle = (p: ParsedEdition) => {
-    heads.set(bytesToHex(p.entityId), { version: p.version, hash: p.selfHash });
+    heads.set(bytesToHex(p.entityId), headOf(p));
     headEditions.set(bytesToHex(p.entityId), p);
   };
 
@@ -775,11 +841,12 @@ export function foldControlState(
     return hit;
   }
 
-  // CORD-04 §1: a marked edition bound to another Community is refused.
+  // CORD-04 §1: a marked edition bound to another Community is refused, and so is an
+  // unmarked edition of a kind no older client wrote.
   const binding = bytesToHex(editionBinding(communityId));
-  if (editions.some((e) => e.binding && bytesToHex(e.binding) !== binding)) {
-    editions = editions.filter((e) => !e.binding || bytesToHex(e.binding) === binding);
-  }
+  const refused = (e: ParsedEdition) =>
+    e.binding ? bytesToHex(e.binding) !== binding : ALWAYS_MARKED_VSKS.has(e.vsk);
+  if (editions.some(refused)) editions = editions.filter((e) => !refused(e));
   const first = foldOnce(editions, communityId, ownerHex, priorHeads, snapshotIds);
   // The owner is supreme (CORD-04 §2): strip them from `banned` HERE, on the set
   // every reader consumes, or a BAN holder could silence the owner everywhere.
@@ -787,9 +854,12 @@ export function foldControlState(
   let result: FoldedControl = banned.size === first.banned.size ? first : { ...first, banned };
   if (banned.size > 0 && editions.some((e) => banned.has(e.author))) {
     // Pass 1 stays authoritative for `incomplete`: pass 2's gaps are semantic drops,
-    // not data loss, and must not block ban→refound.
+    // not data loss, and must not block ban→refound. A ban takes what its target
+    // wrote, except what a Tenure keeps (CORD-04 §4, §9).
+    const sealed = first.tenure ?? new Map();
+    const kept = editions.filter((e) => !banned.has(e.author) || isListed(sealed, e.author, bytesToHex(e.selfHash)));
     result = {
-      ...foldOnce(editions.filter((e) => !banned.has(e.author)), communityId, ownerHex, priorHeads, snapshotIds),
+      ...foldOnce(kept, communityId, ownerHex, priorHeads, snapshotIds, banned),
       banned,
       bannedAt: first.bannedAt,
       incomplete: first.incomplete,
@@ -968,6 +1038,7 @@ function foldOnce(
   ownerHex: string,
   priorHeads?: Map<string, EntityHead>,
   snapshotIds?: Set<string>,
+  excluded: ReadonlySet<string> = new Set(),
 ): FoldedControl {
   const cidHex = bytesToHex(communityId);
 
@@ -998,7 +1069,7 @@ function foldOnce(
   };
 
   // 2. Roster (owner-rooted fixpoint) — resolved before any gated entity.
-  const resolveRoster = (admit?: HeadAdmit) => {
+  const resolveLegacyRoster = (admit?: HeadAdmit) => {
     const roleCandidates = new Map<string, Array<{ role: Role; author: string; parsed: ParsedEdition }>>();
     for (const [eid, candidates] of candidatesOf(VSK_ROLE, admit)) {
       const parsed = candidates
@@ -1023,7 +1094,25 @@ function foldOnce(
     headEditions.clear();
     return authorizeDelegation(roleCandidates, grantCandidates, communityId, ownerHex, heads, headEditions);
   };
-  let roster = resolveRoster();
+  // The vsk-13 Roster (CORD-04 §2) once an owner-rooted `@everyone` stands; the legacy fixpoint before.
+  const rosterFloors: RosterFloors = new Map(
+    [...(priorHeads ?? [])].map(([eid, h]) => [eid, { version: h.version, hash: h.hash, rumorId: h.rumorId, author: h.author }]),
+  );
+  const v2 = rosterActivated(editions, communityId, ownerHex, rosterFloors);
+  let sealed: SealedBy = new Map();
+  let roster: CommunityRoles;
+  if (v2) {
+    const folded = foldRosterV2(editions, communityId, ownerHex, rosterFloors, excluded);
+    roster = folded.roles;
+    sealed = folded.sealed;
+    for (const h of folded.heads) {
+      heads.set(h.eid, headOf(h.edition));
+      headEditions.set(h.eid, h.edition);
+    }
+    for (const eid of folded.gapped) gapHeld.add(eid);
+  } else {
+    roster = resolveLegacyRoster();
+  }
   // Who may edit a role or grant is only known once the roster is: re-walk each
   // gapped one over the MANAGE_ROLES holders the last pass settled, and re-resolve
   // until the roster's heads stop moving (a promotion one pass un-gaps admits that
@@ -1036,7 +1125,7 @@ function foldOnce(
     }).join(",");
   const rewalked = new Set<string>();
   let lastHeads = rosterHeads();
-  for (let pass = 0; ; pass++) {
+  for (let pass = 0; !v2; pass++) {
     const fresh = [...gapHeld].filter((eid) => rosterEids.has(eid) && !rewalked.has(eid));
     if (fresh.length === 0 && pass > 0) {
       const now = rosterHeads();
@@ -1046,13 +1135,13 @@ function foldOnce(
     if (rewalked.size === 0 && fresh.length === 0) break;
     if (pass > rosterEids.size + 1) {
       gapHeld.clear();
-      roster = resolveRoster();
+      roster = resolveLegacyRoster();
       break;
     }
     for (const eid of fresh) rewalked.add(eid);
     for (const eid of rosterEids) gapHeld.delete(eid);
     const settled = roster;
-    roster = resolveRoster({
+    roster = resolveLegacyRoster({
       mode: "retry",
       admit: (p) =>
         !rewalked.has(bytesToHex(p.entityId)) || isAuthorized(settled, p.author, ownerHex, Permissions.MANAGE_ROLES),
@@ -1064,13 +1153,23 @@ function foldOnce(
   // ≥ the cited version with a matching hash; otherwise it parks. Uses the same
   // `citationSatisfied` as the delete/kick/rekey gates (mirrors Vector). A LATER head
   // passes, since compaction discards superseded versions.
+  // A Tenure-listed edition stands without its citation (CORD-04 §9).
+  const listed = (p: ParsedEdition): boolean => v2 && isListed(sealed, p.author, bytesToHex(p.selfHash));
   const citationOk = (p: ParsedEdition): boolean =>
-    citationSatisfied({ heads, ownerHex }, communityId, p.author, p.authority);
+    listed(p) || citationSatisfied({ heads, ownerHex }, communityId, p.author, p.authority);
+
+  /**
+   * Whether `p`'s signer may write it under `permission` judged on the bit alone:
+   * the Roster as it stands, `@everyone`'s bits counted, or a sealed standing (CORD-04 §8, §9).
+   */
+  const may = (p: ParsedEdition, permission: bigint): boolean =>
+    isAuthorized(roster, p.author, ownerHex, permission) ||
+    (v2 && (sealOf(sealed, p.author, bytesToHex(p.selfHash), BENEATH_EVERY_ROLE) & permission) === permission);
 
   /** Editions by a holder of `permission` citing a Grant we hold: the authority pre-filter. */
   const holders = (...permissions: bigint[]): HeadAdmit => ({
     mode: "filter",
-    admit: (p) => permissions.some((permission) => isAuthorized(roster, p.author, ownerHex, permission)) && citationOk(p),
+    admit: (p) => permissions.some((permission) => may(p, permission)) && citationOk(p),
   });
 
   /** Authority order for equal-version tiebreaks: owner first, then position. */
@@ -1082,7 +1181,7 @@ function foldOnce(
   {
     const candidates = candidatesOf(VSK_METADATA, holders(Permissions.MANAGE_METADATA)).get(cidHex) ?? [];
     const head = pickHead(candidates, heads, headEditions, (p) => {
-      if (!isAuthorized(roster, p.author, ownerHex, Permissions.MANAGE_METADATA)) return false;
+      if (!may(p, Permissions.MANAGE_METADATA)) return false;
       if (!citationOk(p)) return false;
       try {
         const parsed = JSON.parse(p.content) as CommunityMetadata;
@@ -1105,39 +1204,36 @@ function foldOnce(
     }
   }
 
-  // 4. Channels (vsk 2), each gated by MANAGE_CHANNELS.
+  // 4. Channels (vsk 2), each gated by MANAGE_CHANNELS. On the vsk-13 Roster an
+  // unmarked edition counts only for a Channel the switch listed, and a Private
+  // Channel's metadata may be sealed under its key (CORD-03 §2, CORD-04 §2).
+  const legacyChannels = v2 && roster.legacyChannels ? new Set(roster.legacyChannels) : undefined;
+  // A Channel edition aimed at another entity's coordinate is no Channel (CORD-03 §2).
+  const notChannels = new Set([cidHex, bytesToHex(everyoneLocator(communityId)), bytesToHex(banlistLocator(communityId))]);
   const channels = new Map<string, FoldedChannel>();
   for (const [eid, candidates] of candidatesOf(VSK_CHANNEL, holders(Permissions.MANAGE_CHANNELS))) {
+    if (notChannels.has(eid)) continue;
     const channelGate = (p: ParsedEdition): boolean => {
-      if (!isAuthorized(roster, p.author, ownerHex, Permissions.MANAGE_CHANNELS)) return false;
+      if (!may(p, Permissions.MANAGE_CHANNELS)) return false;
       if (!citationOk(p)) return false;
-      try {
-        const meta = JSON.parse(p.content) as ChannelMetadata;
-        return typeof meta.name === "string" && meta.name.length > 0 && utf8Len(meta.name) <= NAME_MAX_BYTES;
-      } catch {
-        return false;
-      }
+      if (legacyChannels && !p.binding && !legacyChannels.has(eid)) return false;
+      return readChannelContent(p.content, v2) !== undefined;
     };
     const head = pickHead(candidates, heads, headEditions, channelGate, rankOf);
     if (!head) continue;
-    const meta = normalizeChannelMetadata(JSON.parse(head.content) as ChannelMetadata);
+    const read = readChannelContent(head.content, v2)!;
+    const meta = read.metadata;
     // CORD-03 §2: deletion is terminal — a later edition can't lift it. Decided over
     // the whole accepted chain (members may have discarded keys; a resurrection would
     // split them), gated by the same predicate as the head.
-    const everDeleted = candidates.some((p) => {
-      if (!channelGate(p)) return false;
-      try {
-        return (JSON.parse(p.content) as ChannelMetadata).deleted === true;
-      } catch {
-        return false;
-      }
-    });
+    const everDeleted = candidates.some((p) => channelGate(p) && readChannelContent(p.content, v2)?.metadata.deleted === true);
     channels.set(eid, {
       channelIdHex: eid,
       name: meta.name,
       isPrivate: meta.private === true,
       deleted: meta.deleted === true || everDeleted,
       metadata: everDeleted ? { ...meta, deleted: true } : meta,
+      ...(read.sealed ? { sealed: { ...read.sealed, ...(head.prevHash ? { prevHex: bytesToHex(head.prevHash) } : {}) } } : {}),
     });
   }
 
@@ -1168,8 +1264,14 @@ function foldOnce(
     const entitled = (author: string, pk: string): boolean =>
       canActOnMember(roster, author, ownerHex, pk, Permissions.BAN);
 
-    const wellFormed = (p: ParsedEdition): boolean =>
-      isAuthorized(roster, p.author, ownerHex, Permissions.BAN) && citationOk(p) && parseList(p) !== undefined;
+    // On the vsk-13 Roster the bit must come from the author's Roles: `@everyone`'s bits author no Banlist (CORD-04 §2).
+    const bans = (p: ParsedEdition): boolean =>
+      v2
+        ? p.author === ownerHex ||
+          (permissionsAboveIn(roster, p.author, BENEATH_EVERY_ROLE) & Permissions.BAN) !== 0n ||
+          (sealOf(sealed, p.author, bytesToHex(p.selfHash), BENEATH_EVERY_ROLE) & Permissions.BAN) !== 0n
+        : isAuthorized(roster, p.author, ownerHex, Permissions.BAN);
+    const wellFormed = (p: ParsedEdition): boolean => bans(p) && citationOk(p) && parseList(p) !== undefined;
 
     /** Equal-version fork siblings, highest authority first (the id is grindable; rank is not). */
     const banlistAuthorityFirst = (a: ParsedEdition, b: ParsedEdition): number => {
@@ -1229,7 +1331,7 @@ function foldOnce(
   })) {
     const head = pickHead(candidates, heads, headEditions, (p) => {
       if (bytesToHex(inviteLinksLocator(communityId, hex32(p.author))) !== eid) return false;
-      if (!isAuthorized(roster, p.author, ownerHex, Permissions.CREATE_INVITE)) return false;
+      if (!may(p, Permissions.CREATE_INVITE)) return false;
       if (!citationOk(p)) return false;
       try {
         return Array.isArray(JSON.parse(p.content));
@@ -1250,7 +1352,7 @@ function foldOnce(
   const pinLists = new Map<string, { content: string; author: string }>();
   for (const [eid, candidates] of candidatesOf(VSK_PINS, holders(Permissions.PIN_MESSAGES))) {
     const head = pickHead(candidates, heads, headEditions, (p) => {
-      if (!isAuthorized(roster, p.author, ownerHex, Permissions.PIN_MESSAGES)) return false;
+      if (!may(p, Permissions.PIN_MESSAGES)) return false;
       return citationOk(p);
     }, rankOf);
     if (!head) continue;
@@ -1265,7 +1367,7 @@ function foldOnce(
   for (const [signalId, gate] of Object.entries(SIGNAL_GATES)) {
     const candidates = signalCands.get(bytesToHex(signalLocator(communityId, signalId))) ?? [];
     const head = pickHead(candidates, heads, headEditions, (p) => {
-      if (!isAuthorized(roster, p.author, ownerHex, gate)) return false;
+      if (!may(p, gate)) return false;
       if (!citationOk(p)) return false;
       return validateSignal(signalId, p.content, p.createdAt);
     }, rankOf);
@@ -1277,6 +1379,69 @@ function foldOnce(
     });
   }
 
+  // 9. On the vsk-13 Roster: overwrites (vsk 14), syncs (vsk 17) and Categories (vsk 15).
+  const categories = new Map<string, FoldedCategory>();
+  if (v2) {
+    // Overwrites, each judged on itself by downward support (CORD-04 §8).
+    const overwrites: Overwrite[] = [];
+    const overwriteOf = (p: ParsedEdition): Overwrite | undefined => {
+      const o = parseOverwrite(p.content);
+      return o && bytesToHex(overwriteLocator(communityId, o)) === bytesToHex(p.entityId) ? o : undefined;
+    };
+    const overwriteOk = (p: ParsedEdition): boolean => {
+      const o = overwriteOf(p);
+      return o !== undefined && overwriteAuthorized(roster, ownerHex, banned, sealed, o, p.author, bytesToHex(p.selfHash));
+    };
+    for (const [, candidates] of candidatesOf(VSK_ACL, { mode: "filter", admit: overwriteOk })) {
+      const head = pickHead(candidates, heads, headEditions, overwriteOk, rankOf);
+      const o = head && overwriteOf(head);
+      if (o && (o.allow !== 0n || o.deny !== 0n)) overwrites.push(o);
+    }
+    roster = { ...roster, overwrites };
+
+    // Syncs: the signer must be able to write every overwrite the sync swaps, the
+    // Category it leaves included (named by its predecessor, which must be served).
+    const syncs: Record<string, string> = {};
+    for (const [eid, candidates] of byVsk.get(VSK_SYNC) ?? new Map<string, ParsedEdition[]>()) {
+      const syncOf = (p: ParsedEdition) => {
+        const sy = parseSync(p.content);
+        return sy && bytesToHex(syncLocator(communityId, hex32(sy.channel))) === eid ? sy : undefined;
+      };
+      const syncOk = (p: ParsedEdition): boolean => {
+        const sy = syncOf(p);
+        if (!sy) return false;
+        if (banned.has(p.author) && p.author !== ownerHex && !isListed(sealed, p.author, bytesToHex(p.selfHash))) return false;
+        let left: string | undefined;
+        if (p.prevHash) {
+          const prev = candidates.find((x: ParsedEdition) => bytesEq(x.selfHash, p.prevHash));
+          if (!prev) return false;
+          left = syncOf(prev)?.category;
+        }
+        const scopes = [sy.channel, ...(sy.category ? [sy.category] : []), ...(left ? [left] : [])];
+        return maySwapOverwrites(roster, ownerHex, p.author, scopes, (rank) => sealOf(sealed, p.author, bytesToHex(p.selfHash), rank));
+      };
+      const ordered = headCandidates(candidates, priorHeads?.get(eid), undefined, () => gapHeld.add(eid), { mode: "filter", admit: syncOk });
+      const head = pickHead(ordered, heads, headEditions, syncOk, rankOf);
+      const sy = head && syncOf(head);
+      if (sy?.category) syncs[sy.channel] = sy.category;
+    }
+    roster = { ...roster, syncs };
+
+    // Categories, edited under MANAGE_CHANNELS like any Channel (CORD-03 §4).
+    for (const [eid, candidates] of candidatesOf(VSK_CATEGORY, holders(Permissions.MANAGE_CHANNELS))) {
+      if (notChannels.has(eid)) continue;
+      const gate = (p: ParsedEdition) => may(p, Permissions.MANAGE_CHANNELS) && citationOk(p) && readCategory(p.content) !== undefined;
+      const head = pickHead(candidates, heads, headEditions, gate, rankOf);
+      if (!head) continue;
+      const read = readCategory(head.content)!;
+      const everDeleted = candidates.some((p) => gate(p) && readCategory(p.content)?.deleted === true);
+      categories.set(eid, { idHex: eid, ...read, deleted: read.deleted || everDeleted });
+    }
+    // A reader folds at most 100 Categories, the lowest ids not deleted.
+    const live = [...categories.values()].filter((c) => !c.deleted).map((c) => c.idHex).sort();
+    for (const id of live.slice(MAX_CATEGORIES)) categories.delete(id);
+  }
+
   // Data availability: gap-held entities plus floored ones with ZERO served
   // editions. Authority-rejected ones aren't flagged, or ban→refound would abort.
   const servedEids = new Set<string>();
@@ -1286,8 +1451,72 @@ function foldOnce(
     if (!servedEids.has(eid) && !gapHeld.has(eid)) incomplete.push(eid);
   }
 
-  const result: FoldedControl = { roster, ownerHex, metadata, channels, banned, bannedAt, liveInviteLinks, registriesByCreator, pinLists, signals, heads, headEditions, incomplete };
+  const result: FoldedControl = {
+    roster, ownerHex, metadata, channels, banned, bannedAt, liveInviteLinks, registriesByCreator, pinLists, signals, heads, headEditions, incomplete,
+    ...(v2 ? { rosterV2: true, categories, tenure: sealed } : {}),
+  };
   return result;
+}
+
+/** The most Categories a reader folds (CORD-03 §4). */
+export const MAX_CATEGORIES = 100;
+
+const CHANNEL_TOPIC_MAX_BYTES = 1024;
+const DECIMAL = /^(0|[1-9][0-9]*)$/;
+
+/**
+ * A Channel edition's content (CORD-03 §2), or undefined when it breaks its form.
+ * On the vsk-13 Roster a Private Channel may carry the SEALED form, whose details
+ * only its key opens; `position`, `category` and `topic` outside their form read as absent.
+ */
+export function readChannelContent(
+  content: string,
+  sealedAllowed: boolean,
+): { metadata: ChannelMetadata; sealed?: Omit<SealedChannelMeta, "prevHex"> } | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(content);
+  } catch {
+    return undefined;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const c = raw as Record<string, unknown>;
+  if (c.deleted !== undefined && typeof c.deleted !== "boolean") return undefined;
+  if (sealedAllowed && c.private === true && typeof c.sealed === "string") {
+    if (typeof c.epoch !== "string" || !DECIMAL.test(c.epoch)) return undefined;
+    return {
+      metadata: { name: "", private: true, ...(c.deleted === true ? { deleted: true } : {}) },
+      sealed: { epoch: BigInt(c.epoch), sealed: c.sealed },
+    };
+  }
+  if (typeof c.name !== "string" || typeof c.private !== "boolean") return undefined;
+  if (c.custom !== undefined && (!c.custom || typeof c.custom !== "object" || Array.isArray(c.custom))) return undefined;
+  const meta = { ...c } as ChannelMetadata;
+  meta.name = cutName(meta.name);
+  if (meta.name.length === 0) return undefined;
+  if (meta.position !== undefined && !isRankKey(meta.position)) delete meta.position;
+  if (meta.category !== undefined && (typeof meta.category !== "string" || !/^[0-9a-f]{64}$/i.test(meta.category))) delete meta.category;
+  if (meta.topic !== undefined && (typeof meta.topic !== "string" || meta.topic.length === 0 || utf8Len(meta.topic) > CHANNEL_TOPIC_MAX_BYTES)) delete meta.topic;
+  return { metadata: normalizeChannelMetadata(meta) };
+}
+
+/** A Category edition's content (CORD-03 §4), or undefined when it breaks its form. */
+export function readCategory(content: string): Omit<FoldedCategory, "idHex"> | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(content);
+  } catch {
+    return undefined;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const { name, position, deleted, ...extra } = raw as Record<string, unknown>;
+  if (deleted === true) return { name: "", deleted: true, extra: {} };
+  return {
+    name: typeof name === "string" ? cutName(name) : "",
+    ...(isRankKey(position) ? { position } : {}),
+    deleted: false,
+    extra,
+  };
 }
 
 // ── Dissolution (CORD-02 §9) ─────────────────────────────────────────────────

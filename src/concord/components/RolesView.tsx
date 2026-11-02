@@ -959,7 +959,7 @@ export function RoleEditor({
           </p>
         )}
         <div className="space-y-2 rounded-lg bg-secondary/40 p-3">
-          {PERMISSION_LABELS.map(({ bit, label, hint }) => {
+          {PERMISSION_LABELS.filter((l) => !l.rolesV2).map(({ bit, label, hint }) => {
             const id = `perm2-${bit.toString()}`;
             const on = (perms & bit) === bit;
             return (

@@ -8,7 +8,7 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import { describe, expect, it } from "vitest";
 
 import { controlGroupKey, hex32, type StreamKeyView } from "@/concord/lib/derive";
-import { openControlWraps } from "@/concord/lib/control";
+import { foldControlState, openControlWraps } from "@/concord/lib/control";
 import { BENEATH_EVERY_ROLE, channelPermissions, effectivePermissions } from "@/concord/lib/roles";
 import { foldRosterV2, rosterActivated } from "@/concord/lib/roster";
 
@@ -27,7 +27,8 @@ interface Fixture {
       overwrites?: unknown[];
       syncs?: Record<string, string>;
     };
-    channels: Array<{ id: string; name: string; private: boolean }>;
+    channels: VectorChannel[];
+    categories: Array<{ id: string; name: string; position?: string }>;
     members: Record<string, { pubkey: string; server: string; channels: Record<string, string> }>;
   };
 }
@@ -40,6 +41,13 @@ function controlView(f: Fixture): StreamKeyView {
 
 function editionsOf(f: Fixture) {
   return openControlWraps(f.events, [controlView(f)]);
+}
+
+interface VectorChannel {
+  id: string;
+  name: string;
+  private: boolean;
+  extra: Record<string, unknown>;
 }
 
 describe.each([["guild", guild as unknown as Fixture]])("%s (Vector fixture)", (_name, f) => {
@@ -77,12 +85,30 @@ describe.each([["guild", guild as unknown as Fixture]])("%s (Vector fixture)", (
     }
   });
 
-  it.todo("gives every member the same permissions in every Channel", () => {
-    const { roles } = foldRosterV2(editions, cid, f.community.owner, new Map());
+  it("gives every member the same permissions in every Channel", () => {
+    const roles = foldControlState(editions, cid, f.community.owner).roster;
     for (const [label, m] of Object.entries(f.vector.members)) {
       for (const ch of f.vector.channels) {
         expect(channelPermissions(roles, f.community.owner, m.pubkey, ch.id, ch.private).toString(), `${label} in #${ch.name}`).toBe(m.channels[ch.id]);
       }
+    }
+  });
+
+  it("folds the same Categories, and the same place, topic and view for every public Channel", () => {
+    const folded = foldControlState(editions, cid, f.community.owner);
+    expect(folded.rosterV2).toBe(true);
+    const cats = [...(folded.categories?.values() ?? [])].filter((c) => !c.deleted).map((c) => ({ id: c.idHex, name: c.name, position: c.position })).sort((a, b) => (a.id < b.id ? -1 : 1));
+    expect(cats).toEqual([...f.vector.categories].sort((a, b) => (a.id < b.id ? -1 : 1)));
+    for (const ch of f.vector.channels) {
+      const mine = folded.channels.get(ch.id);
+      expect(mine, ch.name).toBeDefined();
+      expect(mine!.isPrivate).toBe(ch.private);
+      if (ch.private) {
+        expect(mine!.sealed, "a Private Channel's details are sealed").toBeDefined();
+        continue;
+      }
+      expect(mine!.name).toBe(ch.name);
+      for (const k of ["category", "position", "topic", "view"]) expect(mine!.metadata[k], `${ch.name}.${k}`).toEqual(ch.extra[k]);
     }
   });
 });
