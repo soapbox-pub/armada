@@ -10,6 +10,7 @@ import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { toast } from "@/hooks/useToast";
 import { FormattedMessage, t } from "@/i18n";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** CORD-04 §4 banlist; the ONLY unban surface since the roster fold hides banned members. */
 export function BannedView({ community }: { community: Community }) {
@@ -85,7 +86,7 @@ function BannedRow({
       <Avatar className="size-6 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-destructive/20 text-3xs text-destructive">
-          {name[0]?.toUpperCase() ?? "?"}
+          <AvatarInitial name={name} />
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1 truncate font-medium">

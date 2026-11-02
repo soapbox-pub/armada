@@ -40,6 +40,7 @@ import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { FormattedMessage, useIntl, type IntlShape } from "@/i18n";
 import { shortTimeAgo } from "@/lib/formatTime";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * CORD-04 control-plane audit log: raw editions with signer, detail, and
@@ -131,7 +132,7 @@ function AuditRowItem({ row, community }: { row: AuditRow; community: Community 
       <Avatar className="mt-0.5 size-6 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={actorName} />
         <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          {actorName[0]?.toUpperCase() ?? "?"}
+          <AvatarInitial name={actorName} />
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">

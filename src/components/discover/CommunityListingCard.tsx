@@ -44,6 +44,7 @@ import { writeClipboardText } from "@/lib/clipboard";
 import { shortTimeAgoPhrase } from "@/lib/formatTime";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { cn } from "@/lib/utils";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface CommunityListingCardProps {
   invite: DiscoveredInvite;
@@ -448,7 +449,7 @@ export function CommunityListingCard({
             <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-                {displayName[0]?.toUpperCase()}
+                <AvatarInitial name={displayName} />
               </AvatarFallback>
             </Avatar>
             <span className="truncate">

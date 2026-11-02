@@ -20,6 +20,7 @@ import type { NostrMetadata } from "@nostrify/nostrify";
 import type { ReactNode } from "react";
 
 import type { AuthorResult } from "@/lib/authorCache";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Who the mock-ups are drawn as: the viewer, so they see themselves with the perk. */
 export interface UltraSelf {
@@ -41,7 +42,7 @@ export function UltraAvatar({ self, frame, className }: { self: UltraSelf; frame
     <span className="shrink-0 rounded-full" style={frameCss(frame)}>
       <Avatar shape={getAvatarShape(self.metadata)} className={cn("size-10", className)}>
         <AvatarImage src={self.metadata?.picture} imeta={self.imeta?.picture} alt={self.name} />
-        <AvatarFallback className="bg-primary/20 text-primary text-sm">{self.name[0]?.toUpperCase()}</AvatarFallback>
+        <AvatarFallback className="bg-primary/20 text-primary text-sm"><AvatarInitial name={self.name} /></AvatarFallback>
       </Avatar>
     </span>
   );

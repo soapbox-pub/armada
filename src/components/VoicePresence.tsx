@@ -13,6 +13,7 @@ import { getAvatarShape, shapedAvatarSpeakingStyle } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { FormattedMessage, useIntl } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 function ParticipantAvatar({ pubkey, className }: { pubkey: string; className?: string }) {
   const author = useAuthor(pubkey);
@@ -25,7 +26,7 @@ function ParticipantAvatar({ pubkey, className }: { pubkey: string; className?: 
     >
       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
       <AvatarFallback className="bg-success/20 text-success text-monogram">
-        {name[0]?.toUpperCase()}
+        <AvatarInitial name={name} />
       </AvatarFallback>
     </Avatar>
   );
@@ -170,7 +171,7 @@ function VoiceParticipantRow({
           <Avatar shape={getAvatarShape(metadata)} className="size-6">
             <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
             <AvatarFallback className="bg-success/20 text-success text-3xs">
-              {name[0]?.toUpperCase()}
+              <AvatarInitial name={name} />
             </AvatarFallback>
           </Avatar>
         </div>

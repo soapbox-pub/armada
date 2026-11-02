@@ -31,6 +31,7 @@ import { gitworkshopTicketUrl } from "@/lib/gitworkshopUrl";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, defineMessages, t, useIntl, type IntlShape, type MessageDescriptor } from "@/i18n";
 import type { ReactNode } from "react";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Callbacks that make the conversation panel writable; absent means read-only. */
 export interface TicketPanelActions {
@@ -266,7 +267,7 @@ function StatusGroupRow({ entries, onOpen }: { entries: readonly Extract<GitChan
 function ActorAvatar({ pubkey }: { pubkey: string }) {
   const author = useAuthor(pubkey);
   const name = useScopedDisplayName(pubkey, author.data?.metadata);
-  return <><AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} /><AvatarFallback className="text-3xs font-semibold">{name.slice(0, 1)}</AvatarFallback></>;
+  return <><AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} /><AvatarFallback className="text-3xs font-semibold"><AvatarInitial name={name} /></AvatarFallback></>;
 }
 
 const CI_OUTCOMES = defineMessages({

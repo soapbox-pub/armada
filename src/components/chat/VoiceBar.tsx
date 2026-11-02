@@ -61,6 +61,7 @@ import { syncRnnoise } from "@/lib/voiceProcessor";
 import { rnnoiseSupported } from "@/lib/rnnoiseSupport";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, t, useIntl } from "@/i18n";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * Whether `kind` is audio with unnamed devices, so a capture is worth opening to
@@ -308,7 +309,7 @@ function ParticipantVolumeRow({ participant }: { participant: Participant }) {
         <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
           <AvatarFallback className="bg-success/20 text-success text-monogram">
-            {name[0]?.toUpperCase()}
+            <AvatarInitial name={name} />
           </AvatarFallback>
         </Avatar>
         <span className="truncate text-sm flex-1">

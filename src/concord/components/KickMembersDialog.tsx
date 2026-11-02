@@ -8,6 +8,7 @@ import { ChromeDialogContent, Dialog } from "@/components/ui/dialog";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 export interface KickResult {
   kicked: string[];
@@ -192,7 +193,7 @@ function TargetRow({ pubkey }: { pubkey: string }) {
       <Avatar className="size-5 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-monogram text-primary">
-          {name[0]?.toUpperCase() ?? "?"}
+          <AvatarInitial name={name} />
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1 truncate">

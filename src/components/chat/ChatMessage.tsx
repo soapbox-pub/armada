@@ -73,6 +73,7 @@ import type { ReactNode } from "react";
 
 import { KIND_CALENDAR_DATE, KIND_CALENDAR_TIME } from "@/lib/calendar";
 import { KIND_POLL } from "@/lib/polls";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** A `nostr:npub…`/`nostr:nprofile…`/bare-bech32 mention inside preview text. */
 const REPLY_MENTION_RE =
@@ -177,7 +178,7 @@ export function ReplyContextLine({
         <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
           <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-            {name[0]?.toUpperCase()}
+            <AvatarInitial name={name} />
           </AvatarFallback>
         </Avatar>
       )}
@@ -235,7 +236,7 @@ function ThreadParticipantAvatar({ pubkey }: { pubkey: string }) {
     <Avatar shape={getAvatarShape(metadata)} className="size-5 ring-2 ring-background">
       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
       <AvatarFallback className="bg-primary/25 text-primary text-monogram font-semibold">
-        {name[0]?.toUpperCase()}
+        <AvatarInitial name={name} />
       </AvatarFallback>
     </Avatar>
   );

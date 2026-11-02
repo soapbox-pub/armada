@@ -30,6 +30,7 @@ import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { toast } from "@/hooks/useToast";
 import { writeClipboardText } from "@/lib/clipboard";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * Invite-link admin panel (CORD-05): Public/Private status (registry, vsk 8),
@@ -558,7 +559,7 @@ function RegistryRow({
       <Avatar className="size-6 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          {name[0]?.toUpperCase() ?? "?"}
+          <AvatarInitial name={name} />
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1 truncate font-medium">
@@ -734,7 +735,7 @@ function ListingRow({
       <Avatar className="size-6 shrink-0">
         <AvatarImage src={profile.data?.metadata?.picture} imeta={profile.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          {name[0]?.toUpperCase() ?? "?"}
+          <AvatarInitial name={name} />
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">

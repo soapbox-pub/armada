@@ -81,6 +81,7 @@ import { buildThemeVarStyle } from "@/themes";
 
 import type { CSSProperties } from "react";
 import type { ThemeBackground } from "@/lib/themeEvent";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Lazy: only reachable from the viewer's own profile, behind a click. */
 const ProfileSettings = lazy(
@@ -358,7 +359,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
                     <Avatar shape={getAvatarShape(metadata)} className="size-20 md:size-24 border-4 border-background">
                       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
                       <AvatarFallback className="bg-primary/20 text-primary text-2xl">
-                        {displayName[0]?.toUpperCase()}
+                        <AvatarInitial name={displayName} />
                       </AvatarFallback>
                     </Avatar>
                   </button>
@@ -830,7 +831,7 @@ function PersonRow({ pubkey }: { pubkey: string }) {
         <Avatar shape={getAvatarShape(metadata)} className="size-7 shrink-0">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
           <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            {name[0]?.toUpperCase()}
+            <AvatarInitial name={name} />
           </AvatarFallback>
         </Avatar>
         <span className="text-sm truncate">{name}</span>

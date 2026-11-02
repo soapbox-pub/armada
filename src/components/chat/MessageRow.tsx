@@ -24,6 +24,7 @@ import { useSwipeToReply } from "@/hooks/useSwipeToReply";
 
 import type { ProxyInfo } from "@/lib/nip48";
 import type { ReactNode } from "react";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 const NO_TAGS: string[][] = [];
 
@@ -263,7 +264,7 @@ export const MessageRow = memo(function MessageRow({
             <Avatar shape={getAvatarShape(metadata)} className="size-10 cursor-pointer transition-opacity hover:opacity-90">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                {displayName[0]?.toUpperCase()}
+                <AvatarInitial name={displayName} />
               </AvatarFallback>
             </Avatar>
           </button>

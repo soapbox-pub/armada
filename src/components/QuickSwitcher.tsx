@@ -44,6 +44,7 @@ import {
   type SwitcherContext,
   type SwitcherEntries,
 } from "@/lib/switcher";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 const EMPTY_ENTRIES: SwitcherEntries = { spaces: [], channels: [] };
 /** Keep a blank launcher cheap; searching mounts every row so every name can match. */
@@ -83,7 +84,7 @@ function MessageResult({ message, onSelect }: { message: MessageEntry; onSelect:
     <CommandItem value={`${message.content} ${message.key}`} onSelect={onSelect}>
       <Avatar className="mr-2 size-7 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-        <AvatarFallback className="text-xs">{name.slice(0, 1).toUpperCase()}</AvatarFallback>
+        <AvatarFallback className="text-xs"><AvatarInitial name={name} /></AvatarFallback>
       </Avatar>
       <div className="flex min-w-0 flex-col">
         <span className="truncate">{message.content}</span>

@@ -20,6 +20,7 @@ import { mediaHost } from "@/lib/mediaPolicy";
 import { cn } from "@/lib/utils";
 
 import type { ReactNode } from "react";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Pages the sentinel auto-loads before handing over to its button. */
 const MAX_AUTO_PAGES = 8;
@@ -36,7 +37,7 @@ function AuthorAvatar({ pubkey, className }: { pubkey: string; className?: strin
   return (
     <Avatar shape={getAvatarShape(metadata)} className={cn("size-8", className)}>
       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="bg-primary/20 text-primary text-xs">{name[0]?.toUpperCase()}</AvatarFallback>
+      <AvatarFallback className="bg-primary/20 text-primary text-xs"><AvatarInitial name={name} /></AvatarFallback>
     </Avatar>
   );
 }

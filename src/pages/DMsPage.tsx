@@ -139,6 +139,7 @@ import { common, FormattedMessage, t, useIntl } from "@/i18n";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type { DmConversationLatest } from "@/lib/dmConversationIndex";
 import { parseProfileImeta, type ProfileImeta } from "@/lib/profileImeta";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * Highlight case-insensitive `query` matches in `text`, rendering NIP-30 emoji
@@ -1602,7 +1603,7 @@ function RecipientSuggestion({
         <Avatar shape={getAvatarShape(metadata)} className="size-9 shrink-0">
           <AvatarImage src={picture} imeta={imeta?.picture} alt={name} />
           <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            {name[0]?.toUpperCase()}
+            <AvatarInitial name={name} />
           </AvatarFallback>
         </Avatar>
       )}
@@ -1661,7 +1662,7 @@ function RecipientChip({ pubkey, onRemove }: { pubkey: string; onRemove: () => v
       <Avatar shape={getAvatarShape(author.data?.metadata)} className="size-5 shrink-0">
         <AvatarImage src={sanitizeUrl(author.data?.metadata?.picture)} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-          {name[0]?.toUpperCase()}
+          <AvatarInitial name={name} />
         </AvatarFallback>
       </Avatar>
       <span className="truncate">{name}</span>

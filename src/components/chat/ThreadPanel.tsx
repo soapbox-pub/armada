@@ -70,6 +70,7 @@ import { common, FormattedMessage, useIntl } from "@/i18n";
 import type { MessageActionItem } from "@/components/chat/messageActions";
 import { useChatEditing } from "@/components/chat/useChatEditing";
 import type { ChatMsg, ChatTransport, MessageReactions, MessageZaps, OnchainZapAnnouncement, ZapPayment } from "@/components/chat/transport";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Continuation window; matches MessageTimeline's `CONTINUATION_WINDOW_SECONDS`. */
 const CONTINUATION_WINDOW_SECONDS = 5 * 60;
@@ -383,7 +384,7 @@ export function ThreadMessage({
                 <Avatar shape={getAvatarShape(metadata)} className="size-10 cursor-pointer transition-opacity hover:opacity-90">
                   <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
                   <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                    {displayName[0]?.toUpperCase()}
+                    <AvatarInitial name={displayName} />
                   </AvatarFallback>
                 </Avatar>
               </button>
@@ -418,7 +419,7 @@ export function ThreadMessage({
             <Avatar shape={getAvatarShape(metadata)} className="size-9 cursor-pointer transition-opacity hover:opacity-90">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                {displayName[0]?.toUpperCase()}
+                <AvatarInitial name={displayName} />
               </AvatarFallback>
             </Avatar>
           </button>

@@ -111,6 +111,7 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { WEBXDC_MIME, isWebxdcMime } from "@/lib/webxdcMime";
 import { mintTopicId } from "@/lib/webxdcRealtime";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Lazy: keeps emoji-mart + its data out of the main bundle. */
 const LazyEmojiPicker = lazy(() => import("@/components/chat/EmojiPicker").then((m) => ({ default: m.EmojiPicker })));
@@ -2748,7 +2749,7 @@ function ReplyBanner({ event, onCancel, onJump }: { event: NostrRumor; onCancel?
           <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
             <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
             <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-              {displayName[0]?.toUpperCase()}
+              <AvatarInitial name={displayName} />
             </AvatarFallback>
           </Avatar>
           <span className="font-semibold text-primary shrink-0 truncate max-w-[45%]">
@@ -2825,7 +2826,7 @@ function QuoteBannerBody({ event }: { event: NostrRumor }) {
       <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
         <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
         <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-          {displayName[0]?.toUpperCase()}
+          <AvatarInitial name={displayName} />
         </AvatarFallback>
       </Avatar>
       <span className="font-semibold text-primary shrink-0 truncate max-w-[45%]">

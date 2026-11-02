@@ -15,6 +15,7 @@ import { getThemedQRColors } from "@/lib/qrColors";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { canShare, share as nativeShare } from "@/lib/share";
 import { shareOrigin } from "@/lib/shareOrigin";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface ProfileShareDialogProps {
   open: boolean;
@@ -88,7 +89,7 @@ export function ProfileShareDialog({ open, onOpenChange }: ProfileShareDialogPro
           <Avatar shape={getAvatarShape(metadata)} className="size-14 ring-2 ring-primary/20">
             <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
             <AvatarFallback className="text-lg font-semibold">
-              {displayName.charAt(0).toUpperCase()}
+              <AvatarInitial name={displayName} />
             </AvatarFallback>
           </Avatar>
           <h2 className="chrome-dialog-title font-mono font-bold lowercase tracking-tight text-foreground">

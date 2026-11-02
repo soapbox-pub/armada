@@ -18,6 +18,7 @@ import { common, FormattedMessage, t, useIntl } from "@/i18n";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { isHexColor } from "@/lib/nip29";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface ServerProfileDialogProps {
   relayUrl: string;
@@ -109,7 +110,7 @@ export function ServerProfileDialog({ relayUrl, open, onOpenChange }: ServerProf
               <Avatar shape={getAvatarShape(metadata)} className="size-10 shrink-0">
                 <AvatarImage src={metadata?.picture} imeta={imeta?.picture} alt={previewName} />
                 <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                  {previewName[0]?.toUpperCase()}
+                  <AvatarInitial name={previewName} />
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">

@@ -15,6 +15,7 @@ import { resolvePubkey } from "@/lib/resolvePubkey";
 import { cn } from "@/lib/utils";
 import { parseProfileImeta } from "@/lib/profileImeta";
 import { useIntl } from "@/i18n";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * Single-select user picker on NIP-50 profile search (follows first). Inline,
@@ -161,7 +162,7 @@ function ProfileRow({
         <Avatar shape={getAvatarShape(metadata)} className="size-9">
           <AvatarImage src={metadata.picture} imeta={parseProfileImeta(profile.event.tags, metadata)?.picture} alt={displayName} />
           <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            {displayName[0]?.toUpperCase() || "?"}
+            <AvatarInitial name={displayName} />
           </AvatarFallback>
         </Avatar>
         {isFollowed && (

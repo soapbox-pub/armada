@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { FormattedMessage } from "@/i18n";
 
 import type { ZapEntry, ZapRail, ZapTally } from "@/lib/zaps";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 function RailIcon({ rail }: { rail: ZapRail }) {
   if (rail === "onchain") {
@@ -30,7 +31,7 @@ function ZapperRow({ zap }: { zap: ZapEntry }) {
       <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0 mt-0.5">
         <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
         <AvatarFallback className="bg-amber-500/20 text-amber-500 text-monogram">
-          {displayName[0]?.toUpperCase()}
+          <AvatarInitial name={displayName} />
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">

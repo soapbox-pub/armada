@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { FormattedMessage, useIntl } from "@/i18n";
 
 import type { ReactInput, ReactionTally } from "@/hooks/useReactions";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Lazy: keeps emoji-mart + its data out of the main bundle. */
 const LazyEmojiPicker = lazy(() =>
@@ -120,7 +121,7 @@ function ReactorRow({ pubkey }: { pubkey: string }) {
       <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
         <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
         <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-          {displayName[0]?.toUpperCase()}
+          <AvatarInitial name={displayName} />
         </AvatarFallback>
       </Avatar>
       <span className="text-xs truncate">

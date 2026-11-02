@@ -83,6 +83,7 @@ import type { ImetaEntry } from "@/lib/imeta";
 import type { ProfileImeta } from "@/lib/profileImeta";
 import { FallbackImage } from "@/components/ui/FallbackImage";
 import { PortalContainerProvider, usePortalContainer } from "@/hooks/usePortalContainer";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 const TILE_ASPECT = 16 / 9;
 
@@ -567,7 +568,7 @@ const StageReactionFloater = memo(function StageReactionFloater({
         <Avatar className="size-4 shrink-0">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
           <AvatarFallback className="bg-primary/30 text-primary text-monogram">
-            {displayName[0]?.toUpperCase()}
+            <AvatarInitial name={displayName} />
           </AvatarFallback>
         </Avatar>
         <span className="truncate min-w-0">
@@ -722,7 +723,7 @@ function VideoTile({
           <Avatar shape={shape} className={cn("relative", large ? "size-24" : "size-16")}>
             <AvatarImage src={metadata?.picture} imeta={imeta?.picture} alt={displayName} />
             <AvatarFallback className="bg-primary/20 text-primary text-xl">
-              {displayName[0]?.toUpperCase()}
+              <AvatarInitial name={displayName} />
             </AvatarFallback>
           </Avatar>
         </>
@@ -1080,7 +1081,7 @@ function AvatarTile({
         <Avatar shape={shape} className={large ? "size-28" : "size-16"}>
           <AvatarImage src={metadata?.picture} imeta={imeta?.picture} alt={displayName} />
           <AvatarFallback className="bg-primary/20 text-primary text-xl">
-            {displayName[0]?.toUpperCase()}
+            <AvatarInitial name={displayName} />
           </AvatarFallback>
         </Avatar>
       </div>
@@ -1341,7 +1342,7 @@ function HeroAvatarView({
           <Avatar shape={shape} className={cn("shadow-xl", s.avatar, pending && "opacity-80")}>
             <AvatarImage src={metadata?.picture} alt={name} />
             <AvatarFallback className={cn("bg-primary/20 text-primary", s.initial)}>
-              {name[0]?.toUpperCase()}
+              <AvatarInitial name={name} />
             </AvatarFallback>
           </Avatar>
         </div>

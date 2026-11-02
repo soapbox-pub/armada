@@ -9,6 +9,7 @@ import { useAuthor } from '@/hooks/useAuthor';
 import { formatMoneyAmount } from '@/lib/bitcoinMoney';
 import { useEsploraApis } from '@/hooks/useEsploraApis';
 import { common, FormattedMessage, useIntl } from '@/i18n';
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface ZapSuccessScreenProps {
   /** Recipient pubkey (hex), used when `recipientLabel` is omitted. */
@@ -73,7 +74,7 @@ export function ZapSuccessScreen({
         <Avatar shape={avatarShape} className="size-8 shrink-0">
           <AvatarImage src={metadata?.picture} imeta={author?.imeta?.picture} alt={displayName} />
           <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            {displayName[0]?.toUpperCase()}
+            <AvatarInitial name={displayName} />
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0 text-left">

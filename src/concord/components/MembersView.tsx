@@ -48,6 +48,7 @@ import { shortTimeAgoPhrase } from "@/lib/formatTime";
 import { toast } from "@/hooks/useToast";
 import { useEventStore } from "@/hooks/useEventStore";
 import { defineMessages, FormattedMessage, t, useIntl } from "@/i18n";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Render cap before "Show all" (slicing, not virtualization). */
 const RENDER_CAP = 150;
@@ -725,7 +726,7 @@ function MemberRow({
       <Avatar className="size-6 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          {name[0]?.toUpperCase() ?? "?"}
+          <AvatarInitial name={name} />
         </AvatarFallback>
       </Avatar>
       {/* flex-auto, not flex-1: with basis 0% the chips would crush the name. */}

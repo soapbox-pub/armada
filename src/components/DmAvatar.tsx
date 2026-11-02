@@ -10,6 +10,7 @@ import { useAuthor } from "@/hooks/useAuthor";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { cn } from "@/lib/utils";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 const GRID_CELLS = 4;
 
@@ -36,7 +37,7 @@ function DmAvatarCell({
     >
       {!anonymous && <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />}
       <AvatarFallback className={cn("bg-primary/20 text-primary", tile && "rounded-none", fallbackClassName)}>
-        {name[0]?.toUpperCase()}
+        <AvatarInitial name={name} />
       </AvatarFallback>
     </Avatar>
   );

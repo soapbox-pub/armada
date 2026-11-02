@@ -72,6 +72,7 @@ import { threadSummary } from "@/components/chat/transport";
 import type { ChatMsg, ChatTransport } from "@/components/chat/transport";
 import { useChatEditing } from "@/components/chat/useChatEditing";
 import type { NostrEvent } from "@nostrify/nostrify";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * Kinds rendered through the shared ChatMessage row. Agent job events
@@ -311,7 +312,7 @@ function BuzzForumPost({ event, transport, votes, onVote, isAgent }: BuzzForumPo
             <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-monogram font-semibold">
-                {displayName[0]?.toUpperCase()}
+                <AvatarInitial name={displayName} />
               </AvatarFallback>
             </Avatar>
             <span className="truncate font-medium text-foreground">

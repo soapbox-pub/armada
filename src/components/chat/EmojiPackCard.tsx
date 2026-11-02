@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { FormattedMessage, common, t, useIntl } from "@/i18n";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 const EmojiPackDialog = lazy(() =>
   import("@/components/discover/EmojiPackDialog").then((m) => ({ default: m.EmojiPackDialog })),
@@ -170,7 +171,7 @@ export function EmojiPackCard({ event, expanded = false, className }: EmojiPackC
             <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-                {displayName[0]?.toUpperCase()}
+                <AvatarInitial name={displayName} />
               </AvatarFallback>
             </Avatar>
             <span className="truncate">

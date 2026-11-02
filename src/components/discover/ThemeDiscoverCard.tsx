@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { coreToTokens } from "@/themes";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface ThemeDiscoverCardProps {
   event: NostrRumor;
@@ -161,7 +162,7 @@ export function ThemeDiscoverCard({ event, className }: ThemeDiscoverCardProps) 
             <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-                {displayName[0]?.toUpperCase()}
+                <AvatarInitial name={displayName} />
               </AvatarFallback>
             </Avatar>
             <span className="truncate">

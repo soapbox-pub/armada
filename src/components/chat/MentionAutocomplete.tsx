@@ -13,6 +13,7 @@ import { getCaretCoordinates } from "@/lib/caretCoordinates";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, useIntl } from "@/i18n";
 import { parseProfileImeta } from "@/lib/profileImeta";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface MentionAutocompleteProps {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -304,7 +305,7 @@ function MentionItem({
       <Avatar shape={getAvatarShape(metadata)} className="size-8 shrink-0">
         <AvatarImage src={metadata.picture} imeta={parseProfileImeta(profile.event.tags, metadata)?.picture} alt={displayName} />
         <AvatarFallback className="bg-primary/20 text-primary text-xs">
-          {displayName[0]?.toUpperCase() || "?"}
+          <AvatarInitial name={displayName} />
         </AvatarFallback>
       </Avatar>
 

@@ -8,6 +8,7 @@ import type React from "react";
 
 import { AddDialog } from "@/components/dialogs/AddDialog";
 import { DmAvatar } from "@/components/DmAvatar";
+import { AvatarInitial } from "@/components/AvatarInitial";
 import { NoteToSelfAvatar, NOTE_TO_SELF_NAME } from "@/components/NoteToSelfAvatar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -222,7 +223,7 @@ function DmMiniIcon({ pubkey }: { pubkey: string }) {
         <Avatar shape={getAvatarShape(metadata)} className="size-full">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" draggable={false} />
           <AvatarFallback className="bg-primary/20 text-monogram font-semibold leading-none text-primary">
-            {name.trim().charAt(0).toUpperCase() || "?"}
+            <AvatarInitial name={name} />
           </AvatarFallback>
         </Avatar>
       )}
@@ -392,7 +393,7 @@ function DmDragGhost({ pubkey }: { pubkey: string }) {
         <Avatar shape={getAvatarShape(metadata)} className="size-12 ring-2 ring-primary">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
           <AvatarFallback className="bg-primary/20 font-semibold text-primary">
-            {name.trim().charAt(0).toUpperCase() || "?"}
+            <AvatarInitial name={name} />
           </AvatarFallback>
         </Avatar>
       )}
@@ -919,7 +920,7 @@ const DmButton = memo(function DmButton({
                         >
                           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
                           <AvatarFallback className="bg-primary/20 font-semibold text-primary">
-                            {name.trim().charAt(0).toUpperCase() || "?"}
+                            <AvatarInitial name={name} />
                           </AvatarFallback>
                         </Avatar>
                       )}

@@ -47,6 +47,7 @@ import { relativeTime, shortTimeAgo } from "@/lib/formatTime";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { cn } from "@/lib/utils";
 import { usePageCovered } from "@/lib/settingsOverlay";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** The seal-verified sender as a short npub, shown beside the (self-chosen) profile. */
 function senderLabel(pubkeyHex: string): string {
@@ -231,7 +232,7 @@ function FriendFace({ pubkey, className }: { pubkey: string; className?: string 
     >
       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
       <AvatarFallback className="bg-primary/20 text-monogram font-semibold text-primary">
-        {name[0]?.toUpperCase()}
+        <AvatarInitial name={name} />
       </AvatarFallback>
     </Avatar>
   );
@@ -643,7 +644,7 @@ export function InviteDetail({
                     <Avatar shape={getAvatarShape(senderMeta)} className="size-11">
                       <AvatarImage src={senderMeta?.picture} imeta={senderAuthor.data?.imeta?.picture} alt={senderName} />
                       <AvatarFallback className="bg-primary/20 font-semibold text-primary">
-                        {senderName[0]?.toUpperCase()}
+                        <AvatarInitial name={senderName} />
                       </AvatarFallback>
                     </Avatar>
                     {followsSender && (

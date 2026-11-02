@@ -53,6 +53,7 @@ import { FormattedMessage, t, useIntl } from "@/i18n";
 
 import type { Nip29Admin } from "@/lib/nip29";
 import type { ComponentType, ReactNode } from "react";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 const ROLE_OWNER = "owner";
 const ROLE_ADMIN = "admin";
@@ -215,7 +216,7 @@ const MemberRow = memo(function MemberRow({
           <Avatar shape={getAvatarShape(metadata)} className="size-8 cursor-pointer transition-opacity hover:opacity-90">
             <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
             <AvatarFallback className="bg-primary/20 text-primary text-3xs">
-              {displayName[0]?.toUpperCase()}
+              <AvatarInitial name={displayName} />
             </AvatarFallback>
           </Avatar>
           {presence && (

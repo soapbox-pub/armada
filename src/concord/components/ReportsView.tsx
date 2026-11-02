@@ -10,6 +10,7 @@ import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { shortTimeAgo } from "@/lib/formatTime";
 import { REPORT_REASONS } from "@/lib/report";
 import { FormattedMessage, useIntl, type IntlShape } from "@/i18n";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 function reasonLabel(intl: IntlShape, reason: string | undefined): string {
   if (!reason) return intl.formatMessage({ id: "reportsView.reported", defaultMessage: "Reported" });
@@ -67,7 +68,7 @@ function ReportRow({ report }: { report: ReportEntry }) {
         <Avatar className="size-6 shrink-0">
           <AvatarImage src={accusedAuthor.data?.metadata?.picture} imeta={accusedAuthor.data?.imeta?.picture} alt={accusedName} />
           <AvatarFallback className="bg-destructive/20 text-3xs text-destructive">
-            {accusedName[0]?.toUpperCase() ?? "?"}
+            <AvatarInitial name={accusedName} />
           </AvatarFallback>
         </Avatar>
         <span className="min-w-0 flex-1 truncate font-medium">

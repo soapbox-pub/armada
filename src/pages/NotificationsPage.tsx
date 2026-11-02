@@ -29,6 +29,7 @@ import { nip29ThreadRootOf } from "@/lib/nip29Threads";
 import { cleanContent, truncate } from "@/lib/notificationPreview";
 import { chatRoute } from "@/lib/routes";
 import { cn } from "@/lib/utils";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 type CenterItem =
   | {
@@ -200,7 +201,7 @@ function NotificationRow({ item, onOpen }: { item: CenterItem; onOpen: (item: Ce
       <Avatar className="size-10 shrink-0">
         <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={authorName} />
         <AvatarFallback className="bg-primary/20 text-sm text-primary">
-          {authorName.charAt(0).toUpperCase() || "?"}
+          <AvatarInitial name={authorName} />
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">

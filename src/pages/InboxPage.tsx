@@ -31,6 +31,7 @@ import { FormattedMessage, useIntl } from "@/i18n";
 
 import type { ChatMsg, ChatTransport } from "@/components/chat/transport";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** One inbox row: who mentioned you, where, and a preview — click to open it. */
 function InboxRow({
@@ -64,7 +65,7 @@ function InboxRow({
       <Avatar className="size-9 shrink-0">
         <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
         <AvatarFallback className="bg-primary/20 text-primary text-xs">
-          {displayName[0]?.toUpperCase()}
+          <AvatarInitial name={displayName} />
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">

@@ -52,6 +52,7 @@ import { FormattedMessage, common, defineMessages, t, useIntl, type MessageDescr
 import type { GitRepositoryAnnouncement } from "@/lib/gitActivity";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type { PollTally } from "@/lib/polls";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface EmbeddedNoteProps {
   eventId: string;
@@ -273,7 +274,7 @@ function GenericEventCard({ event, sourceUrl, className }: { event: NostrRumor; 
               <Avatar shape={getAvatarShape(metadata)} className="size-5">
                 <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
                 <AvatarFallback className="bg-primary/20 text-primary text-3xs">
-                  {displayName[0]?.toUpperCase()}
+                  <AvatarInitial name={displayName} />
                 </AvatarFallback>
               </Avatar>
             </button>

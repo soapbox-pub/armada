@@ -20,6 +20,7 @@ import { useEventStore } from "@/hooks/useEventStore";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { common, FormattedMessage, useIntl } from "@/i18n";
 import { profileMatches, type SearchProfile } from "@/hooks/useSearchProfiles";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Render cap before "Show all" (slicing, not virtualization). */
 const RENDER_CAP = 50;
@@ -205,7 +206,7 @@ function CandidateRow({ pubkey, added, busy, onAdd }: {
       <Avatar className="size-8 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          {name[0]?.toUpperCase() ?? "?"}
+          <AvatarInitial name={name} />
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1 truncate text-sm">

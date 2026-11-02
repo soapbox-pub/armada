@@ -4,6 +4,7 @@ import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { useIntl } from "@/i18n";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Cap the avatar stack so an unbounded typer list doesn't resolve unbounded profiles. */
 const MAX_AVATARS = 3;
@@ -16,7 +17,7 @@ function TypingAvatar({ pubkey }: { pubkey: string }) {
     <Avatar shape={getAvatarShape(metadata)} className="size-5 ring-2 ring-background" title={name}>
       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
       <AvatarFallback className="bg-primary/25 text-primary text-monogram font-semibold">
-        {name?.trim()?.[0]?.toUpperCase() ?? "?"}
+        <AvatarInitial name={name} />
       </AvatarFallback>
     </Avatar>
   );

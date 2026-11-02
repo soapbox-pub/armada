@@ -108,6 +108,7 @@ import { channelGitRepositoryAttachments } from "@/concord/lib/types";
 import type { ChannelView } from "@/concord/lib/types";
 import { fetchGitRepositoryAnnouncement } from "@/lib/gitRepositoryResolver";
 import { parseGitRepositoryAddress } from "@/lib/gitActivity";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 type SettingsTab = "overview" | "channels" | "integrations" | "relays";
 
@@ -878,7 +879,7 @@ function OwnerRow({ pubkey }: { pubkey: string }) {
       <Avatar className="size-6 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
         <AvatarFallback className="bg-primary/20 text-primary text-3xs">
-          {displayName[0]?.toUpperCase()}
+          <AvatarInitial name={displayName} />
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1 truncate">

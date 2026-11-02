@@ -16,6 +16,7 @@ import { sanitizeImageSrc } from '@/lib/sanitizeUrl';
 import { FallbackImage } from '@/components/ui/FallbackImage';
 import type { ProfileImeta } from '@/lib/profileImeta';
 import { FormattedMessage, useIntl } from '@/i18n';
+import { AvatarInitial } from '@/components/AvatarInitial';
 
 /** Lazy so emoji-mart (~420 KB data) stays out of this chunk; only used behind the avatar-shape dialog. */
 const LazyEmojiPicker = lazy(() =>
@@ -131,7 +132,7 @@ export function ProfileCard({
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
 
   const displayName = metadata.name || metadata.display_name || intl.formatMessage({ id: 'profileCard.anonymous', defaultMessage: 'Anonymous' });
-  const initial = displayName[0]?.toUpperCase() ?? '?';
+  const initial = <AvatarInitial name={displayName} />;
   const patch = (key: keyof NostrMetadata) => (v: string) => onChange?.({ [key]: v });
 
   const bannerUrl = sanitizeImageSrc(metadata.banner);

@@ -51,6 +51,7 @@ import { writeClipboardText } from "@/lib/clipboard";
 import type { ImetaEntry } from "@/lib/imeta";
 import { buildThemeVarStyle } from "@/themes";
 import { FormattedMessage, t, useIntl } from "@/i18n";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 const MENU_PARTS = {
   Item: DropdownMenuItem,
@@ -205,7 +206,7 @@ function ProfilePreviewBody({
             <Avatar shape={avatarShape} className="size-16 border-[3px] border-background">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-lg">
-                {displayName[0]?.toUpperCase()}
+                <AvatarInitial name={displayName} />
               </AvatarFallback>
             </Avatar>
           </button>

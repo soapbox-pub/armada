@@ -17,6 +17,7 @@ import { parseNip05Address } from "@/lib/nip05Address";
 import { resolvePubkey } from "@/lib/resolvePubkey";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { NotFound } from "@/pages/NotFound";
+import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * A person at `/<npub>`, `/<nprofile>`, `/<name@domain>` or `/<domain>`
@@ -115,7 +116,7 @@ export function UserPage() {
           <Avatar shape={getAvatarShape(metadata)} className="size-24 border-[3px] border-background">
             <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
             <AvatarFallback className="bg-primary/20 text-primary text-3xl">
-              {displayName[0]?.toUpperCase()}
+              <AvatarInitial name={displayName} />
             </AvatarFallback>
           </Avatar>
           <h2 className="text-2xl font-bold">
