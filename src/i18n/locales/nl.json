@@ -645,6 +645,7 @@
   "chatComposer.uploadFailedDescription": "Kan bestand niet uploaden.",
   "chatComposer.uploadFile": "Een bestand uploaden",
   "chatComposer.uploading": "Bijlage uploaden",
+  "chatComposer.videoMetadataNotRemovable": "Armada kan de locatie- en cameragegevens niet uit deze video verwijderen, dus deze is niet verzonden.",
   "chatComposer.voiceFailed": "Kan spraakbericht niet verzenden.",
   "chatComposer.voiceMessage": "Spraakbericht",
   "chatComposer.watchTogether": "Samen kijken",

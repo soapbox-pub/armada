@@ -645,6 +645,7 @@
   "chatComposer.uploadFailedDescription": "Impossibile caricare il file.",
   "chatComposer.uploadFile": "Carica un file",
   "chatComposer.uploading": "Caricamento dell’allegato",
+  "chatComposer.videoMetadataNotRemovable": "Armada non può rimuovere la posizione e i dati della fotocamera da questo video, quindi non è stato inviato.",
   "chatComposer.voiceFailed": "Impossibile inviare il messaggio vocale.",
   "chatComposer.voiceMessage": "Messaggio vocale",
   "chatComposer.watchTogether": "Guarda insieme",

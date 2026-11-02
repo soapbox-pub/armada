@@ -1,5 +1,6 @@
 import { characterCardFromPngBytes, isPngBytes, stripNonCardMetadata } from "@/lib/characterCard";
-import { hasStrippableMetadata, isAnimatedImage, METADATA_SCAN_BYTES } from "@/lib/imageMetadata";
+import { isAnimatedImage, METADATA_SCAN_BYTES } from "@/lib/imageMetadata";
+import { needsMetadataStrip, stripAnimatedMetadata } from "@/lib/imageMetadataStrip";
 
 /** Maximum dimension (width or height) for resized images. */
 const MAX_DIMENSION = 1920;
@@ -18,7 +19,9 @@ interface ResizedImage {
  * in-bounds images without metadata and for animated images (canvas would flatten them).
  */
 export async function resizeImage(file: File): Promise<ResizedImage> {
-  const head = new Uint8Array(await file.slice(0, METADATA_SCAN_BYTES).arrayBuffer());
+  // The whole file: metadata may sit anywhere before (or, in a PNG, after) the image data.
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const head = bytes.subarray(0, METADATA_SCAN_BYTES);
 
   const bitmap = await decodeUpright(file);
   const { width, height } = bitmap;
@@ -26,7 +29,18 @@ export async function resizeImage(file: File): Promise<ResizedImage> {
   const needsResize = width > MAX_DIMENSION || height > MAX_DIMENSION;
   const animated = isAnimatedImage(file.type, head);
 
-  if (animated || (!needsResize && !hasStrippableMetadata(head))) {
+  // Animated: the canvas would keep one frame, so the metadata is cut out of the
+  // container instead. One that can't be walked is flattened rather than sent as is.
+  if (animated) {
+    const stripped = stripAnimatedMetadata(bytes);
+    if (stripped) {
+      bitmap.close();
+      return {
+        file: new File([stripped], file.name, { type: file.type, lastModified: file.lastModified }),
+        dimensions: `${width}x${height}`,
+      };
+    }
+  } else if (!needsResize && !needsMetadataStrip(bytes)) {
     bitmap.close();
     return { file, dimensions: `${width}x${height}` };
   }
@@ -35,8 +49,7 @@ export async function resizeImage(file: File): Promise<ResizedImage> {
   // would lose its payload to the canvas round-trip below: the file IS the card,
   // so it uploads at full size with only its other metadata chunks dropped.
   // Judged by signature, since a picked file's `type` may be empty.
-  if (isPngBytes(head)) {
-    const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!animated && isPngBytes(head)) {
     // The user's own file: no size cap, which exists for sender-chosen sniffs.
     const parsed = characterCardFromPngBytes(bytes, { maxChunkBytes: Infinity });
     const stripped = parsed ? stripNonCardMetadata(bytes) : null;

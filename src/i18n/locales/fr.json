@@ -645,6 +645,7 @@
   "chatComposer.uploadFailedDescription": "Impossible d’envoyer le fichier.",
   "chatComposer.uploadFile": "Envoyer un fichier",
   "chatComposer.uploading": "Envoi de la pièce jointe",
+  "chatComposer.videoMetadataNotRemovable": "Armada ne peut pas retirer la position et les informations de l’appareil photo de cette vidéo, elle n’a donc pas été envoyée.",
   "chatComposer.voiceFailed": "Impossible d’envoyer le message vocal.",
   "chatComposer.voiceMessage": "Message vocal",
   "chatComposer.watchTogether": "Regarder ensemble",

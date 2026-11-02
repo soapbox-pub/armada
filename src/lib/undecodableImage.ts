@@ -70,6 +70,11 @@ const TIFF_METADATA_TAGS = new Set([
   0x02bc, // XMP
   0x83bb, // IPTC
   0x8298, // Copyright
+  0x8649, // Photoshop image resources (can embed IPTC and XMP)
+  0x927c, // MakerNote, when a writer puts it in an image IFD
+  0x935c, // ImageSourceData (Photoshop layers)
+  0xa420, // ImageUniqueID, when it sits in an image IFD
+  0xc634, // DNGPrivateData (Adobe's MakN copy of the original MakerNote, serials included)
   0x9c9b, 0x9c9c, 0x9c9d, 0x9c9e, 0x9c9f, // Windows XP title/comment/author/keywords/subject
   0xa430, 0xa431, 0xa432, 0xa433, 0xa434, 0xa435, // owner, serial, lens (also in Exif IFD)
   0xc614, // DNG UniqueCameraModel

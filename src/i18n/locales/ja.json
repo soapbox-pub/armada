@@ -645,6 +645,7 @@
   "chatComposer.uploadFailedDescription": "ファイルをアップロードできませんでした。",
   "chatComposer.uploadFile": "ファイルをアップロード",
   "chatComposer.uploading": "添付ファイルをアップロード中",
+  "chatComposer.videoMetadataNotRemovable": "Armadaがこの動画から位置情報とカメラ情報を削除できないため、送信しませんでした。",
   "chatComposer.voiceFailed": "ボイスメッセージを送信できませんでした。",
   "chatComposer.voiceMessage": "ボイスメッセージ",
   "chatComposer.watchTogether": "一緒に見る",

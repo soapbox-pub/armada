@@ -645,6 +645,7 @@
   "chatComposer.uploadFailedDescription": "Não foi possível enviar o arquivo.",
   "chatComposer.uploadFile": "Enviar um arquivo",
   "chatComposer.uploading": "Enviando anexo",
+  "chatComposer.videoMetadataNotRemovable": "O Armada não consegue remover a localização e os dados da câmera deste vídeo, por isso ele não foi enviado.",
   "chatComposer.voiceFailed": "Falha ao enviar a mensagem de voz.",
   "chatComposer.voiceMessage": "Mensagem de voz",
   "chatComposer.watchTogether": "Assistir juntos",

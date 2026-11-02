@@ -645,6 +645,7 @@
   "chatComposer.uploadFailedDescription": "Datei konnte nicht hochgeladen werden.",
   "chatComposer.uploadFile": "Datei hochladen",
   "chatComposer.uploading": "Anhang wird hochgeladen",
+  "chatComposer.videoMetadataNotRemovable": "Armada kann Standort- und Kameraangaben aus diesem Video nicht entfernen, deshalb wurde es nicht gesendet.",
   "chatComposer.voiceFailed": "Sprachnachricht konnte nicht gesendet werden.",
   "chatComposer.voiceMessage": "Sprachnachricht",
   "chatComposer.watchTogether": "Gemeinsam ansehen",

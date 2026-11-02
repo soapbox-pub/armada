@@ -92,6 +92,7 @@ import { KIND_GROUP_CHAT, relayRejectionMessage } from "@/lib/nip29";
 import { canDecodeImage, makeImageThumb, resizeImage } from "@/lib/resizeImage";
 import { parseChatRoute, roomPath } from "@/lib/routes";
 import { PICKED_IMAGE_HEAD_BYTES, sniffPickedImage, undecodableImageAsFile } from "@/lib/undecodableImage";
+import { stripVideoMetadata } from "@/lib/video/stripMetadata";
 import { consumeShareFor, onShareStashChanged } from "@/lib/shareTarget";
 import { recordSent } from "@/lib/shareTargets";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
@@ -1225,7 +1226,23 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
             patchPending({ progress });
           },
         });
-        uploadableFile = video.file;
+        // Also the original when processing couldn't help, location and all.
+        const stripped = await stripVideoMetadata(video.file);
+        if (abort.signal.aborted) return;
+        if (!stripped) {
+          toast({
+            title: t({ id: "chatComposer.cantUpload", defaultMessage: "Can't upload this file" }),
+            description: t({
+              id: "chatComposer.videoMetadataNotRemovable",
+              defaultMessage: "Armada can't remove the location and camera details from this video, so it wasn't sent.",
+            }),
+            variant: "destructive",
+          });
+          return;
+        }
+        uploadableFile = stripped === video.file
+          ? video.file
+          : new File([stripped], video.file.name, { type: video.file.type, lastModified: video.file.lastModified });
       } else if (isAudio) {
         // Tags/cover shown on the card only (recipients read the same bytes); the
         // waveform decodes alongside the upload.

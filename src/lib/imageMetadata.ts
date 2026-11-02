@@ -1,73 +1,12 @@
-// Detects embedded image metadata (EXIF GPS etc.): such images are re-encoded
-// via canvas before upload; clean ones upload byte-for-byte.
+// Animation detection for uploads; metadata itself is walked in imageMetadataStrip.ts.
 
-/** How much of the file to inspect. Metadata lives near the front in practice. */
+/** How much of the file the animation sniff reads. */
 export const METADATA_SCAN_BYTES = 64 * 1024;
-
-/**
- * Whether the image head contains metadata worth stripping. JPEG is parsed
- * exactly; other formats scan for chunk names and may false-positive (one extra re-encode).
- */
-export function hasStrippableMetadata(bytes: Uint8Array): boolean {
-  if (bytes.length < 4) return false;
-
-  if (bytes[0] === 0xff && bytes[1] === 0xd8) return jpegHasMetadata(bytes);
-
-  return containsMetadataChunkName(bytes);
-}
-
-/**
- * JPEG metadata segments: APP1 (EXIF/XMP), APP2 (ICC/FlashPix), APP13 (IPTC), COM.
- * APP0 (JFIF) and APP14 (Adobe) affect decoding, so they're ignored.
- */
-function jpegHasMetadata(bytes: Uint8Array): boolean {
-  let offset = 2;
-
-  while (offset + 4 <= bytes.length) {
-    if (bytes[offset] !== 0xff) return false; // Desynced; stop guessing.
-
-    const marker = bytes[offset + 1];
-
-    // Start of scan: image data follows, no more metadata segments.
-    if (marker === 0xda) return false;
-    // Standalone markers carry no length field.
-    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
-      offset += 2;
-      continue;
-    }
-
-    if (marker === 0xe1 || marker === 0xe2 || marker === 0xed || marker === 0xfe) return true;
-
-    const length = (bytes[offset + 2] << 8) | bytes[offset + 3];
-    if (length < 2) return false;
-    offset += 2 + length;
-  }
-
-  return false;
-}
-
-/** Metadata container names used by PNG, WebP, HEIF and friends. */
-const METADATA_CHUNK_NAMES = [
-  "Exif\0\0", // EXIF payload signature
-  "eXIf", // PNG EXIF chunk
-  "tEXt",
-  "iTXt",
-  "zTXt",
-  "XMP ", // WebP XMP chunk
-  "EXIF", // WebP EXIF chunk
-  "http://ns.adobe.com/xap", // XMP packet header
-];
-
-function containsMetadataChunkName(bytes: Uint8Array): boolean {
-  // Decode as latin1 so byte values map 1:1 to code units.
-  let text = "";
-  for (let i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]);
-  return METADATA_CHUNK_NAMES.some((name) => text.includes(name));
-}
 
 /** Animated images must not be canvas round-tripped (flattens to one frame). */
 export function isAnimatedImage(mime: string, bytes: Uint8Array): boolean {
-  // Treat all GIFs as animated; GIF has no EXIF to leak anyway.
+  // Treat all GIFs as animated: never flattened, and their comment and XMP
+  // blocks are cut out in place (stripAnimatedMetadata).
   if (mime === "image/gif") return true;
 
   if (mime === "image/webp") {
