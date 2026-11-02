@@ -127,3 +127,23 @@ test("the overlay keeps the textarea's font under Reduce motion", async ({ page 
   expect(fonts[1]).toBe(fonts[0]);
   expect(fonts[0]).toContain(fonts[2]);
 });
+
+// A theme font that needs no download changes the textarea's font without a
+// resize or a `loadingdone`; the overlay must follow it all the same.
+test("the overlay follows a theme font that needs no loading", async ({ page }) => {
+  test.setTimeout(120_000);
+  await bootChannel(page);
+  const field = page.getByRole("textbox").last();
+  await field.click();
+  await page.keyboard.type("adwjdi wdwdwdw wdwd");
+  await page.evaluate(() => document.documentElement.style.setProperty("--theme-font", "monospace"));
+
+  const fonts = () => page.evaluate(() => {
+    const textarea = [...document.querySelectorAll<HTMLTextAreaElement>("textarea.rt-input")].pop()!;
+    const inner = textarea.parentElement!.querySelector<HTMLElement>(".rt-inner")!;
+    return [getComputedStyle(textarea).fontFamily, getComputedStyle(inner).fontFamily];
+  });
+  await expect.poll(async () => (await fonts())[0]).toContain("monospace");
+  const [textareaFont, overlayFont] = await fonts();
+  expect(overlayFont).toBe(textareaFont);
+});

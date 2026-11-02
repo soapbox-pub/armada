@@ -336,9 +336,11 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
     const inner = innerRef.current;
     if (!el || !overlay || !inner) return;
     let box = "";
+    let font = "";
     const sync = (now = true) => {
       const style = getComputedStyle(el);
       box = `${style.width}|${style.height}`;
+      font = style.font;
       overlay.style.top = `${el.offsetTop}px`;
       overlay.style.left = `${el.offsetLeft}px`;
       // Computed sizes, not offset/client ones: those are whole pixels, and at a
@@ -372,11 +374,19 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
     };
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(onResize);
     observer?.observe(el);
+    // A theme font is a custom property on <html>; one that needs no loading
+    // changes the textarea's font with no resize and no `loadingdone`.
+    const onRootChange = () => {
+      if (getComputedStyle(el).font !== font) sync();
+    };
+    const rootObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver(onRootChange);
+    rootObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class"] });
     return () => {
       el.removeEventListener("scroll", syncScroll);
       window.removeEventListener("resize", onEvent);
       document.fonts?.removeEventListener("loadingdone", onEvent);
       observer?.disconnect();
+      rootObserver?.disconnect();
     };
     // The text size changes the textarea's font without necessarily resizing it.
   }, [textareaRef, syncScroll, syncText, fontScale]);
