@@ -13,6 +13,7 @@
  */
 
 import { hexToBytes } from "@noble/hashes/utils.js";
+import { getEventHash } from "nostr-tools/pure";
 
 import { bytesToHex } from "@/concord/lib/derive";
 import { KIND_CONTROL, KIND_SEAL_PLAINTEXT } from "@/concord/lib/kinds";
@@ -89,6 +90,18 @@ export function buildEditionRumor(opts: {
     ms: null,
     createdAtSecs: opts.createdAtSecs,
   });
+}
+
+/**
+ * `rumor` MARKED and bound to a Community (CORD-04 §1), its id recomputed: what
+ * every edition of a Community on the vsk-13 Roster carries. A rumor already
+ * marked is returned as is.
+ */
+export function markEdition(rumor: NostrRumor, binding: Uint8Array): NostrRumor {
+  if (rumor.tags.some((t) => t[0] === TAG_EHASH)) return rumor;
+  const tags = [...rumor.tags.filter((t) => t[0] !== TAG_EBIND), [TAG_EHASH, "2"], [TAG_EBIND, bytesToHex(binding)]];
+  const unsigned = { kind: rumor.kind, content: rumor.content, tags, created_at: rumor.created_at, pubkey: rumor.pubkey };
+  return { ...unsigned, id: getEventHash(unsigned) };
 }
 
 export interface ParsedEdition {

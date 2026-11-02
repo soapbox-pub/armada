@@ -11,6 +11,7 @@ import {
   isCurrentFoldedControl,
   isDissolvedOpened,
   openControlEditions,
+  readControlFold,
   pauseHeadOf,
   sealEdition,
   type ActivePause,
@@ -20,8 +21,8 @@ import {
 } from "@/concord/lib/control";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { channelsView, visibleChannels } from "@/concord/lib/community";
-import { bytesToHex, dissolvedGroupKey, grantLocator, hex32 } from "@/concord/lib/derive";
-import type { AuthorityCitation } from "@/concord/lib/edition";
+import { bytesToHex, dissolvedGroupKey, editionBinding, grantLocator, hex32 } from "@/concord/lib/derive";
+import { markEdition, type AuthorityCitation } from "@/concord/lib/edition";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { markControlPlaneStale, openPlaneWraps, mergeOpened, sweepControl } from "@/concord/lib/planeSync";
 import { queryPlane, readControlSnapshot, writeOpened } from "@/concord/lib/rumorStore";
@@ -685,6 +686,8 @@ export async function publishEdition(
   } catch (e) {
     if (e instanceof DissolvedError) throw new Error(t({ id: "useControlPlane.dissolved", defaultMessage: "This community has been dissolved; it accepts no changes." }));
   }
+  // On the vsk-13 Roster every edition is marked (CORD-04 §1).
+  if ((await readControlFold(community.idHex))?.rosterV2) rumor = markEdition(rumor, editionBinding(community.id));
   // The WRITE key: on a split epoch it's the staff-held control_root (CORD-02 §2);
   // non-staff fail here with a readable error.
   const control = currentControlWriteGroup(community);

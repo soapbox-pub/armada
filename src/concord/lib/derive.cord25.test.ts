@@ -21,7 +21,7 @@ import {
   writersLocator,
   channelGroupKey,
 } from "@/concord/lib/derive";
-import { buildEditionRumor, parseEdition } from "@/concord/lib/edition";
+import { buildEditionRumor, markEdition, parseEdition } from "@/concord/lib/edition";
 import type { OpenedEvent } from "@/concord/lib/stream";
 import { editionHash, markedEditionHash } from "@/concord/lib/version";
 
@@ -128,5 +128,15 @@ describe("CORD-04 §1 marked edition tags", () => {
       binding: fill(0xdd),
     });
     expect(rumor.tags.slice(-2)).toEqual([["eh", "2"], ["eb", "dd".repeat(32)]]);
+  });
+});
+
+describe("markEdition", () => {
+  it("marks an unmarked rumor once, with a fresh id", () => {
+    const rumor = buildEditionRumor({ vsk: "2", entityId: fill(0x11), version: 1n, content: "{}", actorPubkey: "33".repeat(32) });
+    const marked = markEdition(rumor, fill(0xdd));
+    expect(marked.tags.slice(-2)).toEqual([["eh", "2"], ["eb", "dd".repeat(32)]]);
+    expect(marked.id).not.toBe(rumor.id);
+    expect(markEdition(marked, fill(0xee))).toBe(marked);
   });
 });
