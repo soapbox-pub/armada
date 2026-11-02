@@ -123,6 +123,17 @@
           <a href="https://pkg.soapbox.pub/deb/soapbox.pub/buzz.armada.app" style="display:inline-block;padding:.75rem 1.25rem;border-radius:.5rem;background:#f472b6;color:#100b15;font-weight:600;text-decoration:none;">Download Armada</a>
         </p>
         <p style="margin-top:1rem;font-size:14px;opacity:.7;">Debian/Ubuntu, Flatpak and F-Droid packages, always the newest release.</p>
+        <!-- The same commands /downloads shows (PACKAGE_MANAGERS in src/lib/downloads.ts; downloads.test.ts checks them). -->
+        <div style="margin-top:2rem;text-align:left;font-size:14px;">
+          <p style="font-weight:600;">Debian / Ubuntu</p>
+          <pre style="white-space:pre-wrap;word-break:break-all;background:#1c1524;padding:.75rem;border-radius:.5rem;">sudo curl -fsSL -o /etc/apt/sources.list.d/buzz.armada.app.sources https://pkg.soapbox.pub/deb/soapbox.pub/buzz.armada.app/source
+sudo apt update
+sudo apt install armada-desktop</pre>
+          <p style="margin-top:1rem;font-weight:600;">Flatpak</p>
+          <pre style="white-space:pre-wrap;word-break:break-all;background:#1c1524;padding:.75rem;border-radius:.5rem;">flatpak install --user https://pkg.soapbox.pub/flatpak/soapbox.pub/buzz.armada.app/buzz.armada.app.flatpakref</pre>
+          <p style="margin-top:1rem;font-weight:600;">Android</p>
+          <p><a href="https://pkg.soapbox.pub/fdroid/soapbox.pub/buzz.armada.app/repo?fingerprint=1b043939b45972c680a518799d5098dd25edcc78ddeda2c6476722ed1f571832" style="color:#f472b6;">F-Droid repository</a> · <a href="https://zapstore.dev/apps/buzz.armada.app" style="color:#f472b6;">Zapstore</a></p>
+        </div>
       </div>
     </noscript>
     <!-- Reveals the mark above unless this launch is headed for /welcome (see

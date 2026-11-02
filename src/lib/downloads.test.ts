@@ -106,6 +106,17 @@ describe("package repositories (pkg.soapbox.pub / npkg)", () => {
     );
   });
 
+  it("repeats the same commands and links in index.html's <noscript> fallback", () => {
+    const html = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
+    const noscript = html.slice(html.lastIndexOf("<noscript>"), html.lastIndexOf("</noscript>"));
+    for (const manager of PACKAGE_MANAGERS) {
+      for (const line of [...manager.setup, manager.install]) expect(noscript).toContain(line);
+    }
+    for (const store of ANDROID_STORES.filter((s) => s.label !== "Google Play")) {
+      expect(noscript).toContain(store.url);
+    }
+  });
+
   it("lists the npkg F-Droid repository among the Android sources", () => {
     const fdroid = ANDROID_STORES.find((store) => store.label === "F-Droid");
     expect(fdroid?.url).toContain("pkg.soapbox.pub/fdroid");
