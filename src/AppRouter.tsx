@@ -41,6 +41,8 @@ import {
   type ProfileOverlay,
 } from "@/lib/profileOverlay";
 import { SettingsOverlayContext, useSettingsOverlayController } from "@/lib/settingsOverlay";
+import { isDesktop } from "@/lib/desktop";
+import { isNativeRuntime } from "@/lib/platform";
 
 // Route-level code splitting. lazyWithReload turns a stale-chunk fetch after a
 // deploy into a one-time reload instead of a crash.
@@ -220,10 +222,13 @@ function RouteFallback() {
 
 /**
  * Prefetch notification-target route chunks at idle after boot so a later
- * notification tap doesn't wait on a chunk fetch.
+ * notification tap doesn't wait on a chunk fetch. Web only: the desktop and
+ * native apps load chunks from their own bundle in milliseconds, and an
+ * `import()` keeps the evaluated modules resident (~15 MB on desktop).
  */
 function useWarmRouteChunks() {
   useEffect(() => {
+    if (isDesktop() || isNativeRuntime()) return;
     const timer = setTimeout(() => {
       for (const load of [
         () => import("@/pages/GroupPage"),
