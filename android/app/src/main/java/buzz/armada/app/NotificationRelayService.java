@@ -344,12 +344,54 @@ public class NotificationRelayService extends Service {
     static void onWatchdogWake(Context ctx) {
         NotificationRelayService svc = instance;
         if (svc == null) return;
-        android.os.PowerManager pm = (android.os.PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
-        android.os.PowerManager.WakeLock wl = pm == null ? null
-                : pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "armada:keepalive");
+        android.os.PowerManager.WakeLock wl = svc.watchdogWakeLock(ctx);
         if (wl != null) wl.acquire(Keepalive.PROBE_TIMEOUT_MS + WATCHDOG_RECONNECT_GRACE_MS);
-        svc.handler.post(svc::keepaliveSweep);
+        svc.handler.post(() -> {
+            svc.keepaliveSweep();
+            svc.handler.removeCallbacks(svc.watchdogSettleCheck);
+            svc.handler.post(svc.watchdogSettleCheck);
+        });
     }
+
+    // One non-counted lock, so overlapping wakes extend it rather than stack.
+    private android.os.PowerManager.WakeLock watchdogWakeLock;
+
+    private synchronized android.os.PowerManager.WakeLock watchdogWakeLock(Context ctx) {
+        if (watchdogWakeLock == null) {
+            android.os.PowerManager pm = (android.os.PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+            if (pm == null) return null;
+            watchdogWakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "armada:keepalive");
+            watchdogWakeLock.setReferenceCounted(false);
+        }
+        return watchdogWakeLock;
+    }
+
+    private static final long WATCHDOG_SETTLE_POLL_MS = 1_000;
+    // An open socket counts as settled once nothing has arrived for this long,
+    // so a replay after a redial is handled before the CPU may sleep again.
+    private static final long WATCHDOG_QUIET_MS = 2_000;
+
+    /**
+     * Releases the watchdog's lock as soon as the fleet has nothing left to do
+     * in this wake; its timeout is only the cap.
+     */
+    private final Runnable watchdogSettleCheck = new Runnable() {
+        @Override
+        public void run() {
+            android.os.PowerManager.WakeLock wl;
+            synchronized (NotificationRelayService.this) { wl = watchdogWakeLock; }
+            if (wl == null || !wl.isHeld()) return;
+            long now = SystemClock.elapsedRealtime();
+            long uptime = SystemClock.uptimeMillis();
+            for (RelayConnection rc : connections) {
+                if (!rc.watchdogSettled(now, uptime)) {
+                    handler.postDelayed(this, WATCHDOG_SETTLE_POLL_MS);
+                    return;
+                }
+            }
+            wl.release();
+        }
+    };
 
     /**
      * Decides, per relay, whether to hold a background socket at all, when to
@@ -2394,6 +2436,15 @@ public class NotificationRelayService extends Service {
         final Runnable reconnectRunnable = this::connect;
         /** A reconnect is scheduled after a retry delay (see loadConfigAndReconnect). */
         boolean retryPending = false;
+        /** When the pending reconnect fires, on the handler's uptime clock. */
+        long retryAt = 0;
+
+        private void scheduleReconnect(long delayMs) {
+            handler.removeCallbacks(reconnectRunnable);
+            handler.postDelayed(reconnectRunnable, delayMs);
+            retryPending = true;
+            retryAt = SystemClock.uptimeMillis() + delayMs;
+        }
 
         final String subGroups = "ag-" + Long.toHexString(System.nanoTime());
         final String subDirect = "ad-" + Long.toHexString(System.nanoTime() + 1);
@@ -2557,9 +2608,7 @@ public class NotificationRelayService extends Service {
                     SystemClock.elapsedRealtime(), lastNetworkChangeAt, NetworkSettle.SETTLE_MS);
             settle = Math.max(settle, unvalidatedDelayMs());
             if (settle > 0) {
-                handler.removeCallbacks(reconnectRunnable);
-                handler.postDelayed(reconnectRunnable, settle);
-                retryPending = true;
+                scheduleReconnect(settle);
                 return;
             }
             if (!fleetPolicy.shouldConnect(fleetState, fleetInfo, System.currentTimeMillis())) return;
@@ -3132,8 +3181,7 @@ public class NotificationRelayService extends Service {
             handler.removeCallbacks(reconnectRunnable);
             retryPending = false;
             if (decision instanceof FleetDecision.RetryAfter retry) {
-                handler.postDelayed(reconnectRunnable, retry.delayMs());
-                retryPending = true;
+                scheduleReconnect(retry.delayMs());
             } else {
                 quarantined = true;
                 Log.w(TAG, "Quarantined " + relayUrl + " (" + outcome
@@ -3254,9 +3302,22 @@ public class NotificationRelayService extends Service {
             if (delayMs <= 0) {
                 connect();
             } else {
-                handler.postDelayed(reconnectRunnable, delayMs);
-                retryPending = true;
+                scheduleReconnect(delayMs);
             }
+        }
+
+        /**
+         * Whether a watchdog wake may end as far as this relay is concerned: no
+         * dial in flight, no probe or keepalive kill unresolved, inbound quiet,
+         * and no reconnect due before the wake's grace would run out anyway.
+         */
+        boolean watchdogSettled(long now, long uptime) {
+            if (closed || quarantined) return true;
+            if (ws != null && !socketOpen) return false;
+            if (socketOpen) {
+                return probeSentAt == 0 && !killedByKeepalive && now - lastInboundAt >= WATCHDOG_QUIET_MS;
+            }
+            return !retryPending || retryAt - uptime > WATCHDOG_RECONNECT_GRACE_MS;
         }
     }
 
