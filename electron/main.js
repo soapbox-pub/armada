@@ -215,6 +215,15 @@ function installBundleIpc() {
  * the app:// handler resolves every request against it.
  */
 function selectActiveBundle() {
+  // Only the Flatpak downloads bundles. Anywhere else a bundle in userData can
+  // only have been planted, and it would boot as app://armada with the whole
+  // preload bridge, under the signed app's identity and permission grants.
+  if (!flatpakUpdatesSupported()) {
+    activeDist = SHIPPED_DIST;
+    activeBundleId = null;
+    console.log("[bundle] serving shipped");
+    return;
+  }
   const selected = resolveDistRoot({
     bundlesDir: BUNDLES_DIR,
     shippedDist: SHIPPED_DIST,

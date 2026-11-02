@@ -105,6 +105,18 @@ publish:
   publishAutoUpdate: false
   url: https://armada.buzz/downloads/desktop
 
+# Flipped right before signing. Without them ELECTRON_RUN_AS_NODE, NODE_OPTIONS
+# or --inspect run arbitrary code as this signed binary, under its macOS TCC
+# grants. RunAsNode off breaks child_process.fork in main; use utilityProcess.
+# Asar integrity is validated on macOS and Windows only.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
+  enableEmbeddedAsarIntegrityValidation: true
+  grantFileProtocolExtraPrivileges: false
+
 # ── Linux ─────────────────────────────────────────────────────────────────────
 linux:
   category: Network
