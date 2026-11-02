@@ -75,7 +75,7 @@ import type { CharaCard } from "@/lib/characterCard";
 import type { ChatRoute } from "@/lib/routes";
 import type { MessageActionItem } from "@/components/chat/messageActions";
 import type { ImetaEncryption, ImetaEntry } from "@/lib/imeta";
-import type { MdBlock } from "@/lib/markdown";
+import type { MdBlock, MdList } from "@/lib/markdown";
 import { cacheTokens, TOKEN_CACHE } from "@/components/chat/tokenCache";
 import type { EncryptedRef } from "@/hooks/useResolvedMediaSrc";
 import type { ReactNode } from "react";
@@ -199,8 +199,17 @@ export type ContentToken =
   | { type: "md-link"; text: string; url: string }
   | { type: "heading"; level: number; tokens: ContentToken[] }
   | { type: "subtext"; tokens: ContentToken[] }
-  | { type: "list"; ordered: boolean; start: number; items: ContentToken[][] }
+  | ListToken
   | { type: "rule" };
+
+/** `children[i]`, when present, is the list nested under `items[i]`. */
+export interface ListToken {
+  type: "list";
+  ordered: boolean;
+  start: number;
+  items: ContentToken[][];
+  children?: (ListToken | undefined)[];
+}
 
 /**
  * Collapse whitespace around block tokens, in place. Not `link-embed`: it can
@@ -305,6 +314,26 @@ function splitEveryoneToken(value: string): ContentToken[] {
   return out;
 }
 
+/** A parsed list as tokens, nested lists included. */
+function listToken(list: MdList, tokenize: (run: string) => ContentToken[]): ListToken {
+  return {
+    type: "list",
+    ordered: list.ordered,
+    start: list.start,
+    items: list.items.map(tokenize),
+    children: list.children?.map((child) => child && listToken(child, tokenize)),
+  };
+}
+
+/** A list with `f` applied to every item, nested ones included. */
+function mapList(list: ListToken, f: (tokens: ContentToken[]) => ContentToken[]): ListToken {
+  return {
+    ...list,
+    items: list.items.map(f),
+    children: list.children?.map((child) => child && mapList(child, f)),
+  };
+}
+
 function applyEveryoneMentions(tokens: ContentToken[]): ContentToken[] {
   const out: ContentToken[] = [];
   for (const token of tokens) {
@@ -315,7 +344,7 @@ function applyEveryoneMentions(tokens: ContentToken[]): ContentToken[] {
     } else if (token.type === "heading" || token.type === "subtext") {
       out.push({ ...token, tokens: applyEveryoneMentions(token.tokens) });
     } else if (token.type === "list") {
-      out.push({ ...token, items: token.items.map(applyEveryoneMentions) });
+      out.push(mapList(token, applyEveryoneMentions));
     } else {
       out.push(token);
     }
@@ -811,7 +840,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         } else if (block.type === "subtext") {
           out.push({ type: "subtext", tokens: tokenizeRun(block.text) });
         } else if (block.type === "list") {
-          out.push({ type: "list", ordered: block.ordered, start: block.start, items: block.items.map(tokenizeRun) });
+          out.push(listToken(block, tokenizeRun));
         } else if (block.type === "rule") {
           out.push({ type: "rule" });
         } else {
@@ -1191,13 +1220,23 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
           </div>
         );
       case "list": {
-        const items = token.items.map((item, j) => (
-          <li key={`${key}-li${j}`}>{renderTokens(item, `${key}-li${j}-`, false, true)}</li>
-        ));
-        // whitespace-normal: pre-wrap would render markup line breaks between <li>s.
-        return token.ordered
-          ? <ol key={key} start={token.start} className="my-1 list-decimal space-y-0.5 whitespace-normal pl-5">{items}</ol>
-          : <ul key={key} className="my-1 list-disc space-y-0.5 whitespace-normal pl-5">{items}</ul>;
+        const renderList = (list: ListToken, listKey: string, depth: number): React.ReactNode => {
+          const items = list.items.map((item, j) => {
+            const child = list.children?.[j];
+            return (
+              <li key={`${listKey}-li${j}`}>
+                {renderTokens(item, `${listKey}-li${j}-`, false, true)}
+                {child && renderList(child, `${listKey}-li${j}-l`, depth + 1)}
+              </li>
+            );
+          });
+          // whitespace-normal: pre-wrap would render markup line breaks between <li>s.
+          const className = cn("space-y-0.5 whitespace-normal pl-5", depth === 0 ? "my-1" : "mt-0.5");
+          return list.ordered
+            ? <ol key={listKey} start={list.start} className={cn("list-decimal", className)}>{items}</ol>
+            : <ul key={listKey} className={cn(depth % 2 ? "list-[circle]" : "list-disc", className)}>{items}</ul>;
+        };
+        return renderList(token, String(key), 0);
       }
       case "rule":
         return <hr key={key} className="my-2 border-border" />;

@@ -21,7 +21,7 @@ import {
   verifyPlaintextHash,
 } from "@/lib/encryptedMedia";
 import { safeFilename } from "@/lib/fileBytes";
-import { splitMarkdownBlocks, type MdBlock } from "@/lib/markdown";
+import { splitMarkdownBlocks, type MdBlock, type MdList } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 
 import type { ReactNode } from "react";
@@ -94,6 +94,22 @@ function renderMacros(text: string): ReactNode {
   );
 }
 
+function CardList({ list, keyPrefix, depth }: { list: MdList; keyPrefix: string; depth: number }) {
+  const items = list.items.map((item, j) => {
+    const child = list.children?.[j];
+    return (
+      <li key={j}>
+        {renderInlineMarkdown(item, renderMacros, `${keyPrefix}-${j}`)}
+        {child && <CardList list={child} keyPrefix={`${keyPrefix}-${j}-l`} depth={depth + 1} />}
+      </li>
+    );
+  });
+  const className = cn("space-y-0.5 pl-5", depth > 0 && "mt-0.5");
+  return list.ordered
+    ? <ol start={list.start} className={cn("list-decimal", className)}>{items}</ol>
+    : <ul className={cn(depth % 2 ? "list-[circle]" : "list-disc", className)}>{items}</ul>;
+}
+
 function CardBlocks({ blocks, keyPrefix }: { blocks: MdBlock[]; keyPrefix: string }) {
   return blocks.map((block, i) => {
     const key = `${keyPrefix}${i}`;
@@ -110,12 +126,8 @@ function CardBlocks({ blocks, keyPrefix }: { blocks: MdBlock[]; keyPrefix: strin
         return <p key={key} className="font-semibold">{renderInlineMarkdown(block.text, renderMacros, key)}</p>;
       case "subtext":
         return <p key={key} className="text-xs text-muted-foreground">{renderInlineMarkdown(block.text, renderMacros, key)}</p>;
-      case "list": {
-        const items = block.items.map((item, j) => <li key={j}>{renderInlineMarkdown(item, renderMacros, `${key}-${j}`)}</li>);
-        return block.ordered
-          ? <ol key={key} start={block.start} className="list-decimal space-y-0.5 pl-5">{items}</ol>
-          : <ul key={key} className="list-disc space-y-0.5 pl-5">{items}</ul>;
-      }
+      case "list":
+        return <CardList key={key} list={block} keyPrefix={key} depth={0} />;
       case "rule":
         return <hr key={key} className="my-2 border-border" />;
       case "text": {

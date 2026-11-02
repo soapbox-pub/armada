@@ -10,9 +10,21 @@ export type MdBlock =
   | { type: "quote"; blocks: MdBlock[] }
   | { type: "heading"; level: number; text: string }
   | { type: "subtext"; text: string }
-  | { type: "list"; ordered: boolean; start: number; items: string[] }
+  | MdList
   | { type: "rule" }
   | { type: "text"; text: string };
+
+/**
+ * A list. `children[i]`, when present, is the list nested under `items[i]`;
+ * the array is left out entirely when nothing is nested.
+ */
+export interface MdList {
+  type: "list";
+  ordered: boolean;
+  start: number;
+  items: string[];
+  children?: (MdList | undefined)[];
+}
 
 export type InlineCodeSegment = { code: boolean; value: string };
 
@@ -44,7 +56,7 @@ const MAX_QUOTE_DEPTH = 8;
 
 /**
  * Split text into top-level blocks: fenced code, quotes (whose content is itself
- * split into blocks), headings, `-#` subtext, flat lists, thematic breaks, and plain text.
+ * split into blocks), headings, `-#` subtext, lists, thematic breaks, and plain text.
  * Chat headings stop at level 3; `document` allows 4–6.
  */
 export function splitMarkdownBlocks(src: string, document = false): MdBlock[] {
@@ -134,19 +146,31 @@ const SUBTEXT_RE = /^-#\s+(.+)$/;
 /** Thematic break: 3+ of one of `-`, `*`, `_`, optionally spaced (CommonMark). */
 const RULE_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 /** Unordered list item: `- text` (space required so `*italic*` stays literal). */
-const UNORDERED_ITEM_RE = /^\s{0,3}[-*+]\s+(.+)$/;
+const UNORDERED_ITEM_RE = /^([ \t]*)[-*+]\s+(.+)$/;
 /** Ordered list item: `1. text` / `1) text`. */
-const ORDERED_ITEM_RE = /^\s{0,3}(\d{1,9})[.)]\s+(.+)$/;
+const ORDERED_ITEM_RE = /^([ \t]*)(\d{1,9})[.)]\s+(.+)$/;
+/** A list starts at most 3 spaces in; deeper, it is text. */
+const LIST_ROOT_MAX_INDENT = 3;
+/** Indented 2+ columns past its parent, an item nests under the item above it. */
+const LIST_NEST_INDENT = 2;
+const LIST_MAX_DEPTH = 5;
+
+function indentWidth(lead: string): number {
+  let width = 0;
+  for (const c of lead) width += c === "\t" ? 4 : 1;
+  return width;
+}
 
 /**
- * Split into headings, flat list runs and remaining text. Boundary newlines fold
+ * Split into headings, list runs and remaining text. Boundary newlines fold
  * into the extracted block's margin; chunks without blocks pass through unchanged.
  */
 function splitHeadingListBlocks(src: string, document: boolean): MdBlock[] {
   const blocks: MdBlock[] = [];
   const maxHeading = document ? 6 : CHAT_HEADING_MAX_LEVEL;
   let textLines: string[] = [];
-  let list: { ordered: boolean; start: number; items: string[] } | null = null;
+  /** The open list and the lists nested in it, outermost first, with their indents. */
+  let lists: { indent: number; list: MdList }[] = [];
 
   const flushText = () => {
     if (textLines.length > 0) {
@@ -156,11 +180,12 @@ function splitHeadingListBlocks(src: string, document: boolean): MdBlock[] {
     }
   };
   const flushList = () => {
-    if (list) {
-      blocks.push({ type: "list", ...list });
-      list = null;
+    if (lists.length > 0) {
+      blocks.push(lists[0].list);
+      lists = [];
     }
   };
+  const newList = (ordered: boolean, start: number): MdList => ({ type: "list", ordered, start, items: [] });
 
   for (const line of src.split("\n")) {
     // Before the rule check: `---` under a paragraph underlines it (CommonMark).
@@ -198,12 +223,25 @@ function splitHeadingListBlocks(src: string, document: boolean): MdBlock[] {
     }
     const ordered = ORDERED_ITEM_RE.exec(line);
     const unordered = ordered ? null : UNORDERED_ITEM_RE.exec(line);
-    if (ordered || unordered) {
+    const indent = indentWidth((ordered ?? unordered)?.[1] ?? "");
+    if ((ordered || unordered) && (lists.length > 0 || indent <= LIST_ROOT_MAX_INDENT)) {
       flushText();
       const isOrdered = Boolean(ordered);
-      if (list && list.ordered !== isOrdered) flushList();
-      if (!list) list = { ordered: isOrdered, start: ordered ? parseInt(ordered[1], 10) : 1, items: [] };
-      list.items.push((ordered?.[2] ?? unordered![1]).trim());
+      const start = ordered ? parseInt(ordered[2], 10) : 1;
+      const text = (ordered?.[3] ?? unordered![2]).trim();
+      while (lists.length > 1 && indent < lists[lists.length - 1].indent) lists.pop();
+      const top = lists[lists.length - 1];
+      if (top && indent >= top.indent + LIST_NEST_INDENT && lists.length < LIST_MAX_DEPTH) {
+        const parent = top.list.items.length - 1;
+        const children = (top.list.children ??= []);
+        const child = (children[parent] ??= newList(isOrdered, start));
+        child.items.push(text);
+        lists.push({ indent, list: child });
+        continue;
+      }
+      if (lists.length === 1 && top.list.ordered !== isOrdered) flushList();
+      if (lists.length === 0) lists = [{ indent, list: newList(isOrdered, start) }];
+      lists[lists.length - 1].list.items.push(text);
       continue;
     }
     flushList();

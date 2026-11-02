@@ -79,6 +79,15 @@ describe("ChatContent chat markdown", () => {
     expect(Array.from(container.querySelectorAll("ol > li")).map((li) => li.textContent)).toEqual(["first", "second"]);
   });
 
+  it("renders a nested list inside its parent item", () => {
+    const { container } = renderContent("- one\n  - inner **bold**\n- two");
+    const outer = container.querySelector("ul")!;
+    expect(Array.from(outer.querySelectorAll(":scope > li")).length).toBe(2);
+    const inner = outer.querySelector(":scope > li > ul");
+    expect(inner?.textContent).toBe("inner bold");
+    expect(inner?.querySelector("strong")?.textContent).toBe("bold");
+  });
+
   it("leaves a hashtag alone", () => {
     const { container } = renderContent("#nostr is neat");
     expect(container.querySelector('[role="heading"]')).toBeNull();

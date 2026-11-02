@@ -339,6 +339,34 @@ describe("splitMarkdownBlocks (document mode)", () => {
     ]);
   });
 
+  it("nests an item indented two or more columns under the item above it", () => {
+    const [list] = splitMarkdownBlocks("- a\n  - a1\n    1. deep\n  - a2\n- b");
+    expect(list).toEqual({
+      type: "list", ordered: false, start: 1, items: ["a", "b"],
+      children: [{
+        type: "list", ordered: false, start: 1, items: ["a1", "a2"],
+        children: [{ type: "list", ordered: true, start: 1, items: ["deep"] }],
+      }],
+    });
+  });
+
+  it("keeps one-column indents as siblings and a lone deep-indented item as text", () => {
+    expect(splitMarkdownBlocks("- a\n - b")).toEqual([
+      { type: "list", ordered: false, start: 1, items: ["a", "b"] },
+    ]);
+    expect(splitMarkdownBlocks("text\n    - code-like")).toEqual([
+      { type: "text", text: "text\n    - code-like" },
+    ]);
+  });
+
+  it("nests under a tab", () => {
+    const [list] = splitMarkdownBlocks("1. one\n\t- sub\n2. two");
+    expect(list).toEqual({
+      type: "list", ordered: true, start: 1, items: ["one", "two"],
+      children: [{ type: "list", ordered: false, start: 1, items: ["sub"] }],
+    });
+  });
+
   it("keeps italics literal (a list marker requires a space)", () => {
     expect(splitMarkdownBlocks("*emphasis* stays inline", true)).toEqual([
       { type: "text", text: "*emphasis* stays inline" },
