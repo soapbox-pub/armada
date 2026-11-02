@@ -55,7 +55,14 @@ const {
   powerMonitor,
   utilityProcess,
 } = require("electron");
-const { autoUpdater } = require("electron-updater");
+// electron-updater and its dependency tree are ~650 KB of source kept resident
+// once required; only the self-updating packages ever use it, and only once
+// installElectronUpdater runs, so it is required then.
+let autoUpdaterInstance = null;
+function updater() {
+  autoUpdaterInstance ??= require("electron-updater").autoUpdater;
+  return autoUpdaterInstance;
+}
 const {
   isArmadaAppUrl,
   isExternallyOpenableUrl,
@@ -68,7 +75,6 @@ const {
   hasDeveloperIdUpdateSignature,
   supportsSelfUpdate,
 } = require("./updateSupport");
-const { NostrReleaseProvider } = require("./nostrUpdateProvider");
 const { integrateAppImage } = require("./desktopIntegration");
 const { listLinuxAudioApplications } = require("./linuxAudioSources");
 const {
@@ -195,7 +201,7 @@ function installBundleIpc() {
     if (!mainWindow || event.sender !== mainWindow.webContents) return;
     if (installerDownloaded) {
       isQuitting = true;
-      autoUpdater.quitAndInstall(false, true);
+      updater().quitAndInstall(false, true);
       return;
     }
     if (pendingWebBundle === null) return;
@@ -994,7 +1000,7 @@ async function checkForDesktopUpdates(manual = false) {
   updateCheckInFlight = true;
   manualUpdateCheck = manual;
   try {
-    await autoUpdater.checkForUpdates();
+    await updater().checkForUpdates();
   } catch (error) {
     console.warn("[updater] update check failed", error);
     const shouldReport = manual && manualUpdateCheck;
@@ -1096,11 +1102,12 @@ function installElectronUpdater() {
   // AppImage. Windows signing improves publisher verification and reputation,
   // but is not required: a user who installed Armada's unsigned NSIS build has
   // opted into the same HTTPS + feed-SHA-512 trust model the AppImage uses.
+  const autoUpdater = updater();
   configureAutoUpdater(autoUpdater);
   // Overrides the `provider: generic` feed baked into app-update.yml at package
   // time. Passing the class rather than a URL is electron-updater's documented
   // `custom` provider contract.
-  autoUpdater.setFeedURL({ provider: "custom", updateProvider: NostrReleaseProvider });
+  autoUpdater.setFeedURL({ provider: "custom", updateProvider: require("./nostrUpdateProvider").NostrReleaseProvider });
   autoUpdater.logger = console;
 
   autoUpdater.on("update-not-available", async () => {
