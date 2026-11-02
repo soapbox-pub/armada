@@ -154,13 +154,24 @@ final class ConcordCrypto {
             unpaddedLen = ((padded[2] & 0xff) << 24) | ((padded[3] & 0xff) << 16)
                     | ((padded[4] & 0xff) << 8) | (padded[5] & 0xff);
             prefixLen = 6;
+            if (unpaddedLen >= 0 && unpaddedLen < 65536) return null;
         } else {
             unpaddedLen = firstTwo;
             prefixLen = 2;
         }
         if (unpaddedLen < 1) return null;
-        if ((long) prefixLen + unpaddedLen > padded.length) return null;
+        // nostr-tools' rule: the padding is exactly what the length implies, so
+        // this port accepts no ciphertext the WebView would refuse.
+        if (padded.length != prefixLen + paddedLenLong(unpaddedLen)) return null;
         return new String(padded, prefixLen, unpaddedLen, StandardCharsets.UTF_8);
+    }
+
+    /** {@link #calcPaddedLen} without int overflow, for a length read off the wire. */
+    private static long paddedLenLong(long unpaddedLen) {
+        if (unpaddedLen <= 32) return 32;
+        long nextPower = Long.highestOneBit(unpaddedLen - 1) << 1;
+        long chunk = nextPower <= 256 ? 32 : nextPower / 8;
+        return chunk * ((unpaddedLen - 1) / chunk + 1);
     }
 
     // ── HKDF (expand only) ────────────────────────────────────────────────────

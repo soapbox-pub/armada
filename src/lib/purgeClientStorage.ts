@@ -1,5 +1,6 @@
 import { clearImageDims } from "@/components/chat/imageDims";
 import { clearRevealedMedia } from "@/components/chat/revealedMedia";
+import { clearTokenCache } from "@/components/chat/tokenCache";
 import { clearRenderedPlaintext } from "@/hooks/dmRenderCache";
 import { clearAudioMetadata } from "@/hooks/useAudioMetadata";
 import { clearRecentDecrypts } from "@/lib/AppSigner";
@@ -45,6 +46,10 @@ import { clearShareShortcuts } from "@/lib/shareTarget";
 import { writePushDisabledFlag } from "@/lib/swPushDisabled";
 import { WEB_PUSH_RETIREMENT_KEY } from "@/lib/webPushEndpoint";
 import { LOCALE_KEY } from "@/i18n/language";
+import { getLanguage } from "@/i18n/intl";
+import { ArmadaNotification } from "@/lib/nativeNotifications";
+import { clearIosPushConfig } from "@/lib/nativePush";
+import { hasNativeNotificationService } from "@/lib/platform";
 import { STAGING_DIR as CALL_RECORDING_STAGING_DIR } from "@/lib/callRecording/protocol";
 
 /**
@@ -176,6 +181,15 @@ function clearSessionMemos(): void {
  * state, drafts, prefs, the push gateway's per-install client key, …).
  * `armada:login` is left to the caller's `removeLogin`.
  */
+/** Local and idempotent; bounded so a native call that never answers can't stall the purge. */
+async function clearNativePushConfigs(): Promise<void> {
+  const clears = [clearIosPushConfig()];
+  if (hasNativeNotificationService()) {
+    clears.push(ArmadaNotification.configure({ enabled: false, locale: getLanguage() }).catch(() => {}));
+  }
+  await Promise.race([Promise.all(clears), new Promise((resolve) => setTimeout(resolve, 2_000))]);
+}
+
 export async function purgeClientStorage(): Promise<void> {
   // Before anything is cleared: no sync round may decrypt or write past this point.
   haltSyncManager();
@@ -185,6 +199,7 @@ export async function purgeClientStorage(): Promise<void> {
   closeAllNip46Transports();
   clearSessionMemos();
   clearRenderedPlaintext();
+  clearTokenCache();
   clearRecentDecrypts();
   clearFoldedMemory();
   clearRumorStoreMemory();
@@ -207,6 +222,9 @@ export async function purgeClientStorage(): Promise<void> {
   // Android share-sheet suggestions would keep naming the old account's rooms.
   // Not awaited: a rate-limitable system call nothing else depends on.
   void clearShareShortcuts();
+  // The controllers clear these on account exit, but only when mounted and
+  // inside the teardown budget; the iOS file can hold the account's nsec.
+  await clearNativePushConfigs();
   purgeLocalStorage();
   // ArmadaDB first: `deleteDatabase` is blocked by open connections.
   await purgeArmadaDB();

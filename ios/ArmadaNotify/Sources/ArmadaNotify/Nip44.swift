@@ -110,12 +110,15 @@ enum Nip44 {
             unpaddedLength = Int(padded[2]) << 24 | Int(padded[3]) << 16
                 | Int(padded[4]) << 8 | Int(padded[5])
             prefixLength = 6
+            guard unpaddedLength >= 65536 else { return nil }
         } else {
             unpaddedLength = firstTwo
             prefixLength = 2
         }
 
-        guard unpaddedLength >= 1, prefixLength + unpaddedLength <= padded.count else { return nil }
+        // nostr-tools' rule: the padding is exactly what the length implies, so
+        // this port accepts no ciphertext the WebView would refuse.
+        guard unpaddedLength >= 1, padded.count == prefixLength + paddedLength(unpaddedLength) else { return nil }
         return String(
             decoding: padded[prefixLength..<(prefixLength + unpaddedLength)],
             as: UTF8.self

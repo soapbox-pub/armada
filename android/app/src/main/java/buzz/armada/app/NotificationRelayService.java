@@ -4271,21 +4271,16 @@ public class NotificationRelayService extends Service {
             if (sealJson == null) return null;
             JSONObject seal = new JSONObject(sealJson);
             int sealKind = seal.optInt("kind", -1);
-            if (sealKind != 20013 && sealKind != 20014) return null;
+            // Chat seals MUST be encrypted (CORD-02 §5); the WebView and the
+            // store refuse a plaintext one, so it must not notify either.
+            if (sealKind != 20013) return null;
             // The seal is a signed event authored by the sender (the rumor
             // inside is unsigned and bound to it by pubkey equality below);
             // verify the seal's Schnorr signature, mirroring the WebView's
             // openWrap. The kind-1059 wrap's outer signature is a group-derived
             // stream key and proves no individual identity.
             if (!NostrCrypto.verifyEvent(seal)) return null;
-            String rumorJson;
-            if (sealKind == 20013) {
-                rumorJson = ConcordCrypto.decrypt(st.convKey, seal.optString("content", ""));
-            } else if (sealKind == 20014) {
-                rumorJson = seal.optString("content", null);
-            } else {
-                return null;
-            }
+            String rumorJson = ConcordCrypto.decrypt(st.convKey, seal.optString("content", ""));
             if (rumorJson == null) return null;
             JSONObject rumor = new JSONObject(rumorJson);
             // The rumor's author must equal the seal's signer (or a keyholder
@@ -4303,10 +4298,11 @@ public class NotificationRelayService extends Service {
             // tags, so requiring them here can only drop what it drops too —
             // and keeps the notification from naming a channel the payload
             // never committed to.
-            String ch = tagValue(rumor, "channel");
-            String ep = tagValue(rumor, "epoch");
+            // Exactly one of each, as the WebView's uniqueTag requires.
+            String ch = uniqueTagValue(rumor, "channel");
+            String ep = uniqueTagValue(rumor, "epoch");
             if (ch == null || !st.channelId.equals(ch)) return null;
-            if (ep == null || (!st.epoch.isEmpty() && !st.epoch.equals(ep))) return null;
+            if (ep == null || st.epoch.isEmpty() || !st.epoch.equals(ep)) return null;
             return new ConcordOpen(rumor, sealKind);
         } catch (Exception e) {
             return null;
@@ -8293,6 +8289,20 @@ public class NotificationRelayService extends Service {
             return true;
         }
         return false;
+    }
+
+    /** The value of the ONE `name` tag, or null when there are none or several. */
+    private static String uniqueTagValue(JSONObject event, String name) {
+        JSONArray tags = event.optJSONArray("tags");
+        if (tags == null) return null;
+        String found = null;
+        for (int i = 0; i < tags.length(); i++) {
+            JSONArray tag = tags.optJSONArray(i);
+            if (tag == null || !name.equals(tag.optString(0))) continue;
+            if (found != null || tag.length() < 2) return null;
+            found = tag.optString(1);
+        }
+        return found;
     }
 
     private static String tagValue(JSONObject event, String name) {

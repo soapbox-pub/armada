@@ -3,6 +3,7 @@ import { forgetChatRumor } from "@/concord/lib/chat";
 import { KIND_EDIT } from "@/concord/lib/kinds";
 import { scrubTimelineSnapshots } from "@/concord/hooks/timelineSnapshot";
 import { forgetStoredSeals } from "@/concord/lib/rumorStore";
+import { forgetTokenizedContent } from "@/components/chat/tokenCache";
 import { forgetRenderedPlaintext } from "@/hooks/dmRenderCache";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 import { literalSearch } from "@/lib/db/ParsedFilter";
@@ -77,6 +78,7 @@ export async function removeMessageFromDevice(
   addRemovedMessageId(self, message.id);
   forgetChatRumor(message.id);
   forgetRenderedPlaintext(message.id);
+  forgetTokenizedContent(message.id);
   if (opts.queryClient) scrubMessageFromQueries(opts.queryClient, message.id);
 
   const db = getArmadaDB();
@@ -86,6 +88,7 @@ export async function removeMessageFromDevice(
   for (const edit of edits) {
     forgetChatRumor(edit.id);
     forgetRenderedPlaintext(edit.id);
+    forgetTokenizedContent(edit.id);
     if (opts.queryClient) scrubMessageFromQueries(opts.queryClient, edit.id);
   }
   await db.forget([message.id, ...edits.map((edit) => edit.id)]);

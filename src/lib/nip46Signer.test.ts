@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { NSecSigner } from "@nostrify/nostrify";
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
-import { generateSecretKey, getPublicKey } from "nostr-tools";
+import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools";
 
 import { Nip46Signer } from "@/lib/nip46Signer";
 import type { Nip46Transport } from "@/lib/nip46Transport";
@@ -158,6 +158,16 @@ const pendingSize = (s: Nip46Signer) =>
   (s as unknown as { pending: Map<string, unknown> }).pending.size;
 
 describe("Nip46Signer", () => {
+  it("refuses a signed event that is not the one requested", async () => {
+    const transport = makeFakeTransport();
+    attachBunker(transport, async (req) => {
+      const tpl = JSON.parse(req.params[0]);
+      return { result: JSON.stringify(finalizeEvent({ ...tpl, content: "something else" }, bunkerSk)) };
+    });
+    const signer = makeSigner(transport);
+    await expect(signer.signEvent({ kind: 1, content: "hi", tags: [], created_at: 1 })).rejects.toThrow(/not the one requested/);
+  });
+
   it("round-trips sign_event through the bunker", async () => {
     const transport = makeFakeTransport();
     attachBunker(transport, async (req) => {
@@ -223,7 +233,7 @@ describe("Nip46Signer", () => {
       seen++;
       if (seen < 4) return null; // queued in the signer app, awaiting the user
       const tpl = JSON.parse(req.params[0]);
-      return { result: JSON.stringify({ ...tpl, id: "a".repeat(64), pubkey: bunkerPubkey, sig: "b".repeat(128) }) };
+      return { result: JSON.stringify(finalizeEvent(tpl, bunkerSk)) };
     });
     // Copies every 100ms; a non-signing RPC would have given up after 2 of them.
     const signer = makeSigner(transport, { attemptTimeoutMs: 100, attempts: 2, signTimeoutMs: 5_000 });
@@ -262,7 +272,7 @@ describe("Nip46Signer", () => {
       order.push(req.method);
       return new Promise((r) => answer.push(() => r({
         result: req.method === "sign_event"
-          ? JSON.stringify({ ...JSON.parse(req.params[0]), id: "a".repeat(64), pubkey: bunkerPubkey, sig: "b".repeat(128) })
+          ? JSON.stringify(finalizeEvent(JSON.parse(req.params[0]), bunkerSk))
           : "plain",
       })));
     });
@@ -379,7 +389,7 @@ describe("Nip46Signer", () => {
       // The user approves, then comes back to Armada while the answer is still in flight.
       if (prompts === 1) transport.reopen("wss://bunker.example");
       const tpl = JSON.parse(req.params[0]);
-      return { result: JSON.stringify({ ...tpl, id: "a".repeat(64), pubkey: bunkerPubkey, sig: "b".repeat(128) }) };
+      return { result: JSON.stringify(finalizeEvent(tpl, bunkerSk)) };
     });
     const signer = makeSigner(transport, { attemptTimeoutMs: 60_000, signTimeoutMs: 120_000 });
 

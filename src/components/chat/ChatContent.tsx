@@ -76,6 +76,7 @@ import type { ChatRoute } from "@/lib/routes";
 import type { MessageActionItem } from "@/components/chat/messageActions";
 import type { ImetaEncryption, ImetaEntry } from "@/lib/imeta";
 import type { MdBlock } from "@/lib/markdown";
+import { cacheTokens, TOKEN_CACHE } from "@/components/chat/tokenCache";
 import type { EncryptedRef } from "@/hooks/useResolvedMediaSrc";
 import type { ReactNode } from "react";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -164,7 +165,7 @@ function previewOf(url: string, thumbnail: string | undefined): string | undefin
   return thumb && thumb !== url ? thumb : undefined;
 }
 
-type ContentToken =
+export type ContentToken =
   | { type: "text"; value: string }
   | { type: "image-embed"; url: string; encryption?: ImetaEncryption; mime?: string; dim?: string; blurhash?: string; fallbacks?: string[]; alt?: string; spoiler?: boolean; thumb?: string }
   | { type: "image-gallery"; urls: ImageRef[] }
@@ -416,23 +417,6 @@ function usableMime(m: string | undefined): string | undefined {
 }
 
 
-/**
- * Tokenized bodies keyed by event id and dialect, surviving remounts (events
- * are immutable). Content is compared on lookup for synthesized events and
- * `contentOverride` edits.
- */
-const TOKEN_CACHE = new Map<string, { content: string; tokens: ContentToken[] }>();
-
-const TOKEN_CACHE_MAX = 800;
-
-function cacheTokens(id: string, content: string, tokens: ContentToken[]): ContentToken[] {
-  if (TOKEN_CACHE.size >= TOKEN_CACHE_MAX) {
-    const oldest = TOKEN_CACHE.keys().next().value;
-    if (oldest !== undefined) TOKEN_CACHE.delete(oldest);
-  }
-  TOKEN_CACHE.set(id, { content, tokens });
-  return tokens;
-}
 
 /**
  * The body tokenizer's alternation: markdown image | BOLT11 | URL |

@@ -22,6 +22,7 @@
 
 import type { NostrEvent, NostrSigner } from "@nostrify/nostrify";
 import type { NostrConnectRequest, NostrConnectResponse } from "@nostrify/types";
+import { verifyEvent } from "nostr-tools/pure";
 
 import { t } from "@/i18n";
 import type { BtcSigner } from "@/lib/bitcoin-signers";
@@ -160,6 +161,8 @@ export class Nip46Signer implements NostrSigner, BtcSigner {
   }
 
   private async dispatch(event: NostrEvent): Promise<void> {
+    // The filter asks relays for this author; a relay that ignores it is not trusted to.
+    if (event.pubkey !== this.bunkerPubkey) return;
     let plaintext: string;
     try {
       plaintext = await this.clientSigner.nip44!.decrypt(event.pubkey, event.content);
@@ -295,6 +298,10 @@ export class Nip46Signer implements NostrSigner, BtcSigner {
       typeof signed?.sig !== "string"
     ) {
       throw new Error("NIP-46 sign_event returned a malformed event");
+    }
+    // What was asked for, validly signed: anything else would be published as-is.
+    if (signed.kind !== event.kind || signed.content !== event.content || !verifyEvent(signed)) {
+      throw new Error("NIP-46 sign_event returned an event that is not the one requested");
     }
     return signed;
   }
