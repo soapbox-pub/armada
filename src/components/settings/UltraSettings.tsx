@@ -391,7 +391,7 @@ function UltraActive({ self, ultra, celebrating, onSave, onCancel, onError }: {
             </OptionTile>
             {(Object.keys(PROFILE_EFFECTS) as ProfileEffectId[]).map((id) => (
               <OptionTile key={id} active={draft.effect === id} label={presetLabel(id)} onClick={() => set({ effect: id })}>
-                <span className="text-xl leading-none">{PROFILE_EFFECTS[id]}</span>
+                <span className="text-xl leading-none font-emoji">{PROFILE_EFFECTS[id]}</span>
               </OptionTile>
             ))}
           </div>
@@ -423,7 +423,7 @@ function UltraActive({ self, ultra, celebrating, onSave, onCancel, onError }: {
               onClick={() => applyCustomTheme({ title: preset.label, colors: preset.colors })}
             >
               <ThemeWindow colors={preset.colors} className="h-12 w-full" />
-              <span>{preset.emoji} {preset.label}</span>
+              <span><span className="font-emoji">{preset.emoji}</span> {preset.label}</span>
             </OptionTile>
           ))}
         </div>

@@ -36,7 +36,9 @@ export function UltraEffect({ effect, loop, className }: { effect: ProfileEffect
       {LAYOUT.map((p, i) => (
         <span
           key={i}
-          className="absolute animate-ultra-float leading-none"
+          // Emoji fonts first (bundled Twemoji last): the card's own stack puts
+          // system-ui ahead of them, whose text ✨ and ⭐ are hollow outlines.
+          className="absolute animate-ultra-float leading-none font-emoji"
           style={{ left: p.left, top: p.top, fontSize: p.size, animationDelay: p.delay, ["--float" as string]: p.float }}
         >
           {glyph}
