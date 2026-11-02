@@ -132,7 +132,7 @@ export const PERMISSION_LABELS: Array<{
   readonly label: string;
   readonly hint: string;
   /** Only meaningful on the vsk-13 Roster (CORD-04 §3): a legacy editor doesn't offer it. */
-  rolesV2?: true;
+  rankedRoles?: true;
 }> = [
   {
     bit: Permissions.MANAGE_ROLES,
@@ -217,7 +217,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.VIEW_CHANNEL,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.viewChannels.label", defaultMessage: "View channels" });
     },
@@ -227,7 +227,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.SEND_MESSAGES,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.sendMessages.label", defaultMessage: "Send messages" });
     },
@@ -237,7 +237,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.SEND_IN_THREADS,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.sendInThreads.label", defaultMessage: "Reply in threads" });
     },
@@ -247,7 +247,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.ATTACH_FILES,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.attachFiles.label", defaultMessage: "Attach files" });
     },
@@ -257,7 +257,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.ADD_REACTIONS,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.addReactions.label", defaultMessage: "Add reactions" });
     },
@@ -267,7 +267,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.READ_MESSAGE_HISTORY,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.readHistory.label", defaultMessage: "Read message history" });
     },
@@ -277,7 +277,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.CONNECT,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.connect.label", defaultMessage: "Join calls" });
     },
@@ -287,7 +287,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.SPEAK,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.speak.label", defaultMessage: "Speak" });
     },
@@ -297,7 +297,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.VIDEO,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.video.label", defaultMessage: "Video" });
     },
@@ -307,7 +307,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.PRIORITY_SPEAKER,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.prioritySpeaker.label", defaultMessage: "Priority speaker" });
     },
@@ -317,7 +317,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.MUTE_MEMBERS,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.muteMembers.label", defaultMessage: "Mute members" });
     },
@@ -327,7 +327,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.DEAFEN_MEMBERS,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.deafenMembers.label", defaultMessage: "Deafen members" });
     },
@@ -337,7 +337,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.MOVE_MEMBERS,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.moveMembers.label", defaultMessage: "Move members" });
     },
@@ -347,7 +347,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.MODERATE_MEMBERS,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.timeoutMembers.label", defaultMessage: "Time out members" });
     },
@@ -357,7 +357,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.MANAGE_NICKNAMES,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.manageNicknames.label", defaultMessage: "Manage nicknames" });
     },
@@ -367,7 +367,7 @@ export const PERMISSION_LABELS: Array<{
   },
   {
     bit: Permissions.CHANGE_NICKNAME,
-    rolesV2: true,
+    rankedRoles: true,
     get label() {
       return t({ id: "concordRoles.permission.changeNickname.label", defaultMessage: "Change nickname" });
     },
@@ -632,7 +632,7 @@ export interface CommunityRoles {
 }
 
 /** Whether a roster is the vsk-13 one (CORD-04 §2): `@everyone` stands. */
-export function onRolesV2(roles: CommunityRoles | undefined): boolean {
+export function onRankedRoles(roles: CommunityRoles | undefined): boolean {
   return roles?.everyone !== undefined;
 }
 

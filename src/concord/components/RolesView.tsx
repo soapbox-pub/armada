@@ -77,7 +77,7 @@ export function RolesView({ community }: { community: Community }) {
 
 function RolesBody({ community }: { community: Community }) {
   const { folded } = useRoles(community);
-  if (folded?.rosterV2) return <RolesV2ReadOnly roster={folded.roster} />;
+  if (folded?.rankedRoster) return <RankedRolesReadOnly roster={folded.roster} />;
   return <LegacyRolesBody community={community} />;
 }
 
@@ -85,7 +85,7 @@ function RolesBody({ community }: { community: Community }) {
  * The vsk-13 Roster (CORD-04 §2), read-only: Roles in rank order with what they
  * carry and who holds them, and what `@everyone` holds.
  */
-function RolesV2ReadOnly({ roster }: { roster: CommunityRoles }) {
+function RankedRolesReadOnly({ roster }: { roster: CommunityRoles }) {
   const intl = useIntl();
   const roles = [...roster.roles].sort(byDisplayOrder);
   const bitsOf = (perms: bigint) =>
@@ -95,7 +95,7 @@ function RolesV2ReadOnly({ roster }: { roster: CommunityRoles }) {
       <Alert>
         <AlertDescription>
           <FormattedMessage
-            id="rolesView.v2ReadOnly"
+            id="rolesView.rankedReadOnly"
             defaultMessage="This community uses ranked roles with channel permissions. Armada can show them, but can't edit them yet."
           />
         </AlertDescription>
@@ -1008,7 +1008,7 @@ export function RoleEditor({
           </p>
         )}
         <div className="space-y-2 rounded-lg bg-secondary/40 p-3">
-          {PERMISSION_LABELS.filter((l) => !l.rolesV2).map(({ bit, label, hint }) => {
+          {PERMISSION_LABELS.filter((l) => !l.rankedRoles).map(({ bit, label, hint }) => {
             const id = `perm2-${bit.toString()}`;
             const on = (perms & bit) === bit;
             return (

@@ -31,7 +31,7 @@ import {
 } from "@/concord/lib/roles";
 
 /** Control sub-kinds CORD-04 §2, §8, §9 and CORD-03 §1, §4 added (CORD-02 Appendix B). */
-export const VSK_ROLE_V2 = "13";
+export const VSK_RANKED_ROLE = "13";
 export const VSK_ACL = "14";
 export const VSK_CATEGORY = "15";
 export const VSK_TENURE = "16";
@@ -39,7 +39,7 @@ export const VSK_SYNC = "17";
 export const VSK_WRITERS = "18";
 
 /** Kinds no older client wrote: marked in every Community, so an unmarked one is refused (CORD-04 §1). */
-export const ALWAYS_MARKED_VSKS: ReadonlySet<string> = new Set([VSK_ROLE_V2, VSK_ACL, VSK_CATEGORY, VSK_TENURE, VSK_SYNC, VSK_WRITERS]);
+export const ALWAYS_MARKED_VSKS: ReadonlySet<string> = new Set([VSK_RANKED_ROLE, VSK_ACL, VSK_CATEGORY, VSK_TENURE, VSK_SYNC, VSK_WRITERS]);
 
 /** The most Channels a switching `@everyone` lists (CORD-04 §2). */
 export const MAX_LEGACY_CHANNELS = 256;
@@ -88,16 +88,16 @@ export function cutName(name: string): string {
   return out;
 }
 
-const ROLE_V2_FIELDS = new Set(["role_id", "name", "rank", "permissions", "color", "display", "mentionable", "deleted"]);
+const RANKED_ROLE_FIELDS = new Set(["role_id", "name", "rank", "permissions", "color", "display", "mentionable", "deleted"]);
 
-export type RoleV2 = { kind: "live"; role: Role } | { kind: "deleted"; roleId: string };
+export type RankedRole = { kind: "live"; role: Role } | { kind: "deleted"; roleId: string };
 
 /**
  * A vsk-13 Role edition (CORD-04 §2). A live Role needs a rank key; its position is
  * assigned at fold time from the keys in play. A field of the wrong type makes
  * the content unparseable.
  */
-export function parseRoleV2(content: string): RoleV2 | undefined {
+export function parseRankedRole(content: string): RankedRole | undefined {
   const c = parseJson(content);
   if (!c || typeof c.role_id !== "string" || !HEX64.test(c.role_id)) return undefined;
   const roleId = c.role_id.toLowerCase();
@@ -109,7 +109,7 @@ export function parseRoleV2(content: string): RoleV2 | undefined {
   const permissions = c.permissions === undefined ? 0n : parsePermissionBits(c.permissions);
   if (permissions === undefined) return undefined;
   if (c.color !== undefined && (typeof c.color !== "number" || !Number.isInteger(c.color) || c.color < 0 || c.color > 0xffffffff)) return undefined;
-  const extra = Object.fromEntries(Object.entries(c).filter(([k]) => !ROLE_V2_FIELDS.has(k)));
+  const extra = Object.fromEntries(Object.entries(c).filter(([k]) => !RANKED_ROLE_FIELDS.has(k)));
   return {
     kind: "live",
     role: {
@@ -128,7 +128,7 @@ export function parseRoleV2(content: string): RoleV2 | undefined {
 }
 
 /** A live vsk-13 Role's content: every field written, false flags included (CORD-04 §2). */
-export function roleV2ToJSON(role: Role): string {
+export function rankedRoleToJSON(role: Role): string {
   if (!isRankKey(role.rank)) throw new Error("a Role needs a rank key");
   return JSON.stringify({
     ...(role.extra ?? {}),
@@ -143,7 +143,7 @@ export function roleV2ToJSON(role: Role): string {
 }
 
 /** A Role's terminal deletion (CORD-04 §2). */
-export function roleV2DeletedJSON(roleId: string): string {
+export function rankedRoleDeletedJSON(roleId: string): string {
   return JSON.stringify({ role_id: roleId, deleted: true });
 }
 
@@ -608,7 +608,7 @@ function buildCands(
   const everyoneHex = bytesToHex(everyoneLocator(communityId));
   const groups = new Map<string, ParsedEdition[]>();
   for (const e of editions) {
-    if (e.vsk !== "1" && e.vsk !== VSK_ROLE_V2 && e.vsk !== "3" && e.vsk !== VSK_TENURE) continue;
+    if (e.vsk !== "1" && e.vsk !== VSK_RANKED_ROLE && e.vsk !== "3" && e.vsk !== VSK_TENURE) continue;
     const eid = bytesToHex(e.entityId);
     const list = groups.get(eid);
     if (list) list.push(e);
@@ -619,8 +619,8 @@ function buildCands(
   if (activated) {
     for (const e of editions) {
       if (!e.binding) continue;
-      if (e.vsk === VSK_ROLE_V2) {
-        const r = parseRoleV2(e.content);
+      if (e.vsk === VSK_RANKED_ROLE) {
+        const r = parseRankedRole(e.content);
         if (r?.kind === "live" && r.role.rank) keys.push(r.role.rank);
       } else if (e.vsk === VSK_TENURE) {
         for (const s of parseTenure(e.content)?.sealed ?? []) keys.push(s.rank);
@@ -655,7 +655,7 @@ function buildCands(
         if (eid === everyoneHex) continue;
         const role = roleFromJSON(p.content);
         if (role && role.roleId === eid) push(out.roles, eid, { ...base, kind: activated ? "history" : "live", role });
-      } else if (p.vsk === VSK_ROLE_V2) {
+      } else if (p.vsk === VSK_RANKED_ROLE) {
         if (!p.binding || !activated) continue;
         if (eid === everyoneHex) {
           const ev = parseEveryone(p.content);
@@ -664,7 +664,7 @@ function buildCands(
           push(out.roles, eid, { ...base, kind: "everyone", role, legacy: ev.legacy });
           continue;
         }
-        const r = parseRoleV2(p.content);
+        const r = parseRankedRole(p.content);
         if (r?.kind === "live" && r.role.roleId === eid) {
           push(out.roles, eid, { ...base, kind: "live", role: { ...r.role, position: ranks.get(r.role.rank!) ?? BENEATH_EVERY_ROLE } });
         } else if (r?.kind === "deleted" && r.roleId === eid) {
@@ -921,8 +921,8 @@ export type RosterFloors = Map<string, RosterFloor>;
 export function rosterActivated(editions: ParsedEdition[], communityId: Uint8Array, ownerHex: string, floors: RosterFloors): boolean {
   const everyoneHex = bytesToHex(everyoneLocator(communityId));
   if (floors.has(everyoneHex)) return true;
-  const someV2 = editions.some((e) => e.vsk === VSK_ROLE_V2 && e.binding && bytesToHex(e.entityId) === everyoneHex);
-  if (!someV2) return false;
+  const someEveryone = editions.some((e) => e.vsk === VSK_RANKED_ROLE && e.binding && bytesToHex(e.entityId) === everyoneHex);
+  if (!someEveryone) return false;
   const sel = selectAuthorized(buildCands(editions, communityId, floors, true), communityId, ownerHex, new Set());
   return sel.heads.some((h) => h.eid === everyoneHex);
 }
@@ -932,7 +932,7 @@ export function rosterActivated(editions: ParsedEdition[], communityId: Uint8Arr
  * editions excluded except what a Tenure keeps. Applies the 100-Role cap after
  * authority is resolved (CORD-04 §2).
  */
-export function foldRosterV2(
+export function foldRankedRoster(
   editions: ParsedEdition[],
   communityId: Uint8Array,
   ownerHex: string,
@@ -952,7 +952,7 @@ export function foldRosterV2(
   // The switch fixes the legacy list (CORD-04 §2): the owner's first `@everyone` edition.
   const everyoneHex = bytesToHex(everyoneLocator(communityId));
   const switching = editions
-    .filter((e) => e.vsk === VSK_ROLE_V2 && e.binding && e.author === ownerHex && !e.prevHash && bytesToHex(e.entityId) === everyoneHex)
+    .filter((e) => e.vsk === VSK_RANKED_ROLE && e.binding && e.author === ownerHex && !e.prevHash && bytesToHex(e.entityId) === everyoneHex)
     .sort((a, b) => (a.version !== b.version ? (a.version < b.version ? -1 : 1) : bytesToHex(a.rumorId) < bytesToHex(b.rumorId) ? -1 : 1))[0];
   const legacy = switching ? parseEveryone(switching.content)?.legacy : undefined;
   if (legacy) roles.legacyChannels = legacy;

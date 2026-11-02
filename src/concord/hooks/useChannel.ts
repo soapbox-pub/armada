@@ -285,9 +285,9 @@ export function useChannelTimeline(
   // CORD-04 §8 on the vsk-13 Roster: collapse posts inside their author's running
   // Timeout, and, in an open Channel, posts whose author can't send there.
   const { data: control } = useControlFold(community);
-  const { timeouts } = useGuestbook(control?.rosterV2 ? community : undefined);
+  const { timeouts } = useGuestbook(control?.rankedRoster ? community : undefined);
   const collapse = useMemo(() => {
-    if (!control?.rosterV2 || !channelIdHex) return undefined;
+    if (!control?.rankedRoster || !channelIdHex) return undefined;
     const isPrivate = control.channels.get(channelIdHex)?.isPrivate ?? false;
     const open = everyoneSends(control.roster, channelIdHex);
     const nowMs = Date.now();

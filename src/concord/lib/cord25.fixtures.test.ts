@@ -12,7 +12,7 @@ import { channelsView, visibleChannels } from "@/concord/lib/community";
 import { foldControlState, openControlWraps } from "@/concord/lib/control";
 import type { Community } from "@/concord/lib/types";
 import { BENEATH_EVERY_ROLE, channelPermissions, effectivePermissions } from "@/concord/lib/roles";
-import { foldRosterV2, rosterActivated } from "@/concord/lib/roster";
+import { foldRankedRoster, rosterActivated } from "@/concord/lib/roster";
 
 import guild from "./fixtures/cord25/guild.json";
 
@@ -87,7 +87,7 @@ describe.each([["guild", guild as unknown as Fixture]])("%s (Vector fixture)", (
   });
 
   it("folds the same Roles, @everyone and Grants", () => {
-    const { roles, converged } = foldRosterV2(editions, cid, f.community.owner, new Map());
+    const { roles, converged } = foldRankedRoster(editions, cid, f.community.owner, new Map());
     expect(converged).toBe(true);
     expect(roles.everyone?.toString()).toBe(f.vector.roles.everyone?.toString());
     const mine = roles.roles.map((r) => ({ id: r.roleId, name: r.name, rank: r.rank, bits: r.permissions.toString() })).sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -103,7 +103,7 @@ describe.each([["guild", guild as unknown as Fixture]])("%s (Vector fixture)", (
   });
 
   it("gives every member the same server permissions", () => {
-    const { roles } = foldRosterV2(editions, cid, f.community.owner, new Map());
+    const { roles } = foldRankedRoster(editions, cid, f.community.owner, new Map());
     for (const [label, m] of Object.entries(f.vector.members)) {
       expect(effectivePermissions(roles, m.pubkey).toString(), label).toBe(m.server);
     }
@@ -120,7 +120,7 @@ describe.each([["guild", guild as unknown as Fixture]])("%s (Vector fixture)", (
 
   it("folds the same Categories, and the same place, topic and view for every public Channel", () => {
     const folded = foldControlState(editions, cid, f.community.owner);
-    expect(folded.rosterV2).toBe(true);
+    expect(folded.rankedRoster).toBe(true);
     const cats = [...(folded.categories?.values() ?? [])].filter((c) => !c.deleted).map((c) => ({ id: c.idHex, name: c.name, position: c.position })).sort((a, b) => (a.id < b.id ? -1 : 1));
     expect(cats).toEqual([...f.vector.categories].sort((a, b) => (a.id < b.id ? -1 : 1)));
     for (const ch of f.vector.channels) {

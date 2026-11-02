@@ -76,7 +76,7 @@ import {
   VSK_SYNC,
   VSK_WRITERS,
   cutName,
-  foldRosterV2,
+  foldRankedRoster,
   isListed,
   maySwapOverwrites,
   overwriteAuthorized,
@@ -441,7 +441,7 @@ export interface FoldedControl {
    * On the vsk-13 Roster (CORD-04 §2): `roster.everyone` stands, and Categories,
    * overwrites and syncs fold. Absent on a snapshot from an earlier build.
    */
-  rosterV2?: boolean;
+  rankedRoster?: boolean;
   /** Categories by id (CORD-03 §4), deleted ones included and flagged; empty off the vsk-13 Roster. */
   categories?: Map<string, FoldedCategory>;
   /** Each member's sealed standings (CORD-04 §9), from the Tenures the fold admits. */
@@ -1103,11 +1103,11 @@ function foldOnce(
   const rosterFloors: RosterFloors = new Map(
     [...(priorHeads ?? [])].map(([eid, h]) => [eid, { version: h.version, hash: h.hash, rumorId: h.rumorId, author: h.author }]),
   );
-  const v2 = rosterActivated(editions, communityId, ownerHex, rosterFloors);
+  const ranked = rosterActivated(editions, communityId, ownerHex, rosterFloors);
   let sealed: SealedBy = new Map();
   let roster: CommunityRoles;
-  if (v2) {
-    const folded = foldRosterV2(editions, communityId, ownerHex, rosterFloors, excluded);
+  if (ranked) {
+    const folded = foldRankedRoster(editions, communityId, ownerHex, rosterFloors, excluded);
     roster = folded.roles;
     sealed = folded.sealed;
     for (const h of folded.heads) {
@@ -1130,7 +1130,7 @@ function foldOnce(
     }).join(",");
   const rewalked = new Set<string>();
   let lastHeads = rosterHeads();
-  for (let pass = 0; !v2; pass++) {
+  for (let pass = 0; !ranked; pass++) {
     const fresh = [...gapHeld].filter((eid) => rosterEids.has(eid) && !rewalked.has(eid));
     if (fresh.length === 0 && pass > 0) {
       const now = rosterHeads();
@@ -1159,7 +1159,7 @@ function foldOnce(
   // `citationSatisfied` as the delete/kick/rekey gates (mirrors Vector). A LATER head
   // passes, since compaction discards superseded versions.
   // A Tenure-listed edition stands without its citation (CORD-04 §9).
-  const listed = (p: ParsedEdition): boolean => v2 && isListed(sealed, p.author, bytesToHex(p.selfHash));
+  const listed = (p: ParsedEdition): boolean => ranked && isListed(sealed, p.author, bytesToHex(p.selfHash));
   const citationOk = (p: ParsedEdition): boolean =>
     listed(p) || citationSatisfied({ heads, ownerHex }, communityId, p.author, p.authority);
 
@@ -1169,7 +1169,7 @@ function foldOnce(
    */
   const may = (p: ParsedEdition, permission: bigint): boolean =>
     isAuthorized(roster, p.author, ownerHex, permission) ||
-    (v2 && (sealOf(sealed, p.author, bytesToHex(p.selfHash), BENEATH_EVERY_ROLE) & permission) === permission);
+    (ranked && (sealOf(sealed, p.author, bytesToHex(p.selfHash), BENEATH_EVERY_ROLE) & permission) === permission);
 
   /** Editions by a holder of `permission` citing a Grant we hold: the authority pre-filter. */
   const holders = (...permissions: bigint[]): HeadAdmit => ({
@@ -1212,7 +1212,7 @@ function foldOnce(
   // 4. Channels (vsk 2), each gated by MANAGE_CHANNELS. On the vsk-13 Roster an
   // unmarked edition counts only for a Channel the switch listed, and a Private
   // Channel's metadata may be sealed under its key (CORD-03 §2, CORD-04 §2).
-  const legacyChannels = v2 && roster.legacyChannels ? new Set(roster.legacyChannels) : undefined;
+  const legacyChannels = ranked && roster.legacyChannels ? new Set(roster.legacyChannels) : undefined;
   // A Channel edition aimed at another entity's coordinate is no Channel (CORD-03 §2).
   const notChannels = new Set([cidHex, bytesToHex(everyoneLocator(communityId)), bytesToHex(banlistLocator(communityId))]);
   const channels = new Map<string, FoldedChannel>();
@@ -1222,16 +1222,16 @@ function foldOnce(
       if (!may(p, Permissions.MANAGE_CHANNELS)) return false;
       if (!citationOk(p)) return false;
       if (legacyChannels && !p.binding && !legacyChannels.has(eid)) return false;
-      return readChannelContent(p.content, v2) !== undefined;
+      return readChannelContent(p.content, ranked) !== undefined;
     };
     const head = pickHead(candidates, heads, headEditions, channelGate, rankOf);
     if (!head) continue;
-    const read = readChannelContent(head.content, v2)!;
+    const read = readChannelContent(head.content, ranked)!;
     const meta = read.metadata;
     // CORD-03 §2: deletion is terminal — a later edition can't lift it. Decided over
     // the whole accepted chain (members may have discarded keys; a resurrection would
     // split them), gated by the same predicate as the head.
-    const everDeleted = candidates.some((p) => channelGate(p) && readChannelContent(p.content, v2)?.metadata.deleted === true);
+    const everDeleted = candidates.some((p) => channelGate(p) && readChannelContent(p.content, ranked)?.metadata.deleted === true);
     channels.set(eid, {
       channelIdHex: eid,
       name: meta.name,
@@ -1271,7 +1271,7 @@ function foldOnce(
 
     // On the vsk-13 Roster the bit must come from the author's Roles: `@everyone`'s bits author no Banlist (CORD-04 §2).
     const bans = (p: ParsedEdition): boolean =>
-      v2
+      ranked
         ? p.author === ownerHex ||
           (permissionsAboveIn(roster, p.author, BENEATH_EVERY_ROLE) & Permissions.BAN) !== 0n ||
           (sealOf(sealed, p.author, bytesToHex(p.selfHash), BENEATH_EVERY_ROLE) & Permissions.BAN) !== 0n
@@ -1388,7 +1388,7 @@ function foldOnce(
   // and Writers ledgers (vsk 18).
   const categories = new Map<string, FoldedCategory>();
   const writers = new Map<string, Ledger>();
-  if (v2) {
+  if (ranked) {
     // Writers ledgers, under MANAGE_CHANNELS: each edition appends exactly one entry
     // to its predecessor's (CORD-03 §1), so a head that doesn't is refused.
     for (const [eid, candidates] of byVsk.get(VSK_WRITERS) ?? new Map<string, ParsedEdition[]>()) {
@@ -1481,7 +1481,7 @@ function foldOnce(
 
   const result: FoldedControl = {
     roster, ownerHex, metadata, channels, banned, bannedAt, liveInviteLinks, registriesByCreator, pinLists, signals, heads, headEditions, incomplete,
-    ...(v2 ? { rosterV2: true, categories, tenure: sealed, writers } : {}),
+    ...(ranked ? { rankedRoster: true, categories, tenure: sealed, writers } : {}),
   };
   return result;
 }

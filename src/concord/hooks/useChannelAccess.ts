@@ -34,7 +34,7 @@ export function useChannelAccess(community: Community | undefined): void {
   const me = user?.pubkey;
   const held = new Set((community?.privateChannels ?? []).map((c) => bytesToHex(c.id)));
   // Private Channels the fold lets this member read whose key they don't hold.
-  const owed = folded?.rosterV2 && me
+  const owed = folded?.rankedRoster && me
     ? [...folded.channels.values()]
         .filter((c) => c.isPrivate && !c.deleted && !held.has(c.channelIdHex))
         .filter((c) => (channelPermissions(folded.roster, folded.ownerHex, me, c.channelIdHex, true) & Permissions.VIEW_CHANNEL) !== 0n)

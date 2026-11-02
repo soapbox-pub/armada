@@ -159,7 +159,7 @@ export function useGuestbook(community: Community | undefined) {
 
   // Timeouts and Nicknames (CORD-04 §8, §10), judged against the Roster as it stands.
   const timeouts = useMemo(() => {
-    if (!community || !query.data || !folded?.rosterV2) return new Map<string, FoldedTimeout>();
+    if (!community || !query.data || !folded?.rankedRoster) return new Map<string, FoldedTimeout>();
     return foldTimeouts(query.data, {
       nowMs: Date.now(),
       ownerHex: folded.ownerHex,
@@ -170,7 +170,7 @@ export function useGuestbook(community: Community | undefined) {
     });
   }, [community, query.data, folded]);
   const nicknames = useMemo(() => {
-    if (!community || !query.data || !folded?.rosterV2) return new Map<string, string>();
+    if (!community || !query.data || !folded?.rankedRoster) return new Map<string, string>();
     return foldNicknames(query.data, {
       nowMs: Date.now(),
       banned: folded.banned,

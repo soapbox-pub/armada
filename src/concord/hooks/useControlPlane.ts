@@ -687,7 +687,7 @@ export async function publishEdition(
     if (e instanceof DissolvedError) throw new Error(t({ id: "useControlPlane.dissolved", defaultMessage: "This community has been dissolved; it accepts no changes." }));
   }
   // On the vsk-13 Roster every edition is marked (CORD-04 §1).
-  if ((await readControlFold(community.idHex))?.rosterV2) rumor = markEdition(rumor, editionBinding(community.id));
+  if ((await readControlFold(community.idHex))?.rankedRoster) rumor = markEdition(rumor, editionBinding(community.id));
   // The WRITE key: on a split epoch it's the staff-held control_root (CORD-02 §2);
   // non-staff fail here with a readable error.
   const control = currentControlWriteGroup(community);

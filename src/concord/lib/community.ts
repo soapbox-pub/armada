@@ -83,10 +83,10 @@ export function channelsView(community: Community, folded: FoldedControl | undef
     mediaKey: voiceMediaKey(secret, id, epoch),
   });
 
-  const v2 = folded?.rosterV2 === true;
+  const ranked = folded?.rankedRoster === true;
   /** Where a Channel files and sorts: the vsk-13 Category and rank key (CORD-03 §2, §4), else Armada's conventions. */
   const placement = (meta: ChannelMetadata) => {
-    if (!v2) return { category: channelCategory(meta), position: channelPosition(meta) };
+    if (!ranked) return { category: channelCategory(meta), position: channelPosition(meta) };
     const cat = typeof meta.category === "string" ? folded?.categories?.get(meta.category) : undefined;
     const live = cat && !cat.deleted ? cat : undefined;
     return {
@@ -189,7 +189,7 @@ export function channelsView(community: Community, folded: FoldedControl | undef
     });
   }
 
-  out.sort(v2 ? compareV2Placement(folded) : compareChannelOrder);
+  out.sort(ranked ? compareRankedPlacement(folded) : compareChannelOrder);
   return out;
 }
 
@@ -222,7 +222,7 @@ function writerStreams(ledger: Ledger | undefined, read: Channel["streams"][numb
  * Category by its rank key, name and id; within a group by rank key, name and id,
  * an entry without a key after every keyed one.
  */
-function compareV2Placement(folded: FoldedControl | undefined) {
+function compareRankedPlacement(folded: FoldedControl | undefined) {
   const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   return (a: Channel, b: Channel): number => {
     if (a.categoryId !== b.categoryId) {
@@ -241,7 +241,7 @@ function compareV2Placement(folded: FoldedControl | undefined) {
  * hides one the viewer lacks VIEW_CHANNEL in. A legacy Roster hides nothing.
  */
 export function visibleChannels(channels: Channel[], folded: FoldedControl | undefined, viewer: string | undefined): Channel[] {
-  if (!folded?.rosterV2 || !viewer) return channels;
+  if (!folded?.rankedRoster || !viewer) return channels;
   const visible = channels.filter(
     (c) => (channelPermissions(folded.roster, folded.ownerHex, viewer, c.idHex, c.isPrivate) & Permissions.VIEW_CHANNEL) !== 0n,
   );
