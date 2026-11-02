@@ -7,7 +7,8 @@
         let Ok(dir) = std::env::var("ARMADA_FIXTURES") else { return };
         let hex = crate::simd::hex::bytes_to_hex_32;
         let events = relay.fetch(&Query::default(), &community.relays).await.unwrap();
-        let editions = fetch_control(relay, community).await;
+        let plane = control::ControlPlane::of(community);
+        let editions: Vec<ParsedEdition> = events.iter().filter(|w| w.pubkey == plane.pk()).filter_map(|w| plane.open_edition(w).ok()).collect();
         let authority = fold_authority(community, &editions, &Floors::default());
         let held = crate::db::community::load_community_v2(community.id()).unwrap().unwrap();
         let channels: Vec<serde_json::Value> = held
@@ -127,4 +128,65 @@
             &[("owner", &owner), ("alice", &alice), ("bob", &bob), ("carol", &carol), ("stranger", &Keys::generate())],
         )
         .await;
+    }
+
+    /// Two accounts: the owner, and a member who joins by Direct Invite and is then let into a
+    /// Private Channel by a Role, takes a Nickname, is timed out, and posts. Dumped as the member
+    /// holds it: their keys, after every delivery they could adopt.
+    #[tokio::test]
+    async fn armada_fixture_members() {
+        let (bed, owner, member) = TestBed::new();
+        bed.swap_to(&owner);
+        let community = create_community_on_roles_v2(&bed.relay, "Members", bed.relays.clone(), None).await.unwrap();
+        let held = || crate::db::community::load_community_v2(community.id()).unwrap().unwrap();
+        follow_control(&bed.relay, &held()).await.unwrap();
+        let general = held().channels[0].id;
+        send_direct_invite(&bed.relay, &held(), &member.keys.public_key(), None, None).await.unwrap();
+
+        bed.swap_to(&member);
+        let invite = fetch_direct_invite(&bed.relay, &bed.relays, &member.keys.public_key()).await;
+        let joined = accept_direct_invite(&bed.relay, &invite).await.unwrap();
+        follow_control(&bed.relay, &joined).await.unwrap();
+
+        bed.swap_to(&owner);
+        follow_control(&bed.relay, &held()).await.unwrap();
+        let vip = create_role_v2(&bed.relay, &held(), "VIP", 0x00ff00, 0).await.unwrap();
+        follow_control(&bed.relay, &held()).await.unwrap();
+        let lounge = create_private_channel(&bed.relay, &held(), "vip-lounge").await.unwrap();
+        follow_control(&bed.relay, &held()).await.unwrap();
+        set_overwrite(&bed.relay, &held(), lounge.0, crate::community::roles::OverwriteTarget::Role(vip.clone()), Permissions::VIEW_CHANNEL, 0).await.unwrap();
+        follow_control(&bed.relay, &held()).await.unwrap();
+        set_member_roles(&bed.relay, &held(), &member.keys.public_key(), vec![vip.clone()]).await.unwrap();
+        follow_control(&bed.relay, &held()).await.unwrap();
+        let _ = access_duty(&bed.relay, &held()).await;
+        let announcements = create_public_channel(&bed.relay, &held(), "announcements").await.unwrap();
+        follow_control(&bed.relay, &held()).await.unwrap();
+        set_overwrite(&bed.relay, &held(), announcements.0, crate::community::roles::OverwriteTarget::Everyone, 0, Permissions::SEND_MESSAGES).await.unwrap();
+        follow_control(&bed.relay, &held()).await.unwrap();
+        send_message(&bed.relay, &held(), &announcements, "welcome, read the rules").await.unwrap();
+        send_message(&bed.relay, &held(), &lounge, "the VIP lounge is open").await.unwrap();
+        set_nickname(&bed.relay, &held(), &owner.keys.public_key(), "The Boss").await.unwrap();
+        timeout_member(&bed.relay, &held(), &member.keys.public_key(), 3600).await.unwrap();
+
+        bed.swap_to(&member);
+        let mine = || crate::db::community::load_community_v2(community.id()).unwrap().unwrap();
+        follow_control(&bed.relay, &mine()).await.unwrap();
+        let collected = collect_access(&bed.relay, &mine()).await.unwrap();
+        assert_eq!(collected, 1, "the member collects the lounge's key");
+        absorb_parked_channel_keys(&mine(), &crate::db::current_session());
+        follow_control(&bed.relay, &mine()).await.unwrap();
+        set_nickname(&bed.relay, &mine(), &member.keys.public_key(), "Newbie").await.unwrap();
+        send_message(&bed.relay, &mine(), &general, "hi all").await.unwrap();
+
+        armada_dump(
+            "members",
+            &bed.relay,
+            &mine(),
+            &[("owner", &owner.keys), ("member", &member.keys)],
+        )
+        .await;
+        if let Ok(dir) = std::env::var("ARMADA_FIXTURES") {
+            let extra = serde_json::json!({ "member_secret": member.keys.secret_key().to_secret_hex(), "member": member.keys.public_key().to_hex(), "owner": owner.keys.public_key().to_hex(), "general": crate::simd::hex::bytes_to_hex_32(&general.0), "announcements": crate::simd::hex::bytes_to_hex_32(&announcements.0), "lounge": crate::simd::hex::bytes_to_hex_32(&lounge.0) });
+            std::fs::write(format!("{dir}/members.actors.json"), serde_json::to_string_pretty(&extra).unwrap()).unwrap();
+        }
     }

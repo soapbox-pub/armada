@@ -169,6 +169,7 @@ import { useDecryptedImage } from "@/concord/hooks/useDecryptedImage";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
 import { useModeration, useReadCutRetry } from "@/concord/hooks/useModeration";
 import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRekeyWatch } from "@/concord/hooks/useRekey";
+import { useChannelAccess } from "@/concord/hooks/useChannelAccess";
 import { useInviteActions } from "@/concord/hooks/useInvites";
 import { channelsHingingOn, isEntitled } from "@/concord/lib/channelAccess";
 import { bytesToHex } from "@/concord/lib/derive";
@@ -1216,6 +1217,7 @@ function ConcordCommunityPage() {
   const { stranded } = useRekeyWatch(baseCommunity);
   // Per-private-channel rotations (CORD-06 §2).
   useChannelRekeyWatch(baseCommunity);
+  useChannelAccess(baseCommunity);
   // Adopt a staff write key delivered in my Grant (CORD-04 §3).
   useStaffKeyWatch(baseCommunity);
   // Keep our live invite links vending the current epoch (CORD-05 §2).
