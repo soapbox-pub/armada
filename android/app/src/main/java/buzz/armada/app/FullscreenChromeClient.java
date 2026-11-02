@@ -1,7 +1,10 @@
 package buzz.armada.app;
 
 import android.graphics.Color;
+import android.net.Uri;
 import android.view.View;
+import android.webkit.GeolocationPermissions;
+import android.webkit.PermissionRequest;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.Toast;
@@ -16,7 +19,8 @@ import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebChromeClient;
 
 /**
- * Capacitor's chrome client, plus HTML fullscreen.
+ * Capacitor's chrome client, plus HTML fullscreen and an origin gate on
+ * permission requests.
  *
  * BridgeWebChromeClient answers onShowCustomView by calling
  * onCustomViewHidden() straight away, so every element fullscreen request —
@@ -27,6 +31,7 @@ import com.getcapacitor.BridgeWebChromeClient;
  */
 public class FullscreenChromeClient extends BridgeWebChromeClient {
     private final AppCompatActivity activity;
+    private final Bridge bridge;
     private View customView;
     private CustomViewCallback customViewCallback;
 
@@ -41,8 +46,38 @@ public class FullscreenChromeClient extends BridgeWebChromeClient {
 
     public FullscreenChromeClient(Bridge bridge) {
         super(bridge);
+        this.bridge = bridge;
         this.activity = bridge.getActivity();
         activity.getOnBackPressedDispatcher().addCallback(activity, exitOnBack);
+    }
+
+    // BridgeWebChromeClient grants capture and geolocation to whichever frame
+    // asks once the app holds the Android permission; a Mini App is sender-
+    // written code in a subframe and must not inherit the app's grant.
+    @Override
+    public void onPermissionRequest(PermissionRequest request) {
+        if (!isAppOrigin(request.getOrigin())) {
+            request.deny();
+            return;
+        }
+        super.onPermissionRequest(request);
+    }
+
+    @Override
+    public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+        if (!isAppOrigin(origin == null ? null : Uri.parse(origin))) {
+            callback.invoke(origin, false, false);
+            return;
+        }
+        super.onGeolocationPermissionsShowPrompt(origin, callback);
+    }
+
+    private boolean isAppOrigin(Uri origin) {
+        if (origin == null) return false;
+        Uri app = Uri.parse(bridge.getLocalUrl());
+        return app.getScheme() != null && app.getScheme().equalsIgnoreCase(origin.getScheme())
+                && app.getEncodedAuthority() != null
+                && app.getEncodedAuthority().equalsIgnoreCase(origin.getEncodedAuthority());
     }
 
     @Override

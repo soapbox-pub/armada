@@ -117,37 +117,32 @@ async function handleFetchRequest(
 }
 
 /**
- * Permissions-policy grant for sandbox iframes. Omits payment, WebAuthn, OTP,
- * FedCM (charge/phishing risk) and `clipboard-write` (sender-supplied code
- * mustn't overwrite the viewer's clipboard).
+ * Permissions-policy grant for sandbox iframes: what a game needs, nothing
+ * that captures or locates the viewer. A delegated feature rides the app
+ * origin's grant with no prompt (and Capacitor's iOS delegate grants capture
+ * outright), so camera, microphone, geolocation and display-capture would hand
+ * sender-written code the viewer's voice-call permissions. Also omits payment,
+ * WebAuthn, OTP, FedCM and `clipboard-write`.
  */
-const SANDBOX_ALLOW = [
+export const SANDBOX_ALLOW = [
   "accelerometer",
-  "ambient-light-sensor",
   "autoplay",
-  "battery",
-  "camera",
-  "compute-pressure",
-  "display-capture",
   "encrypted-media",
   "fullscreen",
   "gamepad",
-  "geolocation",
   "gyroscope",
-  "idle-detection",
   "keyboard-map",
   "magnetometer",
-  "microphone",
-  "midi",
   "picture-in-picture",
   "pointer-lock",
   "screen-wake-lock",
-  "speaker-selection",
-  "storage-access",
   "web-share",
-  "window-management",
   "xr-spatial-tracking",
 ].join("; ");
+
+/** Popups stay sandboxed: an escaped one is an unsandboxed page the Mini App's author chose. */
+export const SANDBOX_FLAGS =
+  "allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock";
 
 /**
  * Sandboxed frame on a unique subdomain (`<id>.<SANDBOX_DOMAIN>`) implementing
@@ -293,7 +288,7 @@ export const SandboxFrame = forwardRef<SandboxFrameHandle, SandboxFrameProps>(
         // Defense-in-depth on top of subdomain isolation. allow-same-origin is
         // needed for storage and the iframe.diy Service Worker; allow-top-navigation
         // is omitted to prevent phishing redirects.
-        sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads allow-pointer-lock"
+        sandbox={SANDBOX_FLAGS}
         {...iframeProps}
       />
     );

@@ -1,23 +1,26 @@
 import { Blocks } from "lucide-react";
+import { useMemo } from "react";
 
 import { Webxdc } from "@/components/Webxdc";
+import { appScopeKey, type AppScope } from "@/contexts/AppsContext";
 import { useIntl } from "@/i18n";
 import { useWebxdcApi, type AppSync } from "@/hooks/useWebxdcApi";
-import { deriveIframeSubdomain } from "@/lib/iframeSubdomain";
+import { webxdcSubdomain } from "@/lib/iframeSubdomain";
 import type { ImetaEncryption } from "@/lib/imeta";
 
 /**
  * Runs a `.xdc` app in the cross-origin sandbox, backing `window.webxdc` with
- * {@link AppSync}. The sandbox subdomain derives privately from the session id
- * to isolate the app's origin-keyed storage.
+ * {@link AppSync}.
  */
 export function WebxdcApp({
+  scope,
   sync,
   url,
   sessionId,
   name,
   encryption,
 }: {
+  scope: AppScope;
   sync: AppSync;
   url: string;
   sessionId: string;
@@ -27,7 +30,13 @@ export function WebxdcApp({
   const intl = useIntl();
   const api = useWebxdcApi(sync);
   const title = name ?? intl.formatMessage({ id: "webxdcApp.defaultName", defaultMessage: "Webxdc app" });
-  const iframeId = deriveIframeSubdomain("webxdc", sessionId);
+  // Keyed on the scope KEY: a Concord rotation replaces the scope object only.
+  const scopeKey = appScopeKey(scope);
+  const iframeId = useMemo(
+    () => webxdcSubdomain(scopeKey, sessionId, url, encryption),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scopeKey, sessionId, url, encryption?.key, encryption?.nonce],
+  );
 
   return (
     <div className="relative w-full overflow-hidden rounded-lg bg-white" style={{ height: "min(70vh, 600px)" }}>

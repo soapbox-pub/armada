@@ -14,6 +14,8 @@ function hexToBase36(hex: string): string {
 
 const SEED_KEY = "armada:sandbox-seed";
 
+let ephemeralSeed: string | undefined;
+
 /**
  * Device-local secret seed, so third parties can't guess another app's sandbox
  * subdomain and reach its origin-keyed storage.
@@ -26,8 +28,8 @@ function getSeed(): string {
     localStorage.setItem(SEED_KEY, seed);
     return seed;
   } catch {
-    // Private mode / no storage: fall back to an ephemeral per-session seed.
-    return "armada-ephemeral-sandbox-seed";
+    // Private mode / no storage: a per-session seed, still unguessable.
+    return (ephemeralSeed ??= crypto.randomUUID());
   }
 }
 
@@ -39,4 +41,22 @@ export function deriveIframeSubdomain(prefix: string, identifier: string): strin
   const enc = new TextEncoder();
   const mac = hmac(sha256, enc.encode(getSeed()), enc.encode(`${prefix}|${identifier}`));
   return hexToBase36(bytesToHex(mac));
+}
+
+/**
+ * A Mini App's sandbox subdomain. The session id (webxdc topic) is the
+ * sender's choice, so the chat and the app's bytes (URL and decryption key)
+ * are bound in too: an app reusing a topic seen elsewhere gets a fresh origin,
+ * not that app's storage.
+ */
+export function webxdcSubdomain(
+  scopeKey: string,
+  sessionId: string,
+  url: string,
+  encryption?: { key: string; nonce: string },
+): string {
+  return deriveIframeSubdomain(
+    "webxdc",
+    JSON.stringify([scopeKey, sessionId, url, encryption?.key ?? "", encryption?.nonce ?? ""]),
+  );
 }

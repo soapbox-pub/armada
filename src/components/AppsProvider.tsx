@@ -32,11 +32,11 @@ function appHeader(app: AppKind): { label: React.ReactNode; icon: React.ReactNod
   };
 }
 
-function AppSurface({ app, sessionId, sync }: { app: AppKind; sessionId: string; sync: AppSync }) {
+function AppSurface({ scope, app, sessionId, sync }: { scope: AppScope; app: AppKind; sessionId: string; sync: AppSync }) {
   if (app.type === "youtube") {
     return <Watchalong sync={sync} />;
   }
-  return <WebxdcApp sync={sync} url={app.url} sessionId={sessionId} name={app.name} encryption={app.encryption} />;
+  return <WebxdcApp scope={scope} sync={sync} url={app.url} sessionId={sessionId} name={app.name} encryption={app.encryption} />;
 }
 
 function Nip29RunningApp({
@@ -129,7 +129,7 @@ function RunningApp({
           </div>
           {stageOpen && (
             <div className="px-3 pb-3 max-h-[80vh] overflow-y-auto">
-              <AppSurface app={active.app} sessionId={active.sessionId} sync={sync} />
+              <AppSurface scope={active.scope} app={active.app} sessionId={active.sessionId} sync={sync} />
             </div>
           )}
         </div>
