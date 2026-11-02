@@ -4,6 +4,7 @@ import { Blocks, ImageOff, Loader2, Users } from "lucide-react";
 import { SearchField } from "@/components/ui/search-field";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useFollowList } from "@/hooks/useFollowList";
+import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { useWebxdcApps, type WebxdcApp } from "@/hooks/useWebxdcApps";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
 import { cn } from "@/lib/utils";
@@ -12,7 +13,7 @@ import { FormattedMessage, useIntl } from "@/i18n";
 function GameRow({ app, onSelect }: { app: WebxdcApp; onSelect: (app: WebxdcApp) => void }) {
   const [iconError, setIconError] = useState(false);
   // Icon URL is publisher-controlled.
-  const icon = sanitizeImageSrc(app.icon);
+  const icon = useMediaSrc(sanitizeImageSrc(app.icon));
   return (
     <button
       type="button"

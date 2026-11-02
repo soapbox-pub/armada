@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { useMediaWithFallback } from "@/hooks/useMediaWithFallback";
 import { useWebxdcApi, type AppSync } from "@/hooks/useWebxdcApi";
 import { useYouTubeTitle } from "@/hooks/useYouTubeTitle";
@@ -32,6 +33,7 @@ import {
   type WatchSnapshot,
 } from "@/lib/watchalong";
 import { loadYouTubeApi, YT_STATE, type YTPlayer } from "@/lib/youtubeApi";
+import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
 import { cn } from "@/lib/utils";
 import { common, FormattedMessage, useIntl } from "@/i18n";
 
@@ -563,6 +565,7 @@ function QueueRow({
 }) {
   const intl = useIntl();
   const { data: meta } = useYouTubeTitle(item.videoId);
+  const thumbnail = useMediaSrc(sanitizeImageSrc(meta?.thumbnail));
   const author = useAuthor(item.addedBy);
   const adderName = item.addedBy ? getDisplayName(author.data?.metadata, item.addedBy) : undefined;
 
@@ -586,8 +589,8 @@ function QueueRow({
         <div className="relative flex h-9 w-14 shrink-0 items-center justify-center overflow-hidden clip-corner bg-black/80">
           {item.playlistId ? (
             <ListVideo className="size-4 text-white/80" />
-          ) : meta?.thumbnail ? (
-            <img src={meta.thumbnail} alt="" className="h-full w-full object-cover" />
+          ) : thumbnail ? (
+            <img src={thumbnail} alt="" className="h-full w-full object-cover" />
           ) : (
             <MonitorPlay className="size-4 text-white/80" />
           )}

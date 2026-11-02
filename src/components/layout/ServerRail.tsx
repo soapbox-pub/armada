@@ -58,6 +58,7 @@ import { getAvatarShape } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { relayToRouteParam } from "@/lib/platform";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
+import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { SETTINGS_PATH, SettingsOverlayContext } from "@/lib/settingsOverlay";
 import {
   applyDrop,
@@ -170,7 +171,7 @@ function ServerMiniIcon({ url }: { url: string }) {
   const name = info?.name || relayHost(url);
   const initial = name.trim().charAt(0).toUpperCase() || "?";
   // NIP-11 icon is relay-controlled.
-  const icon = sanitizeImageSrc(info?.icon);
+  const icon = useMediaSrc(sanitizeImageSrc(info?.icon));
   return (
     <span className="relative flex items-center justify-center overflow-hidden rounded-sm bg-secondary">
       {icon ? (

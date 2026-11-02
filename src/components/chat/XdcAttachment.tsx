@@ -3,6 +3,7 @@ import { Blocks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApps } from "@/hooks/useApps";
 import { useChatScope } from "@/hooks/useChatScope";
+import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { deriveUrlTopicId } from "@/lib/webxdcRealtime";
 import { appScopeKey } from "@/contexts/AppsContext";
 import type { ImetaEntry } from "@/lib/imeta";
@@ -33,7 +34,7 @@ export function XdcAttachment({
   // the URL and message id; otherwise each client gets a solo session.
   const sessionId = imeta?.webxdc ?? (messageId ? deriveUrlTopicId(url, messageId) : undefined);
   // An encrypted attachment's thumb is ciphertext; only show plaintext icons.
-  const icon = imeta?.encryption || hideIcon ? undefined : sanitizeImageSrc(imeta?.thumbnail);
+  const icon = useMediaSrc(imeta?.encryption || hideIcon ? undefined : sanitizeImageSrc(imeta?.thumbnail));
 
   const openHere = Boolean(
     activeApp &&

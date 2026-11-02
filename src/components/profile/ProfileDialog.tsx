@@ -678,20 +678,22 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function FieldValue({ value }: { value: string }) {
   const url = sanitizeUrl(value);
   const embeddable = url && !isLocalNetworkUrl(url) ? url : undefined;
+  // The profile's owner named the host; the viewer's request goes through the media policy.
+  const src = useMediaSrc(embeddable);
 
-  if (embeddable && IMAGE_EXT.test(embeddable)) {
+  if (embeddable && src && IMAGE_EXT.test(embeddable)) {
     return (
       <a href={embeddable} target="_blank" rel="noopener noreferrer" className="block mt-1.5">
-        <img src={embeddable} alt="" className="w-full rounded-lg object-cover" loading="lazy" decoding="async" />
+        <img src={src} alt="" className="w-full rounded-lg object-cover" loading="lazy" decoding="async" />
       </a>
     );
   }
-  if (embeddable && AUDIO_EXT.test(embeddable)) {
-    return <audio controls preload="none" src={embeddable} className="mt-1.5 w-full h-10" />;
+  if (embeddable && src && AUDIO_EXT.test(embeddable)) {
+    return <audio controls preload="none" src={src} className="mt-1.5 w-full h-10" />;
   }
-  if (embeddable && VIDEO_EXT.test(embeddable)) {
+  if (embeddable && src && VIDEO_EXT.test(embeddable)) {
     return (
-      <video controls preload="metadata" src={embeddable} className="mt-1.5 w-full rounded-lg" />
+      <video controls preload="metadata" src={src} className="mt-1.5 w-full rounded-lg" />
     );
   }
   if (!url && EMAIL_RE.test(value.trim())) {

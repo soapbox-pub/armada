@@ -41,6 +41,7 @@ import { common, FormattedMessage, t, useIntl } from "@/i18n";
 import { groupRefsOn, missingGroupIds } from "@/lib/nip29";
 import { relayToRouteParam } from "@/lib/platform";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
+import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { cn } from "@/lib/utils";
 import { writeClipboardText } from "@/lib/clipboard";
 import { shareOrigin } from "@/lib/shareOrigin";
@@ -308,8 +309,9 @@ export function ChannelSidebar({ relayUrl, onNavigate, className }: ChannelSideb
 
   const serverName = relayInfo?.name || relayUrl.replace(/^wss?:\/\//, "");
   // NIP-11 fields are relay-controlled, so sanitize.
-  const relayIcon = sanitizeImageSrc(relayInfo?.icon);
-  const relayBanner = sanitizeImageSrc(relayInfo?.banner);
+  // Its host is the relay's choice too, so the load goes through the media policy.
+  const relayIcon = useMediaSrc(sanitizeImageSrc(relayInfo?.icon));
+  const relayBanner = useMediaSrc(sanitizeImageSrc(relayInfo?.banner));
 
   return (
     <ChannelSidebarView

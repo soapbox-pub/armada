@@ -24,6 +24,7 @@ import { useServerActions } from "@/hooks/useServerActions";
 import { useIsBuzzRelay } from "@/buzz/detect";
 import { relayToRouteParam, routeParamToRelay } from "@/lib/platform";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
+import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { activateScope, nip29Scope } from "@/wire/activation";
 
 /** Server home (drill-down level 1); the info pane is desktop-only. */
@@ -43,6 +44,7 @@ export function ServerPage() {
     useServerActions(relayUrl ?? "");
 
   const { data: groups, isLoading, isError, relayInfo } = useRelayGroups(relayUrl);
+  const relayIcon = useMediaSrc(sanitizeImageSrc(relayInfo?.icon));
   // Buzz: hide DM (hidden) groups and the "Invite-only" badge (Buzz marks every channel `closed`).
   const { isBuzz } = useIsBuzzRelay(relayUrl);
   const visibleGroups = isBuzz ? groups?.filter((g) => !g.isHidden) : groups;
@@ -64,7 +66,7 @@ export function ServerPage() {
           <div className="flex items-start gap-4">
             <div className="flex size-16 items-center justify-center clip-corner-lg bg-primary/10 shrink-0 overflow-hidden">
               <img
-                src={sanitizeImageSrc(relayInfo?.icon) || "/logo.svg"}
+                src={relayIcon || "/logo.svg"}
                 alt={relayInfo?.name || "Armada"}
                 className="size-16 object-cover"
               />
