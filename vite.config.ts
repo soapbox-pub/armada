@@ -9,6 +9,7 @@ import { configDefaults } from "vitest/config";
 
 import { buildConfigPlugin, loadBuildConfig } from "./src/build/buildConfig";
 import { manualChunks } from "./src/build/manualChunks";
+import { oneByteScripts } from "./src/build/oneByteScripts";
 
 /**
  * Short commit SHA — prefer CI env var, fall back to git. Empty string if
@@ -379,7 +380,7 @@ export default defineConfig({
       ignored: [...BUILD_ARTIFACT_EXCLUDES, "**/electron/.dev-profile/**"],
     },
   },
-  plugins: [react(), buildConfigPlugin(), buildStamp(), serveChangelog(), serviceWorker(), npanelPreview()],
+  plugins: [react(), buildConfigPlugin(), buildStamp(), serveChangelog(), serviceWorker(), npanelPreview(), oneByteScripts()],
   optimizeDeps: {
     // Pin the dep-scanner's entry points to the real HTML entries. Left to its
     // default the scanner GLOBS `**/*.html` from the project root, and that
@@ -399,6 +400,7 @@ export default defineConfig({
   worker: {
     // The video worker is an ES module (`new Worker(…, { type: "module" })`).
     format: "es",
+    plugins: () => [oneByteScripts()],
   },
   define: {
     "import.meta.env.VERSION": JSON.stringify(getVersion()),
