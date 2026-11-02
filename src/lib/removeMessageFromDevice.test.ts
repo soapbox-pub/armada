@@ -73,6 +73,22 @@ describe("removeMessageFromDevice", () => {
     expect(await getArmadaDB().tenant("c2:never-opened").query([{}])).toEqual([]);
   });
 
+  it("forgets the author's edits of it too, and refuses them if re-delivered", async () => {
+    const target = rumor("e".repeat(64));
+    const edit = rumor("d".repeat(64), { kind: 3302, content: "edited abuse", tags: [["e", target.id]] });
+    const foreign = rumor("c".repeat(64), { kind: 3302, pubkey: "b".repeat(64), tags: [["e", target.id]] });
+    const store = getArmadaDB().tenant("c2:a");
+    await store.event(target);
+    await store.event(edit);
+    await store.event(foreign);
+
+    await removeMessageFromDevice(viewer, target);
+
+    expect((await store.query([{ kinds: [3302] }])).map((r) => r.id)).toEqual([foreign.id]);
+    await store.event(edit);
+    expect(await store.query([{ ids: [edit.id] }])).toEqual([]);
+  });
+
   it("takes it out of the persisted channel and DM thread snapshots", async () => {
     const row = (rumorId: string) => ({ rumorId, ms: 1000, createdAt: 1, channelIdHex: "c", tags: [], content: rumorId });
     await persistTimelineSnapshot(viewer, "c", [row("gone"), row("kept")] as unknown as OpenedChat[]);

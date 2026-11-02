@@ -1,4 +1,6 @@
+import { KIND_STREAM_MESSAGE_EDIT } from "@/buzz/kinds";
 import { forgetChatRumor } from "@/concord/lib/chat";
+import { KIND_EDIT } from "@/concord/lib/kinds";
 import { scrubTimelineSnapshots } from "@/concord/hooks/timelineSnapshot";
 import { forgetStoredSeals } from "@/concord/lib/rumorStore";
 import { forgetRenderedPlaintext } from "@/hooks/dmRenderCache";
@@ -11,6 +13,7 @@ import { addRemovedMessageId } from "@/lib/removedMessages";
 import { scrubMessageFromQueries } from "@/lib/scrubQueryCache";
 
 import type { ArmadaDB } from "@/lib/db/types";
+import type { NostrRumor } from "@/lib/nostrRumor";
 import type { QueryClient } from "@tanstack/react-query";
 
 /** A community's tenant id prefix (`communityTenant`). */
@@ -77,16 +80,25 @@ export async function removeMessageFromDevice(
   if (opts.queryClient) scrubMessageFromQueries(opts.queryClient, message.id);
 
   const db = getArmadaDB();
-  await db.forget([message.id]);
   const tenants = await tenantIdsOf(db);
+  // An edit is its own rumor holding the edited text, so it goes the same way.
+  const edits = await editsOf(db, tenants, message);
+  for (const edit of edits) {
+    forgetChatRumor(edit.id);
+    forgetRenderedPlaintext(edit.id);
+    if (opts.queryClient) scrubMessageFromQueries(opts.queryClient, edit.id);
+  }
+  await db.forget([message.id, ...edits.map((edit) => edit.id)]);
 
+  const communities = tenants.filter((id) => id.startsWith(C2_TENANT)).map((id) => id.slice(C2_TENANT.length));
   const counterparty = message.pubkey === self
     ? message.tags.find(([name]) => name === "p")?.[1]
     : message.pubkey;
   await Promise.all([
     scrubTimelineSnapshots(message.id),
     scrubDm17ThreadSnapshots(message.id),
-    forgetStoredSeals(tenants.filter((id) => id.startsWith(C2_TENANT)).map((id) => id.slice(C2_TENANT.length)), message.id),
+    forgetStoredSeals(communities, message.id),
+    ...edits.map((edit) => forgetStoredSeals(communities, edit.id)),
     forgetDecryptsOfRumor(self, message),
     // Kind 4's body is the ciphertext; its one decrypt is addressed by it.
     message.kind === 4 && counterparty
@@ -94,5 +106,18 @@ export async function removeMessageFromDevice(
       : Promise.resolve(),
   ]);
 
-  evictMessageMedia(message.tags, message.content, await otherUsersOfMedia(db, message));
+  for (const removed of [message, ...edits]) {
+    evictMessageMedia(removed.tags, removed.content, await otherUsersOfMedia(db, removed));
+  }
+}
+
+/** The author's own edits of `message` (Concord 3302, Buzz 40003), in every tenant. */
+async function editsOf(db: ArmadaDB, tenants: string[], message: RemovedMessage): Promise<NostrRumor[]> {
+  const reads = tenants.map((tenant) =>
+    db.tenant(tenant)
+      .query([{ kinds: [KIND_EDIT, KIND_STREAM_MESSAGE_EDIT], authors: [message.pubkey], "#e": [message.id], limit: 200 }])
+      .catch(() => [] as NostrRumor[]));
+  const byId = new Map<string, NostrRumor>();
+  for (const rows of await Promise.all(reads)) for (const row of rows) byId.set(row.id, row);
+  return [...byId.values()];
 }
