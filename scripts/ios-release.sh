@@ -20,8 +20,17 @@
 # Usage:
 #   scripts/ios-release.sh                 # version from the tag at HEAD
 #   scripts/ios-release.sh v0.31.1         # explicit tag
-#   ARCHIVE=1 scripts/ios-release.sh       # archive for distribution instead of
-#                                          # a simulator build
+#   ARCHIVE=1 scripts/ios-release.sh       # archive and export an App Store
+#                                          # .ipa instead of a simulator build
+#   ARCHIVE=1 UPLOAD=1 scripts/ios-release.sh   # ...and upload it to App Store
+#                                               # Connect (TestFlight)
+#
+# The export signs manually, with the Apple Distribution identity named by
+# IOS_DIST_IDENTITY (a SHA-1, so a same-named certificate elsewhere in the
+# keychain search list can't be picked instead) and the App Store profiles
+# named below. Run ~/bin/unlock-signing first. The archive and upload
+# authenticate with the App Store Connect API key in ASC_KEY_ID /
+# ASC_ISSUER_ID / ASC_KEY_PATH.
 
 set -euo pipefail
 
@@ -60,13 +69,92 @@ COMMON=(
 )
 
 if [ "${ARCHIVE:-}" = "1" ]; then
-  xcodebuild "${COMMON[@]}" \
+  TEAM_ID=GZLTTH5DLM
+  DIST_IDENTITY="${IOS_DIST_IDENTITY:-6362D25BB1D97984B8C54157FB85BA02514DE489}"
+  APP_PROFILE="${IOS_APP_PROFILE:-Armada App Store buzz.armada.app 2026-11}"
+  EXT_PROFILE="${IOS_EXT_PROFILE:-Armada App Store buzz.armada.app.NotificationService 2026-11}"
+  ASC_KEY_ID="${ASC_KEY_ID:-Y9HH9P7CF6}"
+  ASC_ISSUER_ID="${ASC_ISSUER_ID:-4b9a9c95-0387-442a-b2f9-139c84570228}"
+  ASC_KEY_PATH="${ASC_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8}"
+  AUTH=(
+    -allowProvisioningUpdates
+    -authenticationKeyPath "$ASC_KEY_PATH"
+    -authenticationKeyID "$ASC_KEY_ID"
+    -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+  )
+  ARCHIVE_PATH="build/Armada-$VERSION_NAME.xcarchive"
+  EXPORT_PATH="build/Armada-$VERSION_NAME-export"
+
+  # The archive is signed for development; the export re-signs it for the
+  # store with the profiles named here.
+  xcodebuild "${COMMON[@]}" "${AUTH[@]}" \
     -configuration Release \
     -destination 'generic/platform=iOS' \
-    -archivePath "build/Armada-$VERSION_NAME.xcarchive" \
+    -archivePath "$ARCHIVE_PATH" \
     archive
-  echo "Archived to ios/App/build/Armada-$VERSION_NAME.xcarchive"
-  echo "Export/upload from Xcode's Organizer, or with xcodebuild -exportArchive."
+
+  export_options() {
+    cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>method</key><string>app-store-connect</string>
+  <key>destination</key><string>$1</string>
+  <key>teamID</key><string>$TEAM_ID</string>
+  <key>signingStyle</key><string>manual</string>
+  <key>signingCertificate</key><string>$DIST_IDENTITY</string>
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>buzz.armada.app</key><string>$APP_PROFILE</string>
+    <key>buzz.armada.app.NotificationService</key><string>$EXT_PROFILE</string>
+  </dict>
+  <key>uploadSymbols</key><true/>
+  <key>manageAppVersionAndBuildNumber</key><false/>
+</dict>
+</plist>
+EOF
+  }
+  mkdir -p build
+  export_options export > build/ExportOptions.plist
+  export_options upload > build/UploadOptions.plist
+
+  rm -rf "$EXPORT_PATH"
+  xcodebuild -exportArchive "${AUTH[@]}" \
+    -archivePath "$ARCHIVE_PATH" \
+    -exportOptionsPlist build/ExportOptions.plist \
+    -exportPath "$EXPORT_PATH"
+
+  # Check the signed entitlements before anything reaches App Store Connect:
+  # a store build must be on production APNs, and without the App Group the
+  # extension can open neither the database nor its config.
+  PAYLOAD="$(mktemp -d)"
+  unzip -q "$EXPORT_PATH"/*.ipa -d "$PAYLOAD"
+  APP="$PAYLOAD/Payload/App.app"
+  # PlistBuddy, not plutil: plutil's keypaths split on the dots in the keys.
+  check() {
+    local bundle="$1" key="$2" want="$3" got
+    codesign -d --entitlements - --xml "$bundle" > "$PAYLOAD/entitlements.plist" 2>/dev/null
+    got="$(/usr/libexec/PlistBuddy -c "Print :$key" "$PAYLOAD/entitlements.plist" 2>/dev/null || true)"
+    if [ "$got" != "$want" ]; then
+      echo "error: $(basename "$bundle") $key is '$got', expected '$want'" >&2
+      exit 1
+    fi
+  }
+  check "$APP" aps-environment production
+  check "$APP" com.apple.security.application-groups:0 group.buzz.armada.app
+  check "$APP" get-task-allow false
+  check "$APP/PlugIns/NotificationService.appex" com.apple.security.application-groups:0 group.buzz.armada.app
+  rm -rf "$PAYLOAD"
+  echo "Exported $(ls "$EXPORT_PATH"/*.ipa)"
+
+  if [ "${UPLOAD:-}" = "1" ]; then
+    xcodebuild -exportArchive "${AUTH[@]}" \
+      -archivePath "$ARCHIVE_PATH" \
+      -exportOptionsPlist build/UploadOptions.plist \
+      -exportPath "build/Armada-$VERSION_NAME-upload"
+    echo "Uploaded $VERSION_NAME (build $VERSION_CODE) to App Store Connect"
+  fi
 else
   xcodebuild "${COMMON[@]}" \
     -sdk iphonesimulator \
