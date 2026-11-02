@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { BotPill } from "@/components/BotPill";
 import { UltraPill } from "@/components/UltraPill";
-import { EmojifiedText } from "@/components/chat/CustomEmoji";
+import { DisplayName } from "@/components/DisplayName";
 import { SearchField } from "@/components/ui/search-field";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
@@ -178,7 +178,7 @@ function ProfileRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 min-w-0">
           <div className="truncate text-sm font-semibold">
-            <EmojifiedText tags={profile.event.tags}>{displayName}</EmojifiedText>
+            <DisplayName pubkey={pubkey} name={displayName} tags={profile.event.tags} />
           </div>
           <BotPill metadata={metadata} />
           <UltraPill metadata={metadata} />
