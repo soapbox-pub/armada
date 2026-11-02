@@ -62,6 +62,13 @@ export interface DesktopLaunchSettings {
   openAsHidden: boolean;
 }
 
+/** Low memory mode as the shell has it: what this launch runs, what the next will. */
+export interface DesktopLowMemoryState {
+  active: boolean;
+  configured: boolean;
+  restartRequired: boolean;
+}
+
 export type DesktopVideoEncoderMode = "compatibility" | "hardware";
 
 export interface DesktopVideoEncoderState {
@@ -162,6 +169,9 @@ interface ArmadaDesktopBridge {
     openAtLogin: boolean;
     openAsHidden: boolean;
   }) => Promise<DesktopLaunchSettings>;
+  getLowMemoryMode?: () => Promise<DesktopLowMemoryState>;
+  setLowMemoryMode?: (on: boolean) => Promise<DesktopLowMemoryState>;
+  relaunch?: () => Promise<void>;
   getVideoEncoderMode?: () => Promise<DesktopVideoEncoderState>;
   setVideoEncoderMode?: (mode: DesktopVideoEncoderMode) => Promise<DesktopVideoEncoderState>;
   getHevcScreenShareCapability?: () => Promise<DesktopHevcScreenShareCapability>;
@@ -219,6 +229,27 @@ export function desktop(): ArmadaDesktopBridge | undefined {
 export const isDesktop = (): boolean => Boolean(desktop()?.isDesktop);
 
 // Bridge wrappers treat a failing shell as "no answer" rather than propagating.
+export async function getDesktopLowMemoryState(): Promise<DesktopLowMemoryState | null> {
+  try {
+    return (await desktop()?.getLowMemoryMode?.()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setDesktopLowMemoryMode(on: boolean): Promise<DesktopLowMemoryState | null> {
+  try {
+    return (await desktop()?.setLowMemoryMode?.(on)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Restart the desktop app. No-op on web/older shells. */
+export function relaunchDesktop(): void {
+  void desktop()?.relaunch?.()?.catch(() => {});
+}
+
 export async function getDesktopVideoEncoderState(): Promise<DesktopVideoEncoderState | null> {
   try {
     return (await desktop()?.getVideoEncoderMode?.()) ?? null;

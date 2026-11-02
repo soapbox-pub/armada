@@ -34,6 +34,7 @@ import { AboutSettings, SupportSettings } from "@/components/settings/AboutSetti
 import { AccountSettings } from "@/components/settings/AccountSettings";
 import { ChatSettings } from "@/components/settings/ChatSettings";
 import { DesktopSettings } from "@/components/settings/DesktopSettings";
+import { LowMemorySettings } from "@/components/settings/LowMemorySettings";
 import { DiagnosticsSettings } from "@/components/settings/DiagnosticsSettings";
 import { DirectMessageSettings } from "@/components/settings/DirectMessageSettings";
 import { EmojiPackSettings } from "@/components/settings/EmojiPackSettings";
@@ -271,10 +272,11 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
         title: intl.formatMessage({ id: "settingsPage.desktop.title", defaultMessage: "Desktop" }),
         icon: Monitor,
         tone: "muted",
-        summary: intl.formatMessage({ id: "settingsPage.desktop.summary", defaultMessage: "Startup and the tray" }),
+        summary: intl.formatMessage({ id: "settingsPage.desktop.summary", defaultMessage: "Startup, the tray and memory" }),
         render: () => (
           <SettingsGroup id="desktop">
             <DesktopSettings />
+            <LowMemorySettings />
           </SettingsGroup>
         ),
       };

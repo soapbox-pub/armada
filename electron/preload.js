@@ -154,6 +154,11 @@ contextBridge.exposeInMainWorld("armadaDesktop", {
     ipcRenderer.invoke("armada:set-launch-settings", settings),
 
   /** Linux WebRTC encoder policy. Changes take effect after an app restart. */
+  /** Low memory mode: { active, configured, restartRequired }. Applies from the next launch. */
+  getLowMemoryMode: () => ipcRenderer.invoke("armada:low-memory-mode"),
+  setLowMemoryMode: (on) => ipcRenderer.invoke("armada:set-low-memory-mode", on === true),
+  /** Restart the app, e.g. to apply low memory mode. */
+  relaunch: () => ipcRenderer.invoke("armada:relaunch"),
   getVideoEncoderMode: () => ipcRenderer.invoke("armada:video-encoder-mode"),
   setVideoEncoderMode: (mode) => ipcRenderer.invoke("armada:set-video-encoder-mode", mode),
 

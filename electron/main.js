@@ -102,6 +102,7 @@ const {
 const { displayMediaGrant, displayMediaHandlerOptions } = require("./displayMediaPolicy");
 const { installYouTubeEmbedIdentity } = require("./youtubeEmbedIdentity");
 const { allowPermissionCheck, allowPermissionRequest } = require("./permissionPolicy");
+const { configureLowMemory, readLowMemoryMode, writeLowMemoryMode } = require("./lowMemory");
 
 // Encoder selection is process-wide in Chromium and must be installed before
 // app readiness (and therefore before the GPU process starts). Software is the
@@ -114,6 +115,10 @@ configureLinuxVideoEncoding({
   commandLine: app.commandLine,
   mode: activeLinuxVideoEncoderMode,
 });
+
+// Process-wide V8 flags, so also before readiness (see lowMemory.js).
+const activeLowMemoryMode = readLowMemoryMode({ userDataPath: app.getPath("userData") });
+configureLowMemory({ commandLine: app.commandLine, on: activeLowMemoryMode });
 
 // Keep Linux's desktop-file identity stable in both the AppImage and Flatpak.
 // Electron must receive this before ready so notifications and tray hosts can
@@ -1837,6 +1842,24 @@ function installIpc() {
     active: process.platform === "linux" ? activeLinuxVideoEncoderMode : null,
     configured: readLinuxVideoEncoderMode({ userDataPath: app.getPath("userData") }),
   }));
+  const lowMemoryState = () => {
+    const configured = readLowMemoryMode({ userDataPath: app.getPath("userData") });
+    return { active: activeLowMemoryMode, configured, restartRequired: configured !== activeLowMemoryMode };
+  };
+  ipcMain.handle("armada:low-memory-mode", lowMemoryState);
+  handleFromMainWindow("armada:set-low-memory-mode", (_event, on) => {
+    try {
+      writeLowMemoryMode(on === true, { userDataPath: app.getPath("userData") });
+    } catch (error) {
+      console.warn("failed to save low memory mode", error);
+    }
+    return lowMemoryState();
+  });
+  handleFromMainWindow("armada:relaunch", () => {
+    isQuitting = true;
+    app.relaunch();
+    app.quit();
+  });
   handleFromMainWindow("armada:set-video-encoder-mode", (_event, mode) => {
     try {
       const saved = writeLinuxVideoEncoderMode(mode, { userDataPath: app.getPath("userData") });
