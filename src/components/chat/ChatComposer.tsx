@@ -91,7 +91,7 @@ import { describeRefusal, uploadFailureReason } from "@/lib/blossomPreflight";
 import { KIND_GROUP_CHAT, relayRejectionMessage } from "@/lib/nip29";
 import { canDecodeImage, makeImageThumb, resizeImage } from "@/lib/resizeImage";
 import { parseChatRoute, roomPath } from "@/lib/routes";
-import { undecodableImageAsFile } from "@/lib/undecodableImage";
+import { PICKED_IMAGE_HEAD_BYTES, sniffPickedImage, undecodableImageAsFile } from "@/lib/undecodableImage";
 import { consumeShareFor, onShareStashChanged } from "@/lib/shareTarget";
 import { recordSent } from "@/lib/shareTargets";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
@@ -1134,6 +1134,17 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
       const modelMime = modelMimeFromExt(ext);
       let mime = modelMime ?? (file.type || mimeFromExt(ext));
+      // The reported type is a guess; an image's bytes are not. One labelled as
+      // anything but media must still go through the metadata rules below.
+      if (!modelMime && !/^(image|video|audio)\//.test(mime)) {
+        const sniffed = sniffPickedImage(new Uint8Array(await file.slice(0, PICKED_IMAGE_HEAD_BYTES).arrayBuffer()));
+        if (abort.signal.aborted) return;
+        if (sniffed) {
+          mime = sniffed;
+          // Re-typed: resizeImage reads the file's own type.
+          file = new File([file], file.name, { type: sniffed, lastModified: file.lastModified });
+        }
+      }
       // No decoder for it here (a camera RAW, TIFF, HEIC outside Safari): sent as a
       // file card with its metadata blanked, or not at all where that can't be done.
       if (mime.startsWith("image/") && !(await canDecodeImage(file, mime))) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { undecodableImageAsFile } from "./undecodableImage";
+import { sniffPickedImage, undecodableImageAsFile } from "./undecodableImage";
 
 const CAMERA = "SECRETCAM";
 /** The GPS latitude's degrees numerator: findable in the bytes if it survives. */
@@ -113,5 +113,30 @@ describe("undecodableImageAsFile", () => {
   it("refuses a format whose metadata it can't find", async () => {
     const cr3ish = new Uint8Array([0, 0, 0, 0x18, ...ascii("ftypcrx "), 0, 0, 0, 1, ...ascii("crx isom"), ...ascii(CAMERA)]);
     expect(await undecodableImageAsFile(new File([cr3ish], "IMG_0001.CR3", { type: "image/x-canon-cr3" }))).toBeUndefined();
+  });
+});
+
+describe("sniffPickedImage", () => {
+  const head = (...bytes: number[]) => new Uint8Array([...bytes, ...new Array(64).fill(0)].slice(0, 64));
+
+  it("names an untyped camera file an image, whatever its extension said", () => {
+    expect(sniffPickedImage(head(0xff, 0xd8, 0xff, 0xe1))).toBe("image/jpeg");
+    expect(sniffPickedImage(head(0x49, 0x49, 0x2a, 0))).toBe("image/tiff");
+    expect(sniffPickedImage(head(0x4d, 0x4d, 0, 0x2a))).toBe("image/tiff");
+    expect(sniffPickedImage(head(0, 0, 0, 0x18, ...ascii("ftypheic")))).toBe("image/heic");
+    expect(sniffPickedImage(head(0, 0, 0, 0x18, ...ascii("ftypmsf1")))).toBe("image/heif");
+  });
+
+  it("names the RAWs it can't strip, so they are refused rather than sent", () => {
+    expect(sniffPickedImage(head(0, 0, 0, 0x18, ...ascii("ftypcrx ")))).toBe("image/x-canon-cr3");
+    expect(sniffPickedImage(head(...ascii("IIRO")))).toBe("image/x-raw");
+    expect(sniffPickedImage(head(...ascii("IIU"), 0))).toBe("image/x-raw");
+  });
+
+  it("leaves everything else alone", () => {
+    expect(sniffPickedImage(head(...ascii("%PDF-1.7")))).toBeUndefined();
+    expect(sniffPickedImage(head(...ascii("PK"), 3, 4))).toBeUndefined();
+    expect(sniffPickedImage(head(0, 0, 0, 0x18, ...ascii("ftypisom")))).toBeUndefined();
+    expect(sniffPickedImage(new Uint8Array())).toBeUndefined();
   });
 });
