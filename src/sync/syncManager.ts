@@ -17,6 +17,7 @@ import { isBootGateOpen, onBootGateOpen } from "@/lib/bootGate";
 import { KvPrefixCache } from "@/lib/db/kvCache";
 import { isMeteredNetwork, onMeteredNetworkChange } from "@/lib/meteredNetwork";
 import { logSync } from "@/lib/syncLog";
+import { isTrayResting, onTrayRest } from "@/lib/trayRest";
 
 export type SyncPriority = "visible" | "background" | "prefetch";
 
@@ -245,6 +246,10 @@ function ensureWired(): void {
     if (isBackgroundQuiet()) suspendRuns(() => true);
     requestSchedule();
   });
+  onTrayRest(() => {
+    if (isTrayResting()) suspendRuns(() => true);
+    requestSchedule();
+  });
   onMeteredNetworkChange(() => {
     if (isMeteredNetwork()) suspendRuns((topic) => policyFor(topic)?.unmeteredOnly === true);
     requestSchedule();
@@ -299,6 +304,8 @@ function paused(): boolean {
   if (typeof document !== "undefined" && document.visibilityState === "hidden") return true;
   // Android WebView `visibilityState` is unreliable when backgrounded (see backgroundQuiet.ts).
   if (isBackgroundQuiet()) return true;
+  // Desktop, hidden to the tray: live subscriptions carry on; catch-up waits.
+  if (isTrayResting()) return true;
   return false;
 }
 

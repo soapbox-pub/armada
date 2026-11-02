@@ -156,6 +156,7 @@ interface ArmadaDesktopBridge {
   // Optional members: newer bundles may run in older shells; feature-detect.
   onResume?: (handler: () => void) => () => void;
   onWindowHidden?: (handler: () => void) => () => void;
+  onWindowVisibility?: (handler: (visible: boolean) => void) => () => void;
   getLaunchSettings?: () => Promise<DesktopLaunchSettings>;
   setLaunchSettings?: (settings: {
     openAtLogin: boolean;
@@ -242,6 +243,15 @@ export async function setDesktopVideoEncoderMode(
 export function onDesktopResume(handler: () => void): () => void {
   try {
     return desktop()?.onResume?.(handler) ?? (() => {});
+  } catch {
+    return () => {};
+  }
+}
+
+/** Subscribe to the window being shown or hidden/minimized. No-op on web/older shells. */
+export function onDesktopWindowVisibility(handler: (visible: boolean) => void): () => void {
+  try {
+    return desktop()?.onWindowVisibility?.(handler) ?? (() => {});
   } catch {
     return () => {};
   }

@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
 
+import { isTrayResting, onTrayRest } from "@/lib/trayRest";
+
 /**
  * Reduce effects, device-wide like the text size (the login screen needs it
  * too, and a phone and a desktop rarely want the same). One master switch;
@@ -139,9 +141,21 @@ export function useReducedMotion(): boolean {
   return useSyncExternalStore(onReducedMotionChange, reducedMotion);
 }
 
-/** {@link stillMedia}, re-rendering when it changes. */
+function onStillMediaChange(listener: () => void): () => void {
+  const offMotion = onReducedMotionChange(listener);
+  const offRest = onTrayRest(listener);
+  return () => {
+    offMotion();
+    offRest();
+  };
+}
+
+/**
+ * {@link stillMedia}, or the desktop window resting out of sight: the
+ * compositor animates GIFs on its own, drawing frames for a hidden window.
+ */
 export function useStillMedia(): boolean {
-  return useSyncExternalStore(onReducedMotionChange, stillMedia);
+  return useSyncExternalStore(onStillMediaChange, () => stillMedia() || isTrayResting());
 }
 
 /** {@link hiddenFlair}, re-rendering when it changes. */

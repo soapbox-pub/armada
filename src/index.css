@@ -996,3 +996,11 @@ html[data-reduce-blur] * {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
+
+/* Desktop window hidden or minimized (src/lib/trayRest.ts): nothing is seen,
+ * so no animation may keep asking for frames. */
+html[data-resting] *,
+html[data-resting] *::before,
+html[data-resting] *::after {
+  animation-play-state: paused !important;
+}

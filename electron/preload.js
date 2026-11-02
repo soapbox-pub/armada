@@ -133,6 +133,17 @@ contextBridge.exposeInMainWorld("armadaDesktop", {
   },
 
   /**
+   * Subscribe to whether the window can be seen (shown and not minimized),
+   * including once per page load. Returns an unsubscribe.
+   */
+  onWindowVisibility: (handler) => {
+    if (typeof handler !== "function") return () => {};
+    const listener = (_event, visible) => handler(visible === true);
+    ipcRenderer.on("armada:window-visibility", listener);
+    return () => ipcRenderer.removeListener("armada:window-visibility", listener);
+  },
+
+  /**
    * Read the "launch Armada at login" state: { supported, openAtLogin,
    * openAsHidden }. `openAsHidden` starts the app minimized to the tray.
    */

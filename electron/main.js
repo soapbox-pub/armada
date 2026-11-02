@@ -583,6 +583,17 @@ function createWindow({ show = !startHidden || !closeToTraySupported } = {}) {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+  // Tell the page whether anyone can see it (armada:window-visibility). With
+  // background throttling off it can't tell from the Page Visibility API, and
+  // it rests while unseen: no catch-up or history paging, no animation frames.
+  // Sent on every load too, so a launch straight to the tray starts resting.
+  const sendVisibility = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send("armada:window-visibility", mainWindow.isVisible() && !mainWindow.isMinimized());
+  };
+  for (const event of ["show", "hide", "minimize", "restore"]) mainWindow.on(event, sendVisibility);
+  mainWindow.webContents.on("did-finish-load", sendVisibility);
+
   // A flash requested for a notification ends the moment the user is looking
   // (Windows keeps the taskbar entry highlighted until told otherwise).
   mainWindow.on("focus", () => {
