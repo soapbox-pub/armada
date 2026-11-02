@@ -3,7 +3,7 @@ import {
   Loader2, Plus, Trash2, ChevronDown, ChevronUp,
   Wallet, Upload, Music, ImageIcon, Film, Mail, Link2, Pencil, AlertTriangle, Save,
 } from 'lucide-react';
-import { useForm, useFieldArray, type Control } from 'react-hook-form';
+import { useForm, useFieldArray, type Control, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { NSchema as n } from '@nostrify/nostrify';
@@ -19,6 +19,7 @@ import { useUploadFile } from '@/hooks/useUploadFile';
 import { useUploadProfileImage } from '@/hooks/useUploadProfileImage';
 import { useMediaPolicy } from '@/hooks/useMediaPolicy';
 import { completeProfileImetaTags } from '@/lib/computeProfileImeta';
+import { parseNip05Address } from '@/lib/nip05Address';
 import { carriedProfileTags } from '@/lib/profileImeta';
 import { useToast } from '@/hooks/useToast';
 import { Button } from '@/components/ui/button';
@@ -248,7 +249,19 @@ function inferAcceptFromValue(value: string): string | undefined {
   return undefined;
 }
 
+/** The stored `nip05` when it is a bare domain, which the metadata schema parses away. */
+function rawNip05(content: string | undefined): string | undefined {
+  try {
+    const value: unknown = JSON.parse(content ?? '').nip05;
+    return typeof value === 'string' && parseNip05Address(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const formSchema = n.metadata().extend({
+  // NIP-05 allows a bare domain (the root user `_@domain`), which the email check rejects.
+  nip05: z.string().optional().refine((value) => !value?.trim() || parseNip05Address(value) !== undefined),
   fields: z.array(z.object({
     label: z.string(),
     value: z.string(),
@@ -583,7 +596,7 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave, showNip05 = tr
         picture: metadata.picture ?? '',
         banner: metadata.banner ?? '',
         website: metadata.website ?? '',
-        nip05: metadata.nip05 ?? '',
+        nip05: metadata.nip05 ?? rawNip05(event?.content) ?? '',
         lud16: metadata.lud16 ?? '',
         lud06: metadata.lud06 ?? '',
         bot: metadata.bot ?? false,
@@ -694,6 +707,17 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave, showNip05 = tr
     move(from, to);
   }, [fields.length, move]);
 
+  // The card shows no per-field errors, so a refused save says which field it was.
+  const onInvalid = (errors: FieldErrors<FormValues>) => {
+    toast({
+      title: t({ id: 'profileSettings.notSaved', defaultMessage: 'Profile not saved' }),
+      description: errors.nip05
+        ? t({ id: 'profileSettings.nip05Invalid', defaultMessage: 'Enter a NIP-05 address like name@domain.com or domain.com.' })
+        : t({ id: 'profileSettings.fieldInvalid', defaultMessage: 'One of the fields has a value that isn’t valid.' }),
+      variant: 'destructive',
+    });
+  };
+
   const onSubmit = async (values: FormValues) => {
     if (!user) {
       toast({
@@ -706,6 +730,7 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave, showNip05 = tr
     try {
       const { fields: customFields, shape, pronouns, ...standardMetadata } = values;
       const data: Record<string, unknown> = { ...metadata, ...standardMetadata };
+      data.nip05 = parseNip05Address(standardMetadata.nip05 ?? '')?.address ?? '';
 
       data.pronouns = pronouns?.trim() ?? '';
 
@@ -793,7 +818,7 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave, showNip05 = tr
       )}
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
 
           <ProfileCard
             pubkey={user.pubkey}

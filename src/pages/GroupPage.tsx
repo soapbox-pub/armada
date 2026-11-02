@@ -20,6 +20,7 @@ import {
   ChatHeaderMenuTrigger,
   ChatHeaderTitle,
   ChatHeaderViewItems,
+  keepItemFocus,
 } from "@/components/chat/ChatHeader";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
 import { CalendarEventsBar } from "@/components/chat/CalendarEventsBar";
@@ -516,7 +517,7 @@ export function GroupPage() {
             )}
             <DropdownMenu>
               <ChatHeaderMenuTrigger />
-              <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuContent align="end" className="w-52" onCloseAutoFocus={keepItemFocus}>
                 <ChatHeaderViewItems
                   onSearch={() => setSearchOpen(true)}
                   onMembers={() => setMembersOpen(true)}

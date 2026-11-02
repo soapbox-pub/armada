@@ -72,6 +72,7 @@ import {
   ChatHeaderMenuTrigger,
   ChatHeaderTitle,
   ChatHeaderViewItems,
+  keepItemFocus,
 } from "@/components/chat/ChatHeader";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
 import { ChatShell } from "@/components/chat/ChatShell";
@@ -3365,7 +3366,7 @@ function ConcordCommunityPage() {
 
               <DropdownMenu>
                 <ChatHeaderMenuTrigger />
-                <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuContent align="end" className="w-52" onCloseAutoFocus={keepItemFocus}>
                   <ChatHeaderViewItems
                     onSearch={view === "channel" && channel ? () => setSearchOpen(true) : undefined}
                     onMembers={() => setMembersOpen(true)}

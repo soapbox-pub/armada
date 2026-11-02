@@ -63,6 +63,26 @@ export function ChatSettings() {
             />
           </SettingsRow>
         )}
+        <SettingsRow
+          label={intl.formatMessage({ id: "chatSettings.absoluteTimestamps", defaultMessage: "Show message times" })}
+          description={intl.formatMessage({ id: "chatSettings.absoluteTimestampsDescription", defaultMessage: "Show the time each message was sent, like 3:07 PM, instead of how long ago." })}
+        >
+          <Switch
+            checked={config.absoluteTimestamps}
+            onCheckedChange={(absoluteTimestamps) =>
+              updateConfig((current) => ({ ...current, absoluteTimestamps }))}
+          />
+        </SettingsRow>
+        <SettingsRow
+          label={intl.formatMessage({ id: "chatSettings.foldSimilar", defaultMessage: "Fold similar messages" })}
+          description={intl.formatMessage({ id: "chatSettings.foldSimilarDescription", defaultMessage: "Collapse bursts of near-identical messages in communities into one row. Off, every message is shown." })}
+        >
+          <Switch
+            checked={config.foldSimilarMessages}
+            onCheckedChange={(foldSimilarMessages) =>
+              updateConfig((current) => ({ ...current, foldSimilarMessages }))}
+          />
+        </SettingsRow>
         {Capacitor.getPlatform() === "android" && (
           // Per-device: leave the app vs. walk history from the revealed list pane.
           <SettingsRow

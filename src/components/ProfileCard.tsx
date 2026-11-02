@@ -372,7 +372,7 @@ export function ProfileCard({
                 onClick={() => editable && setNip05Focused(true)}
               >
                 <span className="shrink min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-                  {nip05 ? nip05 : editable ? 'you@domain.com' : ''}
+                  {nip05 ? nip05.replace(/^_@/, '') : editable ? 'you@domain.com' : ''}
                 </span>
               </span>
             )}

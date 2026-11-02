@@ -64,6 +64,16 @@ export function PrivacySettings() {
       </SettingsGroup>
 
       <SettingsGroup id="discover" title={intl.formatMessage({ id: "privacySettings.discover", defaultMessage: "Discover" })}>
+        <SettingsRow
+          label={intl.formatMessage({ id: "privacySettings.showDiscover", defaultMessage: "Show Discover button" })}
+          description={intl.formatMessage({ id: "privacySettings.showDiscoverDescription", defaultMessage: "Show the compass in the server list. Off, Discover stays out of the way." })}
+        >
+          <Switch
+            checked={config.showDiscover}
+            onCheckedChange={(showDiscover) =>
+              updateConfig((current) => ({ ...current, showDiscover }))}
+          />
+        </SettingsRow>
         {/* Bypasses Discover's curated allow-list (a foot-gun). */}
         <SettingsRow
           label={intl.formatMessage({ id: "privacySettings.showAll", defaultMessage: "Show all content" })}

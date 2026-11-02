@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useContext, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -9,6 +9,7 @@ import {
   useSendStatus,
   type ChannelTimelineFocus,
 } from "@/concord/hooks/useChannel";
+import { AppContext } from "@/contexts/AppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { customEmojiReactionTags } from "@/hooks/useReactions";
@@ -471,10 +472,12 @@ export function useTransport(
 
   // From the fold, which saw thread replies too (so only ever `has()`, never
   // counted). `undefined` when empty.
-  const quarantinedIds = useMemo<ReadonlySet<string> | undefined>(
-    () => (folded.quarantined.size > 0 ? folded.quarantined : undefined),
-    [folded.quarantined],
-  );
+  // With folding off, only a community pause still collapses rows.
+  const foldSimilar = useContext(AppContext)?.config.foldSimilarMessages ?? true;
+  const quarantinedIds = useMemo<ReadonlySet<string> | undefined>(() => {
+    const ids = foldSimilar ? folded.quarantined : folded.paused;
+    return ids.size > 0 ? ids : undefined;
+  }, [foldSimilar, folded.quarantined, folded.paused]);
   // Which of those a community pause collapsed, so the row can say why (CORD-04 §8).
   const pausedIds = useMemo<ReadonlySet<string> | undefined>(
     () => (folded.paused.size > 0 ? folded.paused : undefined),

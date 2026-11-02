@@ -9,6 +9,7 @@ import { DittoIcon } from "@/components/brand/DittoIcon";
 import { SyncStatusIndicator } from "@/components/SyncStatusIndicator";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import { ChatMessage } from "@/components/chat/ChatMessage";
+import { keepItemFocus } from "@/components/chat/ChatHeader";
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
 import { ChatShell } from "@/components/chat/ChatShell";
 import { useSwipeLayout } from "@/components/layout/SwipeReveal";
@@ -329,15 +330,21 @@ const ConversationRow = memo(function ConversationRow({
       <ContextMenuContent className="w-44">
         {request ? (
           // No accept: replying is accepting (the composer notice says so).
-          <ContextMenuItem
-            className="text-destructive focus:text-destructive"
-            onSelect={() => {
-              // Group requests have no single sender to block.
-              if (!group) actions.block(peers[0]);
-            }}
-          >
-            <UserX className="mr-2 size-4" /> <FormattedMessage id="dmsPage.block" defaultMessage="Block" />
-          </ContextMenuItem>
+          <>
+            {/* Hidden until the sender writes again, like closing a DM. */}
+            <ContextMenuItem onSelect={() => actions.close(conversation)}>
+              <X className="mr-2 size-4" /> <FormattedMessage id="dmsPage.row.dismissRequest" defaultMessage="Dismiss" />
+            </ContextMenuItem>
+            <ContextMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => {
+                // Group requests have no single sender to block.
+                if (!group) actions.block(peers[0]);
+              }}
+            >
+              <UserX className="mr-2 size-4" /> <FormattedMessage id="dmsPage.block" defaultMessage="Block" />
+            </ContextMenuItem>
+          </>
         ) : (
           <>
             <ContextMenuItem onSelect={() => actions.togglePin(conversation)}>
@@ -1036,7 +1043,7 @@ const Conversation = memo(function Conversation({
               <MoreVertical className="size-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuContent align="end" className="w-64" onCloseAutoFocus={keepItemFocus}>
             <DropdownMenuItem onClick={() => setSearchOpen(true)}>
               <Search className="size-4" />
               <FormattedMessage id="dmsPage.searchMessages" defaultMessage="Search messages" />
@@ -2074,6 +2081,7 @@ export function ConversationList({
   openPeer,
   startDm,
   closePeer,
+  dismissRequests,
   loadMore,
   hasMore,
   isLoadingMore,
@@ -2095,6 +2103,8 @@ export function ConversationList({
   /** Opens (or starts) a 1:1 with a person who may have no conversation yet. */
   startDm: (pubkey: string) => void;
   closePeer: (conversation: string, latest: DmLatestMarker | undefined) => void;
+  /** Close every request row at once. */
+  dismissRequests?: () => void;
   loadMore: () => Promise<number>;
   hasMore: boolean;
   isLoadingMore: boolean;
@@ -2415,6 +2425,14 @@ export function ConversationList({
                 defaultMessage="Messages from people you don't follow. Reply to one and it moves to your inbox. Nobody here is told you've seen theirs."
               />
             </p>
+            {dismissRequests && requestRows.length > 1 && (
+              <div className="flex justify-end px-1 pb-2">
+                <Button variant="secondary" size="sm" onClick={dismissRequests}>
+                  <X className="size-4" />
+                  <FormattedMessage id="dmsPage.requests.dismissAll" defaultMessage="Dismiss all" />
+                </Button>
+              </div>
+            )}
             {requestRows.map((c, i) => renderRow(c, i, true))}
             {/* Sync only moves forward, so older-only senders need explicit backfill (useDm17Backfill). */}
             <div className="flex flex-col items-center gap-1 py-3">
@@ -2572,7 +2590,7 @@ export function DMsPage() {
   const { mutedPubkeys, ready: muteReady } = useMutedPubkeys();
   const { accept } = useAcceptedDms();
   const { started: startedPeers } = useStartedDms();
-  const { close: closeDm, reopen: reopenDm, reopenForNewMessages, isClosed: isDmClosed } = useClosedDms();
+  const { close: closeDm, closeMany: closeManyDms, reopen: reopenDm, reopenForNewMessages, isClosed: isDmClosed } = useClosedDms();
   const [composing, setComposing] = useState(false);
   const [listView, setListView] = useState<DmListView>("inbox");
 
@@ -2736,11 +2754,11 @@ export function DMsPage() {
 
   // A close hides only the current latest message; a new message reopens it and drops the marker.
   useEffect(() => {
-    reopenForNewMessages(rows.map((r) => ({
+    reopenForNewMessages([...rows, ...requestRows].map((r) => ({
       peer: r.conversation,
       latest: dmListRowLatestMarker(r),
     })));
-  }, [rows, reopenForNewMessages]);
+  }, [rows, requestRows, reopenForNewMessages]);
 
   // Note to Self ignores close markers (it's always shown).
   const isHidden = useCallback(
@@ -2750,14 +2768,23 @@ export function DMsPage() {
   );
 
   const visibleRows = useMemo(() => rows.filter((row) => !isHidden(row)), [rows, isHidden]);
+  const visibleRequestRows = useMemo(() => requestRows.filter((row) => !isHidden(row)), [requestRows, isHidden]);
+
+  const dismissRequests = useCallback(() => {
+    closeManyDms(visibleRequestRows.map((row) => ({ peer: row.conversation, latest: dmListRowLatestMarker(row) })));
+    if (activePeer && visibleRequestRows.some((row) => row.conversation === activePeer)) {
+      setRenderedPeer(undefined);
+      navigate("/dm");
+    }
+  }, [closeManyDms, visibleRequestRows, activePeer, navigate]);
 
   // Opening a request switches the list INTO the request view (never out of it mid-thread).
   useEffect(() => {
     if (activePeer && requestRows.some((c) => c.conversation === activePeer)) setListView("requests");
   }, [activePeer, requestRows]);
   useEffect(() => {
-    if (requestRows.length === 0) setListView("inbox");
-  }, [requestRows.length]);
+    if (visibleRequestRows.length === 0) setListView("inbox");
+  }, [visibleRequestRows.length]);
   // Back from the request list returns to the inbox, ahead of SwipeReveal's
   // root-screen back (leave the app), which applies only there.
   useAndroidBack(() => {
@@ -2953,7 +2980,7 @@ export function DMsPage() {
           <ServerRail />
           <ConversationList
             rows={displayRows}
-            requestRows={requestRows}
+            requestRows={visibleRequestRows}
             view={listView}
             onViewChange={setListView}
             previews={previews}
@@ -2967,6 +2994,7 @@ export function DMsPage() {
             openPeer={openPeer}
             startDm={startDm}
             closePeer={closePeer}
+            dismissRequests={dismissRequests}
             loadMore={loadMore}
             hasMore={hasMore}
             isLoadingMore={isLoadingMore}

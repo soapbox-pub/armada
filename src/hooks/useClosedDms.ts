@@ -34,22 +34,27 @@ export function useClosedDms() {
     [config.closedDms],
   );
 
-  const close = useCallback(
-    (peer: string, latest: DmLatestMarker | undefined) => {
-      updateConfig((current) => ({
-        ...current,
+  /** Close several rows in one config write. */
+  const closeMany = useCallback(
+    (rows: Array<{ peer: string; latest: DmLatestMarker | undefined }>) => {
+      if (rows.length === 0) return;
+      const now = Math.floor(Date.now() / 1000);
+      const peers = new Set(rows.map((row) => row.peer));
+      updateConfig((current) => {
+        const closedDms = { ...current.closedDms };
+        for (const { peer, latest } of rows) {
+          closedDms[peer] = { eventId: latest?.id, createdAt: latest?.created_at ?? now };
+        }
         // A reopened row returns unpinned.
-        pinnedDms: current.pinnedDms.filter((p) => p !== peer),
-        closedDms: {
-          ...current.closedDms,
-          [peer]: {
-            eventId: latest?.id,
-            createdAt: latest?.created_at ?? Math.floor(Date.now() / 1000),
-          },
-        },
-      }));
+        return { ...current, pinnedDms: current.pinnedDms.filter((p) => !peers.has(p)), closedDms };
+      });
     },
     [updateConfig],
+  );
+
+  const close = useCallback(
+    (peer: string, latest: DmLatestMarker | undefined) => closeMany([{ peer, latest }]),
+    [closeMany],
   );
 
   const reopen = useCallback(
@@ -80,5 +85,5 @@ export function useClosedDms() {
     [updateConfig],
   );
 
-  return { close, reopen, reopenForNewMessages, isClosed };
+  return { close, closeMany, reopen, reopenForNewMessages, isClosed };
 }

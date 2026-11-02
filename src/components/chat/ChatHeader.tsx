@@ -170,6 +170,16 @@ export function ChatHeaderAction({
   );
 }
 
+/**
+ * The ⋮ menu's `onCloseAutoFocus`: leave focus where an item moved it (the
+ * search input) instead of returning it to the trigger, which hands typing to
+ * the composer. Radix restores focus a tick after the item's own focus lands.
+ */
+export function keepItemFocus(event: Event) {
+  const active = document.activeElement;
+  if (active && active !== document.body) event.preventDefault();
+}
+
 /** The ⋮ trigger; render inside a `DropdownMenu`. */
 export function ChatHeaderMenuTrigger() {
   const intl = useIntl();

@@ -256,6 +256,16 @@ export interface AppConfig {
    */
   messageHoverActions: boolean;
   /**
+   * Whether bursts of near-identical Concord messages fold into one expandable
+   * "Similar messages" row (default on; `floodCluster.ts`). Off shows every
+   * message; a community pause still collapses. Synced.
+   */
+  foldSimilarMessages: boolean;
+  /** Whether message headers show the clock time instead of "2h" (default off). Synced. */
+  absoluteTimestamps: boolean;
+  /** Whether the rail shows the Discover button (default on). Display only; /discover still opens. Synced. */
+  showDiscover: boolean;
+  /**
    * Bluetooth-mesh incognito (default on): announce `anon<peerid>` instead of the
    * display name, like bitchat. Per-device.
    */
@@ -334,6 +344,9 @@ export const METADATA_CONFIG_KEYS = [
   "trustedMediaHosts",
   "sendOnEnter",
   "messageHoverActions",
+  "foldSimilarMessages",
+  "absoluteTimestamps",
+  "showDiscover",
   "currencyDisplay",
   "defaultZapMethod",
   "zapsEnabled",
@@ -431,6 +444,9 @@ export const defaultConfig: AppConfig = {
   communityMediaKnownHostsOnly: true,
   trustedMediaHosts: [],
   messageHoverActions: true,
+  foldSimilarMessages: true,
+  absoluteTimestamps: false,
+  showDiscover: true,
   meshIncognito: true,
   meshEnabled: false,
   androidBackLeavesApp: true,
