@@ -6,7 +6,7 @@ import type { ImetaEntry } from "@/lib/imeta"
 import { imetaFor } from "@/lib/profileImeta"
 import { cn } from "@/lib/utils"
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl"
-import { type AvatarShape, isEmoji, getAvatarMaskUrl, isValidAvatarShape } from "@/lib/avatarShape"
+import { type AvatarShape, isEmoji, emojiMaskFontVersion, getAvatarMaskUrl, isValidAvatarShape, subscribeEmojiMaskFont } from "@/lib/avatarShape"
 import { MotionImg } from "@/components/ui/MotionImg"
 import { useImageThumb } from "@/hooks/useImageThumb"
 import { ThumbAnimation } from "@/components/ui/ThumbAnimation"
@@ -30,6 +30,8 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
     const isEmojiShape = hasValidShape && isEmoji(shape)
     const hasCustomShape = isEmojiShape
 
+    // Re-cut once the mask font loads (a first draw may be in the system font).
+    React.useSyncExternalStore(subscribeEmojiMaskFont, emojiMaskFontVersion, emojiMaskFontVersion)
     // Synchronous (cached canvas data-URL) to avoid a flash of the unmasked avatar.
     const maskUrl = hasCustomShape && shape ? getAvatarMaskUrl(shape) : ''
 

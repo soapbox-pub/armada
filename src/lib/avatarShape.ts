@@ -56,6 +56,48 @@ export const shapedAvatarSpeakingStyle: React.CSSProperties = {
 const emojiMaskCache = new Map<string, string>();
 const EMOJI_MASK_CACHE_MAX = 64;
 
+/**
+ * The system's emoji fonts by name, then the bundled Twemoji (index.css), then
+ * serif. Named, because a generic family that lacks the glyph draws tofu (a
+ * square avatar) on a system with no emoji font before any fallback is tried.
+ */
+const MASK_FONT_FAMILY = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", "Android Emoji", "Armada Twemoji", serif';
+const MASK_FONT_SIZE = 256;
+const MASK_FONT = `${MASK_FONT_SIZE}px ${MASK_FONT_FAMILY}`;
+
+/** Bumped when the mask font finishes loading, so drawn avatars recut their masks. */
+let maskFontVersion = 0;
+const maskFontListeners = new Set<() => void>();
+let maskFontLoading: Promise<void> | undefined;
+/** The load has finished, either way: what draws now is final (a failed load keeps the system font). */
+let maskFontSettled = false;
+
+export function subscribeEmojiMaskFont(listener: () => void): () => void {
+  maskFontListeners.add(listener);
+  return () => maskFontListeners.delete(listener);
+}
+
+export function emojiMaskFontVersion(): number {
+  return maskFontVersion;
+}
+
+/**
+ * Whether the mask font can draw `emoji` now; if not, starts loading it. A
+ * mask drawn before then is provisional (system font) and isn't cached.
+ */
+function maskFontReady(emoji: string): boolean {
+  const fonts = typeof document !== 'undefined' ? document.fonts : undefined;
+  if (!fonts || typeof fonts.check !== 'function') return true;
+  if (maskFontSettled || fonts.check(MASK_FONT, emoji)) return true;
+  maskFontLoading ??= fonts.load(MASK_FONT, emoji).then(() => {}, () => {}).then(() => {
+    maskFontSettled = true;
+    emojiMaskCache.clear();
+    maskFontVersion++;
+    for (const listener of maskFontListeners) listener();
+  });
+  return false;
+}
+
 /** Mask URL for emoji avatar shapes, or '' if invalid or generation fails. */
 export function getAvatarMaskUrl(shape: string): string {
   if (isEmoji(shape)) {
@@ -65,9 +107,10 @@ export function getAvatarMaskUrl(shape: string): string {
   return '';
 }
 
-/** Async version of getAvatarMaskUrl. */
+/** Async version of getAvatarMaskUrl: waits for the mask font first. */
 export async function getAvatarMaskUrlAsync(shape: string): Promise<string> {
   if (isEmoji(shape)) {
+    if (!maskFontReady(shape)) await maskFontLoading;
     return getEmojiMaskUrl(shape);
   }
 
@@ -75,7 +118,7 @@ export async function getAvatarMaskUrlAsync(shape: string): Promise<string> {
 }
 
 /**
- * Render the native OS emoji to a canvas and produce a PNG alpha mask for CSS
+ * Render the emoji (see {@link MASK_FONT_FAMILY}) to a canvas and produce a PNG alpha mask for CSS
  * `mask-image`: draw oversized, crop to the tight alpha bounding box squared
  * (so non-square emoji aren't stretched), redraw at 256px, whiten RGB.
  */
@@ -88,7 +131,9 @@ export function getEmojiMaskUrl(emoji: string): string {
     emojiMaskCache.set(emoji, cached);
     return cached;
   }
+  const ready = maskFontReady(emoji);
   const url = renderEmojiMask(emoji);
+  if (!ready) return url;
   emojiMaskCache.set(emoji, url);
   if (emojiMaskCache.size > EMOJI_MASK_CACHE_MAX) {
     emojiMaskCache.delete(emojiMaskCache.keys().next().value as string);
@@ -110,6 +155,18 @@ type MaskCanvas = HTMLCanvasElement | OffscreenCanvas;
 type MaskContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
 /**
+ * `emoji`, or the first part of a ZWJ sequence the fonts can't join: drawn as
+ * separate glyphs (❤️‍🔥 on an older system) it measures wider than one emoji,
+ * and its parts side by side would cut a mask of two lobes.
+ */
+function joinableEmoji(ctx: MaskContext, emoji: string): string {
+  if (!emoji.includes('\u200d')) return emoji;
+  const one = ctx.measureText('\u{1F600}').width;
+  if (!(one > 0) || ctx.measureText(emoji).width <= one * 1.4) return emoji;
+  return emoji.split('\u200d')[0] || emoji;
+}
+
+/**
  * The mask itself, on canvases from `createCanvas` — an `OffscreenCanvas`
  * works too, which is how the npanel link-preview script (`src/npanel/`) cuts
  * avatars the same way. `null` when the glyph draws nothing.
@@ -120,7 +177,7 @@ export function drawEmojiMask<C extends MaskCanvas>(
   out = 256,
 ): C | null {
   // The bounding-box scan is quadratic in size; 256px is enough for the mask.
-  const fontSize = 256;
+  const fontSize = MASK_FONT_SIZE;
   const scratch = fontSize * 1.5;               // 384 – generous room
   const c1 = createCanvas(scratch, scratch);
   const ctx1 = c1.getContext('2d', { willReadFrequently: true }) as MaskContext | null;
@@ -128,8 +185,8 @@ export function drawEmojiMask<C extends MaskCanvas>(
 
   ctx1.textAlign = 'center';
   ctx1.textBaseline = 'middle';
-  ctx1.font = `${fontSize}px serif`;
-  ctx1.fillText(emoji, scratch / 2, scratch / 2);
+  ctx1.font = MASK_FONT;
+  ctx1.fillText(joinableEmoji(ctx1, emoji), scratch / 2, scratch / 2);
 
   // Alpha threshold ignores shadows/glows/AA fringes that would push the crop off-centre.
   const ALPHA_THRESHOLD = 25;                    // ~10% opacity
