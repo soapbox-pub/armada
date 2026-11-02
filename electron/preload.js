@@ -154,6 +154,8 @@ contextBridge.exposeInMainWorld("armadaDesktop", {
     ipcRenderer.invoke("armada:set-launch-settings", settings),
 
   /** Linux WebRTC encoder policy. Changes take effect after an app restart. */
+  /** `{ type, data }` of a public https image the page can't read for want of CORS, or null. */
+  fetchImage: (url) => ipcRenderer.invoke("armada:fetch-image", String(url)),
   /** Low memory mode: { active, configured, restartRequired }. Applies from the next launch. */
   getLowMemoryMode: () => ipcRenderer.invoke("armada:low-memory-mode"),
   setLowMemoryMode: (on) => ipcRenderer.invoke("armada:set-low-memory-mode", on === true),

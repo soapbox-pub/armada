@@ -109,6 +109,7 @@ const { displayMediaGrant, displayMediaHandlerOptions } = require("./displayMedi
 const { installYouTubeEmbedIdentity } = require("./youtubeEmbedIdentity");
 const { allowPermissionCheck, allowPermissionRequest } = require("./permissionPolicy");
 const { configureLowMemory, readLowMemoryMode, writeLowMemoryMode } = require("./lowMemory");
+const { fetchImage } = require("./imageFetch");
 
 // Encoder selection is process-wide in Chromium and must be installed before
 // app readiness (and therefore before the GPU process starts). Software is the
@@ -1854,6 +1855,8 @@ function installIpc() {
     return { active: activeLowMemoryMode, configured, restartRequired: configured !== activeLowMemoryMode };
   };
   ipcMain.handle("armada:low-memory-mode", lowMemoryState);
+  // Bytes of an image whose host sends no CORS headers (see imageFetch.js).
+  handleFromMainWindow("armada:fetch-image", (_event, url) => fetchImage(typeof url === "string" ? url : ""));
   handleFromMainWindow("armada:set-low-memory-mode", (_event, on) => {
     try {
       writeLowMemoryMode(on === true, { userDataPath: app.getPath("userData") });

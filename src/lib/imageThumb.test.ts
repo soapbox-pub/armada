@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { acquireThumb, clearThumbs, releaseThumb, thumbBucket, thumbsSupported } from "./imageThumb";
+import { acquireThumb, AnimatedThumb, clearThumbs, releaseThumb, sniffImageType, thumbBucket, thumbsSupported } from "./imageThumb";
 
 describe("imageThumb", () => {
   afterEach(() => {
@@ -49,4 +49,40 @@ describe("imageThumb", () => {
     expect(await acquireThumb("https://x.test/party.gif", 64, false).promise).toBeNull();
     expect(createImageBitmap).not.toHaveBeenCalled();
   });
+
+  it("tells formats from their bytes when the server mislabels them", () => {
+    const bytes = (text: string) => Uint8Array.from(text, (c) => c.charCodeAt(0));
+    expect(sniffImageType(bytes("GIF89a......"), "application/octet-stream")).toBe("image/gif");
+    expect(sniffImageType(bytes("RIFF\0\0\0\0WEBPVP8X"), "")).toBe("image/webp");
+    expect(sniffImageType(Uint8Array.of(0x89, 0x50, 0x4e, 0x47), "")).toBe("image/png");
+    expect(sniffImageType(Uint8Array.of(0xff, 0xd8, 0xff), "x")).toBe("image/jpeg");
+    expect(sniffImageType(bytes("<svg"), "image/svg+xml")).toBe("image/svg+xml");
+  });
+
+  it("plays an animation on one timer while watched, and stops after its repetitions", () => {
+    vi.useFakeTimers();
+    try {
+      const frames = [0, 1, 2].map((n) => ({ n, close() {} }) as unknown as ImageBitmap);
+      const anim = new AnimatedThumb(8, 8, frames, [100, 100, 100], 1);
+      const a: number[] = [];
+      const b: number[] = [];
+      const offA = anim.subscribe((f) => a.push((f as unknown as { n: number }).n));
+      const offB = anim.subscribe((f) => b.push((f as unknown as { n: number }).n));
+      vi.advanceTimersByTime(250);
+      expect(a).toEqual([0, 1, 2]);
+      expect(b).toEqual([0, 1, 2]);
+      offA();
+      offB();
+      vi.advanceTimersByTime(1000);
+      expect(a).toEqual([0, 1, 2]);
+      // Watched again: plays out its one repetition, then holds.
+      const c: number[] = [];
+      anim.subscribe((f) => c.push((f as unknown as { n: number }).n));
+      vi.advanceTimersByTime(5000);
+      expect(c).toEqual([2, 0, 1, 2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+

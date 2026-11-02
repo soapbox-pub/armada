@@ -9,6 +9,7 @@ import { sanitizeImageSrc } from "@/lib/sanitizeUrl"
 import { type AvatarShape, isEmoji, getAvatarMaskUrl, isValidAvatarShape } from "@/lib/avatarShape"
 import { MotionImg } from "@/components/ui/MotionImg"
 import { useImageThumb } from "@/hooks/useImageThumb"
+import { ThumbAnimation } from "@/components/ui/ThumbAnimation"
 
 /** Lets AvatarFallback see a sibling AvatarImage's src without state; mutating a ref in render is safe. */
 const AvatarHasSrcContext = React.createContext<React.MutableRefObject<boolean>>({ current: false })
@@ -152,6 +153,9 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
   if (!showImage) return null
   // Blank while the thumbnail is made, as a progressively loading <img> was.
   if (thumb.pending) return <span ref={measure} aria-hidden className="absolute inset-0" />
+  if (thumb.anim) {
+    return <ThumbAnimation anim={thumb.anim} className={cn("absolute inset-0 h-full w-full object-cover", className)} />
+  }
 
   return (
     <MotionImg

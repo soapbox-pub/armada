@@ -1,3 +1,4 @@
+import { canFetchDesktopImages, fetchDesktopImage } from "@/lib/desktop";
 import { isAnimatedImage } from "@/lib/imageMetadata";
 
 /**
@@ -7,8 +8,14 @@ import { isAnimatedImage } from "@/lib/imageMetadata";
  * avatars measured ~370 MB of decoded image memory in the renderer. Here each
  * one is decoded once, transiently, and re-encoded at the size it is shown.
  *
- * `null` means "show the original": the host refused CORS, the image is
- * already small, it animates (and may), or the browser can't resize.
+ * An animated image becomes an {@link AnimatedThumb}: every frame decoded
+ * (WebCodecs' ImageDecoder) at the small size and played back on a canvas.
+ * Chromium otherwise keeps the frames at full size; one 447×328 animated avatar
+ * measured ~28 MB of decoded image memory in a busy room.
+ *
+ * `null` means "show the original": the host refused CORS (on the web; the
+ * desktop shell reads it), the image is already small, or the browser can't
+ * resize (or decode the animation).
  */
 
 /** Short-edge lengths a thumbnail is made at; a box's longer side rounds up to the next one. */
@@ -19,6 +26,73 @@ const SMALL_ENOUGH = 1.5;
 const CONCURRENCY = 2;
 /** Unreferenced thumbnails kept for a remount before their URL is revoked. */
 const KEEP_UNUSED = 400;
+/** Longer animations are shown as they are rather than held frame by frame. */
+const MAX_FRAMES = 400;
+
+/**
+ * An animation's frames at thumbnail size, shared by every element showing it.
+ * One timer per animation, running only while something is subscribed.
+ */
+export class AnimatedThumb {
+  private frame = 0;
+  private played = 0;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private readonly listeners = new Set<(frame: ImageBitmap) => void>();
+
+  constructor(
+    readonly width: number,
+    readonly height: number,
+    private readonly frames: ImageBitmap[],
+    private readonly durations: number[],
+    private readonly repetitions: number,
+  ) {}
+
+  /** Draw the current frame now and every later one. Returns an unsubscribe. */
+  subscribe(draw: (frame: ImageBitmap) => void): () => void {
+    this.listeners.add(draw);
+    draw(this.frames[this.frame]);
+    if (!this.timer) this.schedule();
+    return () => {
+      this.listeners.delete(draw);
+      if (this.listeners.size === 0 && this.timer) {
+        clearTimeout(this.timer);
+        this.timer = undefined;
+      }
+    };
+  }
+
+  private schedule(): void {
+    this.timer = setTimeout(() => {
+      const next = (this.frame + 1) % this.frames.length;
+      if (next === 0 && ++this.played > this.repetitions) {
+        this.timer = undefined;
+        return;
+      }
+      this.frame = next;
+      for (const draw of this.listeners) draw(this.frames[next]);
+      this.schedule();
+    }, this.durations[this.frame]);
+  }
+
+  close(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+    this.listeners.clear();
+    for (const f of this.frames) f.close();
+  }
+}
+
+export type Thumb = string | AnimatedThumb;
+
+/** The format from the bytes: servers often send `application/octet-stream`. */
+export function sniffImageType(head: Uint8Array, declared: string): string {
+  const ascii = (from: number, to: number) => String.fromCharCode(...head.subarray(from, to));
+  if (ascii(0, 4) === "GIF8") return "image/gif";
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "image/webp";
+  if (head[0] === 0x89 && ascii(1, 4) === "PNG") return "image/png";
+  if (head[0] === 0xff && head[1] === 0xd8) return "image/jpeg";
+  return declared;
+}
 
 export function thumbBucket(cssPx: number, dpr: number): number {
   const px = Math.ceil(cssPx * Math.max(1, dpr));
@@ -26,8 +100,8 @@ export function thumbBucket(cssPx: number, dpr: number): number {
 }
 
 interface Entry {
-  promise: Promise<string | null>;
-  url?: string | null;
+  promise: Promise<Thumb | null>;
+  url?: Thumb | null;
   refs: number;
 }
 
@@ -62,20 +136,73 @@ function hostOf(src: string): string | undefined {
   }
 }
 
-async function make(src: string, bucket: number, still: boolean): Promise<string | null> {
-  const host = hostOf(src);
-  if (host && unreadableHosts.has(host)) return null;
-  let blob: Blob;
+/** Every frame of an animation at the bucket's size, or null to show the original. */
+async function makeAnimated(blob: Blob, type: string, bucket: number): Promise<AnimatedThumb | null> {
+  if (typeof ImageDecoder === "undefined" || !(await ImageDecoder.isTypeSupported(type).catch(() => false))) return null;
+  const decoder = new ImageDecoder({ data: await blob.arrayBuffer(), type });
+  const frames: ImageBitmap[] = [];
   try {
-    const res = await fetch(src, { mode: "cors", credentials: "omit", referrerPolicy: "no-referrer" });
-    if (!res.ok) return null;
-    blob = await res.blob();
+    // Tracks fill in only once `ready`; the frame count is final once `completed`.
+    await decoder.tracks.ready;
+    await decoder.completed;
+    const track = decoder.tracks.selectedTrack;
+    const count = track?.frameCount ?? 0;
+    if (count < 2 || count > MAX_FRAMES) return null;
+    const durations: number[] = [];
+    let w = 0;
+    let h = 0;
+    for (let i = 0; i < count; i++) {
+      const { image } = await decoder.decode({ frameIndex: i });
+      try {
+        if (i === 0) {
+          const scale = bucket / Math.min(image.displayWidth, image.displayHeight);
+          if (scale * SMALL_ENOUGH >= 1) return null;
+          w = Math.max(1, Math.round(image.displayWidth * scale));
+          h = Math.max(1, Math.round(image.displayHeight * scale));
+        }
+        frames.push(await createImageBitmap(image, { resizeWidth: w, resizeHeight: h, resizeQuality: "high" }));
+        // Microseconds; like browsers, a delay of 10ms or less plays as 100ms.
+        const ms = (image.duration ?? 0) / 1000;
+        durations.push(ms <= 10 ? 100 : ms);
+      } finally {
+        image.close();
+      }
+    }
+    const reps = track!.repetitionCount;
+    return new AnimatedThumb(w, h, frames.splice(0), durations, Number.isFinite(reps) ? reps : Infinity);
   } catch {
-    if (host) unreadableHosts.add(host);
     return null;
+  } finally {
+    for (const f of frames) f.close();
+    decoder.close();
   }
+}
+
+/**
+ * The image's bytes. A host that sends no CORS headers is read through the
+ * desktop shell where there is one (electron/imageFetch.js); on the web it
+ * keeps its original.
+ */
+async function fetchBlob(src: string): Promise<Blob | null> {
+  const host = hostOf(src);
+  if (!host || !unreadableHosts.has(host)) {
+    try {
+      const res = await fetch(src, { mode: "cors", credentials: "omit", referrerPolicy: "no-referrer" });
+      return res.ok ? await res.blob() : null;
+    } catch {
+      if (!host) return null;
+      unreadableHosts.add(host);
+    }
+  }
+  return canFetchDesktopImages() ? fetchDesktopImage(src) : null;
+}
+
+async function make(src: string, bucket: number, still: boolean): Promise<Thumb | null> {
+  const blob = await fetchBlob(src);
+  if (!blob) return null;
   const head = new Uint8Array(await blob.slice(0, 4096).arrayBuffer());
-  if (!still && isAnimatedImage(blob.type, head)) return null;
+  const type = sniffImageType(head, blob.type);
+  if (!still && isAnimatedImage(type, head)) return slot(() => makeAnimated(blob, type, bucket));
   return slot(async () => {
     let full: ImageBitmap | undefined;
     try {
@@ -100,12 +227,17 @@ async function make(src: string, bucket: number, still: boolean): Promise<string
   });
 }
 
+function disposeThumb(t: Thumb | null | undefined): void {
+  if (typeof t === "string") URL.revokeObjectURL(t);
+  else t?.close();
+}
+
 function trim(): void {
   if (entries.size <= KEEP_UNUSED) return;
   for (const [key, e] of entries) {
     if (entries.size <= KEEP_UNUSED) break;
     if (e.refs > 0 || e.url === undefined) continue;
-    if (e.url) URL.revokeObjectURL(e.url);
+    disposeThumb(e.url);
     entries.delete(key);
   }
 }
@@ -115,7 +247,7 @@ function trim(): void {
  * original. Pair with {@link releaseThumb}. `still`: an animated image becomes
  * its first frame instead of being left alone.
  */
-export function acquireThumb(src: string, bucket: number, still: boolean): { key: string; promise: Promise<string | null> } {
+export function acquireThumb(src: string, bucket: number, still: boolean): { key: string; promise: Promise<Thumb | null> } {
   const key = `${still ? "s" : "a"}${bucket}|${src}`;
   let e = entries.get(key);
   if (!e) {
@@ -133,7 +265,7 @@ export function acquireThumb(src: string, bucket: number, still: boolean): { key
 }
 
 /** The settled thumbnail for `key`, if it has settled: `undefined` while pending. */
-export function settledThumb(key: string): string | null | undefined {
+export function settledThumb(key: string): Thumb | null | undefined {
   return entries.get(key)?.url;
 }
 
@@ -146,7 +278,7 @@ export function releaseThumb(key: string): void {
 
 /** Drop every thumbnail: some are of decrypted images. Logout's purge. */
 export function clearThumbs(): void {
-  for (const e of entries.values()) if (e.url) URL.revokeObjectURL(e.url);
+  for (const e of entries.values()) disposeThumb(e.url);
   entries.clear();
   unreadableHosts.clear();
 }

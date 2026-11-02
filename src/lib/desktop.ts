@@ -169,6 +169,7 @@ interface ArmadaDesktopBridge {
     openAtLogin: boolean;
     openAsHidden: boolean;
   }) => Promise<DesktopLaunchSettings>;
+  fetchImage?: (url: string) => Promise<{ type: string; data: Uint8Array<ArrayBuffer> } | null>;
   getLowMemoryMode?: () => Promise<DesktopLowMemoryState>;
   setLowMemoryMode?: (on: boolean) => Promise<DesktopLowMemoryState>;
   relaunch?: () => Promise<void>;
@@ -240,6 +241,21 @@ export async function getDesktopLowMemoryState(): Promise<DesktopLowMemoryState 
 export async function setDesktopLowMemoryMode(on: boolean): Promise<DesktopLowMemoryState | null> {
   try {
     return (await desktop()?.setLowMemoryMode?.(on)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether the shell can read images for hosts that send no CORS headers. */
+export function canFetchDesktopImages(): boolean {
+  return typeof desktop()?.fetchImage === "function";
+}
+
+/** An image's bytes through the shell, for a host without CORS. Null on web/older shells. */
+export async function fetchDesktopImage(url: string): Promise<Blob | null> {
+  try {
+    const out = await desktop()?.fetchImage?.(url);
+    return out ? new Blob([out.data], { type: out.type }) : null;
   } catch {
     return null;
   }

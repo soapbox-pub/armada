@@ -72,6 +72,8 @@ files:
   - autoLaunch.js
   # Low memory mode, read by main.js at startup; unlisted, the shell cannot boot.
   - lowMemory.js
+  # Image bytes for hosts without CORS; required by main.js at startup.
+  - imageFetch.js
   - preload.js
   # Resolves which web bundle app:// serves. Unlisted, the require fails inside
   # the asar and the shell cannot boot at all.

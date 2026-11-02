@@ -1,6 +1,7 @@
 import { useCallback, useState, type ImgHTMLAttributes } from "react";
 
 import { MotionImg } from "@/components/ui/MotionImg";
+import { ThumbAnimation } from "@/components/ui/ThumbAnimation";
 import { useImageThumb } from "@/hooks/useImageThumb";
 
 /**
@@ -15,5 +16,6 @@ export function ThumbImg({ src, className, style, ...props }: ImgHTMLAttributes<
   }, []);
   const thumb = useImageThumb(src, box);
   if (thumb.pending) return <span ref={measure} aria-hidden className={className} style={{ ...style, display: "inline-block" }} />;
+  if (thumb.anim) return <ThumbAnimation anim={thumb.anim} className={className} style={style} alt={props.alt} />;
   return <MotionImg {...props} src={thumb.src} className={className} style={style} />;
 }
