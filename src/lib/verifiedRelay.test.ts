@@ -147,6 +147,24 @@ describe("RelayInbox", () => {
     expect(ecVerify, "a wrap is never verified; a memo hit needs no EC").not.toHaveBeenCalled();
   });
 
+  it("drops a skipVerify event whose id is not its hash", async () => {
+    const out: NostrRelayMsg[] = [];
+    const inbox = new RelayInbox((msg) => out.push(msg), {
+      skipVerify: (event) => event.kind === 1059,
+      ecVerify: inlineEcVerify,
+    });
+    const real = signed("real", 1059);
+    // A relay squatting the real wrap's id over junk content.
+    const squat = { ...signed("junk", 1059), id: real.id };
+
+    inbox.push(["EVENT", "s", squat]);
+    inbox.push(["EVENT", "s", real]);
+    inbox.push(["EOSE", "s"]);
+    await settle();
+
+    expect(out.map((m) => (m[0] === "EVENT" ? m[2].content : m[0]))).toEqual(["real", "EOSE"]);
+  });
+
   it("a throwing dispatch does not stall the messages queued behind it", async () => {
     const out: string[] = [];
     const inbox = new RelayInbox((msg) => {

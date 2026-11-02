@@ -74,6 +74,19 @@ describe("chat plane (CORD-03)", () => {
     expect(replyTargetOf(folded.messages[1])).toBeUndefined();
   });
 
+  it("a junk event squatting a wrap's id neither shadows it in a batch nor poisons the memo", async () => {
+    _resetChatMemoForTests();
+    const channel = makeChannel();
+    const alice = signer();
+    const real = await wrapChat(chatRumor(alice, KIND_MESSAGE, "real", 1000), channel, alice);
+    const squat = { ...real, content: "junk" };
+
+    expect((await openChatBatch([squat, real], channel)).map((m) => m.content)).toEqual(["real"]);
+    _resetChatMemoForTests();
+    expect(await openChatBatch([squat], channel)).toEqual([]);
+    expect((await openChatBatch([real], channel)).map((m) => m.content)).toEqual(["real"]);
+  });
+
   it("threads NIP-22 kind-1111 replies: folds into the timeline, root resolves via the E tag", async () => {
     const channel = makeChannel();
     const alice = signer();

@@ -12,6 +12,7 @@ import { verifyEventsOnce } from "@/lib/verifyCache";
 import { ecVerifyBatch } from "@/lib/verifyPool";
 
 import type { NostrEvent } from "@nostrify/nostrify";
+import { getEventHash } from "nostr-tools/pure";
 import type { NostrRumor } from "@/lib/nostrRumor";
 
 import { KIND_CALENDAR_DATE, KIND_CALENDAR_RSVP, KIND_CALENDAR_TIME, KIND_COMMENT, KIND_DELETE, KIND_EDIT, KIND_MESSAGE, KIND_ONCHAIN_ZAP, KIND_POLL, KIND_POLL_VOTE, KIND_REACTION, KIND_SEAL_ENCRYPTED, KIND_TIMER_NOTICE, KIND_ZAP } from "@/concord/lib/kinds";
@@ -82,6 +83,14 @@ export function forgetChatRumor(rumorId: string): void {
   }
 }
 
+function wrapIdIsHash(wrap: NostrRumor): boolean {
+  try {
+    return getEventHash(wrap) === wrap.id;
+  } catch {
+    return false;
+  }
+}
+
 /** Test seam. */
 export const _resetChatMemoForTests = clearChatDecodeMemo;
 
@@ -114,6 +123,9 @@ function openChatToSeal(
   const memoKey = `${wrap.id}|${channel.idHex}`;
   const cached = decodeMemo.get(memoKey);
   if (cached !== undefined) return { done: cached };
+  // Never memoize under an id the event doesn't commit to: a failure cached for
+  // a squatted id would hide the real wrap carrying it.
+  if (!wrapIdIsHash(wrap)) return { done: null };
 
   const stream = channel.streams.find((s) => s.group.pk === wrap.pubkey);
   if (!stream) {
@@ -212,8 +224,19 @@ export async function openChatBatch(
   // One decode per wrap id: every relay serves largely the same page, and the memo
   // only learns a wrap once it finishes.
   if (wraps.length > 1) {
-    const seen = new Set<string>();
-    wraps = wraps.filter((w) => !seen.has(w.id) && Boolean(seen.add(w.id)));
+    const at = new Map<string, number>();
+    const unique: NostrRumor[] = [];
+    for (const w of wraps) {
+      const i = at.get(w.id);
+      if (i === undefined) {
+        at.set(w.id, unique.length);
+        unique.push(w);
+      } else if (!wrapIdIsHash(unique[i]) && wrapIdIsHash(w)) {
+        // Hashed only on a collision: the copy that commits to the id wins.
+        unique[i] = w;
+      }
+    }
+    wraps = unique;
   }
 
   // Phase 1. `resolved` keeps input order across the async verify.

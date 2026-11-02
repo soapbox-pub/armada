@@ -10,6 +10,7 @@
 
 import { NRelay1, type NRelay1Opts } from "@nostrify/nostrify";
 import type { NostrEvent, NostrRelayMsg } from "@nostrify/types";
+import { getEventHash } from "nostr-tools/pure";
 
 import { relayMsgSchema } from "./relayMsgParse";
 import { type EcVerifyBatch, verifyEventsOnce } from "./verifyCache";
@@ -19,10 +20,18 @@ import { ecVerifyBatch } from "./verifyPool";
 (NRelay1 as unknown as { msgSchema: typeof relayMsgSchema }).msgSchema = relayMsgSchema;
 
 export interface RelayInboxOpts {
-  /** Events delivered unverified (NIP-59 wraps; decrypt re-checks — see `NostrProvider`). */
+  /** Events delivered without a signature check (NIP-59 wraps; decrypt re-checks — see `NostrProvider`). Their id must still be their hash. */
   skipVerify?: (event: NostrEvent) => boolean;
   /** The EC verifier for the memo's residue. Default: the worker pool. */
   ecVerify?: EcVerifyBatch;
+}
+
+function idIsHash(event: NostrEvent): boolean {
+  try {
+    return getEventHash(event) === event.id;
+  } catch {
+    return false;
+  }
 }
 
 /** Messages whose delivery must keep wire order relative to one another. */
@@ -84,7 +93,16 @@ export class RelayInbox {
         const verdicts = events.length > 0 ? await verifyEventsOnce(events, this.ecVerify) : [];
         let k = 0;
         for (const msg of batch) {
-          if (this.needsVerify(msg) && verdicts[k++] !== true) continue;
+          if (msg[0] === "EVENT") {
+            if (!this.skipVerify(msg[2])) {
+              if (verdicts[k++] !== true) continue;
+            } else if (!idIsHash(msg[2])) {
+              // A skipped event's signature proves nothing, but its id still keys
+              // every dedupe and failure memo downstream: an event naming a real
+              // wrap's id over junk content would shadow that wrap.
+              continue;
+            }
+          }
           this.deliver(msg);
         }
       }
