@@ -231,8 +231,9 @@ const browser = await chromium.launch({
 // worker's `clearAppBadge()` gets the renderer killed for a bad IPC message.
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, baseURL: ORIGIN, serviceWorkers: "block" });
 const page = await context.newPage();
-// `--reduced-motion`: what the `motion-safe:` animations cost, by turning them off.
+// `--reduced-motion`: the OS setting; `--app-reduce-motion`: the app's own switch.
 if (flag("reduced-motion")) await page.emulateMedia({ reducedMotion: "reduce" });
+if (flag("app-reduce-motion")) await context.addInitScript(() => localStorage.setItem("armada:reduce-motion", "1"));
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e).slice(0, 300)));
 page.on("crash", () => errors.push("RENDERER CRASHED"));
