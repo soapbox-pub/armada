@@ -1,6 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { completedShortcodeAt, findEmojiShortcodeColon, nativeEmojiForShortcode } from "@/lib/emojiShortcode";
+
+describe("before the emoji dataset has loaded", () => {
+  it("converts nothing, and an opening colon starts the load", async () => {
+    vi.resetModules();
+    const fresh = await import("@/lib/emojiShortcode");
+    const data = await import("@/lib/emojiData");
+    expect(data.emojiData()).toBeUndefined();
+    expect(fresh.completedShortcodeAt(":v:", 3)).toBeNull();
+    await vi.waitFor(() => expect(data.emojiData()).toBeDefined());
+    expect(fresh.completedShortcodeAt(":v:", 3)?.replacement).toBe("✌️");
+  });
+});
+
+beforeAll(async () => {
+  await (await import("@/lib/emojiData")).loadEmojiData();
+});
 
 describe("findEmojiShortcodeColon", () => {
   it("finds a shortcode after whitespace or at the start", () => {

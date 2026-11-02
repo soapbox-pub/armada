@@ -1,19 +1,12 @@
-import data from "@emoji-mart/data";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CustomEmojiImg } from "@/components/chat/CustomEmoji";
 import { getCaretCoordinates } from "@/lib/caretCoordinates";
+import { useEmojiData, type EmojiMartData } from "@/lib/emojiData";
 import { findEmojiShortcodeColon } from "@/lib/emojiShortcode";
 import { usePortalDropdown } from "@/hooks/usePortalDropdown";
 import { useCustomEmojis, type CustomEmoji } from "@/hooks/useCustomEmojis";
 import { cn } from "@/lib/utils";
-
-interface EmojiData {
-  id: string;
-  name: string;
-  keywords?: string[];
-  skins: Array<{ native: string }>;
-}
 
 interface EmojiShortcodeAutocompleteProps {
   /** The textarea or single-line input the autocomplete is attached to. */
@@ -34,9 +27,8 @@ interface EmojiResult {
   score: number;
 }
 
-function buildEmojiIndex(): Array<{ id: string; name: string; native: string; keywords: string[] }> {
-  const emojis = (data as { emojis: Record<string, EmojiData> }).emojis;
-  const aliases = (data as { aliases: Record<string, string> }).aliases;
+function buildEmojiIndex(data: EmojiMartData): Array<{ id: string; name: string; native: string; keywords: string[] }> {
+  const { emojis, aliases } = data;
 
   const results: Array<{ id: string; name: string; native: string; keywords: string[] }> = [];
 
@@ -63,14 +55,13 @@ function buildEmojiIndex(): Array<{ id: string; name: string; native: string; ke
 }
 
 let emojiIndex: ReturnType<typeof buildEmojiIndex> | null = null;
-function getEmojiIndex() {
-  if (!emojiIndex) {
-    emojiIndex = buildEmojiIndex();
-  }
+function getEmojiIndex(data: EmojiMartData | undefined) {
+  if (!data) return [];
+  emojiIndex ??= buildEmojiIndex(data);
   return emojiIndex;
 }
 
-function searchEmojis(query: string, customEmojis: CustomEmoji[]): EmojiResult[] {
+function searchEmojis(query: string, customEmojis: CustomEmoji[], data: EmojiMartData | undefined): EmojiResult[] {
   if (!query) return [];
   const q = query.toLowerCase();
   const results: EmojiResult[] = [];
@@ -86,7 +77,7 @@ function searchEmojis(query: string, customEmojis: CustomEmoji[]): EmojiResult[]
     }
   }
 
-  const index = getEmojiIndex();
+  const index = getEmojiIndex(data);
   for (const emoji of index) {
     if (emoji.id === q) {
       results.push({ id: emoji.id, name: emoji.name, native: emoji.native, score: 2 });
@@ -134,7 +125,9 @@ export function EmojiShortcodeAutocomplete({
     dropdownHeight: 280, // must match max-h-[280px] below
   });
 
-  const results = useMemo(() => searchEmojis(query, customEmojis), [query, customEmojis]);
+  // Loaded once a shortcode is being typed; custom emoji match before then.
+  const data = useEmojiData(query.length > 0);
+  const results = useMemo(() => searchEmojis(query, customEmojis, data), [query, customEmojis, data]);
 
   const detectShortcode = useCallback((text?: string, cursorPos?: number | null) => {
     const textarea = textareaRef.current;

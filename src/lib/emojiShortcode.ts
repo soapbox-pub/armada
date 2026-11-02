@@ -1,9 +1,4 @@
-import data from "@emoji-mart/data";
-
-interface EmojiMartData {
-  emojis: Record<string, { skins?: Array<{ native?: string }> }>;
-  aliases: Record<string, string>;
-}
+import { emojiData, loadEmojiData } from "@/lib/emojiData";
 
 /**
  * Index of the `:` opening an in-progress `:shortcode` ending at `cursor`, or
@@ -22,9 +17,17 @@ export function findEmojiShortcodeColon(value: string, cursor: number): number {
   return -1;
 }
 
-/** The native emoji an emoji-mart id or alias names (case-insensitive), or undefined. */
+/**
+ * The native emoji an emoji-mart id or alias names (case-insensitive), or
+ * undefined — also while the dataset is still loading (this starts it).
+ */
 export function nativeEmojiForShortcode(name: string): string | undefined {
-  const { emojis, aliases } = data as EmojiMartData;
+  const data = emojiData();
+  if (!data) {
+    void loadEmojiData();
+    return undefined;
+  }
+  const { emojis, aliases } = data;
   const key = name.toLowerCase();
   if (!Object.hasOwn(emojis, key) && !Object.hasOwn(aliases, key)) return undefined;
   const id = Object.hasOwn(emojis, key) ? key : aliases[key]!;
@@ -41,6 +44,8 @@ export function completedShortcodeAt(
   cursor: number,
   customShortcodes: ReadonlySet<string> = new Set(),
 ): { start: number; end: number; replacement: string } | null {
+  // A `:` that could open a shortcode loads the dataset, so it is in hand by the closing one.
+  if (!emojiData() && cursor > 0 && value[cursor - 1] === ":") void loadEmojiData();
   if (cursor < 3 || value[cursor - 1] !== ":") return null;
   const start = findEmojiShortcodeColon(value, cursor - 1);
   if (start < 0) return null;
