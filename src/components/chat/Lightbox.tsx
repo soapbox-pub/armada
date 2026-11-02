@@ -756,17 +756,8 @@ function LightboxImage({
       };
       panStart.current = null;
     } else if (e.touches.length === 1) {
-      if (scale.current > 1) {
-        panStart.current = {
-          x: e.touches[0].clientX,
-          y: e.touches[0].clientY,
-          panX: panX.current,
-          panY: panY.current,
-        };
-      }
       const now = Date.now();
       if (now - lastTap.current < 300) {
-        e.preventDefault();
         if (scale.current > 1) {
           scale.current = 1;
           panX.current = 0;
@@ -786,6 +777,10 @@ function LightboxImage({
         notifyZoom();
       }
       lastTap.current = now;
+      // After the double-tap above, so a finger held from the zooming tap pans at once.
+      panStart.current = scale.current > 1
+        ? { x: e.touches[0].clientX, y: e.touches[0].clientY, panX: panX.current, panY: panY.current }
+        : null;
     }
   };
 
@@ -925,7 +920,8 @@ function LightboxImage({
   const inner = (
     <div
       ref={containerRef}
-      className="w-full h-full flex items-center justify-center overflow-hidden"
+      // Every gesture here is ours: the browser must not claim a pan, pinch or double-tap zoom.
+      className="w-full h-full flex items-center justify-center overflow-hidden touch-none"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onMouseDown={handleMouseDown}
