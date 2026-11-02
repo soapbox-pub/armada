@@ -847,13 +847,12 @@ export function InvitesPage() {
   const { items, requests, unreadCount } = useInviteInbox();
   const { markRead } = useReadState();
   const [selectedWrapId, setSelectedWrapId] = useState<string | undefined>(undefined);
-  const [showRequests, setShowRequests] = useState(false);
+  // Collapsed until asked, even when there is nothing else: strangers' invites are where spam lands.
+  const [requestsOpen, setRequestsOpen] = useState(false);
 
   const all = useMemo(() => [...items, ...requests], [items, requests]);
   const selected = all.find((it) => it.invite.wrapId === selectedWrapId)?.invite;
   const selectedIsRequest = requests.some((it) => it.invite.wrapId === selectedWrapId);
-  // Nothing else to show: no reason to make the viewer expand them.
-  const requestsOpen = showRequests || items.length === 0;
 
   // Mark everything seen (one high-water mark) while on screen — not while
   // Settings covers the page. Seeing isn't accepting.
@@ -917,7 +916,7 @@ export function InvitesPage() {
                       <button
                         type="button"
                         aria-expanded={requestsOpen}
-                        onClick={() => setShowRequests(!requestsOpen)}
+                        onClick={() => setRequestsOpen(!requestsOpen)}
                         className="mt-2 flex w-full items-center gap-1.5 px-3 py-2 touch:py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
                       >
                         <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", requestsOpen && "rotate-90")} />
