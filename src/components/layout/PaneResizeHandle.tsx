@@ -53,7 +53,8 @@ export function PaneResizeHandle({ pane, className }: { pane: Pane; className?: 
       className={cn(
         "absolute inset-y-0 z-30 hidden sidebar:block w-1.5 cursor-col-resize touch-none",
         "hover:bg-primary/30 focus-visible:bg-primary/40 focus-visible:outline-none transition-colors",
-        pane === "channel" ? "right-0" : "left-0",
+        // The channel list's scrollbar is on this edge, so its handle sits in the gutter beside it.
+        pane === "channel" ? "-right-1.5" : "left-0",
         className,
       )}
       onPointerDown={(e) => {
