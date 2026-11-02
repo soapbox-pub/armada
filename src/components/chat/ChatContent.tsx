@@ -982,7 +982,16 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
     return map;
   }, [event.tags, viewerEmojis, holdMedia]);
 
-  const imetaMap = useMemo(() => parseImetaMap(event.tags), [event.tags]);
+  // A NIP-17 kind 15 carries its file's metadata (and decryption key, and webxdc
+  // topic) in top-level tags, as the tokenizer reads it; the renderer needs it too.
+  const imetaMap = useMemo(() => {
+    const map = parseImetaMap(event.tags);
+    if (event.kind === KIND_DM_FILE) {
+      const entry = parseFileMessageTags(event.content.trim(), event.tags);
+      if (entry && !map.has(entry.url)) map.set(entry.url, entry);
+    }
+    return map;
+  }, [event.kind, event.content, event.tags]);
 
   const groupedTokens = useMemo(() => {
     const result: ContentToken[] = [];
