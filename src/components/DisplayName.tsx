@@ -2,7 +2,7 @@ import { EmojifiedText } from "@/components/chat/CustomEmoji";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedIdentity } from "@/hooks/useScopedDisplayName";
 import { isAnonymousName } from "@/lib/getDisplayName";
-import { anonymousTag, pubkeyHue, pubkeyHueColor } from "@/lib/pubkeyHue";
+import { anonymousTag, pubkeyHue, pubkeyHueTagColor } from "@/lib/pubkeyHue";
 
 interface DisplayNameProps {
   pubkey: string | undefined;
@@ -16,7 +16,7 @@ interface DisplayNameProps {
 /**
  * Scoped display name with NIP-30 emoji shortcodes rendered as images. Emits
  * no wrapper element. For plain strings use {@link useScopedDisplayName}.
- * A nameless person gets their {@link anonymousTag} after it, in their avatar's hue.
+ * A nameless person gets their {@link anonymousTag} after it, in a dimmed shade of their avatar's hue.
  */
 export function DisplayName(props: DisplayNameProps) {
   if (props.name !== undefined && (props.tags !== undefined || props.pubkey === undefined)) {
@@ -38,7 +38,7 @@ function AnonymousTag({ name, pubkey }: { name: string; pubkey: string | undefin
   const hue = pubkeyHue(pubkey);
   if (hue === undefined || !pubkey) return null;
   return (
-    <span className="font-mono font-normal" style={{ color: pubkeyHueColor(hue) }}>
+    <span className="font-mono font-normal" style={{ color: pubkeyHueTagColor(hue) }}>
       {anonymousTag(pubkey)}
     </span>
   );
