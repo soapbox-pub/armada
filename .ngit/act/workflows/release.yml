@@ -681,6 +681,12 @@ jobs:
         with:
           node-version: 22
 
+      # keytool, for the NIP-C1 step's keystore conversion.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
       # No checkout step: dependent ngit-ci jobs bind the same working tree, so
       # the sources, the node_modules the android job installed, and the
       # .release-artifacts/ both build jobs staged into are all already here.
@@ -738,6 +744,35 @@ jobs:
 
       - uses: danconwaydev/setup-ngit@v3
         if: ${{ always() }}
+
+      # relay.zapstore.dev holds APK listings pending a NIP-C1 proof (kind
+      # 30509) linking the APK signing certificate to the key that signs the
+      # release, so it has to be there before the listings arrive. A no-op once
+      # a valid proof exists; renewed in its last 60 days. Never blocks the
+      # release: the steps after it run whatever this does.
+      - name: Link the APK signing certificate for Zapstore (NIP-C1)
+        if: ${{ always() && !contains(github.ref_name, '-') }}
+        timeout-minutes: 5
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          NOSTR_BUNKER_URL: ${{ secrets.ZAPSTORE_BUNKER_URL }}
+          NOSTR_CLIENT_KEY: ${{ secrets.ZAPSTORE_CLIENT_KEY }}
+        run: |
+          set -eu
+          : "${ANDROID_KEYSTORE_BASE64:?Set the ANDROID_KEYSTORE_BASE64 secret.}"
+          : "${KEYSTORE_PASSWORD:?Set the KEYSTORE_PASSWORD secret.}"
+          umask 077
+          dir="$RUNNER_TEMP/nipc1"
+          rm -rf "$dir" && mkdir -p "$dir"
+          trap 'rm -rf "$dir"' EXIT
+          # The same JKS the android job signs with, as PKCS#12 for openssl.
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$dir/upload.jks"
+          keytool -importkeystore -noprompt \
+            -srckeystore "$dir/upload.jks" -srcstorepass "$KEYSTORE_PASSWORD" \
+            -destkeystore "$dir/upload.p12" -deststoretype PKCS12 -deststorepass "$KEYSTORE_PASSWORD" \
+            -srcalias upload -destalias upload
+          node scripts/zapstore-identity.mjs --keystore "$dir/upload.p12" --alias upload
 
       # The NIP-82 release (.ngit/release.yaml) of buzz.armada.app, which
       # /downloads, the desktop updater, Zapstore and npkg read. Runs whether or
