@@ -7,7 +7,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MotionImg } from "@/components/ui/MotionImg";
-import { mayAnimate, setReduceMotionSetting } from "@/lib/reducedMotion";
+import { mayAnimate, setReduceEffects } from "@/lib/reducedMotion";
 
 describe("MotionImg", () => {
   // jsdom has no 2D canvas; the draw is the browser's business.
@@ -15,7 +15,7 @@ describe("MotionImg", () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
   });
   afterEach(() => {
-    setReduceMotionSetting(false);
+    setReduceEffects(false);
     vi.restoreAllMocks();
   });
 
@@ -36,14 +36,14 @@ describe("MotionImg", () => {
   });
 
   it("is a plain img for a still format under reduced motion", () => {
-    setReduceMotionSetting(true);
+    setReduceEffects(true);
     const { container } = render(<MotionImg src="https://x.test/a.jpg" alt="a" />);
     expect(container.querySelector("img")).not.toBeNull();
     expect(container.querySelector("canvas")).toBeNull();
   });
 
   it("swaps an animated image for its first frame once loaded, keeping classes", () => {
-    setReduceMotionSetting(true);
+    setReduceEffects(true);
     let loads = 0;
     const { container } = render(
       <MotionImg src="https://x.test/a.gif" alt="party" className="size-4 object-cover" onLoad={() => loads++} />,

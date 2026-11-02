@@ -142,7 +142,7 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
               <LanguageSettings />
               <FontScaleSettings />
             </SettingsGroup>
-            <SettingsGroup title={intl.formatMessage({ id: "settingsPage.appearance.motion", defaultMessage: "Motion & effects" })}>
+            <SettingsGroup title={intl.formatMessage({ id: "settingsPage.appearance.motion", defaultMessage: "Effects" })}>
               <MotionSettings />
             </SettingsGroup>
           </>

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * Motion is the app switch OR the OS setting and marks `<html>`; animated media
- * and blur follow it until chosen, and a choice equal to what they'd follow is
- * forgotten; Ultra flair is its own switch. All persist device-wide.
+ * One master switch turns every part on; each part can then be left out. The
+ * OS's reduced-motion setting turns the master on and always stops motion.
+ * Everything persists device-wide and marks `<html>` for the CSS.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,6 +28,8 @@ async function fresh(): Promise<Module> {
 
 const marked = (attr: string) => document.documentElement.hasAttribute(attr);
 
+const all = (m: Module) => [m.reducedMotion(), m.stillMedia(), m.reducedBlur(), m.hiddenFlair()];
+
 describe("reducedMotion", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -35,90 +37,61 @@ describe("reducedMotion", () => {
     document.documentElement.removeAttribute("data-reduce-blur");
   });
 
-  it("is off by default, and the switch turns it on, marks <html> and persists", async () => {
+  it("is off by default, and the master turns every part on, marks <html> and persists", async () => {
     mockSystem(false);
     const m = await fresh();
-    expect(m.reducedMotion()).toBe(false);
+    expect(all(m)).toEqual([false, false, false, false]);
     expect(marked("data-reduce-motion")).toBe(false);
 
     const heard = vi.fn();
     m.onReducedMotionChange(heard);
-    m.setReduceMotionSetting(true);
-    expect(m.reducedMotion()).toBe(true);
+    m.setReduceEffects(true);
+    expect(all(m)).toEqual([true, true, true, true]);
     expect(marked("data-reduce-motion")).toBe(true);
+    expect(marked("data-reduce-blur")).toBe(true);
     expect(heard).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem(m.REDUCE_MOTION_KEY)).toBe("1");
+    expect(localStorage.getItem(m.REDUCE_EFFECTS_KEY)).toBe("1");
 
-    // A reload reads it back.
     const again = await fresh();
-    expect(again.reducedMotion()).toBe(true);
-    expect(marked("data-reduce-motion")).toBe(true);
+    expect(all(again)).toEqual([true, true, true, true]);
 
-    again.setReduceMotionSetting(false);
-    expect(localStorage.getItem(m.REDUCE_MOTION_KEY)).toBeNull();
+    again.setReduceEffects(false);
+    expect(all(again)).toEqual([false, false, false, false]);
+    expect(localStorage.getItem(m.REDUCE_EFFECTS_KEY)).toBeNull();
     expect(marked("data-reduce-motion")).toBe(false);
   });
 
-  it("follows the OS setting with the switch off, live", async () => {
+  it("a part left out stays out across the master and a reload, and nothing applies with the master off", async () => {
+    mockSystem(false);
+    const m = await fresh();
+    m.setEffectPart("blur", false);
+    m.setEffectPart("media", false);
+    expect(all(m)).toEqual([false, false, false, false]);
+
+    m.setReduceEffects(true);
+    expect(all(m)).toEqual([true, false, false, true]);
+    expect(marked("data-reduce-blur")).toBe(false);
+
+    const again = await fresh();
+    expect(all(again)).toEqual([true, false, false, true]);
+    again.setEffectPart("blur", true);
+    expect(again.reducedBlur()).toBe(true);
+    expect(marked("data-reduce-blur")).toBe(true);
+  });
+
+  it("the OS setting turns the master on and always stops motion, live", async () => {
     const system = mockSystem(true);
     const m = await fresh();
+    m.setEffectPart("motion", false);
+    m.setEffectPart("flair", false);
     expect(m.systemReducesMotion()).toBe(true);
-    expect(m.reducedMotion()).toBe(true);
+    expect(all(m)).toEqual([true, true, true, false]);
     expect(marked("data-reduce-motion")).toBe(true);
     expect(m.scrollBehavior()).toBe("auto");
 
     system.change(false);
-    expect(m.reducedMotion()).toBe(false);
+    expect(all(m)).toEqual([false, false, false, false]);
     expect(marked("data-reduce-motion")).toBe(false);
     expect(m.scrollBehavior()).toBe("smooth");
-  });
-
-  it("media and blur follow motion until chosen, and stay chosen", async () => {
-    mockSystem(false);
-    const m = await fresh();
-    m.setReduceMotionSetting(true);
-    expect(m.stillMedia()).toBe(true);
-    expect(m.reducedBlur()).toBe(true);
-    expect(marked("data-reduce-blur")).toBe(true);
-
-    // Keep GIFs and blur while reducing motion.
-    m.setStillMediaSetting(false);
-    m.setReduceBlurSetting(false);
-    expect(m.stillMedia()).toBe(false);
-    expect(marked("data-reduce-blur")).toBe(false);
-    expect(localStorage.getItem(m.STILL_MEDIA_KEY)).toBe("0");
-
-    // A choice outlives motion going off and on again, and a reload.
-    m.setReduceMotionSetting(false);
-    m.setReduceMotionSetting(true);
-    const again = await fresh();
-    expect(again.stillMedia()).toBe(false);
-    expect(again.reducedBlur()).toBe(false);
-
-    // Choosing what it would follow anyway goes back to following.
-    again.setStillMediaSetting(true);
-    expect(localStorage.getItem(m.STILL_MEDIA_KEY)).toBeNull();
-    again.setReduceMotionSetting(false);
-    expect(again.stillMedia()).toBe(false);
-  });
-
-  it("can pause media and drop blur without reducing motion", async () => {
-    mockSystem(false);
-    const m = await fresh();
-    m.setStillMediaSetting(true);
-    m.setReduceBlurSetting(true);
-    expect(m.reducedMotion()).toBe(false);
-    expect(m.stillMedia()).toBe(true);
-    expect(marked("data-reduce-blur")).toBe(true);
-    expect(marked("data-reduce-motion")).toBe(false);
-  });
-
-  it("Ultra flair is its own switch", async () => {
-    mockSystem(true);
-    const m = await fresh();
-    expect(m.hiddenFlair()).toBe(false);
-    m.setHideFlairSetting(true);
-    expect(m.hiddenFlair()).toBe(true);
-    expect((await fresh()).hiddenFlair()).toBe(true);
   });
 });

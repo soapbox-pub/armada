@@ -1,43 +1,45 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * Motion and effects, device-wide like the text size (the login screen needs
- * them too, and a phone and a desktop rarely want the same). Four switches:
+ * Reduce effects, device-wide like the text size (the login screen needs it
+ * too, and a phone and a desktop rarely want the same). One master switch;
+ * while it is on, four parts each apply unless switched off:
  *
- * - `motion`: the app's switch OR'd with the OS's `prefers-reduced-motion`,
- *   which the app cannot turn off. Marks `<html>` with `data-reduce-motion`
- *   (animations, transitions, smooth scrolling; `index.css`) and gates canvas
- *   scenes and other JS animation through {@link reducedMotion}.
+ * - `motion`: animations, transitions, smooth scrolling (`data-reduce-motion`
+ *   on `<html>`, read by `index.css`; JS reads {@link reducedMotion}).
  * - `media`: animated images show their first frame, GIFs play on hover or tap.
  * - `blur`: `data-reduce-blur` drops backdrop blur.
  * - `flair`: Ultra avatar halos and profile effects are hidden.
  *
- * `media` and `blur` follow `motion` until set, so one switch is still the
- * whole package. `public/theme.js` applies the two attributes before first paint.
+ * The OS's `prefers-reduced-motion` turns the master on and forces `motion`,
+ * which the app cannot override. `public/theme.js` applies both attributes
+ * before first paint.
  */
-export const REDUCE_MOTION_KEY = "armada:reduce-motion";
-export const STILL_MEDIA_KEY = "armada:still-media";
-export const REDUCE_BLUR_KEY = "armada:reduce-blur";
-export const HIDE_FLAIR_KEY = "armada:hide-flair";
-export const EFFECT_KEYS = [REDUCE_MOTION_KEY, STILL_MEDIA_KEY, REDUCE_BLUR_KEY, HIDE_FLAIR_KEY] as const;
+export const REDUCE_EFFECTS_KEY = "armada:reduce-effects";
+const PART_KEYS = {
+  motion: "armada:reduce-motion",
+  media: "armada:still-media",
+  blur: "armada:reduce-blur",
+  flair: "armada:hide-flair",
+} as const;
+export type EffectPart = keyof typeof PART_KEYS;
+export const EFFECT_KEYS = [REDUCE_EFFECTS_KEY, ...Object.values(PART_KEYS)] as const;
 
 export const REDUCE_MOTION_ATTR = "data-reduce-motion";
 export const REDUCE_BLUR_ATTR = "data-reduce-blur";
 
-/** `true`/`false` when set, `undefined` when following the default. */
-function readFlag(key: string): boolean | undefined {
+function read(key: string): string | null {
   try {
-    const v = localStorage.getItem(key);
-    return v === "1" ? true : v === "0" ? false : undefined;
+    return localStorage.getItem(key);
   } catch {
-    return undefined;
+    return null;
   }
 }
 
-function writeFlag(key: string, value: boolean | undefined): void {
+function write(key: string, value: string | undefined): void {
   try {
     if (value === undefined) localStorage.removeItem(key);
-    else localStorage.setItem(key, value ? "1" : "0");
+    else localStorage.setItem(key, value);
   } catch {
     // Private-mode/quota: the choice still holds for this session.
   }
@@ -48,10 +50,11 @@ const media: MediaQueryList | undefined =
     ? window.matchMedia("(prefers-reduced-motion: reduce)")
     : undefined;
 
-let motionSetting = readFlag(REDUCE_MOTION_KEY) === true;
-let mediaSetting = readFlag(STILL_MEDIA_KEY);
-let blurSetting = readFlag(REDUCE_BLUR_KEY);
-let flairSetting = readFlag(HIDE_FLAIR_KEY) === true;
+let master = read(REDUCE_EFFECTS_KEY) === "1";
+/** Parts switched off under the master; stored as "0", absent means on. */
+const excluded = new Set<EffectPart>(
+  (Object.keys(PART_KEYS) as EffectPart[]).filter((part) => read(PART_KEYS[part]) === "0"),
+);
 let system = media?.matches ?? false;
 /** Bumped on every change, so snapshot hooks re-render once per change. */
 let revision = 0;
@@ -75,61 +78,53 @@ media?.addEventListener?.("change", (e) => {
 });
 apply();
 
-/** Whether motion should be reduced now: the app switch or the OS setting. */
+/** Whether the master switch is in effect: set here, or forced by the OS. */
+function enabled(): boolean {
+  return master || system;
+}
+
+function part(p: EffectPart): boolean {
+  return enabled() && !excluded.has(p);
+}
+
+/** Whether motion should be reduced now. The OS setting always forces it. */
 export function reducedMotion(): boolean {
-  return motionSetting || system;
+  return system || part("motion");
 }
 
 /** Whether animated images and GIFs hold still. */
 export function stillMedia(): boolean {
-  return mediaSetting ?? reducedMotion();
+  return part("media");
 }
 
 /** Whether backdrop blur is off. */
 export function reducedBlur(): boolean {
-  return blurSetting ?? reducedMotion();
+  return part("blur");
 }
 
 /** Whether Ultra avatar halos and profile effects are hidden. */
 export function hiddenFlair(): boolean {
-  return flairSetting;
+  return part("flair");
 }
 
-/** Whether the OS asks for reduced motion, which the app switch cannot override. */
+/** Whether the OS asks for reduced motion, which the app cannot override. */
 export function systemReducesMotion(): boolean {
   return system;
 }
 
-export function setReduceMotionSetting(on: boolean): void {
-  if (on === motionSetting) return;
-  motionSetting = on;
-  writeFlag(REDUCE_MOTION_KEY, on || undefined);
+export function setReduceEffects(on: boolean): void {
+  if (on === master) return;
+  master = on;
+  write(REDUCE_EFFECTS_KEY, on ? "1" : undefined);
   changed();
 }
 
-/**
- * Set a switch that follows Reduce motion until chosen. Choosing what it would
- * follow anyway clears the choice, so it keeps following later changes.
- */
-function setFollowing(key: string, on: boolean, assign: (value: boolean | undefined) => void): void {
-  const value = on === reducedMotion() ? undefined : on;
-  assign(value);
-  writeFlag(key, value);
-  changed();
-}
-
-export function setStillMediaSetting(on: boolean): void {
-  setFollowing(STILL_MEDIA_KEY, on, (v) => (mediaSetting = v));
-}
-
-export function setReduceBlurSetting(on: boolean): void {
-  setFollowing(REDUCE_BLUR_KEY, on, (v) => (blurSetting = v));
-}
-
-export function setHideFlairSetting(on: boolean): void {
-  if (on === flairSetting) return;
-  flairSetting = on;
-  writeFlag(HIDE_FLAIR_KEY, on || undefined);
+/** Include or leave out one part while the master is on. */
+export function setEffectPart(p: EffectPart, on: boolean): void {
+  if (on === !excluded.has(p)) return;
+  if (on) excluded.delete(p);
+  else excluded.add(p);
+  write(PART_KEYS[p], on ? undefined : "0");
   changed();
 }
 
@@ -155,9 +150,10 @@ export function useHiddenFlair(): boolean {
 }
 
 export interface EffectSettings {
-  /** The app's Reduce motion switch, separate from the OS setting. */
-  motion: boolean;
+  /** The master switch as it applies: set here, or forced by the OS. */
+  enabled: boolean;
   system: boolean;
+  motion: boolean;
   media: boolean;
   blur: boolean;
   flair: boolean;
@@ -169,7 +165,7 @@ function effectSettings(): EffectSettings {
   if (snapshot?.revision !== revision) {
     snapshot = {
       revision,
-      value: { motion: motionSetting, system, media: stillMedia(), blur: reducedBlur(), flair: flairSetting },
+      value: { enabled: enabled(), system, motion: reducedMotion(), media: stillMedia(), blur: reducedBlur(), flair: hiddenFlair() },
     };
   }
   return snapshot.value;

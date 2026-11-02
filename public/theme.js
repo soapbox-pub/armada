@@ -184,13 +184,14 @@
     if (scale) root.style.setProperty("--font-scale", String(scale / 100));
   } catch (e) { /* storage blocked */ }
 
-  // Motion and blur; see src/lib/reducedMotion.ts, the keys' only writer. Blur
-  // follows motion until it is set ("1"/"0").
+  // Reduce effects; see src/lib/reducedMotion.ts, the keys' only writer. The
+  // master is on when set or when the OS reduces motion; a part stored as "0"
+  // is left out, and the OS always forces motion.
   try {
-    var reduce = localStorage.getItem("armada:reduce-motion") === "1";
-    if (!reduce && window.matchMedia) reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) root.setAttribute("data-reduce-motion", "");
-    var blur = localStorage.getItem("armada:reduce-blur");
-    if (blur === "1" || (blur !== "0" && reduce)) root.setAttribute("data-reduce-blur", "");
+    var system = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    var on = system || localStorage.getItem("armada:reduce-effects") === "1";
+    var part = function (key) { return on && localStorage.getItem(key) !== "0"; };
+    if (system || part("armada:reduce-motion")) root.setAttribute("data-reduce-motion", "");
+    if (part("armada:reduce-blur")) root.setAttribute("data-reduce-blur", "");
   } catch (e) { /* storage blocked */ }
 })();

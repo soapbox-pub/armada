@@ -1,63 +1,42 @@
 import { SettingsRow } from "@/components/settings/SettingsSection";
 import { Switch } from "@/components/ui/switch";
-import { useIntl } from "@/i18n";
-import {
-  setHideFlairSetting,
-  setReduceBlurSetting,
-  setReduceMotionSetting,
-  setStillMediaSetting,
-  useEffectSettings,
-} from "@/lib/reducedMotion";
+import { defineMessage, useIntl, type MessageDescriptor } from "@/i18n";
+import { setEffectPart, setReduceEffects, useEffectSettings, type EffectPart } from "@/lib/reducedMotion";
+
+const PARTS: Array<{ part: EffectPart; label: MessageDescriptor }> = [
+  { part: "motion", label: defineMessage({ id: "motionSettings.motion", defaultMessage: "Stop animations" }) },
+  { part: "media", label: defineMessage({ id: "motionSettings.media", defaultMessage: "Pause GIFs and animated images" }) },
+  { part: "blur", label: defineMessage({ id: "motionSettings.blur", defaultMessage: "Remove blur" }) },
+  { part: "flair", label: defineMessage({ id: "motionSettings.flair", defaultMessage: "Hide Ultra halos and effects" }) },
+];
 
 export function MotionSettings() {
   const intl = useIntl();
-  const { motion, system, media, blur, flair } = useEffectSettings();
+  const settings = useEffectSettings();
 
   return (
     <>
       <SettingsRow
-        label={intl.formatMessage({ id: "motionSettings.label", defaultMessage: "Reduce motion" })}
+        label={intl.formatMessage({ id: "motionSettings.label", defaultMessage: "Reduce effects" })}
         description={
-          system
-            ? intl.formatMessage({
-                id: "motionSettings.systemDescription",
-                defaultMessage: "Your device is set to reduce motion, so this stays on. Animations, transitions and smooth scrolling are off.",
-              })
-            : intl.formatMessage({
-                id: "motionSettings.description",
-                defaultMessage: "Turns off animations, transitions and smooth scrolling. Also lighter on older devices.",
-              })
+          settings.system
+            ? intl.formatMessage({ id: "motionSettings.system", defaultMessage: "On because your device reduces motion." })
+            : intl.formatMessage({ id: "motionSettings.description", defaultMessage: "A calmer, lighter app on this device." })
         }
       >
-        <Switch checked={motion || system} disabled={system} onCheckedChange={setReduceMotionSetting} />
+        <Switch checked={settings.enabled} disabled={settings.system} onCheckedChange={setReduceEffects} />
       </SettingsRow>
-      <SettingsRow
-        label={intl.formatMessage({ id: "motionSettings.media", defaultMessage: "Pause animated images" })}
-        description={intl.formatMessage({
-          id: "motionSettings.mediaDescription",
-          defaultMessage: "Animated avatars, emoji and images show as stills, and GIFs play only when you hover over or tap them. Follows Reduce motion unless you change it.",
-        })}
-      >
-        <Switch checked={media} onCheckedChange={setStillMediaSetting} />
-      </SettingsRow>
-      <SettingsRow
-        label={intl.formatMessage({ id: "motionSettings.blur", defaultMessage: "Reduce blur" })}
-        description={intl.formatMessage({
-          id: "motionSettings.blurDescription",
-          defaultMessage: "Turns off the blur behind menus, dialogs and panels, which is costly on older graphics. Follows Reduce motion unless you change it.",
-        })}
-      >
-        <Switch checked={blur} onCheckedChange={setReduceBlurSetting} />
-      </SettingsRow>
-      <SettingsRow
-        label={intl.formatMessage({ id: "motionSettings.flair", defaultMessage: "Hide Ultra flair" })}
-        description={intl.formatMessage({
-          id: "motionSettings.flairDescription",
-          defaultMessage: "Hides the glowing halos around Ultra members' avatars and their profile effects.",
-        })}
-      >
-        <Switch checked={flair} onCheckedChange={setHideFlairSetting} />
-      </SettingsRow>
+      {settings.enabled &&
+        PARTS.map(({ part, label }) => (
+          <SettingsRow key={part} label={intl.formatMessage(label)} className="pl-8">
+            <Switch
+              checked={settings[part]}
+              // The OS setting always stops animations.
+              disabled={part === "motion" && settings.system}
+              onCheckedChange={(on) => setEffectPart(part, on)}
+            />
+          </SettingsRow>
+        ))}
     </>
   );
 }
