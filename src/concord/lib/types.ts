@@ -116,7 +116,7 @@ export interface CommunityMetadata {
  * How to OPEN a Channel (CORD-03 §2 `view`): `chat` timeline or thread-first
  * `forum`. Presentation only.
  */
-export type ChannelView = "chat" | "forum";
+export type ChannelView = "chat" | "forum" | "voice";
 
 /** Channel metadata — the vsk=2 Control Plane entity's content (CORD-03 §2). */
 export interface ChannelMetadata {
@@ -309,6 +309,12 @@ export interface Channel {
   category?: string;
   /** Sidebar position (channelOrder.ts); undefined sorts last, by name. */
   position?: number;
+  /** The spec's rank-key position (CORD-03 §2), on the vsk-13 Roster; byte order, lower first. */
+  positionKey?: string;
+  /** The Category it files under (CORD-03 §4), by id, on the vsk-13 Roster. */
+  categoryId?: string;
+  /** Its topic (CORD-03 §2), at most 1024 bytes. */
+  topic?: string;
   /** The presentation the channel opens to (channelView.ts); undefined reads as `chat`. */
   view?: ChannelView;
   /** Current-epoch call coordinates (CORD-07 §1), lazily derived (costs a point multiplication). */

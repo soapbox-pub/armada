@@ -1,6 +1,6 @@
 /**
- * CORD-03 §2's optional `view` field: `"chat"` (default/absent) or `"forum"`
- * (thread-first; see `forum.ts`). A spec field, not an `armada.` custom key, so
+ * CORD-03 §2's optional `view` field: `"chat"` (default/absent), `"forum"`
+ * (thread-first; see `forum.ts`) or `"voice"` (opens its call, chat beside it). A spec field, not an `armada.` custom key, so
  * other CORD clients open the same forum. Unknown values read as `"chat"`, and
  * editors MUST round-trip it (every `with…` helper spreads the given metadata).
  */
@@ -9,9 +9,14 @@ import type { ChannelMetadata, ChannelView } from "@/concord/lib/types";
 
 export type { ChannelView };
 
-/** The channel's declared view; absent, unknown or malformed reads as `"chat"`. */
+/**
+ * The channel's declared view; absent, unknown or malformed reads as `"chat"`. An
+ * older edition's `"voice": true` reads as `"voice"` while `view` is absent (CORD-03 §2).
+ */
 export function channelView(metadata: ChannelMetadata): ChannelView {
-  return metadata.view === "forum" ? "forum" : "chat";
+  if (metadata.view === "forum" || metadata.view === "voice") return metadata.view;
+  if (metadata.view === undefined && metadata.voice === true) return "voice";
+  return "chat";
 }
 
 /**

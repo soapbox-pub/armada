@@ -16,6 +16,7 @@ import { clearDeferredFoldMemory } from "@/concord/hooks/useDeferredFold";
 import { clearIconThumbMemory } from "@/concord/lib/iconThumbs";
 import { clearSightingsMemory } from "@/concord/lib/mediaTrust";
 import { clearOutgoingMemory } from "@/concord/lib/outgoing";
+import { clearChannelSealMemo } from "@/concord/lib/channelSeal";
 import { clearOutgoingVerifyMemory } from "@/concord/lib/outgoingVerify";
 import { clearPendingGuestbookJoinMemory } from "@/concord/lib/pendingGuestbookJoin";
 import { clearPendingJoins } from "@/concord/lib/pendingJoins";
@@ -209,6 +210,7 @@ export async function purgeClientStorage(): Promise<void> {
   clearPendingJoins();
   clearSightingsMemory();
   clearOutgoingMemory();
+  clearChannelSealMemo();
   clearOutgoingVerifyMemory();
   clearPendingGuestbookJoinMemory();
   clearRevealedMedia();
@@ -242,6 +244,7 @@ export async function purgeClientStorage(): Promise<void> {
   clearPendingJoins();
   clearSightingsMemory();
   clearOutgoingMemory();
+  clearChannelSealMemo();
   clearOutgoingVerifyMemory();
   clearPendingGuestbookJoinMemory();
   clearRevealedMedia();

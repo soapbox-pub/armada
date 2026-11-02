@@ -18,7 +18,8 @@ import {
   type FoldedControl,
   type FoldedSignal,
 } from "@/concord/lib/control";
-import { channelsView } from "@/concord/lib/community";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { channelsView, visibleChannels } from "@/concord/lib/community";
 import { bytesToHex, dissolvedGroupKey, grantLocator, hex32 } from "@/concord/lib/derive";
 import type { AuthorityCitation } from "@/concord/lib/edition";
 import { KIND_WRAP } from "@/concord/lib/kinds";
@@ -361,7 +362,12 @@ export async function readLivePause(community: Community, nowSec: number): Promi
 /** The channels the member can read, assembled from the fold + held keys. */
 export function useChannels(community: Community | undefined, active = true): Channel[] {
   const { data: folded } = useControlFold(community, active);
-  return useMemo(() => (community ? channelsView(community, folded) : []), [community, folded]);
+  const { user } = useCurrentUser();
+  const viewer = user?.pubkey;
+  return useMemo(
+    () => (community ? visibleChannels(channelsView(community, folded), folded, viewer) : []),
+    [community, folded, viewer],
+  );
 }
 
 /** Persisted-forever marker for a community we have seen a valid tombstone for. */

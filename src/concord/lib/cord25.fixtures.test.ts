@@ -8,7 +8,9 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import { describe, expect, it } from "vitest";
 
 import { controlGroupKey, hex32, type StreamKeyView } from "@/concord/lib/derive";
+import { channelsView, visibleChannels } from "@/concord/lib/community";
 import { foldControlState, openControlWraps } from "@/concord/lib/control";
+import type { Community } from "@/concord/lib/types";
 import { BENEATH_EVERY_ROLE, channelPermissions, effectivePermissions } from "@/concord/lib/roles";
 import { foldRosterV2, rosterActivated } from "@/concord/lib/roster";
 
@@ -47,7 +49,29 @@ interface VectorChannel {
   id: string;
   name: string;
   private: boolean;
+  key: string | null;
+  epoch: number;
   extra: Record<string, unknown>;
+}
+
+/** The Community as the owner holds it: every Private Channel key Vector's owner held. */
+function ownerCommunity(f: Fixture): Community {
+  const epoch = BigInt(f.community.root_epoch);
+  return {
+    id: hex32(f.community.id),
+    idHex: f.community.id,
+    owner: f.community.owner,
+    ownerSalt: new Uint8Array(32),
+    root: hex32(f.community.root),
+    rootEpoch: epoch,
+    ...(f.community.control_pk ? { controlPk: f.community.control_pk } : {}),
+    heldRoots: [{ epoch, key: hex32(f.community.root), ...(f.community.control_pk ? { controlPk: f.community.control_pk } : {}) }],
+    privateChannels: f.vector.channels
+      .filter((c) => c.private && c.key)
+      .map((c) => ({ id: hex32(c.id), key: hex32(c.key!), epoch: BigInt(c.epoch), name: "" })),
+    relays: [],
+    name: "",
+  };
 }
 
 describe.each([["guild", guild as unknown as Fixture]])("%s (Vector fixture)", (_name, f) => {
@@ -109,6 +133,26 @@ describe.each([["guild", guild as unknown as Fixture]])("%s (Vector fixture)", (
       }
       expect(mine!.name).toBe(ch.name);
       for (const k of ["category", "position", "topic", "view"]) expect(mine!.metadata[k], `${ch.name}.${k}`).toEqual(ch.extra[k]);
+    }
+  });
+
+  it("opens sealed Private Channels, files and orders the sidebar, and hides what a member can't view", () => {
+    const folded = foldControlState(editions, cid, f.community.owner);
+    const view = channelsView(ownerCommunity(f), folded);
+    for (const ch of f.vector.channels) {
+      const mine = view.find((c) => c.idHex === ch.id);
+      expect(mine?.name, ch.id).toBe(ch.name);
+      expect(mine?.categoryId).toEqual(ch.extra.category);
+      expect(mine?.view).toBe(ch.extra.view ?? "chat");
+    }
+    // Uncategorized first, then each Category by its rank key, Channels by theirs.
+    const cats = new Map(f.vector.categories.map((c) => [c.id, c.position ?? "~"]));
+    const order = view.map((c) => [c.categoryId ? cats.get(c.categoryId)! : "", c.positionKey ?? "~", c.name].join("/"));
+    expect(order).toEqual([...order].sort((a, b) => (a < b ? -1 : 1)));
+    for (const [label, m] of Object.entries(f.vector.members)) {
+      const shown = visibleChannels(view, folded, m.pubkey).map((c) => c.idHex).sort();
+      const viewable = f.vector.channels.filter((c) => (BigInt(m.channels[c.id]) & (1n << 13n)) !== 0n).map((c) => c.id).sort();
+      expect(shown, label).toEqual(viewable);
     }
   });
 });

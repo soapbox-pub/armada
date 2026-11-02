@@ -17,8 +17,11 @@ import {
 import { channelCategory } from "@/concord/lib/channelCategory";
 import { channelPosition, compareChannelOrder } from "@/concord/lib/channelOrder";
 import { channelView } from "@/concord/lib/channelView";
+import { openChannelSeal } from "@/concord/lib/channelSeal";
 import type { FoldedControl } from "@/concord/lib/control";
-import { capRelays, type Channel, type Community, type VoiceKeys } from "@/concord/lib/types";
+import { isRankKey } from "@/concord/lib/rankKey";
+import { channelPermissions, Permissions } from "@/concord/lib/roles";
+import { capRelays, type Channel, type ChannelMetadata, type Community, type VoiceKeys } from "@/concord/lib/types";
 
 /**
  * Mint a new community: a random `owner_salt` commits the owner into the
@@ -78,6 +81,19 @@ export function channelsView(community: Community, folded: FoldedControl | undef
     mediaKey: voiceMediaKey(secret, id, epoch),
   });
 
+  const v2 = folded?.rosterV2 === true;
+  /** Where a Channel files and sorts: the vsk-13 Category and rank key (CORD-03 §2, §4), else Armada's conventions. */
+  const placement = (meta: ChannelMetadata) => {
+    if (!v2) return { category: channelCategory(meta), position: channelPosition(meta) };
+    const cat = typeof meta.category === "string" ? folded?.categories?.get(meta.category) : undefined;
+    const live = cat && !cat.deleted ? cat : undefined;
+    return {
+      ...(live ? { category: live.name || live.idHex.slice(0, 8), categoryId: live.idHex } : {}),
+      ...(isRankKey(meta.position) ? { positionKey: meta.position } : {}),
+      ...(typeof meta.topic === "string" ? { topic: meta.topic } : {}),
+    };
+  };
+
   for (const def of folded?.channels.values() ?? []) {
     // Mark tombstones seen too, so the held-key fallback can't resurrect a deleted
     // Private Channel.
@@ -111,8 +127,7 @@ export function channelsView(community: Community, folded: FoldedControl | undef
         idHex: def.channelIdHex,
         name: def.name,
         isPrivate: false,
-        category: channelCategory(def.metadata),
-        position: channelPosition(def.metadata),
+        ...placement(def.metadata),
         view: channelView(def.metadata),
         get voice() {
           return (voiceMemo ??= voiceKeys(community.root, id, community.rootEpoch));
@@ -125,15 +140,16 @@ export function channelsView(community: Community, folded: FoldedControl | undef
     }
 
     if (!held) continue; // no key → cannot read; omit rather than tease
+    // A sealed head opens with the Channel's key (CORD-03 §2); one that won't keeps the join-time name.
+    const meta = def.sealed ? openChannelSeal(def.sealed, held)?.metadata : def.metadata;
     let voiceMemo: VoiceKeys | undefined;
     out.push({
       id,
       idHex: def.channelIdHex,
-      name: def.name,
+      name: meta?.name || held.name || def.channelIdHex.slice(0, 8),
       isPrivate: true,
-      category: channelCategory(def.metadata),
-      position: channelPosition(def.metadata),
-      view: channelView(def.metadata),
+      ...(meta ? placement(meta) : {}),
+      view: meta ? channelView(meta) : "chat",
       get voice() {
         return (voiceMemo ??= voiceKeys(held.key, id, held.epoch));
       },
@@ -170,6 +186,39 @@ export function channelsView(community: Community, folded: FoldedControl | undef
     });
   }
 
-  out.sort(compareChannelOrder);
+  out.sort(v2 ? compareV2Placement(folded) : compareChannelOrder);
   return out;
+}
+
+const UNKEYED = "\u{10FFFF}";
+
+/**
+ * vsk-13 sidebar order (CORD-03 §2, §4): uncategorized Channels first, then each
+ * Category by its rank key, name and id; within a group by rank key, name and id,
+ * an entry without a key after every keyed one.
+ */
+function compareV2Placement(folded: FoldedControl | undefined) {
+  const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  return (a: Channel, b: Channel): number => {
+    if (a.categoryId !== b.categoryId) {
+      if (!a.categoryId) return -1;
+      if (!b.categoryId) return 1;
+      const ca = folded?.categories?.get(a.categoryId);
+      const cb = folded?.categories?.get(b.categoryId);
+      return cmp(ca?.position ?? UNKEYED, cb?.position ?? UNKEYED) || cmp(ca?.name ?? "", cb?.name ?? "") || cmp(a.categoryId, b.categoryId);
+    }
+    return cmp(a.positionKey ?? UNKEYED, b.positionKey ?? UNKEYED) || cmp(a.name, b.name) || cmp(a.idHex, b.idHex);
+  };
+}
+
+/**
+ * The Channels `viewer` may see (CORD-04 §8): on the vsk-13 Roster an honest client
+ * hides one the viewer lacks VIEW_CHANNEL in. A legacy Roster hides nothing.
+ */
+export function visibleChannels(channels: Channel[], folded: FoldedControl | undefined, viewer: string | undefined): Channel[] {
+  if (!folded?.rosterV2 || !viewer) return channels;
+  const visible = channels.filter(
+    (c) => (channelPermissions(folded.roster, folded.ownerHex, viewer, c.idHex, c.isPrivate) & Permissions.VIEW_CHANNEL) !== 0n,
+  );
+  return visible.length === channels.length ? channels : visible;
 }
