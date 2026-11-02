@@ -3,6 +3,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  blobType,
   clearAttachmentCache,
   decryptAttachmentToObjectURL,
   decryptBytes,
@@ -384,5 +385,21 @@ describe("clearAttachmentCache", () => {
     expect(peekPrimedAttachment("https://blossom.example/p1", enc)).toBeUndefined();
     expect(peekAttachmentObjectURL("https://blossom.example/p1", enc)).toBeUndefined();
     expect(peekPrimedAttachment("https://blossom.example/p2", undefined)).toBeUndefined();
+  });
+});
+
+describe("blobType", () => {
+  it("never types a decrypted blob as a script-capable document", () => {
+    for (const mime of ["text/html", "TEXT/HTML; charset=utf-8", "application/xhtml+xml", "text/xml", "application/xml", "application/rss+xml", "text/javascript"]) {
+      expect(blobType(mime)).toBe("application/octet-stream");
+    }
+  });
+
+  it("keeps media types, SVG for <img>, and defaults the rest", () => {
+    expect(blobType("image/png")).toBe("image/png");
+    expect(blobType("video/mp4")).toBe("video/mp4");
+    expect(blobType("image/svg+xml")).toBe("image/svg+xml");
+    expect(blobType("application/pdf")).toBe("application/pdf");
+    expect(blobType(undefined)).toBe("application/octet-stream");
   });
 });

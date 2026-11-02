@@ -66,8 +66,22 @@ async function resolveXdc(
   return xdc;
 }
 
+/** Unzipped ceiling. The sizes are the archive's own claims, which fflate allocates by. */
+const MAX_XDC_UNZIPPED_BYTES = 1024 * 1024 * 1024;
+const MAX_XDC_FILES = 20_000;
+
 function unzipXdc(bytes: Uint8Array): Map<string, Uint8Array> {
-  const unzipped = unzipSync(bytes);
+  let total = 0;
+  let files = 0;
+  const unzipped = unzipSync(bytes, {
+    filter: (file) => {
+      total += file.originalSize;
+      if (++files > MAX_XDC_FILES || total > MAX_XDC_UNZIPPED_BYTES) {
+        throw new Error("xdc archive expands too far");
+      }
+      return true;
+    },
+  });
   const fileMap = new Map<string, Uint8Array>();
   for (const [path, content] of Object.entries(unzipped)) {
     const normalised = path.replace(/^\/+/, "").replace(/\\/g, "/");
@@ -100,6 +114,7 @@ function generateWebxdcBridge(api: WebxdcAPI<unknown>): string {
   }
 
   window.addEventListener("message", function(event) {
+    if (event.source !== window.parent) return;
     var data = event.data;
     if (!data || typeof data !== "object" || data.jsonrpc !== "2.0") return;
 

@@ -6,6 +6,7 @@
 import type { DownloadOs } from "./downloads";
 import { config } from "./env";
 import { DEPLOYMENT_RELAYS, normalizeRelayUrl } from "./platform";
+import { sanitizeUrl } from "./sanitizeUrl";
 
 export const RELEASE_KIND = 30063;
 export const ASSET_KIND = 3063;
@@ -161,7 +162,8 @@ export function parseRelease(event: ReleaseEventLike): Release | undefined {
 export function parseAsset(event: ReleaseEventLike): ReleaseArtifact | undefined {
   if (event.kind !== ASSET_KIND) return undefined;
   const url = firstTag(event.tags, "url");
-  if (!url) return undefined;
+  // Rendered as a link and navigated to, so never a `javascript:` or other scheme.
+  if (!url || !/^https:\/\//i.test(url) || !sanitizeUrl(url)) return undefined;
   let filename = firstTag(event.tags, "filename");
   if (!filename) {
     try {

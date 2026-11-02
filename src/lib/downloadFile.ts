@@ -73,7 +73,10 @@ export async function downloadUrl(
     const mime = sniffImageMime(bytes) ?? opts.mime ?? (res.headers.get("content-type") || undefined);
     const location = await downloadBinaryFile(filename, bytes, mime);
     return { status: "downloaded", location };
-  } catch {
+  } catch (error) {
+    // A blob: URL is this origin: opening one typed as a document by its sender
+    // would run the sender's markup as the app.
+    if (/^blob:/i.test(src)) throw error;
     await openUrl(src);
     return { status: "opened" };
   }

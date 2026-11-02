@@ -131,6 +131,12 @@ describe("parseAsset", () => {
     expect(parseAsset(assetEvent({ tags: [["url", "https://files.example/Armada.AppImage"]] }))?.filename)
       .toBe("Armada.AppImage");
   });
+
+  it("drops an asset whose url is not https", () => {
+    for (const url of ["javascript:alert(1)//Armada.apk", "http://files.example/Armada.apk", "data:text/html,x"]) {
+      expect(parseAsset(assetEvent({ tags: [["url", url], ["filename", "Armada.apk"]] }))).toBeUndefined();
+    }
+  });
 });
 
 describe("releaseArtifacts", () => {

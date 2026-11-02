@@ -278,6 +278,21 @@ export function peekPrimedAttachment(url: string, enc: ImetaEncryption | undefin
 }
 
 /**
+ * The decrypted blob's type. The sender chooses `mime`, and a blob: URL is this
+ * origin, so a type a browser renders as a script-capable document never
+ * reaches one (SVG stays: it displays inline in `<img>`, where it runs nothing).
+ */
+export function blobType(mime: string | undefined): string {
+  const base = (mime ?? "").split(";")[0].trim().toLowerCase();
+  if (!base) return "application/octet-stream";
+  if (base === "image/svg+xml") return base;
+  if (/^text\/(html|xml|xsl)|^application\/(xhtml\+xml|xml|xslt\+xml|x-javascript|javascript|ecmascript)$|^text\/(javascript|ecmascript)$|\+xml$/.test(base)) {
+    return "application/octet-stream";
+  }
+  return base;
+}
+
+/**
  * Fetch + AES-GCM-decrypt an attachment into an object URL (`mime` is display
  * only). Throws on failure; {@link FileTooLargeError} is retryable with a
  * bigger budget. `alternates` are mirrors of the same ciphertext; the cache is
@@ -303,7 +318,7 @@ export async function decryptAttachmentToObjectURL(
     // Pass ArrayBuffers through to avoid two full copies of a video.
     const plaintext = await decryptBuffer(ciphertext, enc.key, enc.nonce);
     await verifyPlaintextHash(new Uint8Array(plaintext), enc.ox);
-    const blob = new Blob([plaintext], { type: mime || "application/octet-stream" });
+    const blob = new Blob([plaintext], { type: blobType(mime) });
     const objectUrl = URL.createObjectURL(blob);
     if (entry.dropped) {
       URL.revokeObjectURL(objectUrl);
