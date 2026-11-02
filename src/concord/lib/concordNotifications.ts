@@ -1,6 +1,6 @@
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-import { channelsView } from "@/concord/lib/community";
+import { channelsView, signingStreams } from "@/concord/lib/community";
 import { messageExpirationOf } from "@/concord/lib/disappearing";
 import { channelGitRepositoryAttachments } from "@/concord/lib/types";
 import type { FoldedControl } from "@/concord/lib/control";
@@ -89,7 +89,7 @@ export function buildConcordSubs(
   for (const channel of channelsView(community, folded)) {
     if (channel.streams.length === 0) continue;
     // EVERY held epoch registers for NIP-42 (backfill reads retired epochs)…
-    streamKeys.push(...channel.streams.map((s) => s.group));
+    streamKeys.push(...signingStreams(channel));
     const mentionEveryoneAuthors = folded
       ? everyoneMentionAuthors(folded.roster, folded.ownerHex, [channel.idHex])
       : community.owner ? [community.owner] : [];

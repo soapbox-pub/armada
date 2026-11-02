@@ -22,6 +22,7 @@ import {
   everyoneLocator,
   grantLocator,
   syncLocator,
+  writersLocator,
   hex32,
   inviteLinksLocator,
   signalLocator,
@@ -73,6 +74,7 @@ import {
   VSK_ACL,
   VSK_CATEGORY,
   VSK_SYNC,
+  VSK_WRITERS,
   cutName,
   foldRosterV2,
   isListed,
@@ -88,6 +90,7 @@ import {
   type SealedBy,
 } from "@/concord/lib/roster";
 import { isRankKey } from "@/concord/lib/rankKey";
+import { ledgerExtends, parseLedger, type Ledger } from "@/concord/lib/writers";
 import { buildRumor, openWrap, sealRumor, wrapSeal, type OpenedEvent, type StreamSigner } from "@/concord/lib/stream";
 import { readFoldedShared } from "@/lib/foldedCache";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -443,6 +446,8 @@ export interface FoldedControl {
   categories?: Map<string, FoldedCategory>;
   /** Each member's sealed standings (CORD-04 §9), from the Tenures the fold admits. */
   tenure?: SealedBy;
+  /** Restricted Channels' Writers ledgers (CORD-03 §1), by Channel id. */
+  writers?: Map<string, Ledger>;
 }
 
 /**
@@ -1379,9 +1384,32 @@ function foldOnce(
     });
   }
 
-  // 9. On the vsk-13 Roster: overwrites (vsk 14), syncs (vsk 17) and Categories (vsk 15).
+  // 9. On the vsk-13 Roster: overwrites (vsk 14), syncs (vsk 17), Categories (vsk 15)
+  // and Writers ledgers (vsk 18).
   const categories = new Map<string, FoldedCategory>();
+  const writers = new Map<string, Ledger>();
   if (v2) {
+    // Writers ledgers, under MANAGE_CHANNELS: each edition appends exactly one entry
+    // to its predecessor's (CORD-03 §1), so a head that doesn't is refused.
+    for (const [eid, candidates] of byVsk.get(VSK_WRITERS) ?? new Map<string, ParsedEdition[]>()) {
+      const ledgerOf = (p: ParsedEdition) => {
+        const l = parseLedger(p.content);
+        return l && bytesToHex(writersLocator(communityId, hex32(l.channel))) === eid ? l : undefined;
+      };
+      const gate = (p: ParsedEdition): boolean => {
+        const l = ledgerOf(p);
+        if (!l || !may(p, Permissions.MANAGE_CHANNELS) || !citationOk(p)) return false;
+        if (!p.prevHash) return l.entries.length === 1 && l.retired.length === 0;
+        const prev = candidates.find((x: ParsedEdition) => bytesEq(x.selfHash, p.prevHash));
+        const before = prev && ledgerOf(prev);
+        return before === undefined || ledgerExtends(l, before);
+      };
+      const ordered = headCandidates(candidates, priorHeads?.get(eid), undefined, () => gapHeld.add(eid), { mode: "filter", admit: gate });
+      const head = pickHead(ordered, heads, headEditions, gate, () => 0);
+      const l = head && ledgerOf(head);
+      if (l) writers.set(l.channel, l);
+    }
+
     // Overwrites, each judged on itself by downward support (CORD-04 §8).
     const overwrites: Overwrite[] = [];
     const overwriteOf = (p: ParsedEdition): Overwrite | undefined => {
@@ -1453,7 +1481,7 @@ function foldOnce(
 
   const result: FoldedControl = {
     roster, ownerHex, metadata, channels, banned, bannedAt, liveInviteLinks, registriesByCreator, pinLists, signals, heads, headEditions, incomplete,
-    ...(v2 ? { rosterV2: true, categories, tenure: sealed } : {}),
+    ...(v2 ? { rosterV2: true, categories, tenure: sealed, writers } : {}),
   };
   return result;
 }

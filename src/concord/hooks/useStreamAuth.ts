@@ -14,7 +14,7 @@ import type { Channel, Community } from "@/concord/lib/types";
 import { useChannels } from "@/concord/hooks/useControlPlane";
 import { useCommunity, useLiveCommunities } from "@/concord/hooks/useCommunityList";
 import { rehydrateCommunity } from "@/concord/lib/communityList";
-import { channelsView } from "@/concord/lib/community";
+import { channelsView, signingStreams } from "@/concord/lib/community";
 import { controlGroups, readControlFold, controlFoldKey } from "@/concord/lib/control";
 import { onFoldedWrite } from "@/lib/foldedCache";
 import { logSync } from "@/lib/syncLog";
@@ -54,7 +54,7 @@ function communityCoreKeys(community: Community): StreamKeyView[] {
 
 /** Every per-channel stream key across held epochs (public + held private). */
 function channelKeys(channels: Channel[]): GroupKey[] {
-  return channels.flatMap((c) => c.streams.map((s) => s.group));
+  return channels.flatMap((c) => signingStreams(c));
 }
 
 /**

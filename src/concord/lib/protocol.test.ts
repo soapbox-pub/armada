@@ -23,7 +23,7 @@ import {
   openControlWraps,
   sealEdition,
 } from "@/concord/lib/control";
-import { baseRekeyGroupKey, bytesToHex, controlSignerGroupKey, epochKeyCommitment, hex32, random32 } from "@/concord/lib/derive";
+import { baseRekeyGroupKey, bytesToHex, controlSignerGroupKey, epochKeyCommitment, hex32, random32, type GroupKey } from "@/concord/lib/derive";
 import { buildInviteUrl, buildBundleEvent, buildRefreshedBundleEvents, mintLinkSigner, mintToken, parseBundleEvent, parseInviteLink, type InviteBundle } from "@/concord/lib/invite";
 import { KIND_MESSAGE, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import {
@@ -292,7 +292,7 @@ describe("Concord end to end", () => {
       pubkey: alice.pubkey,
       ms: Date.now(),
     });
-    const e1group = aliceChannels[0].streams.find((s) => s.epoch === 1n)!.group;
+    const e1group = aliceChannels[0].streams.find((s) => s.epoch === 1n)!.group as GroupKey;
     const e1wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, e1group, alice), e1group);
     const malloryChannels = channelsView(
       { ...aliceCommunity, privateChannels: [] }, // Mallory still holds only epoch 0

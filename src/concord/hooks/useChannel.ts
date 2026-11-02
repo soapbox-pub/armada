@@ -64,7 +64,8 @@ import { citationToTag, type AuthorityCitation } from "@/concord/lib/edition";
 import { citationSatisfied } from "@/concord/lib/control";
 import { whenAuthSettled } from "@/concord/lib/planeSync";
 import { useActivePause } from "@/concord/hooks/usePause";
-import { canActOnMember, channelPermissions, everyoneSends, isAuthorized, isAuthorizedIn, isStaff, Permissions } from "@/concord/lib/roles";
+import { canActOnMember, channelPermissions, everyoneSends, hasPermission, isAuthorized, isAuthorizedIn, isStaff, Permissions } from "@/concord/lib/roles";
+import { postStands } from "@/concord/lib/writers";
 import { chatExpiresAt, messageExpirationOf } from "@/concord/lib/disappearing";
 import { consumeSend, isRateLimitedKind, SendRateLimitError } from "@/concord/lib/sendRateLimit";
 import { buildRumor, channelBindingTags, sealRumor, wrapSeal } from "@/concord/lib/stream";
@@ -294,6 +295,16 @@ export function useChannelTimeline(
       inTimeoutWindow(timeouts.get(m.author), m.ms, nowMs) ||
       (open && (channelPermissions(control.roster, control.ownerHex, m.author, channelIdHex, isPrivate) & Permissions.SEND_MESSAGES) === 0n);
   }, [control, channelIdHex, timeouts]);
+  // A restricted Channel's posts stand by its Writers ledger (CORD-03 §1); the owner's and
+  // an unbanned manager's always do. A manager sees the rest collapsed, everyone else not at all.
+  const writerJudge = useMemo(() => {
+    const ledger = channelIdHex ? control?.writers?.get(channelIdHex) : undefined;
+    if (!control || !ledger || !community) return undefined;
+    const manages = (pk: string) =>
+      pk === control.ownerHex || (!control.banned.has(pk) && hasPermission(control.roster, pk, Permissions.MANAGE_CHANNELS));
+    const stands = (m: OpenedChat) => manages(m.author) || postStands(ledger, community.id, m);
+    return { stands, iManage: readingUser?.pubkey !== undefined && manages(readingUser.pubkey) };
+  }, [control, channelIdHex, community, readingUser?.pubkey]);
   // Cutoffs included: retirement can change without the epoch set changing.
   const epochSig = channel?.streams.map((s) => `${s.epoch}:${s.retiredAt ?? ""}`).join(",") ?? "";
   const queryKey = useMemo(() => channelKey(channelIdHex), [channelIdHex]);
@@ -917,7 +928,10 @@ export function useChannelTimeline(
       ...(firstSeen ? { firstSeen } : {}),
       ...(establishedSinceMs !== undefined ? { establishedSinceMs } : {}),
       ...(pauseSince !== undefined ? { pauseSince } : {}),
-      ...(collapse ? { collapse } : {}),
+      ...(collapse || writerJudge?.iManage
+        ? { collapse: (m: OpenedChat) => Boolean(collapse?.(m)) || (writerJudge?.iManage === true && !writerJudge.stands(m)) }
+        : {}),
+      ...(writerJudge && !writerJudge.iManage ? { hold: (m: OpenedChat) => !writerJudge.stands(m) } : {}),
     });
     // Past sessions' verdicts keep yesterday's wall folded after a refresh.
     const remembered = community?.idHex && channelIdHex
@@ -937,7 +951,7 @@ export function useChannelTimeline(
       return { ...merged, messages: merged.messages.filter((m) => !hidden.has(m.rumorId)) };
     }
     return merged;
-  }, [moderated, moderation, optimisticDeleted, readingUser?.pubkey, firstSeen, establishedSinceMs, pauseSince, collapse, community?.idHex, channelIdHex, memoryRev, revealTick]);
+  }, [moderated, moderation, optimisticDeleted, readingUser?.pubkey, firstSeen, establishedSinceMs, pauseSince, collapse, writerJudge, community?.idHex, channelIdHex, memoryRev, revealTick]);
 
   // A removed message's media leaves this device too: a moderator deleting it
   // (abuse, CSAM) shouldn't leave its plaintext in the decrypt cache.

@@ -7,6 +7,7 @@
 import {
   bytesToHex,
   channelGroupKey,
+  type GroupKey,
   communityIdOf,
   controlSignerGroupKey,
   hex32,
@@ -21,7 +22,8 @@ import { openChannelSeal } from "@/concord/lib/channelSeal";
 import type { FoldedControl } from "@/concord/lib/control";
 import { isRankKey } from "@/concord/lib/rankKey";
 import { channelPermissions, Permissions } from "@/concord/lib/roles";
-import { capRelays, type Channel, type ChannelMetadata, type Community, type VoiceKeys } from "@/concord/lib/types";
+import { capRelays, type Channel, type ChannelMetadata, type Community, type VoiceKeys, type WriterWindow } from "@/concord/lib/types";
+import { writerWindows, type Ledger } from "@/concord/lib/writers";
 
 /**
  * Mint a new community: a random `owner_salt` commits the owner into the
@@ -122,6 +124,7 @@ export function channelsView(community: Community, folded: FoldedControl | undef
 
     if (!def.isPrivate) {
       let voiceMemo: VoiceKeys | undefined;
+      const ledger = folded?.writers?.get(def.channelIdHex);
       out.push({
         id,
         idHex: def.channelIdHex,
@@ -133,7 +136,7 @@ export function channelsView(community: Community, folded: FoldedControl | undef
           return (voiceMemo ??= voiceKeys(community.root, id, community.rootEpoch));
         },
         // Writes go to the root stream; private-era streams stay readable.
-        streams: [...rootStreams, ...channelStreams],
+        streams: [...rootStreams, ...channelStreams, ...writerStreams(ledger, rootStreams[0])],
         current: rootStreams[0],
       });
       continue;
@@ -156,7 +159,7 @@ export function channelsView(community: Community, folded: FoldedControl | undef
       // A Private Channel reads ONLY its channel-key streams (current + priors). The
       // shared root stream is world-readable to members, so showing it here would
       // present public content as private; publicising re-folds it via the public branch.
-      streams: channelStreams,
+      streams: [...channelStreams, ...writerStreams(folded?.writers?.get(def.channelIdHex), channelStreams[0])],
       current: channelStreams[0],
     });
   }
@@ -193,6 +196,28 @@ export function channelsView(community: Community, folded: FoldedControl | undef
 const UNKEYED = "\u{10FFFF}";
 
 /**
+ * A restricted Channel's writer addresses as read-only streams (CORD-03 §1): each
+ * window's address, encrypted to the Channel's read key, with the wrap signature
+ * the write gate.
+ */
+function writerStreams(ledger: Ledger | undefined, read: Channel["streams"][number] | undefined): Channel["streams"] {
+  if (!ledger || !read) return [];
+  return writerWindows(ledger).map((w) => {
+    const window: WriterWindow = {
+      epoch: BigInt(w.epoch),
+      from: w.from,
+      ...(w.to !== undefined ? { to: w.to } : {}),
+      ...(w.certifier ? { certifier: w.certifier } : {}),
+    };
+    return {
+      epoch: read.epoch,
+      group: { pk: w.pk, get convKey() { return read.group.convKey; }, restricted: true },
+      writer: window,
+    };
+  });
+}
+
+/**
  * vsk-13 sidebar order (CORD-03 §2, §4): uncategorized Channels first, then each
  * Category by its rank key, name and id; within a group by rank key, name and id,
  * an entry without a key after every keyed one.
@@ -222,3 +247,9 @@ export function visibleChannels(channels: Channel[], folded: FoldedControl | und
   );
   return visible.length === channels.length ? channels : visible;
 }
+
+/** A Channel's streams this member can sign for: what NIP-42 auth registers. Writer addresses (CORD-03 §1) hold no secret here. */
+export function signingStreams(channel: Channel): GroupKey[] {
+  return channel.streams.flatMap((s) => (s.group.sk !== undefined ? [s.group as GroupKey] : []));
+}
+

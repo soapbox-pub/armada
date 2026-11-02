@@ -106,6 +106,8 @@ export function _chatDecodeMemoSizeForTests(): number {
 interface PendingChat {
   memoKey: string;
   epoch: bigint;
+  /** The writer epoch whose address served it (CORD-03 §1), on a restricted Channel. */
+  writerEpoch?: bigint;
   retiredAt?: number;
   seal: NostrEvent;
   finish: () => OpenedWireEvent;
@@ -138,10 +140,26 @@ function openChatToSeal(
     // Chat seals MUST be encrypted (CORD-02 §5), or the message is a standalone
     // signed artifact any relay could display.
     if (seal.kind !== KIND_SEAL_ENCRYPTED) throw new Error("chat seal must be encrypted");
-    return { pending: { memoKey, epoch: stream.epoch, retiredAt: stream.retiredAt, seal, finish } };
+    return { pending: { memoKey, epoch: stream.epoch, writerEpoch: stream.writer?.epoch, retiredAt: stream.retiredAt, seal, finish } };
   } catch {
     rememberDecode(memoKey, null);
     return { done: null };
+  }
+}
+
+/**
+ * CORD-03 §3: a rumor a writer address served commits its `wepoch`, canonical and
+ * strict-equal; one at the read address carries none, and one carrying it twice
+ * or malformed is dropped wherever it arrives.
+ */
+function checkWriterBinding(tags: string[][], writerEpoch: bigint | undefined): void {
+  const found = tags.filter((t) => t[0] === "wepoch");
+  if (writerEpoch === undefined) {
+    if (found.length > 0) throw new Error("wepoch at the read address");
+    return;
+  }
+  if (found.length !== 1 || !/^(0|[1-9][0-9]*)$/.test(found[0][1] ?? "") || BigInt(found[0][1]) !== writerEpoch) {
+    throw new Error("wepoch does not match the writer address");
   }
 }
 
@@ -151,6 +169,7 @@ function finishChat(pending: PendingChat, channel: Channel, remember: boolean): 
   try {
     const ev = pending.finish();
     checkChannelBinding(ev, channel.idHex, pending.epoch);
+    checkWriterBinding(ev.tags, pending.writerEpoch);
     // A retired epoch's rotation time is a hard cutoff: key possession alone must
     // not let an ejected member keep writing into it.
     if (pending.retiredAt !== undefined && ev.createdAt > pending.retiredAt) {
@@ -508,6 +527,11 @@ export function foldTimeline(
      * Channel. Folded into the flood row, never dropped.
      */
     collapse?: (message: OpenedChat) => boolean;
+    /**
+     * Posts a restricted Channel's Writers ledger doesn't stand behind (CORD-03 §1):
+     * kept out of the history, and judged again on every fold.
+     */
+    hold?: (message: OpenedChat) => boolean;
   },
 ): FoldedTimeline {
   const byId = new Map<string, OpenedChat>();
@@ -741,6 +765,7 @@ export function foldTimeline(
   let nextRevealMs: number | undefined;
   const visible: OpenedChat[] = [];
   for (const ev of byId.values()) {
+    if (opts?.hold?.(ev)) continue;
     if (ev.ms > holdCeilingMs) {
       if (nextRevealMs === undefined || ev.ms < nextRevealMs) nextRevealMs = ev.ms;
       continue;

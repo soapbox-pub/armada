@@ -10,7 +10,7 @@ import { useBootGateOpen } from "@/lib/bootGate";
 import { useJoinedCommunities } from "@/concord/hooks/useCommunityList";
 import { dissolvedAt, readLivePause } from "@/concord/hooks/useControlPlane";
 import { openChatBatch } from "@/concord/lib/chat";
-import { channelsView } from "@/concord/lib/community";
+import { channelsView, signingStreams } from "@/concord/lib/community";
 import { concordScope, isScopeActivated, markScopeLive, nip29Scope, onActivation } from "@/wire/activation";
 import { readControlFold } from "@/concord/lib/control";
 import { channelGitRepositoryAttachments } from "@/concord/lib/types";
@@ -320,7 +320,7 @@ function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; c
             banned: folded?.banned ?? new Set<string>(),
             gitAttachments: channelGitRepositoryAttachments(folded?.channels.get(channel.idHex)?.metadata ?? { name: channel.name, private: channel.isPrivate }),
           });
-          keys.push(...channel.streams.map((s) => s.group));
+          keys.push(...signingStreams(channel));
         }
         // Per community, so a relay's NIP-42 challenge signs only keys it hosts (streamAuth.ts).
         registerStreamKeys(keys, community.relays);

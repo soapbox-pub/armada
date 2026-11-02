@@ -7,7 +7,7 @@
  * access can rotate while identity stays fixed (CORD-02 §1–2).
  */
 
-import type { GroupKey } from "@/concord/lib/derive";
+import type { GroupKey, StreamKeyView } from "@/concord/lib/derive";
 import {
   normalizeGitRepositoryAttachments,
   parseGitRepositoryAddress,
@@ -299,6 +299,20 @@ export interface VoiceKeys {
   mediaKey: Uint8Array;
 }
 
+/**
+ * A writer address's place in a restricted Channel's Writers ledger (CORD-03 §1):
+ * its writer epoch, the window posts there stand in, and whom the epoch vouches for.
+ */
+export interface WriterWindow {
+  epoch: bigint;
+  /** Unix ms the window opened, inclusive. */
+  from: number;
+  /** Unix ms it closed, exclusive; absent while it still holds. */
+  to?: number;
+  /** The epoch's certifier (x-only hex); absent for one that named none. */
+  certifier?: string;
+}
+
 /** One channel as the UI consumes it: folded definition + derived stream keys. */
 export interface Channel {
   id: Uint8Array;
@@ -321,9 +335,10 @@ export interface Channel {
   readonly voice: VoiceKeys;
   /**
    * Stream keys across held epochs, newest first. `retiredAt` = the rotation's
-   * publish time; later rumors under that key are refused.
+   * publish time; later rumors under that key are refused. A restricted Channel's
+   * WRITER addresses (CORD-03 §1) ride here too, read-only and write-restricted.
    */
-  streams: Array<{ epoch: bigint; group: GroupKey; retiredAt?: number }>;
+  streams: Array<{ epoch: bigint; group: StreamKeyView; retiredAt?: number; writer?: WriterWindow }>;
   /** The current write coordinate. */
   current: { epoch: bigint; group: GroupKey };
 }
