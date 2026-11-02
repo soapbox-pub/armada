@@ -433,6 +433,9 @@ protocol.registerSchemesAsPrivileged([
       supportFetchAPI: true,
       stream: true,
       corsEnabled: true,
+      // Keep V8's compiled bytecode for app:// scripts between loads, as
+      // Chromium does for http(s); without it every launch compiles the bundle.
+      codeCache: true,
     },
   },
 ]);
