@@ -13,6 +13,8 @@
  *     --reloads <n>    then reload the page n times, timing each (3)
  *     --reduce-effects the Reduce effects switch on, every part included
  *     --main-profile   CPU-profile the main process across the reloads
+ *     --electron-args '<switches>'  extra Chromium/Electron switches, for A/B runs
+ *     --low-memory     with Desktop › Low memory mode on
  *     --frames         10s of compositor tracing per phase: what draws frames
  *
  * Phases report PSS (proportional, so shared pages aren't double counted) and
@@ -68,12 +70,14 @@ if (!flag("skip-build")) {
 // ─── Launch ─────────────────────────────────────────────────────────────────
 
 const profile = mkdtempSync(join(tmpdir(), "armada-eprof-"));
+// `--low-memory`: the Desktop › Low memory mode setting, as the toggle leaves it.
+if (flag("low-memory")) writeFileSync(join(profile, "low-memory-mode"), "on\n");
 const electronBin = resolve(root, "electron/node_modules/.bin/electron");
 const env = { ...process.env, XDG_SESSION_TYPE: "x11" };
 delete env.WAYLAND_DISPLAY;
 const proc = spawn(
   "xvfb-run",
-  ["-a", "-s", "-screen 0 1280x900x24", electronBin, ".", "--ozone-platform=x11", `--user-data-dir=${profile}`, `--remote-debugging-port=${CDP_PORT}`, `--inspect=${INSPECT_PORT}`],
+  ["-a", "-s", "-screen 0 1280x900x24", electronBin, ".", "--ozone-platform=x11", `--user-data-dir=${profile}`, `--remote-debugging-port=${CDP_PORT}`, `--inspect=${INSPECT_PORT}`, ...opt("electron-args", "").split(" ").filter(Boolean)],
   { cwd: resolve(root, "electron"), env, stdio: ["ignore", "ignore", "pipe"], detached: true },
 );
 let shellLog = "";
