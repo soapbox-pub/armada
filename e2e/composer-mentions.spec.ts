@@ -103,3 +103,27 @@ test("a custom emoji shows as its image and is sent as its shortcode", async ({ 
   const sent = page.locator("[data-event-id]").filter({ hasText: "there" });
   await expect(sent.locator("img[alt=':blob:']")).toBeVisible();
 });
+
+// Reduce motion is on whenever the OS asks for it. Its stylesheet once gave
+// every element a 0.01ms transition, so the overlay read back its pre-write
+// font size, divided it out as a text zoom, and drew the text smaller than the
+// textarea under it: the caret drifted further from the glyphs with every word.
+test("the overlay keeps the textarea's font under Reduce motion", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.context().addInitScript(() => localStorage.setItem("armada:reduce-effects", "1"));
+  await bootChannel(page);
+  await expect(page.locator("html")).toHaveAttribute("data-reduce-motion", "");
+
+  const field = page.getByRole("textbox").last();
+  await field.click();
+  await page.keyboard.type("adwjdi wdwdwdw wdwd   wdwdwd wdwd");
+
+  const fonts = await page.evaluate(() => {
+    const textarea = [...document.querySelectorAll<HTMLTextAreaElement>("textarea.rt-input")].pop()!;
+    const inner = textarea.parentElement!.querySelector<HTMLElement>(".rt-inner")!;
+    const piece = inner.querySelector<HTMLElement>(".rt-piece")!;
+    return [getComputedStyle(textarea).font, getComputedStyle(inner).font, getComputedStyle(piece).fontSize];
+  });
+  expect(fonts[1]).toBe(fonts[0]);
+  expect(fonts[0]).toContain(fonts[2]);
+});

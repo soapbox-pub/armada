@@ -89,6 +89,8 @@ export async function loginAs(page: Page, me: Person) {
     ([loginJson, pubkey]) => {
       localStorage.setItem("armada:login", loginJson);
       localStorage.setItem("armada:active-pubkey", pubkey);
+      // The one-time push opt-in covers the app and takes every click.
+      localStorage.setItem("armada:webpush-prompt-shown", "1");
     },
     [JSON.stringify(login), me.pubkey] as const,
   );
