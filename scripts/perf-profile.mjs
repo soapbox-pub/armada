@@ -74,7 +74,7 @@
  * its time and relay, to see a republish loop's cadence.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -224,9 +224,15 @@ function buildWorld({ peers: peerCount = 40, bigThread = 3000, small = 12 } = {}
 // reloads instead, which is also what a cold start is.
 // `--enable-precise-memory-info`: without it `performance.memory` is bucketed
 // and cached, and the in-app heap samples read as a flat line.
-const browser = await chromium.launch({ args: ["--single-process", "--enable-precise-memory-info"] });
-const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, baseURL: ORIGIN });
+const browser = await chromium.launch({
+  args: [...(process.env.ARMADA_E2E_SINGLE_PROCESS ? ["--single-process"] : []), "--enable-precise-memory-info"],
+});
+// No service worker: chrome-headless-shell has no BadgeService binder, and the
+// worker's `clearAppBadge()` gets the renderer killed for a bad IPC message.
+const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, baseURL: ORIGIN, serviceWorkers: "block" });
 const page = await context.newPage();
+// `--reduced-motion`: what the `motion-safe:` animations cost, by turning them off.
+if (flag("reduced-motion")) await page.emulateMedia({ reducedMotion: "reduce" });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e).slice(0, 300)));
 page.on("crash", () => errors.push("RENDERER CRASHED"));
@@ -274,7 +280,38 @@ function fakeRelayAnswer(filters) {
   }
   return [...out.values()];
 }
-await page.routeWebSocket(/^wss?:\/\//, (ws) => {
+function notePublish(key, host) {
+  swallowed[key] = (swallowed[key] ?? 0) + 1;
+  if (process.env.ARMADA_PERF_PUBLISH_LOG) {
+    console.log(`  publish +${((Date.now() - harnessStart) / 1000).toFixed(1)}s ${key} → ${host}`);
+  }
+}
+// Publishes are swallowed IN the page, before they reach a socket. Routing a
+// live relay's sockets through Playwright instead costs a CDP round trip per
+// inbound frame, which a history walk's megabytes turn into most of the
+// renderer's CPU — the harness measuring itself.
+await page.exposeFunction("__armadaHarnessPublish", notePublish);
+await context.addInitScript(() => {
+  const send = WebSocket.prototype.send;
+  WebSocket.prototype.send = function (data) {
+    if (typeof data === "string" && data.startsWith('["EVENT"')) {
+      try {
+        const event = JSON.parse(data)[1];
+        const d = event.tags?.find((t) => t[0] === "d")?.[1];
+        window.__armadaHarnessPublish?.(d === undefined ? String(event.kind) : `${event.kind}:${d}`, new URL(this.url).host);
+        const ok = JSON.stringify(["OK", event.id, true, ""]);
+        setTimeout(() => this.dispatchEvent(new MessageEvent("message", { data: ok })), 0);
+      } catch {
+        // not an event: drop it all the same
+      }
+      return;
+    }
+    return send.call(this, data);
+  };
+});
+// Only the `.invalid` relay is routed, unless `--offline` will answer every REQ.
+const routed = flag("offline") ? /^wss?:\/\// : /^wss?:\/\/[^/]*\.invalid(?:[:/]|$)/;
+await page.routeWebSocket(routed, (ws) => {
   // The seeded community names `wss://relay.invalid`: answer it here as an
   // empty relay (EOSE for every REQ) rather than dialing nothing and leaving
   // its reads to time out.
@@ -298,11 +335,7 @@ await page.routeWebSocket(/^wss?:\/\//, (ws) => {
       try {
         const event = JSON.parse(msg)[1];
         const d = event.tags?.find((t) => t[0] === "d")?.[1];
-        const key = d === undefined ? String(event.kind) : `${event.kind}:${d}`;
-        swallowed[key] = (swallowed[key] ?? 0) + 1;
-        if (process.env.ARMADA_PERF_PUBLISH_LOG) {
-          console.log(`  publish +${((Date.now() - harnessStart) / 1000).toFixed(1)}s ${key} → ${new URL(ws.url()).host}`);
-        }
+        notePublish(d === undefined ? String(event.kind) : `${event.kind}:${d}`, new URL(ws.url()).host);
         ws.send(JSON.stringify(["OK", event.id, true, ""]));
         return;
       } catch {
@@ -464,14 +497,72 @@ const perfReady = (page) => page.waitForFunction(() => window.__armadaPerf?.json
 const report = async (page) => JSON.parse(await page.evaluate(() => window.__armadaPerf.json()));
 const resetCounters = (page) => page.evaluate(() => window.__armadaPerf.reset());
 
+/**
+ * CPU seconds (user + system) of the browser and every descendant, by
+ * Chromium `--type=` (renderer, gpu-process, utility, browser). Linux only;
+ * null elsewhere. Unlike TaskDuration this includes raster, compositing and
+ * GPU work, which is where animated media costs on a machine without a GPU.
+ */
+function processCpuSec() {
+  // Playwright spawns Chromium as our child; the preview server is one too, so
+  // only Chromium binaries are counted.
+  const rootPid = process.pid;
+  if (process.platform !== "linux") return null;
+  const procs = new Map();
+  for (const pid of readdirSync("/proc").filter((d) => /^\d+$/.test(d))) {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      // comm may contain spaces/parens: fields resume after the last ")".
+      const f = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      const cmd = readFileSync(`/proc/${pid}/cmdline`, "utf8");
+      const type = /--type=([\w-]+)/.exec(cmd)?.[1] ?? "browser";
+      const chrome = /chrom/i.test(cmd.split("\0")[0]);
+      procs.set(Number(pid), { ppid: Number(f[1]), ticks: Number(f[11]) + Number(f[12]), type, chrome });
+    } catch {
+      // exited mid-walk
+    }
+  }
+  const inTree = (pid) => {
+    for (let p = pid, n = 0; p > 1 && n < 64; p = procs.get(p)?.ppid ?? 0, n++) if (p === rootPid) return true;
+    return false;
+  };
+  const byType = {};
+  for (const [pid, p] of procs) if (p.chrome && pid !== rootPid && inTree(pid)) byType[p.type] = (byType[p.type] ?? 0) + p.ticks / 100;
+  return byType;
+}
+
+/** Per process type, CPU between two `processCpuSec()` readings as % of one core. */
+function processCost(a, b, wallSec) {
+  if (!a || !b) return undefined;
+  const out = {};
+  let total = 0;
+  for (const k of Object.keys(b)) {
+    const d = b[k] - (a[k] ?? 0);
+    total += d;
+    out[k] = Math.round((d / wallSec) * 1000) / 10;
+  }
+  return { totalPct: Math.round((total / wallSec) * 1000) / 10, ...out };
+}
+
 /** Measure `seconds` of whatever the page is doing, with fresh counters. */
 async function measureIdle(page, cdp, seconds) {
   await resetCounters(page);
   const a = await metrics(cdp);
+  const pa = processCpuSec();
   const t = Date.now();
-  await page.waitForTimeout(seconds * 1000);
+  // Whole-process CPU per 30s slice: shows whether background work winds down.
+  const series = [];
+  let prev = pa;
+  for (let left = seconds * 1000; left > 0; left -= 30_000) {
+    const step = Math.min(30_000, left);
+    await page.waitForTimeout(step);
+    const now = processCpuSec();
+    series.push(processCost(prev, now, step / 1000)?.totalPct);
+    prev = now;
+  }
   const b = await metrics(cdp);
-  return cost(a, b, (Date.now() - t) / 1000);
+  const wall = (Date.now() - t) / 1000;
+  return { ...cost(a, b, wall), processPct: processCost(pa, processCpuSec(), wall), processPctPer30s: series, heapFloorMB: await heapFloorMB(cdp) };
 }
 
 /** Router navigation without a reload: what clicking a conversation does. */
@@ -1199,6 +1290,11 @@ try {
         // costs to leave the app sitting in a busy room.
         console.log(`▶ live-idle (${IDLE_SEC}s)`);
         const idleMark = errors.length;
+        // live-switch ends on `away`.
+        if (!new URL(page.url()).pathname.startsWith(communityPath)) {
+          await softNavigate(page, communityPath);
+          await page.waitForTimeout(10_000);
+        }
         await resetCounters(page);
         let idle;
         const { hot: idleHot } = await cpuProfile("live-idle", async () => {
