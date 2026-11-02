@@ -2999,7 +2999,7 @@ export function DMsPage() {
             hasMore={hasMore}
             isLoadingMore={isLoadingMore}
             // Wider than ChannelSidebarView: rows carry avatar, name and preview.
-            className="flex-1 sidebar:flex-none sidebar:w-72 xl:w-80"
+            className="w-72 xl:w-80 touch:max-sidebar:flex-1"
           />
         </>
         ),

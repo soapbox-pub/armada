@@ -3297,7 +3297,7 @@ function ConcordCommunityPage() {
               {/* No onNavigate: closing this list would flash this community's chat
                   before the route changes. */}
               <ServerRail />
-              {channelList(() => setChannelsOpen(false), "flex-1 sidebar:flex-none")}
+              {channelList(() => setChannelsOpen(false), "touch:max-sidebar:flex-1")}
             </>
           ),
         }}

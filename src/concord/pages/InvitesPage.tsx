@@ -878,7 +878,7 @@ export function InvitesPage() {
       underlay={
         <>
           <ServerRail />
-          <div className="flex flex-1 sidebar:flex-none sidebar:w-80 min-w-0 flex-col safe-area-top h-full">
+          <div className="flex w-80 touch:max-sidebar:flex-1 min-w-0 flex-col safe-area-top h-full">
             <header className="relative h-12 touch:h-[3.25rem] mx-gutter mt-1 sidebar:mt-3 px-2 sidebar:px-3 flex items-center gap-1.5 shrink-0 clip-corner-lg bg-chrome">
               <MailPlus className="size-5 text-muted-foreground shrink-0" />
               <h1 className="font-semibold truncate leading-tight">

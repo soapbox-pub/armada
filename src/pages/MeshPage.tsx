@@ -253,7 +253,7 @@ export function MeshPage() {
             onSetEnabled={(enabled) => mesh.setEnabled(enabled)}
             onOpenBroadcast={() => setView({ type: "broadcast" })}
             onOpenDM={(peerID) => setView({ type: "dm", peerID })}
-            className="flex-1 sidebar:flex-none"
+            className="touch:max-sidebar:flex-1"
           />
         </>
       }

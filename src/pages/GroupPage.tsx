@@ -439,7 +439,7 @@ export function GroupPage() {
             <ChannelSidebar
               relayUrl={relayUrl}
               onNavigate={() => setChannelsOpen(false)}
-              className="flex-1 sidebar:flex-none"
+              className="touch:max-sidebar:flex-1"
             />
           </>
         }

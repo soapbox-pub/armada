@@ -75,7 +75,7 @@ export function ChannelSidebarView({
   return (
     <aside
       className={cn(
-        "relative flex flex-col w-60 sidebar:w-[var(--channel-list-w,15rem)] shrink-0 bg-chrome",
+        "relative flex flex-col w-[var(--channel-list-w,15rem)] shrink-0 bg-chrome",
         className,
       )}
     >

@@ -58,7 +58,7 @@ export function ServerPage() {
       <ServerRail />
       <ChannelSidebar
         relayUrl={relayUrl}
-        className="flex-1 sidebar:flex-none"
+        className="touch:max-sidebar:flex-1"
       />
 
       <main className="hidden sidebar:block flex-1 min-w-0 overflow-y-auto">
