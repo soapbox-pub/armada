@@ -15,6 +15,7 @@
  *     --main-profile   CPU-profile the main process across the reloads
  *     --electron-args '<switches>'  extra Chromium/Electron switches, for A/B runs
  *     --low-memory     with Desktop › Low memory mode on
+ *     --reduce-only <part>  with --reduce-effects: only motion, media, blur or flair
  *     --frames         10s of compositor tracing per phase: what draws frames
  *
  * Phases report PSS (proportional, so shared pages aren't double counted) and
@@ -337,6 +338,14 @@ async function phase(name, sec) {
 
 // ─── Scenario ───────────────────────────────────────────────────────────────
 
+/** `--reduce-only <part>`: Reduce effects with every other part left out. */
+function reduceExcept() {
+  const keep = opt("reduce-only", "");
+  if (!keep) return [];
+  const parts = { motion: "armada:reduce-motion", media: "armada:still-media", blur: "armada:reduce-blur", flair: "armada:hide-flair" };
+  return Object.entries(parts).filter(([p]) => p !== keep).map(([, k]) => k);
+}
+
 const report = { label: LABEL, at: new Date().toISOString(), electron: readFileSync(resolve(root, "electron/node_modules/electron/package.json"), "utf8").match(/"version": "([^"]+)"/)[1] };
 await waitFor(() => page.url().startsWith("app://"), 30_000, "app://");
 await sleep(5000);
@@ -344,12 +353,14 @@ report.loggedOut = { pss: pssSummary(processes()) };
 
 const sk = generateSecretKey();
 const pk = getPublicKey(sk);
-await page.evaluate(([json, pk, reduce]) => {
+await page.evaluate(([json, pk, reduce, only]) => {
   localStorage.setItem("armada:login", json);
   localStorage.setItem("armada:active-pubkey", pk);
   localStorage.setItem(`armada:relay-prompt-shown:${pk}`, "1");
   if (reduce) localStorage.setItem("armada:reduce-effects", "1");
-}, [JSON.stringify([{ id: `nsec:${pk}`, type: "nsec", pubkey: pk, createdAt: new Date().toISOString(), data: { nsec: nip19.nsecEncode(sk) } }]), pk, flag("reduce-effects")]);
+  // Parts left out ("0"), to see which part of Reduce effects a saving comes from.
+  for (const key of only) localStorage.setItem(key, "0");
+}, [JSON.stringify([{ id: `nsec:${pk}`, type: "nsec", pubkey: pk, createdAt: new Date().toISOString(), data: { nsec: nip19.nsecEncode(sk) } }]), pk, flag("reduce-effects"), reduceExcept()]);
 await resetLag();
 const joinStart = processes();
 const joinT0 = Date.now();
