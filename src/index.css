@@ -986,6 +986,22 @@ html.theme-bg #root .theme-scope .bg-background {
   background: transparent;
 }
 
+/* Member rows (MemberList): in a tight row a badge keeps its icon, and its
+ * label stays for screen readers only, so the name keeps the room. */
+.member-row {
+  container-type: inline-size;
+}
+@container (max-width: 18rem) {
+  .member-pill-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
 /* Reduce motion (src/lib/reducedMotion.ts): set by the app switch or the OS.
  * Animations end at once rather than being removed, so their end state still
  * lands and Radix exits still see `animationend`. Transitions get 0s: with the

@@ -211,7 +211,7 @@ const MemberRow = memo(function MemberRow({
     <>
     <ContextMenu>
     <ContextMenuTrigger className="block">
-    <div className="gutter-tick group flex items-center gap-2.5 pl-3 pr-2 py-2 clip-corner-lg transition-colors hover:bg-accent/50 hover:text-foreground">
+    <div className="member-row gutter-tick group flex items-center gap-2.5 pl-3 pr-2 py-2 clip-corner-lg transition-colors hover:bg-accent/50 hover:text-foreground">
       <ProfilePreviewCard pubkey={pubkey}>
         <button type="button" className="relative shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" style={frameStyle}>
           <Avatar shape={getAvatarShape(metadata)} className="size-8 cursor-pointer transition-opacity hover:opacity-90">
@@ -271,7 +271,7 @@ const MemberRow = memo(function MemberRow({
           className="shrink-0 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-3xs font-medium text-amber-500"
         >
           <Crown className="size-3" aria-hidden />
-          <FormattedMessage id="memberList.role.owner" defaultMessage="Owner" />
+          <span className="member-pill-label"><FormattedMessage id="memberList.role.owner" defaultMessage="Owner" /></span>
         </span>
       ) : isAdmin ? (
         <span
@@ -279,7 +279,7 @@ const MemberRow = memo(function MemberRow({
           className="shrink-0 inline-flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-3xs font-medium text-primary"
         >
           <Shield className="size-3" aria-hidden />
-          <FormattedMessage id="memberList.role.admin" defaultMessage="Admin" />
+          <span className="member-pill-label"><FormattedMessage id="memberList.role.admin" defaultMessage="Admin" /></span>
         </span>
       ) : isModerator ? (
         <span
@@ -287,7 +287,7 @@ const MemberRow = memo(function MemberRow({
           className="shrink-0 inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-3xs font-medium text-muted-foreground"
         >
           <Shield className="size-3" aria-hidden />
-          <FormattedMessage id="memberList.role.mod" defaultMessage="Mod" />
+          <span className="member-pill-label"><FormattedMessage id="memberList.role.mod" defaultMessage="Mod" /></span>
         </span>
       ) : customBadge ? (
         <span
@@ -306,7 +306,7 @@ const MemberRow = memo(function MemberRow({
           className="shrink-0 inline-flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-3xs font-medium text-primary"
         >
           <Bot className="size-3" aria-hidden />
-          <FormattedMessage id="memberList.role.agent" defaultMessage="Agent" />
+          <span className="member-pill-label"><FormattedMessage id="memberList.role.agent" defaultMessage="Agent" /></span>
         </span>
       ) : roleSet.has(ROLE_GUEST) ? (
         <span
@@ -317,7 +317,7 @@ const MemberRow = memo(function MemberRow({
         </span>
       ) : null}
       <BotPill metadata={metadata} />
-      {ultra && <UltraPill force />}
+      {ultra && <UltraPill force labelClassName="member-pill-label" />}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button

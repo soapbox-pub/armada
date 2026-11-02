@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import type { NostrMetadata } from '@nostrify/nostrify';
 
 /** "Ultra" pill beside a byline when the profile carries Armada Ultra. */
-export function UltraPill({ metadata, force, className }: { metadata?: NostrMetadata; force?: boolean; className?: string }) {
+export function UltraPill({ metadata, force, className, labelClassName }: { metadata?: NostrMetadata; force?: boolean; className?: string; labelClassName?: string }) {
   const intl = useIntl();
   if (!force && !readUltra(metadata)) return null;
 
@@ -20,7 +20,7 @@ export function UltraPill({ metadata, force, className }: { metadata?: NostrMeta
       )}
     >
       <Gem className="size-3" aria-hidden />
-      Ultra
+      <span className={labelClassName}>Ultra</span>
     </span>
   );
 }
