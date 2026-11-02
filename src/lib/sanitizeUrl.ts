@@ -28,6 +28,9 @@ export function isMagnetUri(raw: string): boolean {
     .some((xt) => /^urn:bt(?:ih|mh):[0-9a-z]+$/i.test(xt));
 }
 
+/** Names that resolve only on a local network (RFC 6762, 8375, and common LAN suffixes). */
+const LOCAL_SUFFIXES = ['.localhost', '.local', '.localdomain', '.internal', '.lan', '.home.arpa'];
+
 /**
  * Whether a URL targets a loopback/private address. Loading one from a public
  * page triggers Chrome's Local Network Access prompt for every viewer, so
@@ -41,16 +44,18 @@ export function isLocalNetworkUrl(raw: string | undefined | null): boolean {
   } catch {
     return false;
   }
-  let h = host.replace(/^\[|\]$/g, ''); // strip IPv6 brackets
-  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local')) return true;
-  if (h === '::1' || h === '0.0.0.0') return true;
-  // IPv4-mapped IPv6 comes back in hex (::ffff:7f00:1) and would match no rule below.
-  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h);
-  if (mapped) {
-    const n = (parseInt(mapped[1], 16) << 16) | parseInt(mapped[2], 16);
+  // Strip IPv6 brackets, and the trailing dot of a fully-qualified name.
+  let h = host.replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (h === 'localhost' || LOCAL_SUFFIXES.some((suffix) => h.endsWith(suffix))) return true;
+  if (h === '::1' || h === '::' || h === '0.0.0.0') return true;
+  // IPv4 inside IPv6 — mapped (::ffff:), compatible (::) and NAT64 (64:ff9b::) —
+  // comes back in hex (::ffff:7f00:1) and would match no rule below.
+  const embedded = /^(?:::ffff:|::|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h);
+  if (embedded) {
+    const n = (parseInt(embedded[1], 16) << 16) | parseInt(embedded[2], 16);
     h = [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
   } else {
-    const dotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(h);
+    const dotted = /^(?:::ffff:|::|64:ff9b::)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(h);
     if (dotted) h = dotted[1];
   }
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
@@ -61,6 +66,7 @@ export function isLocalNetworkUrl(raw: string | undefined | null): boolean {
     if (a === 192 && b === 168) return true; // private
     if (a === 172 && b >= 16 && b <= 31) return true; // private
     if (a === 169 && b === 254) return true; // link-local
+    if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT
   }
   if (/^f[cd][0-9a-f]*:/.test(h)) return true; // IPv6 unique-local fc00::/7
   if (/^fe[89ab][0-9a-f]*:/.test(h)) return true; // IPv6 link-local fe80::/10

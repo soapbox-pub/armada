@@ -34,6 +34,17 @@ public class MediaPolicyTest {
         assertTrue(MediaPolicy.isLocalNetworkUrl("http://172.20.1.1/x"));
         assertFalse(MediaPolicy.isLocalNetworkUrl("http://172.32.1.1/x"));
         assertFalse(MediaPolicy.isLocalNetworkUrl("https://henk.example/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://[::127.0.0.1]/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://[::7f00:1]/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://[64:ff9b::7f00:1]/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://[::]/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://localhost./x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://router.lan/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://nas.home.arpa/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://100.64.0.1/x"));
+        assertFalse(MediaPolicy.isLocalNetworkUrl("http://100.128.0.1/x"));
+        assertFalse(MediaPolicy.isLocalNetworkUrl("http://[64:ff9b::808:808]/x"));
+        assertFalse(MediaPolicy.isLocalNetworkUrl("https://example.com./x"));
     }
 
     @Test public void nonHttpAndEmptyUrlsResolveToNothing() {

@@ -125,22 +125,29 @@ struct MediaPolicy: Equatable {
         return host
     }
 
+    private static let localSuffixes = [".localhost", ".local", ".localdomain", ".internal", ".lan", ".home.arpa"]
+    // Longest first: "::" is a prefix of "::ffff:".
+    private static let embeddedV4Prefixes = ["::ffff:", "64:ff9b::", "::"]
+
     /// The port of `isLocalNetworkUrl` in `sanitizeUrl.ts`.
     static func isLocalNetworkUrl(_ url: String) -> Bool {
         guard var h = host(of: url) else { return false }
-        if h == "localhost" || h.hasSuffix(".localhost") || h.hasSuffix(".local") { return true }
-        if h == "::1" || h == "0.0.0.0" { return true }
-        // An IPv4-mapped address reaches the same host by another spelling.
-        if h.hasPrefix("::ffff:") {
-            let rest = String(h.dropFirst(7))
+        if h.hasSuffix(".") { h.removeLast() }
+        if h == "localhost" || localSuffixes.contains(where: { h.hasSuffix($0) }) { return true }
+        if h == "::1" || h == "::" || h == "0.0.0.0" { return true }
+        // IPv4 inside IPv6 (mapped, compatible, NAT64) reaches the same host by another spelling.
+        for prefix in embeddedV4Prefixes where h.hasPrefix(prefix) {
+            let rest = String(h.dropFirst(prefix.count))
             if isDottedQuad(rest) {
                 h = rest
-            } else {
-                let parts = rest.split(separator: ":")
-                if parts.count == 2, let a = UInt32(parts[0], radix: 16), let b = UInt32(parts[1], radix: 16) {
-                    let n = (a << 16) | b
-                    h = "\((n >> 24) & 255).\((n >> 16) & 255).\((n >> 8) & 255).\(n & 255)"
-                }
+                break
+            }
+            let parts = rest.split(separator: ":", omittingEmptySubsequences: false)
+            if parts.count == 2, parts.allSatisfy({ (1...4).contains($0.count) }),
+               let a = UInt32(parts[0], radix: 16), let b = UInt32(parts[1], radix: 16) {
+                let n = (a << 16) | b
+                h = "\((n >> 24) & 255).\((n >> 16) & 255).\((n >> 8) & 255).\(n & 255)"
+                break
             }
         }
         if isDottedQuad(h) {
@@ -150,6 +157,7 @@ struct MediaPolicy: Equatable {
             if a == 192 && b == 168 { return true }
             if a == 172 && b >= 16 && b <= 31 { return true }
             if a == 169 && b == 254 { return true }
+            if a == 100 && b >= 64 && b <= 127 { return true }
         }
         if h.range(of: "^f[cd][0-9a-f]*:", options: .regularExpression) != nil { return true }
         if h.range(of: "^fe[89ab][0-9a-f]*:", options: .regularExpression) != nil { return true }

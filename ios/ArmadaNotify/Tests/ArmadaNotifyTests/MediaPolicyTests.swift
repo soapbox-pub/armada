@@ -27,6 +27,17 @@ final class MediaPolicyTests: XCTestCase {
         XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://172.20.1.1/x"))
         XCTAssertFalse(MediaPolicy.isLocalNetworkUrl("http://172.32.1.1/x"))
         XCTAssertFalse(MediaPolicy.isLocalNetworkUrl("https://henk.example/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://[::127.0.0.1]/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://[::7f00:1]/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://[64:ff9b::7f00:1]/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://[::]/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://localhost./x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://router.lan/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://nas.home.arpa/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://100.64.0.1/x"))
+        XCTAssertFalse(MediaPolicy.isLocalNetworkUrl("http://100.128.0.1/x"))
+        XCTAssertFalse(MediaPolicy.isLocalNetworkUrl("http://[64:ff9b::808:808]/x"))
+        XCTAssertFalse(MediaPolicy.isLocalNetworkUrl("https://example.com./x"))
     }
 
     func testNonHttpAndEmptyUrlsResolveToNothing() {

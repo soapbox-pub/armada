@@ -166,16 +166,24 @@ final class MediaPolicy {
         }
     }
 
+    private static final String[] LOCAL_SUFFIXES = {
+            ".localhost", ".local", ".localdomain", ".internal", ".lan", ".home.arpa"};
+    // Longest first: "::" is a prefix of "::ffff:".
+    private static final String[] EMBEDDED_V4_PREFIXES = {"::ffff:", "64:ff9b::", "::"};
+
     /** The port of {@code isLocalNetworkUrl} in {@code sanitizeUrl.ts}. */
     static boolean isLocalNetworkUrl(String url) {
         String h = hostOf(url);
         if (h == null) return false;
-        if (h.equals("localhost") || h.endsWith(".localhost") || h.endsWith(".local")) return true;
-        if (h.equals("::1") || h.equals("0.0.0.0")) return true;
-        // An IPv4-mapped address reaches the same host by another spelling.
+        if (h.endsWith(".")) h = h.substring(0, h.length() - 1);
+        if (h.equals("localhost")) return true;
+        for (String suffix : LOCAL_SUFFIXES) if (h.endsWith(suffix)) return true;
+        if (h.equals("::1") || h.equals("::") || h.equals("0.0.0.0")) return true;
+        // IPv4 inside IPv6 (mapped, compatible, NAT64) reaches the same host by another spelling.
         String mapped = null;
-        if (h.startsWith("::ffff:")) {
-            String rest = h.substring(7);
+        for (String prefix : EMBEDDED_V4_PREFIXES) {
+            if (!h.startsWith(prefix)) continue;
+            String rest = h.substring(prefix.length());
             if (rest.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) {
                 mapped = rest;
             } else if (rest.matches("[0-9a-f]{1,4}:[0-9a-f]{1,4}")) {
@@ -183,6 +191,7 @@ final class MediaPolicy {
                 int n = (Integer.parseInt(parts[0], 16) << 16) | Integer.parseInt(parts[1], 16);
                 mapped = ((n >>> 24) & 255) + "." + ((n >>> 16) & 255) + "." + ((n >>> 8) & 255) + "." + (n & 255);
             }
+            if (mapped != null) break;
         }
         if (mapped != null) h = mapped;
         if (h.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) {
@@ -193,6 +202,7 @@ final class MediaPolicy {
             if (a == 192 && b == 168) return true;
             if (a == 172 && b >= 16 && b <= 31) return true;
             if (a == 169 && b == 254) return true;
+            if (a == 100 && b >= 64 && b <= 127) return true;
         }
         if (h.matches("^f[cd][0-9a-f]*:.*")) return true; // fc00::/7
         if (h.matches("^fe[89ab][0-9a-f]*:.*")) return true; // fe80::/10

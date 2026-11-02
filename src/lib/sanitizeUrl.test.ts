@@ -61,6 +61,28 @@ describe('IPv4-mapped IPv6 literals', () => {
   it('still allows a mapped public address', () => {
     expect(isLocalNetworkUrl('http://[::ffff:93.184.216.34]/x.png')).toBe(false);
   });
+
+  it('catches IPv4-compatible and NAT64 spellings, and the unspecified address', () => {
+    expect(isLocalNetworkUrl('http://[::127.0.0.1]/x.png')).toBe(true);
+    expect(isLocalNetworkUrl('http://[64:ff9b::7f00:1]/x.png')).toBe(true);
+    expect(isLocalNetworkUrl('http://[64:ff9b::192.168.0.1]/x.png')).toBe(true);
+    expect(isLocalNetworkUrl('http://[::]/x.png')).toBe(true);
+    expect(isLocalNetworkUrl('http://[64:ff9b::808:808]/x.png')).toBe(false);
+  });
+});
+
+describe('local names and ranges', () => {
+  it('catches a trailing-dot name, LAN suffixes and carrier-grade NAT', () => {
+    expect(isLocalNetworkUrl('http://localhost./x')).toBe(true);
+    expect(isLocalNetworkUrl('http://router.lan/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://nas.home.arpa/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://db.internal/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://100.64.0.1/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://100.127.255.1/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://100.128.0.1/x')).toBe(false);
+    expect(isLocalNetworkUrl('https://example.com./x')).toBe(false);
+    expect(isLocalNetworkUrl('https://plan.example/x')).toBe(false);
+  });
 });
 
 describe("isMagnetUri", () => {
