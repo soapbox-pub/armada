@@ -350,6 +350,27 @@ function renderLinuxIcon(size) {
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
+
+/**
+ * IPC for the bridge, answered for the main window only. Only it has the
+ * preload today; the guard keeps that true of the bridge's behaviour, not just
+ * of which renderer happens to load it.
+ */
+function handleFromMainWindow(channel, listener) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      throw new Error(`${channel} is available only to Armada's main window.`);
+    }
+    return listener(event, ...args);
+  });
+}
+
+function onFromMainWindow(channel, listener) {
+  ipcMain.on(channel, (event, ...args) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return;
+    listener(event, ...args);
+  });
+}
 /** @type {Tray | null} */
 let tray = null;
 let registeredTrayItem = null;
@@ -466,8 +487,15 @@ function serveFile(filePath) {
 function registerAppProtocol() {
   protocol.handle(SCHEME, (request) => {
     const url = new URL(request.url);
+    // One origin: the preload bridge and permissions are granted to app://armada only.
+    if (url.host !== "armada") return new Response("Not Found", { status: 404 });
     // Strip query/hash, resolve within the active bundle, prevent traversal.
-    let pathname = decodeURIComponent(url.pathname);
+    let pathname;
+    try {
+      pathname = decodeURIComponent(url.pathname);
+    } catch {
+      return new Response("Bad Request", { status: 400 });
+    }
     if (pathname === "/" || pathname === "") pathname = "/index.html";
 
     const dist = activeDist;
@@ -1189,7 +1217,7 @@ function installDisplayMediaHandler() {
 
   // The renderer asks for the source list and returns the chosen id; we cache
   // it for the duration of one getDisplayMedia call.
-  ipcMain.handle("armada:get-screen-sources", async () => {
+  handleFromMainWindow("armada:get-screen-sources", async () => {
     try {
       const sources = await desktopCapturer.getSources({
         types: ["screen", "window"],
@@ -1408,11 +1436,11 @@ async function startLinuxShareAudio(selection) {
 }
 
 function installLinuxShareAudioIpc() {
-  ipcMain.handle("armada:linux-share-audio-sources", () => listLinuxAudioSources());
-  ipcMain.handle("armada:linux-share-audio-start", (_event, selection) =>
+  handleFromMainWindow("armada:linux-share-audio-sources", () => listLinuxAudioSources());
+  handleFromMainWindow("armada:linux-share-audio-start", (_event, selection) =>
     startLinuxShareAudio(selection),
   );
-  ipcMain.handle("armada:linux-share-audio-unmute", async () => {
+  handleFromMainWindow("armada:linux-share-audio-unmute", async () => {
     if (!linuxAudioWorker || !linuxAudioProbe) return false;
     try {
       const probe = await linuxAudioProbe;
@@ -1424,7 +1452,7 @@ function installLinuxShareAudioIpc() {
       return false;
     }
   });
-  ipcMain.handle("armada:linux-share-audio-stop", async () => {
+  handleFromMainWindow("armada:linux-share-audio-stop", async () => {
     if (!linuxAudioWorker) return;
     try {
       await callLinuxAudioWorker("unlink");
@@ -1539,7 +1567,15 @@ function isAppOrigin(url) {
 function installNavigationHandlers() {
   app.on("web-contents-created", (_event, contents) => {
     contents.setWindowOpenHandler(({ url }) => {
-      if (isAppOrigin(url)) return { action: "allow" };
+      if (isAppOrigin(url)) {
+        // Explicit rather than inherited: no preload, and the main window's isolation.
+        return {
+          action: "allow",
+          overrideBrowserWindowOptions: {
+            webPreferences: { preload: undefined, sandbox: true, contextIsolation: true, nodeIntegration: false },
+          },
+        };
+      }
       // A link to our own public web host (a copied message/invite link) is
       // routed through the renderer's router rather than opened in the browser
       // — the same in-app landing Android/iOS give it, minus an OS handoff a
@@ -1622,7 +1658,7 @@ function installSecretIpc() {
   // key, i.e. obfuscation rather than encryption. We still use it (it costs
   // nothing and can't fail to unlock), but the renderer surfaces the backend
   // in Settings so the user isn't told they have protection they don't.
-  ipcMain.handle("armada:secrets-status", () => {
+  handleFromMainWindow("armada:secrets-status", () => {
     try {
       return {
         available: safeStorage.isEncryptionAvailable(),
@@ -1636,7 +1672,7 @@ function installSecretIpc() {
     }
   });
 
-  ipcMain.handle("armada:encrypt-secret", (_event, plaintext) => {
+  handleFromMainWindow("armada:encrypt-secret", (_event, plaintext) => {
     try {
       if (typeof plaintext !== "string") return null;
       if (!safeStorage.isEncryptionAvailable()) return null;
@@ -1650,7 +1686,7 @@ function installSecretIpc() {
   // reset keyring, a profile copied to another machine). The renderer treats
   // null as "locked, not empty" and must not overwrite the blob — it is very
   // likely the only copy of the user's identity key.
-  ipcMain.handle("armada:decrypt-secret", (_event, base64) => {
+  handleFromMainWindow("armada:decrypt-secret", (_event, base64) => {
     try {
       if (typeof base64 !== "string" || !base64) return null;
       if (!safeStorage.isEncryptionAvailable()) return null;
@@ -1748,7 +1784,7 @@ function installDbIpc() {
     event.returnValue = dbServer !== null;
   });
 
-  ipcMain.handle("armada:db", async (_event, op, payload) => {
+  handleFromMainWindow("armada:db", async (_event, op, payload) => {
     if (!dbServer) throw new Error("The ArmadaDB store is unavailable");
     return await dbServer.call(String(op), payload ?? {});
   });
@@ -1770,11 +1806,11 @@ async function closeDb() {
 // ── IPC from the renderer (preload bridge) ──────────────────────────────────
 
 function installIpc() {
-  ipcMain.on("armada:set-badge", (_event, count) => setUnreadBadge(count));
+  onFromMainWindow("armada:set-badge", (_event, count) => setUnreadBadge(count));
   // The renderer presented an OS notification: draw attention to the window
   // without raising it — the taskbar flash on Windows, urgency on Linux, a
   // dock bounce on macOS — unless the user is already looking at it.
-  ipcMain.on("armada:request-attention", () => {
+  onFromMainWindow("armada:request-attention", () => {
     if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) return;
     mainWindow.flashFrame(true);
   });
@@ -1787,7 +1823,7 @@ function installIpc() {
     active: process.platform === "linux" ? activeLinuxVideoEncoderMode : null,
     configured: readLinuxVideoEncoderMode({ userDataPath: app.getPath("userData") }),
   }));
-  ipcMain.handle("armada:set-video-encoder-mode", (_event, mode) => {
+  handleFromMainWindow("armada:set-video-encoder-mode", (_event, mode) => {
     try {
       const saved = writeLinuxVideoEncoderMode(mode, { userDataPath: app.getPath("userData") });
       const configured = readLinuxVideoEncoderMode({ userDataPath: app.getPath("userData") });
@@ -1810,10 +1846,10 @@ function installIpc() {
 
   // Launch-at-login. The OS holds whether the app is registered; the
   // start-minimized flag is mirrored into userData (see autoLaunch.js).
-  ipcMain.handle("armada:get-launch-settings", () =>
+  handleFromMainWindow("armada:get-launch-settings", () =>
     getLaunchSettings({ appImpl: app, userDataPath: app.getPath("userData") }),
   );
-  ipcMain.handle("armada:set-launch-settings", (_event, settings) => {
+  handleFromMainWindow("armada:set-launch-settings", (_event, settings) => {
     try {
       return setLaunchSettings(settings ?? {}, {
         appImpl: app,
@@ -1842,7 +1878,7 @@ function installIpc() {
   // These two go to shell.openExternal directly rather than through
   // openExternalUrl: they are compile-time constants in OS-private schemes,
   // which is exactly what that allowlist exists to reject.
-  ipcMain.handle("armada:open-mic-settings", async () => {
+  handleFromMainWindow("armada:open-mic-settings", async () => {
     try {
       if (process.platform === "win32") {
         await shell.openExternal("ms-settings:privacy-microphone");
@@ -1870,7 +1906,7 @@ function installIpc() {
       return "unknown";
     }
   });
-  ipcMain.handle("armada:open-screen-capture-settings", async () => {
+  handleFromMainWindow("armada:open-screen-capture-settings", async () => {
     if (process.platform !== "darwin") return false;
     try {
       await shell.openExternal(
@@ -1886,13 +1922,13 @@ function installIpc() {
   // the background. Windows/macOS and Linux X11 use the native hook; Linux
   // Wayland/Flatpak uses the Global Shortcuts portal's Activated/Deactivated
   // signals. The renderer only marks this active while a LiveKit room exists.
-  ipcMain.handle("armada:push-to-talk-configure", (_event, binding) =>
+  handleFromMainWindow("armada:push-to-talk-configure", (_event, binding) =>
     pushToTalk.configure(binding),
   );
-  ipcMain.handle("armada:push-to-talk-open-system-settings", () =>
+  handleFromMainWindow("armada:push-to-talk-open-system-settings", () =>
     pushToTalk.openSystemSettings(),
   );
-  ipcMain.handle("armada:push-to-talk-active", (_event, active) =>
+  handleFromMainWindow("armada:push-to-talk-active", (_event, active) =>
     pushToTalk.setActive(active),
   );
 }
