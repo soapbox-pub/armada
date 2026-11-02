@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl"
 import { type AvatarShape, isEmoji, getAvatarMaskUrl, isValidAvatarShape } from "@/lib/avatarShape"
 import { MotionImg } from "@/components/ui/MotionImg"
+import { useImageThumb } from "@/hooks/useImageThumb"
 
 /** Lets AvatarFallback see a sibling AvatarImage's src without state; mutating a ref in render is safe. */
 const AvatarHasSrcContext = React.createContext<React.MutableRefObject<boolean>>({ current: false })
@@ -134,6 +135,14 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
     }
   }, [failed, reset])
 
+  // Shown downscaled to its box (`lib/imageThumb.ts`); measured once, before
+  // anything loads. An unlaid-out box (display:none, jsdom) assumes 40px.
+  const [box, setBox] = React.useState(0)
+  const measure = React.useCallback((el: HTMLElement | null) => {
+    if (el) setBox(el.offsetWidth || 40)
+  }, [])
+  const thumb = useImageThumb(failed ? undefined : src, box)
+
   const showImage = !failed && !!src
 
   if (showImage) {
@@ -141,11 +150,13 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
   }
 
   if (!showImage) return null
+  // Blank while the thumbnail is made, as a progressively loading <img> was.
+  if (thumb.pending) return <span ref={measure} aria-hidden className="absolute inset-0" />
 
   return (
     <MotionImg
       {...props}
-      src={src}
+      src={thumb.src}
       ref={ref}
       alt=""
       // The APK's `https://localhost` Referer trips some hotlink protections.

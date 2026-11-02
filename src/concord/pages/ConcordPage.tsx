@@ -203,6 +203,7 @@ import { shortTimeAgo } from "@/lib/formatTime";
 
 import { authorsByRecency, threadSummary } from "@/components/chat/transport";
 import type { ChatMsg, MessageCalendar, MessagePoll, MessageReactions, MessageZaps, OnchainZapAnnouncement, SendStatus, ZapPayment } from "@/components/chat/transport";
+import { ThumbImg } from "@/components/ui/ThumbImg";
 
 /** How long a channel must stay open before it becomes the remembered one. */
 const LAST_CHANNEL_SETTLE_MS = 1500;
@@ -264,7 +265,7 @@ const MUTED_GROUP_OPEN = "\u0000muted-open";
 function TitleIcon({ icon }: { icon: ImagePointer | undefined }) {
   const url = useDecryptedImage(icon);
   if (!url) return null;
-  return <img src={url} alt="" className="size-6 rounded object-cover shrink-0" />;
+  return <ThumbImg src={url} alt="" className="size-6 rounded object-cover shrink-0" />;
 }
 
 function TitleAvatar({ icon, name }: { icon: ImagePointer | undefined; name: string | undefined }) {
@@ -284,7 +285,7 @@ function Banner({ banner }: { banner: ImagePointer | undefined }) {
         aria-label={intl.formatMessage({ id: "concordPage.viewBanner", defaultMessage: "View banner" })}
         onClick={() => setOpen(true)}
       >
-        <img src={url} alt="" className="size-full object-cover" />
+        <ThumbImg src={url} alt="" className="size-full object-cover" />
       </button>
       {open && <ImageLightbox src={url} onClose={() => setOpen(false)} />}
     </>

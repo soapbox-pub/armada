@@ -1,4 +1,5 @@
 import { clearImageDims } from "@/components/chat/imageDims";
+import { clearThumbs } from "@/lib/imageThumb";
 import { clearRevealedMedia } from "@/components/chat/revealedMedia";
 import { clearTokenCache } from "@/components/chat/tokenCache";
 import { clearRenderedPlaintext } from "@/hooks/dmRenderCache";
@@ -174,6 +175,7 @@ function clearSessionMemos(): void {
   clearImageDims();
   clearMediaCacheMemory();
   clearBuzzMediaCache();
+  clearThumbs();
   clearProfileSyncMemory();
   resetFrequentReactionsCache();
   resetSettingsKeysAnnouncements();
