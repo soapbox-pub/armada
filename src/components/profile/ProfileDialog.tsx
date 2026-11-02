@@ -66,7 +66,7 @@ import { useStartedDms } from "@/hooks/useStartedDms";
 import { isStatusExpired, useUserStatus } from "@/hooks/useUserStatus";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { getPronouns } from "@/lib/pronouns";
-import { frameCss, nameStyleCss, readUltra, ULTRA_NAME_CLASS } from "@/lib/ultra";
+import { useFrameCss, nameStyleCss, readUltra, ULTRA_NAME_CLASS } from "@/lib/ultra";
 import { dittoNip19Url, dittoProfileUrl } from "@/lib/dittoUrl";
 import { faviconUrl } from "@/lib/faviconUrl";
 import { loadThemeFont } from "@/lib/fontLoader";
@@ -204,6 +204,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
   const ultra = readUltra(metadata);
+  const frameStyle = useFrameCss(ultra?.frame);
   const pronouns = getPronouns(metadata);
   // kind-0 is author-controlled.
   const banner = sanitizeImageSrc(metadata?.banner);
@@ -354,7 +355,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
                     onClick={() => setViewing("picture")}
                     aria-label={intl.formatMessage({ id: "profileDialog.viewPicture", defaultMessage: "View profile picture" })}
                     className="block rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring enabled:cursor-zoom-in"
-                    style={frameCss(ultra?.frame)}
+                    style={frameStyle}
                   >
                     <Avatar shape={getAvatarShape(metadata)} className="size-20 md:size-24 border-4 border-background">
                       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />

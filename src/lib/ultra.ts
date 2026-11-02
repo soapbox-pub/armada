@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 import type { ThemePreset } from "@/themes";
+import { useHiddenFlair } from "@/lib/reducedMotion";
 
 export const DONATION_BITCOIN = "bc1q9cx35adpm73aq2fw40ye6ts8hfxqzjr5unwg0n";
 export const DONATION_MONERO = "45JDCLrjJ4bgVUSbbs2yjy9m5Mf4VLPW8fG7jw9sq5u69rXZZopQogZNeyYkMBnXpkaip4p4QwaaJNhdTotPa9g44DBCzdK";
@@ -113,6 +114,11 @@ export function nameStyleCss(id: NameStyleId | undefined): CSSProperties | undef
 
 export function frameCss(id: AvatarFrameId | undefined): CSSProperties | undefined {
   return id ? FRAME_CSS[id] : undefined;
+}
+
+/** {@link frameCss}, unless the viewer hides Ultra flair on this device. */
+export function useFrameCss(id: AvatarFrameId | undefined): CSSProperties | undefined {
+  return useHiddenFlair() ? undefined : frameCss(id);
 }
 
 /** Themes only the Ultra page offers. Applied locally, like any preset. */

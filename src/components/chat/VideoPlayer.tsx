@@ -16,7 +16,7 @@ import { isValidBlurhash } from "@/lib/blurhash";
 import { BLANK_POSTER } from "@/lib/blankPoster";
 import { downloadUrl, savedDescription } from "@/lib/downloadFile";
 import { formatTime } from "@/lib/formatTime";
-import { useReducedMotion } from "@/lib/reducedMotion";
+import { useStillMedia } from "@/lib/reducedMotion";
 import { companionEncryption } from "@/lib/imeta";
 import { canShareFiles, shareFile } from "@/lib/share";
 import { cn } from "@/lib/utils";
@@ -108,8 +108,8 @@ export function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // Reduced motion: a GIF holds its first frame, playing on hover or a tap.
-  const reduced = useReducedMotion();
+  // Still media: a GIF holds its first frame, playing on hover or a tap.
+  const still = useStillMedia();
   const [gifPlaying, setGifPlaying] = useState(false);
 
   // The lightbox pauses the element itself via a forwarded ref.
@@ -364,16 +364,16 @@ export function VideoPlayer({
         style={{ aspectRatio }}
         onClick={(e) => {
           e.stopPropagation();
-          if (!reduced) return;
+          if (!still) return;
           const video = videoRef.current;
           if (video?.paused) void video.play().catch(() => {});
           else video?.pause();
         }}
-        onPointerEnter={reduced ? (e) => e.pointerType === "mouse" && void videoRef.current?.play().catch(() => {}) : undefined}
-        onPointerLeave={reduced ? (e) => e.pointerType === "mouse" && videoRef.current?.pause() : undefined}
+        onPointerEnter={still ? (e) => e.pointerType === "mouse" && void videoRef.current?.play().catch(() => {}) : undefined}
+        onPointerLeave={still ? (e) => e.pointerType === "mouse" && videoRef.current?.pause() : undefined}
       >
         {spoilerCover}
-        {ready && reduced && !gifPlaying && !spoilerCover && (
+        {ready && still && !gifPlaying && !spoilerCover && (
           <span aria-hidden className="pointer-events-none absolute left-1.5 top-1.5 z-10 flex size-6 items-center justify-center rounded-full bg-black/60 text-white">
             <Play className="size-3.5 fill-current" />
           </span>
@@ -382,7 +382,7 @@ export function VideoPlayer({
           <video
             ref={setVideoRef}
             src={mediaSrc}
-            autoPlay={!reduced}
+            autoPlay={!still}
             onPlay={() => setGifPlaying(true)}
             onPause={() => setGifPlaying(false)}
             loop

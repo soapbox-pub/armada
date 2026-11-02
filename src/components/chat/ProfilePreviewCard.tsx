@@ -44,7 +44,7 @@ import { dittoProfileUrl } from "@/lib/dittoUrl";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { getPronouns } from "@/lib/pronouns";
-import { frameCss, nameStyleCss, readUltra, ULTRA_NAME_CLASS } from "@/lib/ultra";
+import { useFrameCss, nameStyleCss, readUltra, ULTRA_NAME_CLASS } from "@/lib/ultra";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
 import { cn } from "@/lib/utils";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -99,6 +99,7 @@ function ProfilePreviewBody({
   const displayName = getDisplayName(metadata, pubkey);
   const avatarShape = getAvatarShape(metadata);
   const ultra = readUltra(metadata);
+  const frameStyle = useFrameCss(ultra?.frame);
   const pronouns = getPronouns(metadata);
   const picture = sanitizeImageSrc(metadata?.picture);
   const npub = tryNpubEncode(pubkey);
@@ -201,7 +202,7 @@ function ProfilePreviewBody({
             onClick={() => picture && onViewImage({ src: picture, imeta: author.data?.imeta?.picture })}
             aria-label={intl.formatMessage({ id: "profilePreviewCard.viewPicture", defaultMessage: "View profile picture" })}
             className="block rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring enabled:cursor-zoom-in"
-            style={frameCss(ultra?.frame)}
+            style={frameStyle}
           >
             <Avatar shape={avatarShape} className="size-16 border-[3px] border-background">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />

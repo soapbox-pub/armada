@@ -1,17 +1,17 @@
 import { forwardRef, useRef, useState, type ImgHTMLAttributes, type SyntheticEvent } from "react";
 
-import { mayAnimate, useReducedMotion } from "@/lib/reducedMotion";
+import { mayAnimate, useStillMedia } from "@/lib/reducedMotion";
 
 /**
- * `<img>` that shows only the first frame of an animated image while motion is
- * reduced. That frame is drawn into a canvas with the same classes and style:
+ * `<img>` that shows only the first frame of an animated image while media is
+ * held still. That frame is drawn into a canvas with the same classes and style:
  * a canvas is a replaced element, so sizing and `object-fit` carry over, and a
  * cross-origin image may be DRAWN without CORS (only reading it back is refused).
  * The ref reaches the `<img>` only while it is the one rendered.
  */
 export const MotionImg = forwardRef<HTMLImageElement, ImgHTMLAttributes<HTMLImageElement>>(function MotionImg(props, ref) {
-  const reduced = useReducedMotion();
-  if (!reduced || !mayAnimate(props.src)) return <img ref={ref} {...props} />;
+  const still = useStillMedia();
+  if (!still || !mayAnimate(props.src)) return <img ref={ref} {...props} />;
   return <StillImg {...props} />;
 });
 

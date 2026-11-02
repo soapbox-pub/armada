@@ -7,7 +7,7 @@ import { useGifSearch, registerGifShare, type GifResult } from '@/hooks/useGifSe
 import { useFavoriteGifs } from '@/hooks/useFavoriteGifs';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { MotionImg } from '@/components/ui/MotionImg';
-import { useReducedMotion } from '@/lib/reducedMotion';
+import { useStillMedia } from '@/lib/reducedMotion';
 import { cn } from '@/lib/utils';
 import { FormattedMessage, useIntl } from '@/i18n';
 
@@ -30,8 +30,8 @@ function GifThumbnail({ gif, onClick, isFavorite, onToggleFavorite }: { gif: Gif
   const intl = useIntl();
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
-  // Reduced motion: a still tile that plays only while pointed at.
-  const reduced = useReducedMotion();
+  // Still media: a still tile that plays only while pointed at.
+  const still = useStillMedia();
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const displayHeight = thumbHeight(gif);
@@ -42,8 +42,8 @@ function GifThumbnail({ gif, onClick, isFavorite, onToggleFavorite }: { gif: Gif
     <button
       type="button"
       onClick={() => onClick(gif)}
-      onPointerEnter={reduced ? () => void videoRef.current?.play().catch(() => {}) : undefined}
-      onPointerLeave={reduced ? () => videoRef.current?.pause() : undefined}
+      onPointerEnter={still ? () => void videoRef.current?.play().catch(() => {}) : undefined}
+      onPointerLeave={still ? () => videoRef.current?.pause() : undefined}
       className={cn(
         'group relative w-full overflow-hidden cursor-pointer clip-corner-lg bg-secondary/40',
         'focus-visible:outline-none',
@@ -65,7 +65,7 @@ function GifThumbnail({ gif, onClick, isFavorite, onToggleFavorite }: { gif: Gif
       {sources.length > 0 ? (
         <video
           ref={videoRef}
-          autoPlay={!reduced}
+          autoPlay={!still}
           loop
           muted
           playsInline

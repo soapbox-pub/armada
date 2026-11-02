@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useReducedMotion } from "@/lib/reducedMotion";
+import { useHiddenFlair, useReducedMotion } from "@/lib/reducedMotion";
 import { PROFILE_EFFECTS, type ProfileEffectId } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 
@@ -20,13 +20,15 @@ const LAYOUT = Array.from({ length: PARTICLES }, (_, i) => ({
 export function UltraEffect({ effect, loop, className }: { effect: ProfileEffectId | undefined; loop?: boolean; className?: string }) {
   const [burst, setBurst] = useState(0);
   const reduced = useReducedMotion();
+  // `loop` is the Ultra settings preview, shown whatever the viewer hides.
+  const hidden = useHiddenFlair() && !loop;
   useEffect(() => {
     if (!loop || reduced) return;
     const id = setInterval(() => setBurst((n) => n + 1), CYCLE_MS);
     return () => clearInterval(id);
   }, [loop, reduced]);
 
-  if (!effect || reduced) return null;
+  if (!effect || reduced || hidden) return null;
   const glyph = PROFILE_EFFECTS[effect];
 
   return (

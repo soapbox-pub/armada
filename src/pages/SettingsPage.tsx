@@ -130,7 +130,7 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
         title: intl.formatMessage({ id: "settingsPage.appearance.title", defaultMessage: "Appearance" }),
         icon: Palette,
         tone: "primary",
-        summary: intl.formatMessage({ id: "settingsPage.appearance.summary", defaultMessage: "Theme, language, text size and motion" }),
+        summary: intl.formatMessage({ id: "settingsPage.appearance.summary", defaultMessage: "Theme, language, text size and effects" }),
         render: () => (
           <>
             <SettingsGroup id="appearance">
@@ -142,7 +142,7 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
               <LanguageSettings />
               <FontScaleSettings />
             </SettingsGroup>
-            <SettingsGroup title={intl.formatMessage({ id: "settingsPage.appearance.motion", defaultMessage: "Motion" })}>
+            <SettingsGroup title={intl.formatMessage({ id: "settingsPage.appearance.motion", defaultMessage: "Motion & effects" })}>
               <MotionSettings />
             </SettingsGroup>
           </>

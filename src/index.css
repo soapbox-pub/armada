@@ -978,8 +978,7 @@ html.theme-bg #root .theme-scope .bg-background {
 
 /* Reduce motion (src/lib/reducedMotion.ts): set by the app switch or the OS.
  * Animations and transitions end at once rather than being removed, so their
- * end state still lands and Radix exits still see `animationend`. Backdrop
- * blur is re-rendered under every scroll and is the costliest paint on a weak GPU. */
+ * end state still lands and Radix exits still see `animationend`. */
 html[data-reduce-motion],
 html[data-reduce-motion] *,
 html[data-reduce-motion] *::before,
@@ -991,7 +990,9 @@ html[data-reduce-motion] *::after {
   transition-delay: 0ms !important;
   scroll-behavior: auto !important;
 }
-html[data-reduce-motion] * {
+/* Reduce blur: backdrop blur is re-rendered under every scroll and is the
+ * costliest paint on a weak GPU. */
+html[data-reduce-blur] * {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }

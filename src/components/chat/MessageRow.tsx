@@ -16,7 +16,7 @@ import { useScopedIdentity } from "@/hooks/useScopedDisplayName";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { fullDateTime, isoDateTime, shortClockTime, shortTimeAgo } from "@/lib/formatTime";
 import { formatTimeLeft } from "@/lib/nip17/disappearing";
-import { frameCss, nameStyleCss, readUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
+import { useFrameCss, nameStyleCss, readUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, useIntl } from "@/i18n";
 import { useLongPress } from "@/hooks/useLongPress";
@@ -158,6 +158,7 @@ export const MessageRow = memo(function MessageRow({
   const color = identityOverride?.color ?? scoped.color;
   const label = identityOverride ? undefined : scoped.label;
   const ultra = useMemo(() => readUltra(metadata), [metadata]);
+  const frameStyle = useFrameCss(ultra?.frame);
   const suffix = identityOverride?.suffix;
 
   const swipe = useSwipeToReply(
@@ -260,7 +261,7 @@ export const MessageRow = memo(function MessageRow({
         )
       ) : (
         <ProfilePreviewCard pubkey={pubkey}>
-          <button type="button" className="shrink-0 mt-0.5 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" style={frameCss(ultra?.frame)}>
+          <button type="button" className="shrink-0 mt-0.5 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" style={frameStyle}>
             <Avatar shape={getAvatarShape(metadata)} className="size-10 cursor-pointer transition-opacity hover:opacity-90">
               <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
               <AvatarFallback className="bg-primary/20 text-primary text-sm">
