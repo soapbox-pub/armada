@@ -4,6 +4,37 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.67.3] - 2026-11-02
+
+A new Reduce effects setting calms animations, animated images, blur and
+flair, and the desktop app uses less memory and CPU: it rests while hidden,
+offers a Low memory mode, and decodes avatars and emoji at the size they're
+shown. This release also tightens privacy and security around images, Mini Apps
+and the desktop shell.
+
+### Added
+- A Reduce effects setting that stops animations, pauses animated images, reduces blur and hides Ultra flair, each part adjustable on its own
+- A desktop Low memory mode, applied from the next launch with a restart button
+- People without a name or picture get a hat-and-glasses avatar
+
+### Changed
+- The desktop app rests while hidden or minimized, pausing background sync rounds and animations while staying connected for new messages
+- Avatars, custom emoji and community banners are shown downscaled to their size, using less memory, including animated ones
+- The desktop app starts and reloads faster and uses less memory
+- The composer opens faster, loading emoji data only once you type a shortcode
+- Background history sync for communities is gentler on battery and bandwidth
+- Ultra names in lists stop shimmering after a couple of cycles
+
+### Fixed
+- Photos from cameras that don't label their file type have their location and camera details removed
+- Location and camera details are removed from animated images and more image formats
+- Removing a message from this device also removes the author's edits of it
+- Images that fail to load on the desktop app because of the host's settings now display
+- Mini App icons, profile field media, relay icons and banners and watch-along thumbnails respect your media proxy setting
+- More local network addresses are recognized and never loaded from messages
+- Logging out clears more locally stored message data
+- Tighter security checks for messages, Mini Apps, notifications and the desktop app
+
 ## [0.67.2] - 2026-11-01
 
 You can now remove a reported message from your device entirely, resize the
