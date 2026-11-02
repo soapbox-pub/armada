@@ -199,7 +199,7 @@ dependencies {
     implementation project(':capacitor-android')
     // --- Bitchat Bluetooth mesh layer (com.bitchat.android.*) runtime deps ---
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2"
-    implementation "org.bouncycastle:bcprov-jdk15on:1.70"
+    implementation "org.bouncycastle:bcprov-jdk18on:1.86"
     implementation "androidx.security:security-crypto:1.1.0-beta01"
     implementation "com.google.code.gson:gson:2.13.1"
     implementation "androidx.lifecycle:lifecycle-process:2.8.7"
