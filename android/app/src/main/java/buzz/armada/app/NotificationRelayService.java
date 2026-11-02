@@ -4294,6 +4294,10 @@ public class NotificationRelayService extends Service {
             // the wrap (a spliced/foreign payload).
             String author = rumor.optString("pubkey");
             if (author.isEmpty() || !author.equals(seal.optString("pubkey"))) return null;
+            // The id is the store key and what edits, replies and deletes name,
+            // so a member choosing it could squat another member's message
+            // (the WebView's openWrapToSeal refuses the same rumor).
+            if (!NostrCrypto.rumorIdMatches(rumor)) return null;
             // Absent binding fails CLOSED, matching the WebView's
             // checkChannelBinding: every chat rumor it will accept carries both
             // tags, so requiring them here can only drop what it drops too —

@@ -180,6 +180,24 @@ final class NostrCrypto {
         }
     }
 
+    /**
+     * Whether a rumor carries an id that IS its NIP-01 hash. A rumor is
+     * unsigned, so its id is otherwise the sender's choice — and it is the key
+     * the store files it under and what replies, edits and deletes name.
+     */
+    static boolean rumorIdMatches(JSONObject rumor) {
+        JSONArray tags = rumor.optJSONArray("tags");
+        if (tags == null) return false;
+        if (!(rumor.opt("kind") instanceof Number)) return false;
+        if (!(rumor.opt("created_at") instanceof Number)) return false;
+        if (!(rumor.opt("content") instanceof String)) return false;
+        if (!(rumor.opt("pubkey") instanceof String)) return false;
+        String claimed = rumor.optString("id", "");
+        if (claimed.isEmpty()) return false;
+        return claimed.equals(eventId(rumor.optString("pubkey"), rumor.optLong("created_at"),
+                rumor.optInt("kind"), tags, rumor.optString("content")));
+    }
+
     /** Build, id and Schnorr-sign a complete event with the given secret key. */
     static JSONObject finalizeEvent(int kind, String content, JSONArray tags, long createdAt, byte[] sk)
             throws Exception {

@@ -57,6 +57,28 @@ public class NostrCryptoTest {
     }
 
     @Test
+    public void acceptsOnlyARumorWhoseIdIsItsHash() throws Exception {
+        JSONArray tags = new JSONArray()
+                .put(new JSONArray().put("relay").put("wss://relay.example.com/"))
+                .put(new JSONArray().put("challenge").put("abc\"def\\g\nh\u0001i€😀"));
+        JSONObject rumor = new JSONObject()
+                .put("id", "e18a5afe0d88c618fd757dee0dd2cd12dcf82f88a6beff8edb27e3683ee8c893")
+                .put("pubkey", PK_A)
+                .put("created_at", 1752969600L)
+                .put("kind", 22242)
+                .put("tags", tags)
+                .put("content", "ctrl:\u0000\u001f tail");
+        assertTrue(NostrCrypto.rumorIdMatches(rumor));
+
+        // Another member's message id, claimed by different content.
+        assertFalse(NostrCrypto.rumorIdMatches(new JSONObject(rumor.toString()).put("content", "squat")));
+        assertFalse(NostrCrypto.rumorIdMatches(new JSONObject(rumor.toString()).put("id", "")));
+        JSONObject noId = new JSONObject(rumor.toString());
+        noId.remove("id");
+        assertFalse(NostrCrypto.rumorIdMatches(noId));
+    }
+
+    @Test
     public void signsBip340WithFixedAux() throws Exception {
         byte[] msg = ConcordCrypto.hexToBytes(
                 "e18a5afe0d88c618fd757dee0dd2cd12dcf82f88a6beff8edb27e3683ee8c893");
