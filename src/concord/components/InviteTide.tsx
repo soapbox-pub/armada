@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 /**
  * Invite backdrop: a radial sonar sweep in text, sibling of {@link AsciiSea}.
@@ -20,7 +21,7 @@ export function InviteTide({ hue, className = "" }: { hue: number; className?: s
     const host = hostRef.current;
     if (!host) return;
 
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduced = reducedMotion();
 
     // Two registered layers; a cell belongs to one, never both.
     const swellLayer = document.createElement("div");

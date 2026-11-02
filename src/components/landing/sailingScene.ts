@@ -3,6 +3,7 @@ import * as THREE from "three";
 
 import { createSailingWake } from "./sailingWake";
 import { coastRadius, islandsInSector, randomSource, sail, SECTOR_SIZE, type Island, type Vessel } from "./sailingWorld";
+import { onReducedMotionChange, reducedMotion } from "@/lib/reducedMotion";
 
 const SKY = 0x100b15;
 const ROSE = 0xfb4d96;
@@ -266,7 +267,6 @@ export function mountSailingScene(host: HTMLDivElement, label: string): (() => v
 
   const keys = new Set<string>();
   const controlKeys = new Set(["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d"]);
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let engaged = false, visible = false, lost = false;
   let pointer: { id: number; x: number; y: number; rudder: number; throttle: number } | undefined;
   // Only horizontal drags steer; vertical gestures stay native scrolling.
@@ -364,7 +364,7 @@ export function mountSailingScene(host: HTMLDivElement, label: string): (() => v
     frame = requestAnimationFrame(tick);
   };
   function syncAnimation() {
-    const running = visible && !document.hidden && !lost && (!reducedMotion.matches || engaged);
+    const running = visible && !document.hidden && !lost && (!reducedMotion() || engaged);
     if (running && !frame) { lastTime = 0; frame = requestAnimationFrame(tick); }
     else if (!running) { cancelAnimationFrame(frame); frame = 0; lastTime = 0; resetInput(); }
   }
@@ -374,7 +374,7 @@ export function mountSailingScene(host: HTMLDivElement, label: string): (() => v
   });
   visibility.observe(host);
   document.addEventListener("visibilitychange", syncAnimation);
-  reducedMotion.addEventListener("change", syncAnimation);
+  const offReducedMotion = onReducedMotionChange(syncAnimation);
   const resize = new ResizeObserver(() => {
     const width = host.clientWidth, height = host.clientHeight;
     if (!width || !height || lost) return;
@@ -394,7 +394,7 @@ export function mountSailingScene(host: HTMLDivElement, label: string): (() => v
     visibility.disconnect();
     resize.disconnect();
     document.removeEventListener("visibilitychange", syncAnimation);
-    reducedMotion.removeEventListener("change", syncAnimation);
+    offReducedMotion();
     window.removeEventListener("blur", resetInput);
     canvas.removeEventListener("pointerdown", pointerDown);
     canvas.removeEventListener("pointermove", pointerMove);

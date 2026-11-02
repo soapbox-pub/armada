@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { defineMessages, FormattedMessage, useIntl } from "@/i18n";
 
 import { TvDrum } from "./TvDrum";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 /**
  * "Armada is a group chat for your ___": the word types itself to match the
@@ -38,10 +39,6 @@ const CREWS = [
 
 const TYPE_MS = 55;
 
-function prefersReducedMotion() {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 export const PitchToy = memo(function PitchToy() {
   const intl = useIntl();
   const channels = useMemo(
@@ -64,7 +61,7 @@ export const PitchToy = memo(function PitchToy() {
     const el = wordRef.current;
     if (!el) return;
     const word = channels[index].word;
-    if (prefersReducedMotion()) {
+    if (reducedMotion()) {
       el.textContent = word;
       return;
     }

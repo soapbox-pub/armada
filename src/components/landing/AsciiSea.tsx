@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 /**
  * The landing page's ASCII sea background. Two registered layers share one
@@ -39,7 +40,7 @@ export function AsciiSea({
     const host = hostRef.current;
     if (!host) return;
 
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduced = reducedMotion();
 
     const swellLayer = document.createElement("div");
     const crestLayer = document.createElement("div");

@@ -6,6 +6,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useGifSearch, registerGifShare, type GifResult } from '@/hooks/useGifSearch';
 import { useFavoriteGifs } from '@/hooks/useFavoriteGifs';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { MotionImg } from '@/components/ui/MotionImg';
+import { useReducedMotion } from '@/lib/reducedMotion';
 import { cn } from '@/lib/utils';
 import { FormattedMessage, useIntl } from '@/i18n';
 
@@ -28,6 +30,9 @@ function GifThumbnail({ gif, onClick, isFavorite, onToggleFavorite }: { gif: Gif
   const intl = useIntl();
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
+  // Reduced motion: a still tile that plays only while pointed at.
+  const reduced = useReducedMotion();
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const displayHeight = thumbHeight(gif);
 
@@ -37,6 +42,8 @@ function GifThumbnail({ gif, onClick, isFavorite, onToggleFavorite }: { gif: Gif
     <button
       type="button"
       onClick={() => onClick(gif)}
+      onPointerEnter={reduced ? () => void videoRef.current?.play().catch(() => {}) : undefined}
+      onPointerLeave={reduced ? () => videoRef.current?.pause() : undefined}
       className={cn(
         'group relative w-full overflow-hidden cursor-pointer clip-corner-lg bg-secondary/40',
         'focus-visible:outline-none',
@@ -57,7 +64,8 @@ function GifThumbnail({ gif, onClick, isFavorite, onToggleFavorite }: { gif: Gif
       {/* KLIPY's muted MP4 renditions; favorites without preview metadata fall back to the GIF. */}
       {sources.length > 0 ? (
         <video
-          autoPlay
+          ref={videoRef}
+          autoPlay={!reduced}
           loop
           muted
           playsInline
@@ -81,7 +89,7 @@ function GifThumbnail({ gif, onClick, isFavorite, onToggleFavorite }: { gif: Gif
           ))}
         </video>
       ) : (
-        <img
+        <MotionImg
           src={gif.url}
           alt={gif.title}
           className={cn(

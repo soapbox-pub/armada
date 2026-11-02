@@ -80,6 +80,7 @@ import { cacheTokens, TOKEN_CACHE } from "@/components/chat/tokenCache";
 import type { EncryptedRef } from "@/hooks/useResolvedMediaSrc";
 import type { ReactNode } from "react";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { MotionImg } from "@/components/ui/MotionImg";
 
 interface ChatContentProps {
   event: NostrRumor;
@@ -1920,7 +1921,7 @@ function InlineImage({
         )}
         {covered && <MediaSpoilerCover onReveal={() => setRevealed(true)} />}
         {resolved.status === "ready" && (
-          <img
+          <MotionImg
             src={resolved.src}
             alt={covered ? "" : (image.alt ?? "")}
             title={covered ? undefined : image.alt}
@@ -1997,7 +1998,7 @@ function GridImage({
             <BlurhashCanvas hash={image.blurhash} className="absolute inset-0" />
           )}
           {resolved.status === "ready" && (
-            <img
+            <MotionImg
               src={resolved.src}
               alt={covered ? "" : (image.alt ?? "")}
               title={covered ? undefined : image.alt}

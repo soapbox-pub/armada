@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { CELL, FRAMES, SignalStaticField, WARMUP_FRAMES, hashSeed } from "./signalStaticField";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 /**
  * Dead-channel interference over the jack-in screen. `level` (from resolved
@@ -26,7 +27,7 @@ export function SignalStatic({
     const canvas = canvasRef.current;
     const host = canvas?.parentElement;
     if (!canvas || !host) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (reducedMotion()) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
@@ -54,7 +55,7 @@ export function SignalStatic({
   useEffect(() => {
     const band = bandRef.current;
     if (signal === undefined || !band) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (reducedMotion()) return;
     band.style.top = `${5 + (hashSeed(signal) % 900) / 10}%`;
     band.animate([{ opacity: 0.8 }, { opacity: 0 }], { duration: 300, easing: "ease-out" });
   }, [signal]);

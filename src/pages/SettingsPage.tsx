@@ -38,6 +38,7 @@ import { DiagnosticsSettings } from "@/components/settings/DiagnosticsSettings";
 import { DirectMessageSettings } from "@/components/settings/DirectMessageSettings";
 import { EmojiPackSettings } from "@/components/settings/EmojiPackSettings";
 import { FontScaleSettings } from "@/components/settings/FontScaleSettings";
+import { MotionSettings } from "@/components/settings/MotionSettings";
 import { LanguageSettings } from "@/components/settings/LanguageSettings";
 import { MutedPeopleSettings } from "@/components/settings/MutedPeopleSettings";
 import { MutedWordsSettings } from "@/components/settings/MutedWordsSettings";
@@ -129,7 +130,7 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
         title: intl.formatMessage({ id: "settingsPage.appearance.title", defaultMessage: "Appearance" }),
         icon: Palette,
         tone: "primary",
-        summary: intl.formatMessage({ id: "settingsPage.appearance.summary", defaultMessage: "Theme, language and text size" }),
+        summary: intl.formatMessage({ id: "settingsPage.appearance.summary", defaultMessage: "Theme, language, text size and motion" }),
         render: () => (
           <>
             <SettingsGroup id="appearance">
@@ -140,6 +141,9 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
             <SettingsGroup title={intl.formatMessage({ id: "settingsPage.appearance.text", defaultMessage: "Text" })}>
               <LanguageSettings />
               <FontScaleSettings />
+            </SettingsGroup>
+            <SettingsGroup title={intl.formatMessage({ id: "settingsPage.appearance.motion", defaultMessage: "Motion" })}>
+              <MotionSettings />
             </SettingsGroup>
           </>
         ),

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { SyncLogLine } from "@/hooks/useInitialSync";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 const TONE_CLASS: Record<NonNullable<SyncLogLine["tone"]>, string> = {
   ok: "text-[hsl(var(--success))]",
@@ -8,18 +9,13 @@ const TONE_CLASS: Record<NonNullable<SyncLogLine["tone"]>, string> = {
   warn: "text-[hsl(var(--primary))]",
 };
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined"
-    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 /** ASCII-only spinner — Braille spinner glyphs are tofu on Android's Roboto. */
 const SPINNER_GLYPHS = ["|", "/", "-", "\\"];
 
 function Spinner() {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
-    if (prefersReducedMotion()) return;
+    if (reducedMotion()) return;
     const t = setInterval(() => setFrame((f) => (f + 1) % SPINNER_GLYPHS.length), 140);
     return () => clearInterval(t);
   }, []);
@@ -47,9 +43,9 @@ function scrambled(status: string, settled: number): string {
 
 /** A resolved status chip that descrambles (~300ms) into its text, once. */
 function DecodeChip({ status, className }: { status: string; className: string }) {
-  const [text, setText] = useState(() => (prefersReducedMotion() ? status : scrambled(status, 0)));
+  const [text, setText] = useState(() => (reducedMotion() ? status : scrambled(status, 0)));
   useEffect(() => {
-    if (prefersReducedMotion()) {
+    if (reducedMotion()) {
       setText(status);
       return;
     }

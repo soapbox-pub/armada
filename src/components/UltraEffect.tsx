@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { useReducedMotion } from "@/lib/reducedMotion";
 import { PROFILE_EFFECTS, type ProfileEffectId } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 
@@ -18,17 +19,18 @@ const LAYOUT = Array.from({ length: PARTICLES }, (_, i) => ({
 /** A burst of the profile's Ultra effect over its container (which must be `relative`). */
 export function UltraEffect({ effect, loop, className }: { effect: ProfileEffectId | undefined; loop?: boolean; className?: string }) {
   const [burst, setBurst] = useState(0);
+  const reduced = useReducedMotion();
   useEffect(() => {
-    if (!loop) return;
+    if (!loop || reduced) return;
     const id = setInterval(() => setBurst((n) => n + 1), CYCLE_MS);
     return () => clearInterval(id);
-  }, [loop]);
+  }, [loop, reduced]);
 
-  if (!effect) return null;
+  if (!effect || reduced) return null;
   const glyph = PROFILE_EFFECTS[effect];
 
   return (
-    <div key={burst} aria-hidden className={cn("pointer-events-none absolute inset-0 z-10 overflow-hidden motion-reduce:hidden", className)}>
+    <div key={burst} aria-hidden className={cn("pointer-events-none absolute inset-0 z-10 overflow-hidden", className)}>
       {LAYOUT.map((p, i) => (
         <span
           key={i}

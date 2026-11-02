@@ -183,4 +183,11 @@
     var scale = Number(localStorage.getItem("armada:font-scale"));
     if (scale) root.style.setProperty("--font-scale", String(scale / 100));
   } catch (e) { /* storage blocked */ }
+
+  // Reduce motion; see src/lib/reducedMotion.ts, the key's only writer.
+  try {
+    var reduce = localStorage.getItem("armada:reduce-motion") === "1";
+    if (!reduce && window.matchMedia) reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) root.setAttribute("data-reduce-motion", "");
+  } catch (e) { /* storage blocked */ }
 })();

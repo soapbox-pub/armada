@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 const COLORS = ["#a855f7", "#ec4899", "#f59e0b", "#22c55e", "#3b82f6", "#f43f5e", "#facc15"];
 const COUNT = 180;
@@ -15,10 +16,6 @@ interface Piece {
   spin: number;
   color: string;
   wobble: number;
-}
-
-function reducedMotion(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 /** One burst of confetti over the whole window, from both bottom corners. Remount (new `key`) to fire again. */

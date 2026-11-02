@@ -606,6 +606,7 @@ export function ArmadaWreckKeyframes() {
       @media (prefers-reduced-motion: reduce) {
         .${WRECK_SCOPE}, .${WRECK_SCOPE} * { animation: none !important; }
       }
+      html[data-reduce-motion] .${WRECK_SCOPE}, html[data-reduce-motion] .${WRECK_SCOPE} * { animation: none !important; }
     `}</style>
   );
 }

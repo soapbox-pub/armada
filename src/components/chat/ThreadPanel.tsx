@@ -71,6 +71,7 @@ import type { MessageActionItem } from "@/components/chat/messageActions";
 import { useChatEditing } from "@/components/chat/useChatEditing";
 import type { ChatMsg, ChatTransport, MessageReactions, MessageZaps, OnchainZapAnnouncement, ZapPayment } from "@/components/chat/transport";
 import { AvatarInitial } from "@/components/AvatarInitial";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 /** Continuation window; matches MessageTimeline's `CONTINUATION_WINDOW_SECONDS`. */
 const CONTINUATION_WINDOW_SECONDS = 5 * 60;
@@ -685,7 +686,7 @@ export function ThreadPanel({ root, rootTitle, transport, relayUrl, groupId, can
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior });
+    el.scrollTo({ top: el.scrollHeight, behavior: reducedMotion() ? "auto" : behavior });
     distanceRef.current = 0;
     readingAnchorRef.current = null;
     setShowJumpToLatest(false);

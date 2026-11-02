@@ -16,6 +16,7 @@ import { isValidBlurhash } from "@/lib/blurhash";
 import { BLANK_POSTER } from "@/lib/blankPoster";
 import { downloadUrl, savedDescription } from "@/lib/downloadFile";
 import { formatTime } from "@/lib/formatTime";
+import { useReducedMotion } from "@/lib/reducedMotion";
 import { companionEncryption } from "@/lib/imeta";
 import { canShareFiles, shareFile } from "@/lib/share";
 import { cn } from "@/lib/utils";
@@ -107,6 +108,9 @@ export function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Reduced motion: a GIF holds its first frame, playing on hover or a tap.
+  const reduced = useReducedMotion();
+  const [gifPlaying, setGifPlaying] = useState(false);
 
   // The lightbox pauses the element itself via a forwarded ref.
   const setVideoRef = useCallback(
@@ -358,14 +362,29 @@ export function VideoPlayer({
       <div
         className={cn("relative my-1.5 clip-corner-lg overflow-hidden max-w-xs bg-transparent", className)}
         style={{ aspectRatio }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!reduced) return;
+          const video = videoRef.current;
+          if (video?.paused) void video.play().catch(() => {});
+          else video?.pause();
+        }}
+        onPointerEnter={reduced ? (e) => e.pointerType === "mouse" && void videoRef.current?.play().catch(() => {}) : undefined}
+        onPointerLeave={reduced ? (e) => e.pointerType === "mouse" && videoRef.current?.pause() : undefined}
       >
         {spoilerCover}
+        {ready && reduced && !gifPlaying && !spoilerCover && (
+          <span aria-hidden className="pointer-events-none absolute left-1.5 top-1.5 z-10 flex size-6 items-center justify-center rounded-full bg-black/60 text-white">
+            <Play className="size-3.5 fill-current" />
+          </span>
+        )}
         {ready ? (
           <video
             ref={setVideoRef}
             src={mediaSrc}
-            autoPlay
+            autoPlay={!reduced}
+            onPlay={() => setGifPlaying(true)}
+            onPause={() => setGifPlaying(false)}
             loop
             muted
             playsInline

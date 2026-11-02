@@ -74,6 +74,7 @@ import type { ReactNode } from "react";
 import { KIND_CALENDAR_DATE, KIND_CALENDAR_TIME } from "@/lib/calendar";
 import { KIND_POLL } from "@/lib/polls";
 import { AvatarInitial } from "@/components/AvatarInitial";
+import { MotionImg } from "@/components/ui/MotionImg";
 
 /** A `nostr:npub…`/`nostr:nprofile…`/bare-bech32 mention inside preview text. */
 const REPLY_MENTION_RE =
@@ -140,7 +141,7 @@ export function ReplyThumbnail({ image }: { image: EncryptedRef }) {
   const { resolved, onError } = useMediaWithFallback(image);
   if (resolved.status !== "ready") return null;
   return (
-    <img
+    <MotionImg
       src={resolved.src}
       alt=""
       className="size-4 shrink-0 rounded-[3px] object-cover"

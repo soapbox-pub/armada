@@ -34,6 +34,7 @@ import { APP_NAME } from "@/lib/platform";
 import { HashMismatchError, downloadArtifact } from "@/lib/releaseDownload";
 import { featuredRelease, isStable, type Release, type ReleaseArtifact } from "@/lib/releases";
 import { cn } from "@/lib/utils";
+import { scrollBehavior } from "@/lib/reducedMotion";
 
 /**
  * The downloads deck, in the landing's visual language over the
@@ -99,11 +100,6 @@ const OLDER_PREVIEW = 5;
 
 /** Opaque enough to read over the sea; the blur keeps the swell as texture. */
 const PANEL = "vessel backdrop-blur-md [--vessel-fill:hsl(var(--background)/0.86)]";
-
-/** True when the user has asked the OS to keep motion to a minimum. */
-function prefersReducedMotion() {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
 
 /** NIP-82 versions drop the tag's `v`; the page shows the tag. */
 function displayVersion(version: string): string {
@@ -745,7 +741,7 @@ export function DownloadsPage() {
 
   const scrollToTargets = () => {
     targetsRef.current?.scrollIntoView({
-      behavior: prefersReducedMotion() ? "auto" : "smooth",
+      behavior: scrollBehavior(),
       block: "start",
     });
   };
@@ -912,6 +908,7 @@ function DownloadsKeyframes() {
       @media (prefers-reduced-motion: reduce) {
         [class*="animate-[armada-bob"] { animation: none !important; }
       }
+      html[data-reduce-motion] [class*="animate-[armada-bob"] { animation: none !important; }
     `}</style>
   );
 }

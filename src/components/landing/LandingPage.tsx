@@ -19,6 +19,7 @@ import { usePauseOffscreenAnimations } from "./pauseOffscreenAnimations";
 import { PitchToy } from "./PitchToy";
 import { ProductShots } from "./ProductShots";
 import { SailingSea } from "./SailingSea";
+import { scrollBehavior } from "@/lib/reducedMotion";
 
 /** Signed-out landing page: hero over the {@link AsciiSea}, then pitch, quiz and closer. */
 
@@ -39,10 +40,6 @@ const CLOSER_LABEL = defineMessage({
 /** Native and desktop users already have the app, so "get armada" is hidden. */
 const INSTALLED_APP = isNativeRuntime() || isDesktop();
 
-function prefersReducedMotion() {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 /** Memoized: the parent re-renders on login dialog open/close, which would re-render the whole deck. */
 export const LandingPage = memo(function LandingPage({
   onJoin,
@@ -58,7 +55,7 @@ export const LandingPage = memo(function LandingPage({
 
   const scrollToStatement = () => {
     statementRef.current?.scrollIntoView({
-      behavior: prefersReducedMotion() ? "auto" : "smooth",
+      behavior: scrollBehavior(),
       block: "start",
     });
   };
@@ -333,6 +330,7 @@ function LandingKeyframes() {
       @media (prefers-reduced-motion: reduce) {
         [class*="animate-[armada-reveal"] { animation-duration: 1ms !important; }
       }
+      html[data-reduce-motion] [class*="animate-[armada-reveal"] { animation-duration: 1ms !important; }
 
       /* The scroll cue riding the swell. Transform only. */
       @keyframes armada-bob {
@@ -342,6 +340,7 @@ function LandingKeyframes() {
       @media (prefers-reduced-motion: reduce) {
         [class*="animate-[armada-bob"] { animation: none !important; }
       }
+      html[data-reduce-motion] [class*="animate-[armada-bob"] { animation: none !important; }
     `}</style>
   );
 }

@@ -4,6 +4,7 @@ import { emojify } from "@/components/chat/emojify";
 import { useImageFallback } from "@/hooks/useBlossomCandidates";
 import { buildEmojiMap } from "@/lib/customEmoji";
 import { isLocalNetworkUrl } from "@/lib/sanitizeUrl";
+import { MotionImg } from "@/components/ui/MotionImg";
 
 const PIXEL_ART_MAX = 16;
 
@@ -38,7 +39,7 @@ export function CustomEmojiImg({
   if (failed || !src || isLocalNetworkUrl(url)) return <>{fallback}</>;
 
   return (
-    <img
+    <MotionImg
       src={src}
       alt={`:${name}:`}
       title={`:${name}:`}

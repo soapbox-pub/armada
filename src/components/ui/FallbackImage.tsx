@@ -3,6 +3,7 @@ import { imetaFor } from "@/lib/profileImeta";
 
 import type { ImetaEntry } from "@/lib/imeta";
 import type { ImgHTMLAttributes, ReactNode } from "react";
+import { MotionImg } from "@/components/ui/MotionImg";
 
 interface FallbackImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "onError"> {
   /** Already sanitized by the caller. Nothing renders without one. */
@@ -29,5 +30,5 @@ export function FallbackImage({ src, fallbacks, imeta, fallback = null, placehol
   const image = useImetaImage(src, entry ?? (fallbacks ? { url: src ?? "", fallbacks: [...fallbacks] } : undefined));
   if (image.pending) return <>{placeholder ?? fallback}</>;
   if (!image.src || image.failed) return <>{fallback}</>;
-  return <img {...props} src={image.src} alt={alt ?? entry?.alt ?? ""} onError={image.onError} />;
+  return <MotionImg {...props} src={image.src} alt={alt ?? entry?.alt ?? ""} onError={image.onError} />;
 }

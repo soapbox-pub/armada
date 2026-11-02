@@ -4,6 +4,7 @@ import { defineMessages, FormattedMessage, useIntl } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 import { ConcordGrid, ConcordMark, ConcordReveal } from "./ConcordReveal";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 /** Landing's closing beat: an encrypted quiz. Picking an answer blows it to dust, uncovering the punchline. */
 
@@ -33,10 +34,6 @@ function hex(n: number): string {
   let out = "";
   for (let i = 0; i < n; i++) out += HEX[(Math.random() * 16) | 0];
   return out;
-}
-
-function prefersReducedMotion(): boolean {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 /** Scatter direction for character `i`, hashed from the index so re-renders don't reshuffle it mid-flight. */
@@ -96,7 +93,7 @@ function useDecodingTitle(
   useEffect(() => {
     const el = ref.current;
     if (!active || !el) return;
-    if (prefersReducedMotion()) {
+    if (reducedMotion()) {
       el.textContent = title;
       return;
     }
@@ -174,7 +171,7 @@ const AnswerButton = memo(function AnswerButton({
   const rowEls = useRef<(HTMLSpanElement | null)[]>([]);
 
   useEffect(() => {
-    if (!live || prefersReducedMotion()) return;
+    if (!live || reducedMotion()) return;
     const id = setInterval(() => {
       for (const el of rowEls.current) if (el) el.textContent = hex(BLOCK_COLS);
     }, CHURN_MS);

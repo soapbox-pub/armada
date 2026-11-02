@@ -7,6 +7,7 @@ import { imetaFor } from "@/lib/profileImeta"
 import { cn } from "@/lib/utils"
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl"
 import { type AvatarShape, isEmoji, getAvatarMaskUrl, isValidAvatarShape } from "@/lib/avatarShape"
+import { MotionImg } from "@/components/ui/MotionImg"
 
 /** Lets AvatarFallback see a sibling AvatarImage's src without state; mutating a ref in render is safe. */
 const AvatarHasSrcContext = React.createContext<React.MutableRefObject<boolean>>({ current: false })
@@ -142,7 +143,7 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
   if (!showImage) return null
 
   return (
-    <img
+    <MotionImg
       {...props}
       src={src}
       ref={ref}

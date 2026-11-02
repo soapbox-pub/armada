@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { FormattedMessage, useIntl } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 /** The quiz's off-ramp: the Concord grid (concordprotocol.org) glows up behind one line and a spec link. */
 
@@ -94,7 +95,7 @@ export function ConcordMark({ shown }: { shown: boolean }) {
     const layers = layersRef.current;
     if (!shown) return;
     const whole = () => MARK.forEach((m, i) => layers[i] && (layers[i]!.textContent = m.text));
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (reducedMotion()) {
       whole();
       return;
     }

@@ -21,6 +21,7 @@ vi.mock("@/components/NotificationSettings", () => ({ NotificationSettings: stub
 vi.mock("@/components/ProfileSettings", () => ({ ProfileSettings: stub("Profile") }));
 vi.mock("@/components/ThemeSelector", () => ({ ThemeSelector: stub("Theme") }));
 vi.mock("@/components/settings/FontScaleSettings", () => ({ FontScaleSettings: stub("Font") }));
+vi.mock("@/components/settings/MotionSettings", () => ({ MotionSettings: stub("Motion") }));
 vi.mock("@/components/settings/AccountSettings", () => ({ AccountSettings: stub("Account") }));
 vi.mock("@/components/settings/ChatSettings", () => ({ ChatSettings: stub("Chats") }));
 vi.mock("@/components/settings/DirectMessageSettings", () => ({ DirectMessageSettings: stub("DMs") }));

@@ -5,6 +5,7 @@ import { useIntl } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 import { captureMirrors, captureUrl, useCaptureSize, type CaptureSize } from "./captures";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 /**
  * The pitch's screens: a slowly turning prism, one CRT per face, which powers
@@ -44,16 +45,12 @@ const LAYER_SHADE = Array.from({ length: LAYERS }, (_, j) => {
   return { background: `hsl(262 10% ${5 + t * 9}%)` } as React.CSSProperties;
 });
 
-function prefersReducedMotion() {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 function wrap(x: number, n: number) {
   return ((((x + n / 2) % n) + n) % n) - n / 2;
 }
 
 function powerOn(screen: Element | null) {
-  if (!screen || prefersReducedMotion()) return;
+  if (!screen || reducedMotion()) return;
   const picture = screen.querySelector<HTMLElement>("[data-picture]");
   const red = screen.querySelector<HTMLElement>("[data-gun=red]");
   const cyan = screen.querySelector<HTMLElement>("[data-gun=cyan]");
@@ -138,7 +135,7 @@ export const TvDrum = memo(function TvDrum({
     const root = rootRef.current;
     const spacer = spacerRef.current;
     if (!root || !spacer) return;
-    const reduced = prefersReducedMotion();
+    const reduced = reducedMotion();
     const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
     const faceDeg = 360 / n;
 

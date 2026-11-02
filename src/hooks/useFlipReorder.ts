@@ -1,4 +1,5 @@
 import { useCallback, useRef } from "react";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 const DURATION_MS = 200;
 const EASING = "cubic-bezier(0.2, 0, 0, 1)";
@@ -40,7 +41,7 @@ export function useFlipReorder(
     captured.current = null;
     const container = containerRef.current;
     if (!snapshot || !container || performance.now() - snapshot.at > CAPTURE_TTL_MS) return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    if (reducedMotion()) return;
 
     const deltas = new Map<Element, { dx: number; dy: number }>();
     const els = container.querySelectorAll<HTMLElement>(`[${keyAttr}]`);

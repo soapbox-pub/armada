@@ -246,6 +246,7 @@ export function ArmadaCrestKeyframes() {
       @media (prefers-reduced-motion: reduce) {
         [class*="animate-[armada-"] { animation: none !important; }
       }
+      html[data-reduce-motion] [class*="animate-[armada-"] { animation: none !important; }
     `}</style>
   );
 }

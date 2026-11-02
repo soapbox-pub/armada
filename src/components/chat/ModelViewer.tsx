@@ -9,6 +9,7 @@ import { FormattedMessage, useIntl } from "@/i18n";
 
 import type { ImetaEncryption } from "@/lib/imeta";
 import type { ModelFormat } from "@/lib/mediaUrls";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 interface ModelViewerProps {
   /** Same-blob mirrors in order ({@link useBlossomCandidates}); fetched directly on the viewer's tap. */
@@ -129,7 +130,7 @@ export default function ModelViewer({ candidates, format, encryption }: ModelVie
           .normalize();
       };
 
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const reduceMotion = reducedMotion();
 
       // `spin`: the idle turntable. `free`: in hand, or coasting from a flick.
       // `returning`: easing home after being left alone.

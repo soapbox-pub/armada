@@ -4,6 +4,7 @@ import { FallbackImage } from "@/components/ui/FallbackImage";
 import { useIntl } from "@/i18n";
 
 import { captureMirrors, captureUrl } from "./captures";
+import { reducedMotion } from "@/lib/reducedMotion";
 
 /**
  * Display and phone showing real app captures (regenerate with
@@ -132,7 +133,7 @@ export function ProductShots({
     const stage = stageRef.current;
     if (!stage) return;
     if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (reducedMotion()) return;
 
     let rect: DOMRect | undefined;
     let x = 0;
