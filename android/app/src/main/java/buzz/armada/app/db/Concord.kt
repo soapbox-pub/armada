@@ -21,10 +21,10 @@ internal object Concord {
 
     /**
      * Every kind claimed by a non-chat plane: control (3308), guestbook
-     * (3306/3309/3312) and rekey (3303). Mirrors `PLANE_KINDS` in
+     * (3306/3309/3312/3314/3315) and rekey (3303). Mirrors `PLANE_KINDS` in
      * `src/concord/lib/kinds.ts`.
      */
-    val PLANE_KINDS = setOf(3308, 3306, 3309, 3312, 3303)
+    val PLANE_KINDS = setOf(3308, 3306, 3309, 3312, 3314, 3315, 3303)
 
     /** The ArmadaDB tenant holding one community's opened events. */
     fun tenant(communityIdHex: String): String = ArmadaDb.communityTenant(communityIdHex)

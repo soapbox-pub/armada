@@ -1,7 +1,7 @@
 /**
  * Concord Guestbook Plane — CORD-02 §5. One community_root-keyed stream carrying
  * membership motion: self-signed Joins/Leaves, authorized Kicks, refounder-signed
- * snapshots. Off-consensus, so it loads last and may lag. Folded by COALESCING
+ * snapshots, Timeouts and Nicknames. Off-consensus, so it loads last and may lag. Folded by COALESCING
  * flat (latest ms per npub, ties to the lower rumor id), merged with observed
  * authors (forward of their latest departure), minus the Banlist.
  */
@@ -9,8 +9,8 @@
 import type { NostrEvent } from "nostr-tools/pure";
 
 import { guestbookGroupKey, type GroupKey } from "@/concord/lib/derive";
-import { citationFromTags, type AuthorityCitation } from "@/concord/lib/edition";
-import { KIND_JOIN_LEAVE, KIND_KICK, KIND_SEAL_ENCRYPTED, KIND_SNAPSHOT } from "@/concord/lib/kinds";
+import { citationFromTags, citationToTag, type AuthorityCitation } from "@/concord/lib/edition";
+import { KIND_JOIN_LEAVE, KIND_KICK, KIND_NICKNAME, KIND_SEAL_ENCRYPTED, KIND_SNAPSHOT, KIND_TIMEOUT } from "@/concord/lib/kinds";
 import { buildRumor, openWrap, sealRumor, wrapSeal, type OpenedEvent, type StreamSigner } from "@/concord/lib/stream";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type { Community } from "@/concord/lib/types";
@@ -263,3 +263,137 @@ export function completeMemberlist(
   }
   return out;
 }
+
+/** The longest a Timeout runs past its own time (CORD-04 §8): 28 days. */
+export const TIMEOUT_MAX_SECS = 28 * 24 * 60 * 60;
+/** A Nickname's cap in Unicode scalar values (CORD-04 §10). */
+export const NICKNAME_MAX_CHARS = 32;
+
+/** A running or lifted Timeout, as the newest authorized one decides it (CORD-04 §8). */
+export interface FoldedTimeout {
+  by: string;
+  /** Its window: from its own time in whole seconds, inclusive, to `until`, exclusive. */
+  fromSecs: number;
+  until: number;
+  ms: number;
+  rumorId: string;
+}
+
+/** The sole value of a tag that must appear exactly once, or undefined when it doesn't. */
+function soleTag(tags: string[][], name: string): string | undefined {
+  const found = tags.filter((t) => t[0] === name);
+  return found.length === 1 ? found[0][1] : undefined;
+}
+
+const U64_DECIMAL = /^(0|[1-9][0-9]{0,19})$/;
+
+/**
+ * Fold Timeouts (kind 3314, CORD-04 §8): per target, the newest by its time to the
+ * millisecond among those `mayTimeout` lets time the target out, the lower rumor id
+ * breaking a tie. `until` is capped at 28 days past the rumor's own time; a past
+ * `until` lifts. Exactly one `p` and one `until`, and never the owner.
+ */
+export function foldTimeouts(
+  opened: OpenedEvent[],
+  opts: {
+    nowMs: number;
+    ownerHex: string;
+    mayTimeout: (actorHex: string, targetHex: string, citation: AuthorityCitation | undefined) => boolean;
+    banned?: ReadonlySet<string>;
+  },
+): Map<string, FoldedTimeout> {
+  const out = new Map<string, FoldedTimeout>();
+  for (const ev of opened) {
+    if (ev.kind !== KIND_TIMEOUT) continue;
+    if (ev.ms > opts.nowMs + GUESTBOOK_MAX_FUTURE_MS) continue;
+    if (ev.sealKind !== undefined && ev.sealKind !== KIND_SEAL_ENCRYPTED) continue;
+    if (opts.banned?.has(ev.author)) continue;
+    const target = soleTag(ev.tags, "p")?.toLowerCase();
+    const untilRaw = soleTag(ev.tags, "until");
+    if (!target || !/^[0-9a-f]{64}$/.test(target) || !untilRaw || !U64_DECIMAL.test(untilRaw)) continue;
+    if (BigInt(untilRaw) >= 1n << 64n || target === opts.ownerHex) continue;
+    if (!opts.mayTimeout(ev.author, target, citationFromTags(ev.tags))) continue;
+    const fromSecs = Math.floor(ev.ms / 1000);
+    const until = Math.min(Number(untilRaw), fromSecs + TIMEOUT_MAX_SECS);
+    const prev = out.get(target);
+    if (prev && (ev.ms < prev.ms || (ev.ms === prev.ms && ev.rumorId >= prev.rumorId))) continue;
+    out.set(target, { by: ev.author, fromSecs, until, ms: ev.ms, rumorId: ev.rumorId });
+  }
+  return out;
+}
+
+/** Whether a folded Timeout is running at `nowMs` (CORD-04 §8). */
+export function timeoutRunning(t: FoldedTimeout | undefined, nowMs: number): boolean {
+  return t !== undefined && t.until * 1000 > nowMs;
+}
+
+/** Whether a post at `atMs` falls inside a Timeout's window, so readers collapse it (CORD-04 §8). */
+export function inTimeoutWindow(t: FoldedTimeout | undefined, atMs: number, nowMs: number): boolean {
+  return timeoutRunning(t, nowMs) && atMs >= t!.fromSecs * 1000 && atMs < t!.until * 1000;
+}
+
+/** A Timeout rumor; `untilSecs` 0 lifts (CORD-04 §8). */
+export function buildTimeoutRumor(actorPubkey: string, targetHex: string, untilSecs: number, ms: number, authority?: AuthorityCitation): NostrRumor {
+  const tags: string[][] = [["p", targetHex], ["until", String(untilSecs)]];
+  if (authority) tags.push(citationToTag(authority));
+  return buildRumor({ kind: KIND_TIMEOUT, content: "", tags, pubkey: actorPubkey, ms });
+}
+
+/** Unicode `Cc`: C0, DEL and C1 controls. */
+const CONTROL_CHAR = /\p{Cc}/u;
+
+/** A Nickname as a reader takes it: none with a control character, the rest cut to 32 scalar values (CORD-04 §10). */
+export function readNickname(content: string): string | undefined {
+  if (CONTROL_CHAR.test(content)) return undefined;
+  return [...content].slice(0, NICKNAME_MAX_CHARS).join("");
+}
+
+/** A writer's Nickname, trimmed, or undefined past 32 characters or with a control character. */
+export function cleanNickname(nick: string): string | undefined {
+  const trimmed = nick.trim();
+  if (CONTROL_CHAR.test(trimmed) || [...trimmed].length > NICKNAME_MAX_CHARS) return undefined;
+  return trimmed;
+}
+
+/**
+ * Fold Nicknames (kind 3315, CORD-04 §10): per target, the newest by its time
+ * among those `mayName` lets name the target, the lower rumor id breaking a tie.
+ * `""` clears. While a member's Timeout runs their own Nicknames name nobody.
+ */
+export function foldNicknames(
+  opened: OpenedEvent[],
+  opts: {
+    nowMs: number;
+    mayName: (actorHex: string, targetHex: string, citation: AuthorityCitation | undefined) => boolean;
+    banned?: ReadonlySet<string>;
+    timeouts?: ReadonlyMap<string, FoldedTimeout>;
+  },
+): Map<string, string> {
+  const best = new Map<string, { nick: string; ms: number; rumorId: string }>();
+  for (const ev of opened) {
+    if (ev.kind !== KIND_NICKNAME) continue;
+    if (ev.ms > opts.nowMs + GUESTBOOK_MAX_FUTURE_MS) continue;
+    if (ev.sealKind !== undefined && ev.sealKind !== KIND_SEAL_ENCRYPTED) continue;
+    if (opts.banned?.has(ev.author)) continue;
+    const target = soleTag(ev.tags, "p")?.toLowerCase();
+    if (!target || !/^[0-9a-f]{64}$/.test(target)) continue;
+    const nick = readNickname(ev.content);
+    if (nick === undefined) continue;
+    if (target === ev.author && timeoutRunning(opts.timeouts?.get(target), opts.nowMs)) continue;
+    if (!opts.mayName(ev.author, target, citationFromTags(ev.tags))) continue;
+    const prev = best.get(target);
+    if (prev && (ev.ms < prev.ms || (ev.ms === prev.ms && ev.rumorId >= prev.rumorId))) continue;
+    best.set(target, { nick, ms: ev.ms, rumorId: ev.rumorId });
+  }
+  const out = new Map<string, string>();
+  for (const [pk, v] of best) if (v.nick !== "") out.set(pk, v.nick);
+  return out;
+}
+
+/** A Nickname rumor; another member's cites the Grant it acts under (CORD-04 §10). */
+export function buildNicknameRumor(actorPubkey: string, targetHex: string, nick: string, ms: number, authority?: AuthorityCitation): NostrRumor {
+  const tags: string[][] = [["p", targetHex]];
+  if (authority && targetHex !== actorPubkey) tags.push(citationToTag(authority));
+  return buildRumor({ kind: KIND_NICKNAME, content: nick, tags, pubkey: actorPubkey, ms });
+}
+

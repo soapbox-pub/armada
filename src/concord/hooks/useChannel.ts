@@ -3,6 +3,8 @@ import { hashKey, useMutation, useQuery, useQueryClient } from "@tanstack/react-
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { citationFor, dissolvedAt, useControlFold, useDissolved } from "@/concord/hooks/useControlPlane";
+import { useGuestbook } from "@/concord/hooks/useGuestbook";
+import { inTimeoutWindow } from "@/concord/lib/guestbook";
 import { persistTimelineSnapshot, prewarmTimelineSnapshot, takeSnapshotSeed } from "@/concord/hooks/timelineSnapshot";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useKeyedMemo } from "@/hooks/useKeyedMemo";
@@ -62,7 +64,7 @@ import { citationToTag, type AuthorityCitation } from "@/concord/lib/edition";
 import { citationSatisfied } from "@/concord/lib/control";
 import { whenAuthSettled } from "@/concord/lib/planeSync";
 import { useActivePause } from "@/concord/hooks/usePause";
-import { canActOnMember, isAuthorized, isAuthorizedIn, isStaff, Permissions } from "@/concord/lib/roles";
+import { canActOnMember, channelPermissions, everyoneSends, isAuthorized, isAuthorizedIn, isStaff, Permissions } from "@/concord/lib/roles";
 import { chatExpiresAt, messageExpirationOf } from "@/concord/lib/disappearing";
 import { consumeSend, isRateLimitedKind, SendRateLimitError } from "@/concord/lib/sendRateLimit";
 import { buildRumor, channelBindingTags, sealRumor, wrapSeal } from "@/concord/lib/stream";
@@ -278,6 +280,20 @@ export function useChannelTimeline(
   const pauseSince = useActivePause(community)?.since;
 
   const channelIdHex = channel?.idHex ?? routeChannelIdHex ?? null;
+
+  // CORD-04 §8 on the vsk-13 Roster: collapse posts inside their author's running
+  // Timeout, and, in an open Channel, posts whose author can't send there.
+  const { data: control } = useControlFold(community);
+  const { timeouts } = useGuestbook(control?.rosterV2 ? community : undefined);
+  const collapse = useMemo(() => {
+    if (!control?.rosterV2 || !channelIdHex) return undefined;
+    const isPrivate = control.channels.get(channelIdHex)?.isPrivate ?? false;
+    const open = everyoneSends(control.roster, channelIdHex);
+    const nowMs = Date.now();
+    return (m: OpenedChat) =>
+      inTimeoutWindow(timeouts.get(m.author), m.ms, nowMs) ||
+      (open && (channelPermissions(control.roster, control.ownerHex, m.author, channelIdHex, isPrivate) & Permissions.SEND_MESSAGES) === 0n);
+  }, [control, channelIdHex, timeouts]);
   // Cutoffs included: retirement can change without the epoch set changing.
   const epochSig = channel?.streams.map((s) => `${s.epoch}:${s.retiredAt ?? ""}`).join(",") ?? "";
   const queryKey = useMemo(() => channelKey(channelIdHex), [channelIdHex]);
@@ -901,6 +917,7 @@ export function useChannelTimeline(
       ...(firstSeen ? { firstSeen } : {}),
       ...(establishedSinceMs !== undefined ? { establishedSinceMs } : {}),
       ...(pauseSince !== undefined ? { pauseSince } : {}),
+      ...(collapse ? { collapse } : {}),
     });
     // Past sessions' verdicts keep yesterday's wall folded after a refresh.
     const remembered = community?.idHex && channelIdHex
@@ -920,7 +937,7 @@ export function useChannelTimeline(
       return { ...merged, messages: merged.messages.filter((m) => !hidden.has(m.rumorId)) };
     }
     return merged;
-  }, [moderated, moderation, optimisticDeleted, readingUser?.pubkey, firstSeen, establishedSinceMs, pauseSince, community?.idHex, channelIdHex, memoryRev, revealTick]);
+  }, [moderated, moderation, optimisticDeleted, readingUser?.pubkey, firstSeen, establishedSinceMs, pauseSince, collapse, community?.idHex, channelIdHex, memoryRev, revealTick]);
 
   // A removed message's media leaves this device too: a moderator deleting it
   // (abuse, CSAM) shouldn't leave its plaintext in the decrypt cache.

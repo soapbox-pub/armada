@@ -218,7 +218,7 @@ final class ProtocolTests: XCTestCase {
     func testPlaneKindsAreTheOnesReadBackByKind() {
         // The chat ingress refuses exactly these: control, guestbook
         // (join/leave, kick, snapshot) and rekey.
-        XCTAssertEqual(Concord.planeKinds, [3308, 3306, 3309, 3312, 3303])
+        XCTAssertEqual(Concord.planeKinds, [3308, 3306, 3309, 3312, 3314, 3315, 3303])
     }
 
     // MARK: - Canonical event id

@@ -9,18 +9,21 @@ import {
   buildKickRumor,
   buildLeaveRumor,
   coalesceGuestbook,
+  foldNicknames,
+  foldTimeouts,
   completeMemberlist,
   currentGuestbookGroup,
   openGuestbookOpened,
   sealGuestbook,
   snapshotAuthorities,
   type CoalescedMember,
+  type FoldedTimeout,
 } from "@/concord/lib/guestbook";
 import { mergeOpened, openPlaneWraps, sweepGuestbook } from "@/concord/lib/planeSync";
 import { queryPlane, writeOpened } from "@/concord/lib/rumorStore";
 import type { OpenedEvent } from "@/concord/lib/stream";
 import { citationSatisfied } from "@/concord/lib/control";
-import { canActOnMember, Permissions } from "@/concord/lib/roles";
+import { canActOnMember, mayName, Permissions } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 import { queueSignedEvent, recordQueuedPublishAttempt } from "@/lib/publishOutbox";
 import { emitWireScopes, onWireScopes } from "@/wire/bus";
@@ -142,7 +145,9 @@ export function useGuestbook(community: Community | undefined) {
           // AFTER the tombstone is refused, or dissolving would un-kick everyone.
           !(dissolvedAtMs != null && atMs > dissolvedAtMs) &&
             folded &&
-            canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.KICK) &&
+            // A lifted Ban writes its departure as a Kick from a BAN holder (CORD-04 §6).
+            (canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.KICK) ||
+              canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.BAN)) &&
             // …and the CORD-04 §5 sync floor, so a kick from an admin whose
             // demotion we haven't read yet parks instead of landing.
             citationSatisfied(folded, community.id, actor, citation),
@@ -152,7 +157,31 @@ export function useGuestbook(community: Community | undefined) {
     });
   }, [community, query.data, folded, dissolvedAtMs]);
 
-  return { ...query, coalesced };
+  // Timeouts and Nicknames (CORD-04 §8, §10), judged against the Roster as it stands.
+  const timeouts = useMemo(() => {
+    if (!community || !query.data || !folded?.rosterV2) return new Map<string, FoldedTimeout>();
+    return foldTimeouts(query.data, {
+      nowMs: Date.now(),
+      ownerHex: folded.ownerHex,
+      banned: folded.banned,
+      mayTimeout: (actor, target, citation) =>
+        canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.MODERATE_MEMBERS) &&
+        citationSatisfied(folded, community.id, actor, citation),
+    });
+  }, [community, query.data, folded]);
+  const nicknames = useMemo(() => {
+    if (!community || !query.data || !folded?.rosterV2) return new Map<string, string>();
+    return foldNicknames(query.data, {
+      nowMs: Date.now(),
+      banned: folded.banned,
+      timeouts,
+      mayName: (actor, target, citation) =>
+        mayName(folded.roster, actor, folded.ownerHex, target) &&
+        (actor === target || citationSatisfied(folded, community.id, actor, citation)),
+    });
+  }, [community, query.data, folded, timeouts]);
+
+  return { ...query, coalesced, timeouts, nicknames };
 }
 
 /**

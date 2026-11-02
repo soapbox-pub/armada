@@ -170,6 +170,7 @@ import { useGuestbook } from "@/concord/hooks/useGuestbook";
 import { useModeration, useReadCutRetry } from "@/concord/hooks/useModeration";
 import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRekeyWatch } from "@/concord/hooks/useRekey";
 import { useChannelAccess } from "@/concord/hooks/useChannelAccess";
+import { CommunityNicknamesContext } from "@/contexts/CommunityNicknamesContext";
 import { useInviteActions } from "@/concord/hooks/useInvites";
 import { channelsHingingOn, isEntitled } from "@/concord/lib/channelAccess";
 import { bytesToHex } from "@/concord/lib/derive";
@@ -1846,7 +1847,7 @@ function ConcordCommunityPage() {
     () => new Set([...gitAttachmentsByChannel.values()].flatMap((list) => list.filter((a) => a.detachedAt === undefined).map((a) => a.address.coordinate))),
     [gitAttachmentsByChannel],
   );
-  const { coalesced } = useGuestbook(community);
+  const { coalesced, nicknames } = useGuestbook(community);
 
   // Voice (CORD-07): broker from config; channel rows subscribe to presence themselves.
   const { joinConcordCall, activeCall } = useCall();
@@ -3289,6 +3290,7 @@ function ConcordCommunityPage() {
       {/* Member kind-0s often live only on the community's own relays. */}
       <ProfileRelayHints relays={community?.relays} />
       <MemberRolesContext.Provider value={memberRolesValue}>
+      <CommunityNicknamesContext.Provider value={nicknames}>
       <MemberActionsContext.Provider value={memberActionsValue}>
       <ConcordMediaHold community={community} trusted={trustedAuthors}>
       <ChatShell
@@ -4073,6 +4075,7 @@ function ConcordCommunityPage() {
       </MountWhenOpened>
       </ConcordMediaHold>
     </MemberActionsContext.Provider>
+    </CommunityNicknamesContext.Provider>
     </MemberRolesContext.Provider>
     </ChannelNavContext.Provider>
   );

@@ -502,6 +502,12 @@ export function foldTimeline(
      * after it fold into the flood row (never dropped).
      */
     pauseSince?: number;
+    /**
+     * Reader-side collapses the vsk-13 Roster asks for (CORD-04 §8): a post inside
+     * its author's running Timeout, or one whose author can't send in an open
+     * Channel. Folded into the flood row, never dropped.
+     */
+    collapse?: (message: OpenedChat) => boolean;
   },
 ): FoldedTimeline {
   const byId = new Map<string, OpenedChat>();
@@ -765,6 +771,10 @@ export function foldTimeline(
       paused.add(m.rumorId);
       quarantined.add(m.rumorId);
     }
+  }
+
+  if (opts?.collapse) {
+    for (const m of messages) if (m.author !== opts.self && opts.collapse(m)) quarantined.add(m.rumorId);
   }
 
   // Last, so the rules above see strict ms order: nudge inline replies after their parents.

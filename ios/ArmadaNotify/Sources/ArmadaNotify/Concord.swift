@@ -45,7 +45,7 @@ enum Concord {
     static let futureHoldSecs = 2
 
     /// Kinds claimed by a NON-chat plane (CORD-02 §5): control, guestbook
-    /// (join/leave, kick, snapshot) and rekey.
+    /// (join/leave, kick, snapshot, timeout, nickname) and rekey.
     ///
     /// The chat ingress refuses these, and that refusal is half a fence. A
     /// community's planes share one tenant and a plane is read back BY KIND, so
@@ -53,7 +53,7 @@ enum Concord {
     /// kind-3308 rumor carrying a valid channel binding and have it served as a
     /// control edition — and nothing downstream would catch it, a stored rumor
     /// having no seal left whose form could be checked.
-    static let planeKinds: Set<Int> = [3308, 3306, 3309, 3312, 3303]
+    static let planeKinds: Set<Int> = [3308, 3306, 3309, 3312, 3314, 3315, 3303]
 
     /// Open a chat wrap under the stream key that claims it.
     ///

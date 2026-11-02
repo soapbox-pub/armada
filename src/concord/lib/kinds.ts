@@ -71,6 +71,10 @@ export const KIND_JOIN_LEAVE = 3306;
 export const KIND_KICK = 3309;
 /** Guestbook snapshot: refounder-signed, chunked at 400 members. */
 export const KIND_SNAPSHOT = 3312;
+/** Timeout (CORD-04 §8): moderator-signed, silences its target until a time. */
+export const KIND_TIMEOUT = 3314;
+/** Nickname (CORD-04 §10): what its target goes by in this Community. */
+export const KIND_NICKNAME = 3315;
 
 // Person-addressed rumor kinds (standard NIP-59, not stream traffic)
 /**
@@ -142,7 +146,7 @@ export type Plane = "control" | "guestbook" | "rekey";
  */
 export const PLANE_RULES: Record<Plane, { kinds: number[]; sealKind: number }> = {
   control: { kinds: [KIND_CONTROL], sealKind: KIND_SEAL_PLAINTEXT },
-  guestbook: { kinds: [KIND_JOIN_LEAVE, KIND_KICK, KIND_SNAPSHOT], sealKind: KIND_SEAL_ENCRYPTED },
+  guestbook: { kinds: [KIND_JOIN_LEAVE, KIND_KICK, KIND_SNAPSHOT, KIND_TIMEOUT, KIND_NICKNAME], sealKind: KIND_SEAL_ENCRYPTED },
   rekey: { kinds: [KIND_REKEY], sealKind: KIND_SEAL_ENCRYPTED },
 };
 

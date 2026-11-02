@@ -41,7 +41,7 @@ class ConcordTest {
         // legitimately, so the channel binding proves nothing here. A plane is
         // read back by kind, and a stored rumor keeps no seal for the fold to
         // check the form of, so this is the only place it can be refused.
-        for (kind in listOf(3308, 3306, 3309, 3312, 3303)) {
+        for (kind in listOf(3308, 3306, 3309, 3312, 3314, 3315, 3303)) {
             assertFalse("kind $kind", Concord.storable(community, Concord.SEAL_ENCRYPTED, rumor(kind), now))
         }
     }

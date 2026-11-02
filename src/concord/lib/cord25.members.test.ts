@@ -1,6 +1,7 @@
 /**
- * The access-plane delivery Vector made to a member it let into a Private
- * Channel by a Role (CORD-03 §5), collected the way `useChannelAccess` does.
+ * A two-account Vector Community: the access-plane delivery Vector made to a
+ * member it let into a Private Channel by a Role (CORD-03 §5), collected the way
+ * `useChannelAccess` does, and the Guestbook's Timeouts and Nicknames (CORD-04 §8, §10).
  */
 import { decrypt as nip44Decrypt, getConversationKey } from "nostr-tools/nip44";
 import type { NostrEvent } from "nostr-tools/pure";
@@ -8,7 +9,9 @@ import { describe, expect, it } from "vitest";
 
 import { foldControlState, openControlWraps } from "@/concord/lib/control";
 import { accessPlane, deliveryTrusted, parseDelivery } from "@/concord/lib/delivery";
-import { bytesToHex, controlGroupKey, hex32 } from "@/concord/lib/derive";
+import { bytesToHex, controlGroupKey, guestbookGroupKey, hex32 } from "@/concord/lib/derive";
+import { foldNicknames, foldTimeouts, openGuestbookWraps, timeoutRunning } from "@/concord/lib/guestbook";
+import { canActOnMember, mayName, Permissions } from "@/concord/lib/roles";
 import { base64ToBytes, decodeWrappedKey, myLocator } from "@/concord/lib/rekey";
 import { openWrap } from "@/concord/lib/stream";
 import type { Community } from "@/concord/lib/types";
@@ -49,5 +52,28 @@ describe("access-plane delivery (Vector fixture)", () => {
 
   it("doesn't trust a delivery to someone the fold doesn't let in", () => {
     expect(deliveryTrusted(folded.roster, folded.ownerHex, folded.banned, actors.lounge, "ab".repeat(32), actors.owner)).toBe(false);
+  });
+
+  it("folds the owner's Timeout of the member and the Nicknames that count", () => {
+    const gb = openGuestbookWraps(events, [guestbookGroupKey(hex32(c.root), hex32(c.id), BigInt(c.root_epoch))]);
+    const now = Math.max(...gb.map((e) => e.ms)) + 1000;
+    const timeouts = foldTimeouts(gb, {
+      nowMs: now,
+      ownerHex: folded.ownerHex,
+      mayTimeout: (actor, target) => canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.MODERATE_MEMBERS),
+    });
+    const t = timeouts.get(actors.member);
+    expect(t?.by).toBe(actors.owner);
+    expect(timeoutRunning(t, now)).toBe(true);
+    expect(t!.until - t!.fromSecs).toBeLessThanOrEqual(3600);
+    const nicknames = foldNicknames(gb, {
+      nowMs: now,
+      timeouts,
+      mayName: (actor, target) => mayName(folded.roster, actor, folded.ownerHex, target),
+    });
+    expect(nicknames.get(actors.owner)).toBe("The Boss");
+    // The member's own Nickname names nobody while their Timeout runs.
+    expect(nicknames.has(actors.member)).toBe(false);
+    expect(foldNicknames(gb, { nowMs: now, mayName: () => true }).get(actors.member)).toBe("Newbie");
   });
 });
