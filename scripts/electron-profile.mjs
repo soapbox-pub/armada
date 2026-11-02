@@ -12,6 +12,7 @@
  *     --hidden <s>     then hidden to the tray as the close button does (120)
  *     --reloads <n>    then reload the page n times, timing each (3)
  *     --reduce-effects the Reduce effects switch on, every part included
+ *     --main-profile   CPU-profile the main process across the reloads
  *     --frames         10s of compositor tracing per phase: what draws frames
  *
  * Phases report PSS (proportional, so shared pages aren't double counted) and
@@ -121,6 +122,22 @@ main.onmessage = (m) => {
   pending.get(msg.id)?.(msg);
   pending.delete(msg.id);
 };
+async function mainCall(method, params = {}) {
+  const id = nextId++;
+  main.send(JSON.stringify({ id, method, params }));
+  return (await new Promise((r) => pending.set(id, r))).result;
+}
+/** Top self-time functions of a main-process CPU profile. */
+function hotFunctions(profile, n = 15) {
+  const byId = new Map(profile.nodes.map((x) => [x.id, x]));
+  const self = new Map();
+  profile.samples.forEach((id, i) => {
+    const f = byId.get(id).callFrame;
+    const key = `${f.functionName || "(anonymous)"} ${f.url.split("/").slice(-2).join("/")}:${f.lineNumber + 1}`;
+    self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[i] ?? 0));
+  });
+  return [...self].filter(([k]) => !/^\((idle|program)\)/.test(k)).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, us]) => `${Math.round(us / 1000)}ms ${k}`);
+}
 async function inMain(expression) {
   const id = nextId++;
   main.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression, returnByValue: true, awaitPromise: true } }));
@@ -329,6 +346,9 @@ await page.evaluate(([json, pk, reduce]) => {
   localStorage.setItem(`armada:relay-prompt-shown:${pk}`, "1");
   if (reduce) localStorage.setItem("armada:reduce-effects", "1");
 }, [JSON.stringify([{ id: `nsec:${pk}`, type: "nsec", pubkey: pk, createdAt: new Date().toISOString(), data: { nsec: nip19.nsecEncode(sk) } }]), pk, flag("reduce-effects")]);
+await resetLag();
+const joinStart = processes();
+const joinT0 = Date.now();
 const invite = new URL(INVITE);
 await page.goto(`app://armada${invite.pathname}${invite.hash}`);
 const accept = page.getByRole("button", { name: /accept invite/i });
@@ -337,7 +357,12 @@ await accept.click();
 await page.waitForURL(/\/c\//, { timeout: 90_000 });
 console.log(`joined; settling ${SETTLE}s`);
 await sleep(SETTLE * 1000);
+// The join pours history into the store: the main process's busiest stretch.
+report.join = { mainLag: await readLag(), cpu: cpuBetween(joinStart, processes(), (Date.now() - joinT0) / 1000) };
 
+// Text in the composer, so spellcheck (if on) has loaded its dictionary.
+await page.locator("[contenteditable=true], textarea").first().fill("teh quick brwn fox jumpd").catch(() => {});
+await sleep(3000);
 report.visible = await phase("visible", VISIBLE);
 
 // As hideWindowToTray does (main.js): hide, then tell the page.
@@ -356,27 +381,69 @@ await sleep(3000);
 
 // Reloads: the second and later are what a V8 code cache would speed up.
 report.reloads = [];
+// Time the app:// handler's file reads (main.js serveFile) across the reloads.
+await inMain(`(() => {
+  const fs = process.mainModule.require("fs");
+  const s = globalThis.__reads = { ms: 0, n: 0, maxMs: 0, bytes: 0 };
+  if (!fs.__timed) {
+    const orig = fs.readFileSync;
+    fs.readFileSync = function (p, ...rest) {
+      const t = performance.now();
+      const out = orig.call(this, p, ...rest);
+      if (typeof p === "string" && p.includes("/dist/")) {
+        const d = performance.now() - t;
+        globalThis.__reads.ms += d; globalThis.__reads.n++; globalThis.__reads.bytes += out.length;
+        if (d > globalThis.__reads.maxMs) globalThis.__reads.maxMs = d;
+      }
+      return out;
+    };
+    fs.__timed = true;
+  }
+  return true;
+})()`);
+await resetLag();
+if (flag("main-profile")) {
+  await mainCall("Profiler.enable");
+  await mainCall("Profiler.start");
+}
 for (let i = 0; i < RELOADS; i++) {
   await pageCdp.send("Performance.disable");
   await pageCdp.send("Performance.enable");
+  // V8 compile time and code-cache use, from its own trace events.
+  const events = [];
+  const onData = (e) => events.push(...e.value);
+  browserCdp.on("Tracing.dataCollected", onData);
+  const traced = new Promise((r) => browserCdp.once("Tracing.tracingComplete", r));
+  await browserCdp.send("Tracing.start", { traceConfig: { includedCategories: ["v8", "disabled-by-default-v8.compile"] }, transferMode: "ReportEvents" });
   const t0 = Date.now();
   await page.reload({ waitUntil: "load" });
   await page.waitForSelector("main [data-scroll-anchor]", { timeout: 60_000 }).catch(() => {});
   const ms = Date.now() - t0;
   await sleep(1500);
+  await browserCdp.send("Tracing.end");
+  await traced;
+  browserCdp.off("Tracing.dataCollected", onData);
+  const sum = (re) => Math.round(events.filter((e) => e.ph === "X" && re.test(e.name)).reduce((a, e) => a + (e.dur ?? 0), 0) / 1000);
+  const count = (re) => events.filter((e) => re.test(e.name)).length;
+  const v8 = { compileMs: sum(/^(v8\.compile|V8\.CompileLazy|v8\.compileModule)$/), consumeCache: count(/consumeCache|ConsumeCodeCache/i), produceCache: count(/produceCache|ProduceCodeCache/i) };
   const m = Object.fromEntries((await pageCdp.send("Performance.getMetrics")).metrics.map((x) => [x.name, x.value]));
-  report.reloads.push({ toFirstRowMs: ms, scriptMs: Math.round(m.ScriptDuration * 1000), taskMs: Math.round(m.TaskDuration * 1000) });
+  report.reloads.push({ toFirstRowMs: ms, scriptMs: Math.round(m.ScriptDuration * 1000), taskMs: Math.round(m.TaskDuration * 1000), ...v8 });
   await sleep(5000);
 }
 
+report.reloadMainLag = await readLag();
+if (flag("main-profile")) report.reloadMainHot = hotFunctions((await mainCall("Profiler.stop")).profile);
+report.reloadFileReads = await inMain(`({ ms: Math.round(__reads.ms), n: __reads.n, maxMs: Math.round(__reads.maxMs), MB: Math.round(__reads.bytes / 1048576) })`);
 mkdirSync(OUT, { recursive: true });
 writeFileSync(resolve(OUT, `electron-${LABEL}.json`), JSON.stringify(report, null, 2));
 const line = (p) => `PSS ${p.pss.totalMB} MB ${JSON.stringify(p.pss)} | CPU ${p.cpu.totalPct}% ${JSON.stringify(p.cpu)} | page main thread ${p.pageMainThreadPct}% | main lag ${JSON.stringify(p.mainLag)}\n    renderer infra ${JSON.stringify(p.infra)}\n    page ${JSON.stringify(p.page)}\n    frames ${JSON.stringify(p.frames)}\n    PSS/30s ${p.pssPer30s.join(" ")}  CPU/30s ${p.cpuPer30s.join(" ")}`;
 console.log(`\n══ electron-${LABEL} ══`);
 console.log(`logged out: PSS ${report.loggedOut.pss.totalMB} MB ${JSON.stringify(report.loggedOut.pss)}`);
+console.log(`join+settle: main lag ${JSON.stringify(report.join.mainLag)} | CPU ${JSON.stringify(report.join.cpu)}`);
 console.log(`visible: ${line(report.visible)}`);
 console.log(`hidden:  ${line(report.hidden)}`);
-console.log(`reloads: ${report.reloads.map((r) => `${r.toFirstRowMs}ms (script ${r.scriptMs}ms)`).join(", ")}`);
+console.log(`reloads: ${report.reloads.map((r) => `${r.toFirstRowMs}ms (script ${r.scriptMs}ms, compile ${r.compileMs}ms, cache in/out ${r.consumeCache}/${r.produceCache})`).join(", ")} | main lag ${JSON.stringify(report.reloadMainLag)} | app:// reads ${JSON.stringify(report.reloadFileReads)}`);
+if (report.reloadMainHot) console.log(`main process during reloads:\n  ${report.reloadMainHot.join("\n  ")}`);
 main.close();
 await browser.close().catch(() => {});
 process.exit(0);
