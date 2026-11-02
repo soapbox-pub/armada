@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { devices, expect, test, type Page } from "@playwright/test";
 
 import { loginAs, makePerson, profilesOf, settle } from "./screenshotWorld";
 
@@ -21,8 +21,14 @@ async function offline(page: Page) {
   });
 }
 
-async function bootChannel(page: Page) {
+async function bootChannel(page: Page, config?: Record<string, unknown>) {
   const me = makePerson("viewer", "", 286);
+  if (config) {
+    await page.context().addInitScript(
+      ([key, value]) => localStorage.setItem(key, value),
+      [`armada:app-config:${me.pubkey}`, JSON.stringify(config)] as const,
+    );
+  }
   const ana = makePerson("ana", "", 20);
   await offline(page);
   await page.route("https://emoji.test/**", (r) => r.fulfill({
@@ -148,12 +154,43 @@ test("the overlay follows a theme font that needs no loading", async ({ page }) 
   expect(overlayFont).toBe(textareaFont);
 });
 
-// Reply gestures (on by default): double-click a message to reply on desktop.
-test("double-clicking a message replies to it", async ({ page }) => {
+// Reply gestures are touch-only: a desktop double-click selects as usual.
+test("double-clicking a message on desktop doesn't reply", async ({ page }) => {
   test.setTimeout(120_000);
   await bootChannel(page);
-  const message = page.locator("[data-event-id]").filter({ hasText: "hello" }).getByText("hello");
-  await message.dblclick();
-  await expect(page.getByText("Replying to")).toBeVisible();
-  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+  await page.locator("[data-event-id]").filter({ hasText: "hello" }).getByText("hello").dblclick();
+  await page.waitForTimeout(500);
+  await expect(page.getByText("Replying to")).toHaveCount(0);
+});
+
+test.describe("on a phone", () => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { defaultBrowserType, ...phone } = devices["Pixel 7"];
+  test.use(phone);
+
+  async function doubleTap(page: Page, text: string) {
+    const box = (await page.locator("[data-event-id]").filter({ hasText: text }).getByText(text).boundingBox())!;
+    const cdp = await page.context().newCDPSession(page);
+    const point = [{ x: box.x + box.width / 2, y: box.y + box.height / 2, id: 0 }];
+    for (let i = 0; i < 2; i++) {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: point });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await page.waitForTimeout(80);
+    }
+  }
+
+  test("double-tapping a message replies when the setting includes it", async ({ page }) => {
+    test.setTimeout(120_000);
+    await bootChannel(page, { replyGestures: "both" });
+    await doubleTap(page, "hello");
+    await expect(page.getByText("Replying to")).toBeVisible();
+  });
+
+  test("double-tapping does nothing with the default swipe-only setting", async ({ page }) => {
+    test.setTimeout(120_000);
+    await bootChannel(page);
+    await doubleTap(page, "hello");
+    await page.waitForTimeout(500);
+    await expect(page.getByText("Replying to")).toHaveCount(0);
+  });
 });

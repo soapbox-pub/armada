@@ -2,11 +2,13 @@ import { Capacitor } from "@capacitor/core";
 
 import { QuickReactionsSettings } from "@/components/settings/QuickReactionsSettings";
 import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import type { ReplyGestures } from "@/contexts/AppContext";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useIsTouch } from "@/hooks/useIsMobile";
-import { useIntl } from "@/i18n";
+import { FormattedMessage, useIntl } from "@/i18n";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
 
 /** Settings › Chats: composing, typing status and reactions, everywhere you chat. */
@@ -63,20 +65,27 @@ export function ChatSettings() {
             />
           </SettingsRow>
         )}
-        <SettingsRow
-          label={intl.formatMessage({ id: "chatSettings.replyGestures", defaultMessage: "Reply gestures" })}
-          description={
-            isTouch
-              ? intl.formatMessage({ id: "chatSettings.replyGesturesTouch", defaultMessage: "Swipe a message to reply to it. Off, reply from the message's menu." })
-              : intl.formatMessage({ id: "chatSettings.replyGesturesDesktop", defaultMessage: "Double-click a message to reply to it. Off, double-click selects a word as usual." })
-          }
-        >
-          <Switch
-            checked={config.replyGestures}
-            onCheckedChange={(replyGestures) =>
-              updateConfig((current) => ({ ...current, replyGestures }))}
-          />
-        </SettingsRow>
+        {isTouch && (
+          <SettingsRow
+            label={intl.formatMessage({ id: "chatSettings.replyGestures", defaultMessage: "Reply gestures" })}
+            description={intl.formatMessage({ id: "chatSettings.replyGesturesDescription", defaultMessage: "Swipe a message left or double-tap it to reply. Off, reply from the message's menu." })}
+          >
+            <Select
+              value={config.replyGestures}
+              onValueChange={(value) => updateConfig((current) => ({ ...current, replyGestures: value as ReplyGestures }))}
+            >
+              <SelectTrigger className="w-40 shrink-0" aria-label={intl.formatMessage({ id: "chatSettings.replyGestures", defaultMessage: "Reply gestures" })}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="swipe"><FormattedMessage id="chatSettings.replyGestures.swipe" defaultMessage="Swipe" /></SelectItem>
+                <SelectItem value="doubleTap"><FormattedMessage id="chatSettings.replyGestures.doubleTap" defaultMessage="Double-tap" /></SelectItem>
+                <SelectItem value="both"><FormattedMessage id="chatSettings.replyGestures.both" defaultMessage="Both" /></SelectItem>
+                <SelectItem value="off"><FormattedMessage id="chatSettings.replyGestures.off" defaultMessage="Off" /></SelectItem>
+              </SelectContent>
+            </Select>
+          </SettingsRow>
+        )}
         <SettingsRow
           label={intl.formatMessage({ id: "chatSettings.absoluteTimestamps", defaultMessage: "Show message times" })}
           description={intl.formatMessage({ id: "chatSettings.absoluteTimestampsDescription", defaultMessage: "Show the time each message was sent, like 3:07 PM, instead of how long ago." })}

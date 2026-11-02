@@ -20,6 +20,7 @@ import { formatTimeLeft } from "@/lib/nip17/disappearing";
 import { useFrameCss, nameStyleCss, readUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, useIntl } from "@/i18n";
+import { useDoubleTap } from "@/hooks/useDoubleTap";
 import { useLongPress } from "@/hooks/useLongPress";
 import { useSwipeToReply } from "@/hooks/useSwipeToReply";
 
@@ -119,6 +120,8 @@ interface MessageRowProps {
    * "leave room" gesture.
    */
   onSwipeReply?: () => void;
+  /** Touch double-tap to reply. */
+  onDoubleTapReply?: () => void;
   /**
    * Touch press-and-hold (action sheet). Ignored on interactive children;
    * cancelled by scroll or swipe.
@@ -145,9 +148,11 @@ export const MessageRow = memo(function MessageRow({
   className,
   containerProps,
   onSwipeReply,
+  onDoubleTapReply,
   onLongPress,
 }: MessageRowProps) {
   const longPress = useLongPress(onLongPress);
+  const doubleTap = useDoubleTap(onDoubleTapReply);
   const absoluteTime = useContext(AppContext)?.config.absoluteTimestamps ?? false;
   // The toolbar is built only once hovered/focused (it's heavy per row), then latched.
   const [actionsArmed, setActionsArmed] = useState(false);
@@ -185,6 +190,14 @@ export const MessageRow = memo(function MessageRow({
       {...containerProps}
       {...(onSwipeReply ? swipe.touchHandlers : undefined)}
       {...longPress}
+      onPointerDown={(e) => {
+        longPress.onPointerDown(e);
+        doubleTap.onPointerDown(e);
+      }}
+      onPointerUp={(e) => {
+        longPress.onPointerUp(e);
+        doubleTap.onPointerUp(e);
+      }}
       onPointerEnter={(e) => {
         armActions?.();
         containerProps?.onPointerEnter?.(e);

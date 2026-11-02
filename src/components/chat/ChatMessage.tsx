@@ -290,13 +290,6 @@ function ThreadBadge({
 }
 
 /** Keep focus where a menu action put it (e.g. Reply → composer) instead of restoring it. */
-/** Controls, media and editable text keep their own double-click. */
-const DOUBLE_CLICK_OWNERS = "a, button, input, textarea, select, video, audio, iframe, [contenteditable], [role=button], [data-message-actions]";
-
-function isReplyDoubleClick(e: React.MouseEvent): boolean {
-  return e.button === 0 && !(e.target instanceof Element && e.target.closest(DOUBLE_CLICK_OWNERS));
-}
-
 function keepActionFocus(e: Event) {
   const active = document.activeElement;
   if (active && active !== document.body) e.preventDefault();
@@ -433,7 +426,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
   const appConfig = useContext(AppContext)?.config;
   const sendOnEnter = sendsOnEnter(appConfig?.sendOnEnter, isTouch);
   const hoverActions = appConfig?.messageHoverActions ?? true;
-  const replyGestures = appConfig?.replyGestures ?? true;
+  const replyGestures = appConfig?.replyGestures ?? "swipe";
   const composerBoundsRef = useComposerBoundsRef();
   // The author name is resolved by MessageRow, not here. A bot command reads as
   // an action line rather than raw arguments.
@@ -909,16 +902,9 @@ const ChatMessageInner = memo(function ChatMessageInner({
           containerProps={{
             "data-active": sheetOpen || undefined,
             "data-event-id": event.id,
-            onDoubleClick: !isTouch && replyGestures && canWrite && !isEditing && onReply
-              ? (e: React.MouseEvent) => {
-                  if (!isReplyDoubleClick(e)) return;
-                  // The double-click also selected a word; replying replaces that.
-                  window.getSelection()?.removeAllRanges();
-                  onReply(event);
-                }
-              : undefined,
           } as React.HTMLAttributes<HTMLDivElement>}
-          onSwipeReply={isTouch && replyGestures && onReply ? () => onReply(event) : undefined}
+          onSwipeReply={isTouch && onReply && (replyGestures === "swipe" || replyGestures === "both") ? () => onReply(event) : undefined}
+          onDoubleTapReply={isTouch && onReply && !isEditing && (replyGestures === "doubleTap" || replyGestures === "both") ? () => onReply(event) : undefined}
           onLongPress={isTouch && !isEditing && menuActions.length > 0 ? openSheet : undefined}
         >
           {body}

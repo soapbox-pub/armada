@@ -43,6 +43,9 @@ export interface RelayMetadata {
  * Application configuration, persisted to localStorage by AppProvider. Holds no
  * NIP-29 server list: that lives in the user's kind 10009 (`useNip29Servers`).
  */
+export const REPLY_GESTURES = ["off", "swipe", "doubleTap", "both"] as const;
+export type ReplyGestures = (typeof REPLY_GESTURES)[number];
+
 export interface AppConfig {
   theme: Theme;
   /** Custom theme colors, used when `theme === "custom"`. */
@@ -256,10 +259,10 @@ export interface AppConfig {
    */
   messageHoverActions: boolean;
   /**
-   * Reply gestures (default on): swipe a message to reply on touch, double-click
-   * it on desktop. Off, reply is in the message's menu only. Synced.
+   * Touch reply gestures: swipe a message, double-tap it, both, or neither
+   * (reply stays in the message's menu). Default swipe. Synced.
    */
-  replyGestures: boolean;
+  replyGestures: ReplyGestures;
   /**
    * Whether bursts of near-identical Concord messages fold into one expandable
    * "Similar messages" row (default on; `floodCluster.ts`). Off shows every
@@ -450,7 +453,7 @@ export const defaultConfig: AppConfig = {
   communityMediaKnownHostsOnly: true,
   trustedMediaHosts: [],
   messageHoverActions: true,
-  replyGestures: true,
+  replyGestures: "swipe",
   foldSimilarMessages: true,
   absoluteTimestamps: false,
   showDiscover: true,
