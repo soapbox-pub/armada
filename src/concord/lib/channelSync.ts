@@ -267,6 +267,12 @@ export interface BackfillResult {
 const OLDER_RING_MS = 1_500;
 /** The same floor for every page of a background round, none of which is on screen. */
 const BACKGROUND_RING_MS = 5_000;
+/**
+ * Floor between two community-wide `c2:` rings owed by background rounds, across
+ * every channel: each re-runs the mention and per-channel scans over the whole
+ * tenant, for pages of history that rarely change what they show.
+ */
+const BACKGROUND_WIDE_RING_MS = 60_000;
 
 interface ThrottledRing {
   /** Rings now if the floor has passed, else once it does. */
@@ -275,8 +281,8 @@ interface ThrottledRing {
   flush(): void;
 }
 
-/** Ring `scope` on the wire bus at most once per `floorMs`, never dropping the last write. */
-function throttledRing(scope: `c2:${string}`, floorMs: number): ThrottledRing {
+/** Call `emit` at most once per `floorMs`, never dropping the last write. */
+function throttledRing(emit: () => void, floorMs: number): ThrottledRing {
   let last = 0;
   let owed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -286,7 +292,7 @@ function throttledRing(scope: `c2:${string}`, floorMs: number): ThrottledRing {
     if (!owed) return;
     owed = false;
     last = Date.now();
-    emitWireScopes([scope]);
+    emit();
   };
   return {
     ring() {
@@ -297,6 +303,26 @@ function throttledRing(scope: `c2:${string}`, floorMs: number): ThrottledRing {
     },
     flush: fire,
   };
+}
+
+/** Channels whose background writes still owe the community-wide `c2:` ring. */
+const wideOwed = new Set<string>();
+const wideRing = throttledRing(() => {
+  const ids = [...wideOwed];
+  wideOwed.clear();
+  emitWireScopes(ids.map((id) => `c2:${id}`));
+}, BACKGROUND_WIDE_RING_MS);
+
+/**
+ * A background round's pages: `c2old:` at once for the channel's own open
+ * timeline, `c2:` for everything community-wide on the slower shared floor.
+ */
+function backgroundRing(idHex: string): ThrottledRing {
+  return throttledRing(() => {
+    emitWireScopes([`c2old:${idHex}`]);
+    wideOwed.add(idHex);
+    wideRing.ring();
+  }, BACKGROUND_RING_MS);
 }
 
 /**
@@ -383,7 +409,7 @@ export async function syncChannelRound(
   const idHex = channel.idHex;
   // Scoped `c2:<id>` so the chat view can tell its own catch-up from other sync.
   const task = budget.background ? undefined : beginSyncTask(`#${channel.name}`, { scope: `c2:${idHex}` });
-  const pageRing = budget.background ? throttledRing(`c2:${idHex}`, BACKGROUND_RING_MS) : undefined;
+  const pageRing = budget.background ? backgroundRing(idHex) : undefined;
   try {
     // Heal a POISONED cursor: `exhausted` with `oldest === 0` was sealed by an
     // all-empty run and never paged; clear it so history gets pulled.
@@ -534,7 +560,7 @@ export async function syncChannelRound(
     // Rings are throttled to OLDER_RING_MS: these pages are off-screen and every
     // ring re-runs community-wide readers.
     const resumeFrom = saved?.oldest || (newest.coveredDownTo !== undefined ? newest.coveredDownTo - 1 : undefined);
-    const olderRing = pageRing ?? throttledRing(`c2:${idHex}`, OLDER_RING_MS);
+    const olderRing = pageRing ?? throttledRing(() => emitWireScopes([`c2:${idHex}`]), OLDER_RING_MS);
     const sealOnEmpty = Boolean(budget.sealOnEmpty && saved?.oldest);
     let older: BackfillResult = { events: [], count: 0, pages: 0, reachedBottom: true, exhausted: true, failed: false };
     try {
@@ -613,7 +639,9 @@ registerSyncTopic("c2:", {
  * A background history round's budget. Bounded so one deep channel can't hold
  * the scheduler's single background lane; the topic re-queues itself instead.
  */
-const HISTORY_ROUND: RoundBudget = { bridgePages: 40, olderPages: 20, sealOnEmpty: true, background: true };
+// Short rounds, so the topic's duty cycle rests in short gaps rather than
+// after minutes of solid paging.
+const HISTORY_ROUND: RoundBudget = { bridgePages: 10, olderPages: 4, sealOnEmpty: true, background: true };
 
 const historyContexts = new Map<string, ChannelSyncContext>();
 
@@ -639,6 +667,9 @@ registerSyncTopic("c2hist:", {
   minIntervalMs: 5_000,
   // Search coverage, not anything on screen: megabytes per round are left for Wi-Fi.
   unmeteredOnly: true,
+  // Every channel is its own topic, so without this the walk runs round after
+  // round across them, pinning a core until all history is on disk.
+  dutyCycle: 0.2,
   // A walked channel is revisited now and then for gaps the wire's lookback skipped.
   staleAfterMs: 3 * 60 * 60_000,
   handler: async ({ topic, signal }) => {

@@ -125,7 +125,7 @@ export function useConcordAppSync(
   // and it's a 2000-row scan with a JSON.parse per row.
   const peerReadAt = useRef(0);
   useWireScopes((scopes) => {
-    if (!channelIdHex || !scopes.has(`c2:${channelIdHex}`)) return;
+    if (!channelIdHex || !(scopes.has(`c2:${channelIdHex}`) || scopes.has(`c2old:${channelIdHex}`))) return;
     void queryClient.invalidateQueries({ queryKey });
     const now = Date.now();
     if (now - peerReadAt.current < PEER_READ_THROTTLE_MS) return;

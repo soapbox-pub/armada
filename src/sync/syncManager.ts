@@ -43,6 +43,13 @@ export interface TopicPolicy {
   handler: (ctx: SyncCtx) => Promise<void>;
   /** Deferrable bulk work: held (and an in-flight run aborted) while the connection is metered. */
   unmeteredOnly?: boolean;
+  /**
+   * Share of wall time (0..1] the prefix's topics may spend running, TOGETHER:
+   * after a run of `d` ms, none of them starts for `d × (1/duty − 1)`. Per-topic
+   * `minIntervalMs` can't bound bulk work fanned out over many topics, which
+   * would otherwise run back to back. Self-scaling: a slower device rests longer.
+   */
+  dutyCycle?: number;
 }
 
 export interface WantOpts {
@@ -69,7 +76,7 @@ interface Want {
 
 interface TopicRuntime {
   wants: Set<Want>;
-  run?: { controller: AbortController; priority: SyncPriority };
+  run?: { controller: AbortController; priority: SyncPriority; startedAt: number };
   /** Min-interval / failure-backoff floor: no run starts before this. */
   nextEligibleAt: number;
   failures: number;
@@ -84,6 +91,9 @@ interface TopicRuntime {
 const policies = new Map<string, TopicPolicy>();
 
 const topics = new Map<string, TopicRuntime>();
+
+/** Per duty-cycled policy, when its topics may run again (ms epoch). */
+const restUntil = new Map<TopicPolicy, number>();
 
 /**
  * Durable freshness stamps. NOT account-scoped: topics name
@@ -302,9 +312,10 @@ function topicPriority(rt: TopicRuntime): SyncPriority {
 
 /** When this topic is next allowed AND due to run. */
 function dueAt(topic: string, rt: TopicRuntime, policy: TopicPolicy): number {
-  if (rt.forced) return rt.nextEligibleAt;
+  const floor = Math.max(rt.nextEligibleAt, restUntil.get(policy) ?? 0);
+  if (rt.forced) return floor;
   const stamp = stamps.get(topic) ?? 0;
-  return Math.max(rt.nextEligibleAt, stamp + policy.staleAfterMs);
+  return Math.max(floor, stamp + policy.staleAfterMs);
 }
 
 /** Scheduler pass: start due topics within capacity, answer fresh wants, arm one timer. Idempotent. */
@@ -376,7 +387,7 @@ function schedule(): void {
 
 function startRun(topic: string, rt: TopicRuntime, policy: TopicPolicy, priority: SyncPriority): void {
   const controller = new AbortController();
-  rt.run = { controller, priority };
+  rt.run = { controller, priority, startedAt: Date.now() };
   rt.forced = false;
   publish(topic, rt, "pending");
   policy.handler({ topic, signal: controller.signal }).then(
@@ -393,6 +404,12 @@ function finishRun(
   err?: unknown,
 ): void {
   const aborted = rt.run?.controller.signal.aborted ?? false;
+  // Aborted runs did their work too, so they rest the prefix just the same.
+  if (rt.run && policy.dutyCycle !== undefined && policy.dutyCycle > 0 && policy.dutyCycle < 1) {
+    const now = Date.now();
+    const rest = (now - rt.run.startedAt) * (1 / policy.dutyCycle - 1);
+    restUntil.set(policy, Math.max(restUntil.get(policy) ?? 0, now + rest));
+  }
   rt.run = undefined;
   if (aborted) {
     // Torn down: no verdict, no stamp, and no floor penalty for a remount.
@@ -426,4 +443,5 @@ export function _resetSyncManagerForTests(): void {
   for (const rt of topics.values()) rt.run?.controller.abort();
   topics.clear();
   policies.clear();
+  restUntil.clear();
 }

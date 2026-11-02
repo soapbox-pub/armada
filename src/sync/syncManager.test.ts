@@ -398,4 +398,35 @@ describe("syncManager", () => {
       vi.doUnmock("@/lib/meteredNetwork");
     }
   });
+
+  it("rests a duty-cycled prefix in proportion to its runs, across its topics, without holding other topics", async () => {
+    const m = await freshModule();
+    const spans: Array<{ topic: string; start: number; end: number }> = [];
+    const bulk = vi.fn(async ({ topic }: SyncCtx) => {
+      const start = Date.now();
+      await sleep(200);
+      spans.push({ topic, start, end: Date.now() });
+    });
+    const other = vi.fn(async () => {});
+    m.registerSyncTopic("bulk:", { minIntervalMs: 0, staleAfterMs: 60 * 60_000, handler: bulk, dutyCycle: 0.5 });
+    m.registerSyncTopic("other:", { minIntervalMs: 0, staleAfterMs: 60 * 60_000, handler: other });
+
+    const ra = m.want("bulk:a", "prefetch");
+    const rb = m.want("bulk:b", "prefetch");
+    await vi.waitFor(() => expect(bulk).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(spans).toHaveLength(1), { interval: 5 });
+    // The lane is free while bulk rests: another prefix's topic runs at once.
+    const ro = m.want("other:a", "prefetch");
+    await vi.waitFor(() => expect(other).toHaveBeenCalledTimes(1), { interval: 5 });
+    expect(bulk).toHaveBeenCalledTimes(1);
+
+    await vi.waitFor(() => expect(spans).toHaveLength(2), { timeout: 3000 });
+    const [first, second] = spans;
+    expect(second.topic).not.toBe(first.topic);
+    // duty 0.5 → rest ≈ the run's own length (timer slack allowed).
+    expect(second.start - first.end).toBeGreaterThanOrEqual(150);
+    ra();
+    rb();
+    ro();
+  });
 });

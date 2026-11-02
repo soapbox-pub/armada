@@ -8,6 +8,8 @@
  *   - `dm:wrap`                — undecryptable live NIP-17 wrap; useDm17 force-syncs
  *   - `c2inv:wrap`             — buffered Concord direct-invite wrap (`#k`=3313); useDirectInvites drains
  *   - `c2:<channelIdHex>`      — a Concord channel's rumor store
+ *   - `c2old:<channelIdHex>`   — the same, written by a background history round;
+ *                                its `c2:` follows on a slower shared floor
  *   - `c2cur:<channelIdHex>`   — only the channel's sync CURSOR changed
  *   - `c2park:<streamPk>`      — a wrap PARKED for want of a key; key holders drain
  *   - `c2ctl:<communityIdHex>` — decrypted control plane changed

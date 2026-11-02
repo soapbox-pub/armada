@@ -444,12 +444,20 @@ describe("history coverage", () => {
     const community = { idHex: CID, relays: [RELAY] } as unknown as Community;
     m.setChannelHistoryContext(channel.idHex, { nostr: makePool({ [RELAY]: relay }), community, channel });
 
+    const bus = await import("@/wire/bus");
+    const rings: string[] = [];
+    const off = bus.onWireScopes((scopes) => rings.push(...scopes));
     const topic = `c2hist:${channel.idHex}`;
     const release = m.want(topic, "prefetch");
     try {
       await vi.waitFor(async () => expect((await m.readStreamCursor(channel.idHex))?.exhausted).toBe(true), { timeout: 30_000 });
       expect(await m.queryChannelRumors(CID, channel.idHex, { limit: 500 })).toHaveLength(150);
+      // The open timeline hears every throttled page; the community-wide
+      // readers still hear the channel changed, on their own slower floor.
+      expect(rings).toContain(`c2old:${channel.idHex}`);
+      expect(rings).toContain(`c2:${channel.idHex}`);
     } finally {
+      off();
       release();
     }
   });

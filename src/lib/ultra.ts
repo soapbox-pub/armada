@@ -97,8 +97,15 @@ const FRAME_CSS = Object.fromEntries(
   } satisfies CSSProperties]),
 ) as Record<AvatarFrameId, CSSProperties>;
 
-/** Class for a styled name; pair with {@link nameStyleCss}. */
+/** Class for a styled name shown on its own; pair with {@link nameStyleCss}. */
 export const ULTRA_NAME_CLASS = "motion-safe:animate-ultra-shimmer";
+
+/**
+ * The same for names in a list (timeline rows, the member list): drifts twice,
+ * then holds still. The gradient's position can't be composited, so every
+ * looping name is repainted each frame, and a busy room shows dozens.
+ */
+export const ULTRA_LIST_NAME_CLASS = "motion-safe:animate-ultra-shimmer-twice";
 
 export function nameStyleCss(id: NameStyleId | undefined): CSSProperties | undefined {
   return id ? NAME_STYLE_CSS[id] : undefined;

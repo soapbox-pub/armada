@@ -46,7 +46,7 @@ import { requestMention } from "@/hooks/useMentionBus";
 import { toast } from "@/hooks/useToast";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { tryNpubEncode } from "@/lib/safeNip19";
-import { frameCss, nameStyleCss, readUltra, ULTRA_NAME_CLASS } from "@/lib/ultra";
+import { frameCss, nameStyleCss, readUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { writeClipboardText } from "@/lib/clipboard";
 import { FormattedMessage, t, useIntl } from "@/i18n";
@@ -238,7 +238,7 @@ const MemberRow = memo(function MemberRow({
           className="min-w-0 flex-1 text-left focus:outline-none"
         >
           <span
-            className={cn("block text-sm truncate", !color && ultra?.name && ULTRA_NAME_CLASS)}
+            className={cn("block text-sm truncate", !color && ultra?.name && ULTRA_LIST_NAME_CLASS)}
             style={color ? { color } : nameStyleCss(ultra?.name)}
           >
             <DisplayName pubkey={pubkey} name={displayName} />

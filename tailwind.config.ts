@@ -224,6 +224,7 @@ export default {
 				'typing-dot': 'typing-dot 1.2s ease-in-out infinite',
 				'reaction-rise': 'reaction-rise 4s ease-out forwards',
 				'ultra-shimmer': 'ultra-shimmer 4s linear infinite',
+				'ultra-shimmer-twice': 'ultra-shimmer 4s linear 2',
 				'ultra-float': 'ultra-float 2.4s ease-out both'
 			}
 		}
