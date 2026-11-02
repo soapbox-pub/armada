@@ -3485,6 +3485,7 @@
   "rolesView.scopedTitle": "Permissions apply only in #{channel}",
   "rolesView.unsatisfiableBehind": "{role} can't go there: the only position free for it is {position}, which {peers} already {count, plural, one {holds} other {hold}}, and ties go to the lower role id, so it would render behind {winner}, not where you dropped it. Nothing was published.",
   "rolesView.unsatisfiableOutOfOrder": "{role} can't go there: the only position free for it is {position}, which {peers} already {count, plural, one {holds} other {hold}}, and ties go to the lower role id, so it would render out of order, not where you dropped it. Nothing was published.",
+  "rolesView.v2ReadOnly": "This community uses ranked roles with channel permissions. Armada can show them, but can't edit them yet.",
   "rotateKeysDialog.confirm": "Rotate keys",
   "rotateKeysDialog.description": "New messages are encrypted to new keys. Old keys still read the history they already unlocked, and nothing after.",
   "rotateKeysDialog.error": "Couldn't rotate the keys.",

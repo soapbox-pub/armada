@@ -3485,6 +3485,7 @@
   "rolesView.scopedTitle": "Berechtigungen gelten nur in #{channel}",
   "rolesView.unsatisfiableBehind": "{role} kann nicht dorthin: Die einzige freie Position dafür ist {position}, die {peers} bereits {count, plural, one {hat} other {haben}}, und bei Gleichstand gewinnt die niedrigere Rollen-ID, daher würde sie hinter {winner} angezeigt, nicht dort, wo du sie abgelegt hast. Nichts wurde veröffentlicht.",
   "rolesView.unsatisfiableOutOfOrder": "{role} kann nicht dorthin: Die einzige freie Position dafür ist {position}, die {peers} bereits {count, plural, one {hat} other {haben}}, und bei Gleichstand gewinnt die niedrigere Rollen-ID, daher würde sie außer der Reihe angezeigt, nicht dort, wo du sie abgelegt hast. Nichts wurde veröffentlicht.",
+  "rolesView.v2ReadOnly": "Diese Community nutzt geordnete Rollen mit Kanalberechtigungen. Armada kann sie anzeigen, aber noch nicht bearbeiten.",
   "rotateKeysDialog.confirm": "Schlüssel rotieren",
   "rotateKeysDialog.description": "Neue Nachrichten werden mit neuen Schlüsseln verschlüsselt. Alte Schlüssel lesen weiterhin den Verlauf, den sie bereits entsperrt haben, und nichts danach.",
   "rotateKeysDialog.error": "Die Schlüssel konnten nicht rotiert werden.",

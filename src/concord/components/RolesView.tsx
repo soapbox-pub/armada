@@ -29,6 +29,7 @@ import {
   PERMISSION_LABELS,
   Permissions,
   projectReorder,
+  type CommunityRoles,
   type MemberGrant,
   type Role,
   type RoleScope,
@@ -75,6 +76,54 @@ export function RolesView({ community }: { community: Community }) {
 }
 
 function RolesBody({ community }: { community: Community }) {
+  const { folded } = useRoles(community);
+  if (folded?.rosterV2) return <RolesV2ReadOnly roster={folded.roster} />;
+  return <LegacyRolesBody community={community} />;
+}
+
+/**
+ * The vsk-13 Roster (CORD-04 §2), read-only: Roles in rank order with what they
+ * carry and who holds them, and what `@everyone` holds.
+ */
+function RolesV2ReadOnly({ roster }: { roster: CommunityRoles }) {
+  const intl = useIntl();
+  const roles = [...roster.roles].sort(byDisplayOrder);
+  const bitsOf = (perms: bigint) =>
+    PERMISSION_LABELS.filter((l) => (perms & l.bit) === l.bit).map((l) => labelText(intl, l.label)).join(", ");
+  return (
+    <div className="space-y-4">
+      <Alert>
+        <AlertDescription>
+          <FormattedMessage
+            id="rolesView.v2ReadOnly"
+            defaultMessage="This community uses ranked roles with channel permissions. Armada can show them, but can't edit them yet."
+          />
+        </AlertDescription>
+      </Alert>
+      <div className="space-y-2">
+        {roles.map((role) => (
+          <div key={role.roleId} className="rounded-lg bg-secondary/40 p-3">
+            <div className="flex items-center gap-2">
+              <span className="size-3 shrink-0 rounded-full bg-muted-foreground" style={colorToHex(role.color) ? { backgroundColor: colorToHex(role.color) } : undefined} />
+              <span className="truncate text-sm font-medium">{role.name}</span>
+              <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <Users className="size-3.5" />
+                {roster.grants.filter((g) => g.roleIds.includes(role.roleId)).length}
+              </span>
+            </div>
+            {role.permissions !== 0n && <p className="mt-1 text-xs text-muted-foreground">{bitsOf(role.permissions)}</p>}
+          </div>
+        ))}
+        <div className="rounded-lg bg-secondary/40 p-3">
+          <span className="text-sm font-medium">@everyone</span>
+          <p className="mt-1 text-xs text-muted-foreground">{bitsOf(roster.everyone ?? 0n)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LegacyRolesBody({ community }: { community: Community }) {
   const { folded, saveRole, isSavingRole, setMemberRoles, isSettingRoles, newRoleId } = useRoles(community);
   const { rekeyChannel, isRekeyingChannel, canRekeyChannel } = useChannelRekey(community);
   const { user } = useCurrentUser();

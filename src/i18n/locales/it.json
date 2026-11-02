@@ -3485,6 +3485,7 @@
   "rolesView.scopedTitle": "I permessi valgono solo in #{channel}",
   "rolesView.unsatisfiableBehind": "{role} non può andare lì: l’unica posizione libera per esso è {position}, che {peers} {count, plural, one {occupa} other {occupano}} già, e in caso di parità vince l’id di ruolo più basso, quindi verrebbe mostrato dietro {winner}, non dove l’hai rilasciato. Non è stato pubblicato nulla.",
   "rolesView.unsatisfiableOutOfOrder": "{role} non può andare lì: l’unica posizione libera per esso è {position}, che {peers} {count, plural, one {occupa} other {occupano}} già, e in caso di parità vince l’id di ruolo più basso, quindi verrebbe mostrato fuori ordine, non dove l’hai rilasciato. Non è stato pubblicato nulla.",
+  "rolesView.v2ReadOnly": "Questa community usa ruoli ordinati con permessi per canale. Armada può mostrarli, ma non ancora modificarli.",
   "rotateKeysDialog.confirm": "Ruota chiavi",
   "rotateKeysDialog.description": "I nuovi messaggi vengono crittografati con nuove chiavi. Le vecchie chiavi leggono ancora la cronologia che avevano già sbloccato, e nulla dopo.",
   "rotateKeysDialog.error": "Impossibile ruotare le chiavi.",

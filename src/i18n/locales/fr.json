@@ -3485,6 +3485,7 @@
   "rolesView.scopedTitle": "Les permissions s’appliquent uniquement dans #{channel}",
   "rolesView.unsatisfiableBehind": "{role} ne peut pas aller là : la seule position libre pour lui est {position}, que {peers} {count, plural, one {occupe} other {occupent}} déjà, et en cas d’égalité c’est l’identifiant de rôle le plus bas qui l’emporte, il s’afficherait donc derrière {winner}, et non là où vous l’avez déposé. Rien n’a été publié.",
   "rolesView.unsatisfiableOutOfOrder": "{role} ne peut pas aller là : la seule position libre pour lui est {position}, que {peers} {count, plural, one {occupe} other {occupent}} déjà, et en cas d’égalité c’est l’identifiant de rôle le plus bas qui l’emporte, il s’afficherait donc dans le désordre, et non là où vous l’avez déposé. Rien n’a été publié.",
+  "rolesView.v2ReadOnly": "Cette communauté utilise des rôles hiérarchisés avec des permissions par salon. Armada peut les afficher, mais pas encore les modifier.",
   "rotateKeysDialog.confirm": "Renouveler les clés",
   "rotateKeysDialog.description": "Les nouveaux messages sont chiffrés avec de nouvelles clés. Les anciennes clés lisent toujours l’historique qu’elles ont déjà déverrouillé, et rien d’ultérieur.",
   "rotateKeysDialog.error": "Impossible de renouveler les clés.",

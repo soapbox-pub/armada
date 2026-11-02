@@ -3485,6 +3485,7 @@
   "rolesView.scopedTitle": "Rechten gelden alleen in #{channel}",
   "rolesView.unsatisfiableBehind": "{role} kan daar niet heen: de enige vrije positie ervoor is {position}, die {peers} al {count, plural, one {heeft} other {hebben}}, en bij gelijkspel wint de lagere rol-id, dus hij zou achter {winner} worden weergegeven, niet waar je hem neerzette. Er is niets gepubliceerd.",
   "rolesView.unsatisfiableOutOfOrder": "{role} kan daar niet heen: de enige vrije positie ervoor is {position}, die {peers} al {count, plural, one {heeft} other {hebben}}, en bij gelijkspel wint de lagere rol-id, dus hij zou in de verkeerde volgorde worden weergegeven, niet waar je hem neerzette. Er is niets gepubliceerd.",
+  "rolesView.v2ReadOnly": "Deze community gebruikt gerangschikte rollen met kanaalrechten. Armada kan ze tonen, maar nog niet bewerken.",
   "rotateKeysDialog.confirm": "Sleutels roteren",
   "rotateKeysDialog.description": "Nieuwe berichten worden versleuteld met nieuwe sleutels. Oude sleutels lezen nog steeds de geschiedenis die ze al hebben ontgrendeld, en niets daarna.",
   "rotateKeysDialog.error": "Kon de sleutels niet roteren.",
