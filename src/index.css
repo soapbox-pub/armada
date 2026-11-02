@@ -75,8 +75,10 @@
     --gutter: 0.75rem;
     --stack: 0.5rem;
     /* System emoji first; the bundled Twemoji only fills what they lack. Read
-     * by Tailwind's `font-sans`/`font-emoji` and the emoji picker's shadow DOM. */
-    --emoji-fonts: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", "Android Emoji", "Armada Twemoji";
+     * by Tailwind's `font-sans`/`font-emoji` and the emoji picker's shadow DOM.
+     * Flags go to Twemoji ahead of Segoe UI Emoji, which has the glyphs but draws
+     * them as letter pairs, so a browser never falls past it. */
+    --emoji-fonts: "Apple Color Emoji", "Armada Twemoji Flags", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", "Android Emoji", "Armada Twemoji";
   }
   @media (min-width: 900px) {
     :root {
@@ -93,6 +95,14 @@
   src: url("twemoji-colr-font/twemoji.woff2") format("woff2");
   font-display: swap;
   unicode-range: U+200D, U+203C, U+2049, U+20E3, U+2139, U+2194-21AA, U+231A-23FA, U+24C2, U+25AA-27BF, U+2934-2935, U+2B05-2B55, U+3030, U+303D, U+3297, U+3299, U+FE0F, U+1F000-1FAFF, U+E0020-E007F;
+}
+
+/* The same file, claimed only for the regional-indicator pairs that make flags. */
+@font-face {
+  font-family: "Armada Twemoji Flags";
+  src: url("twemoji-colr-font/twemoji.woff2") format("woff2");
+  font-display: swap;
+  unicode-range: U+1F1E6-1F1FF;
 }
 
 @layer base {
