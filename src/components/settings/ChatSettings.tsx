@@ -64,6 +64,20 @@ export function ChatSettings() {
           </SettingsRow>
         )}
         <SettingsRow
+          label={intl.formatMessage({ id: "chatSettings.replyGestures", defaultMessage: "Reply gestures" })}
+          description={
+            isTouch
+              ? intl.formatMessage({ id: "chatSettings.replyGesturesTouch", defaultMessage: "Swipe a message to reply to it. Off, reply from the message's menu." })
+              : intl.formatMessage({ id: "chatSettings.replyGesturesDesktop", defaultMessage: "Double-click a message to reply to it. Off, double-click selects a word as usual." })
+          }
+        >
+          <Switch
+            checked={config.replyGestures}
+            onCheckedChange={(replyGestures) =>
+              updateConfig((current) => ({ ...current, replyGestures }))}
+          />
+        </SettingsRow>
+        <SettingsRow
           label={intl.formatMessage({ id: "chatSettings.absoluteTimestamps", defaultMessage: "Show message times" })}
           description={intl.formatMessage({ id: "chatSettings.absoluteTimestampsDescription", defaultMessage: "Show the time each message was sent, like 3:07 PM, instead of how long ago." })}
         >

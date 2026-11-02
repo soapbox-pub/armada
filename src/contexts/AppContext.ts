@@ -256,6 +256,11 @@ export interface AppConfig {
    */
   messageHoverActions: boolean;
   /**
+   * Reply gestures (default on): swipe a message to reply on touch, double-click
+   * it on desktop. Off, reply is in the message's menu only. Synced.
+   */
+  replyGestures: boolean;
+  /**
    * Whether bursts of near-identical Concord messages fold into one expandable
    * "Similar messages" row (default on; `floodCluster.ts`). Off shows every
    * message; a community pause still collapses. Synced.
@@ -344,6 +349,7 @@ export const METADATA_CONFIG_KEYS = [
   "trustedMediaHosts",
   "sendOnEnter",
   "messageHoverActions",
+  "replyGestures",
   "foldSimilarMessages",
   "absoluteTimestamps",
   "showDiscover",
@@ -444,6 +450,7 @@ export const defaultConfig: AppConfig = {
   communityMediaKnownHostsOnly: true,
   trustedMediaHosts: [],
   messageHoverActions: true,
+  replyGestures: true,
   foldSimilarMessages: true,
   absoluteTimestamps: false,
   showDiscover: true,

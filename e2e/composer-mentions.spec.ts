@@ -147,3 +147,13 @@ test("the overlay follows a theme font that needs no loading", async ({ page }) 
   const [textareaFont, overlayFont] = await fonts();
   expect(overlayFont).toBe(textareaFont);
 });
+
+// Reply gestures (on by default): double-click a message to reply on desktop.
+test("double-clicking a message replies to it", async ({ page }) => {
+  test.setTimeout(120_000);
+  await bootChannel(page);
+  const message = page.locator("[data-event-id]").filter({ hasText: "hello" }).getByText("hello");
+  await message.dblclick();
+  await expect(page.getByText("Replying to")).toBeVisible();
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+});
