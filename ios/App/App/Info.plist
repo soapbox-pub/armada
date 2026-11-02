@@ -100,6 +100,13 @@
 	<string>Armada uses the camera for video calls and to attach photos you take to messages.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Armada uses the microphone for voice rooms, calls, and voice messages.</string>
+	<!-- Required alongside the Communication Notifications entitlement
+	     (ITMS-90894): the extension donates INSendMessageIntent to show the
+	     sender on a notification. -->
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
