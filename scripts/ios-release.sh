@@ -52,6 +52,16 @@ VERSION_CODE="$(( MAJOR * 1000000 + MINOR * 1000 + PATCH ))"
 echo "Building $VERSION_NAME (build $VERSION_CODE) from tag $TAG"
 
 npm ci
+# Store builds must ship Mini App multiplayer. Apple Clang can't target wasm32,
+# so point the crate's C build at Homebrew LLVM when it's there.
+if [ "${ARCHIVE:-}" = "1" ]; then
+  export WEBXDC_RT_REQUIRED=1
+  LLVM="$(brew --prefix llvm 2>/dev/null || true)"
+  if [ -n "$LLVM" ] && [ -x "$LLVM/bin/clang" ]; then
+    export CC_wasm32_unknown_unknown="${CC_wasm32_unknown_unknown:-$LLVM/bin/clang}"
+    export AR_wasm32_unknown_unknown="${AR_wasm32_unknown_unknown:-$LLVM/bin/llvm-ar}"
+  fi
+fi
 npm run build
 npx cap sync ios
 
