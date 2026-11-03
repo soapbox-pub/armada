@@ -732,7 +732,7 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave, showNip05 = tr
       const { fields: customFields, shape, pronouns, ...standardMetadata } = values;
       const data: Record<string, unknown> = { ...metadata, ...standardMetadata };
       // As typed, not canonicalized: a bare `Example.com` stays that, not `_@example.com`.
-      const nip05 = standardMetadata.nip05?.trim() ?? '';
+      const nip05 = standardMetadata.nip05?.trim().replace(/^@/, '') ?? '';
       data.nip05 = parseNip05Address(nip05) ? nip05 : '';
 
       data.pronouns = pronouns?.trim() ?? '';
