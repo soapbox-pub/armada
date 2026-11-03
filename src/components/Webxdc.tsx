@@ -66,8 +66,11 @@ async function resolveXdc(
   return xdc;
 }
 
-/** Unzipped ceiling. The sizes are the archive's own claims, which fflate allocates by. */
-const MAX_XDC_UNZIPPED_BYTES = 1024 * 1024 * 1024;
+/**
+ * Unzipped ceiling. The sizes are the archive's own claims, which fflate
+ * allocates by, so this is what a phone's WebView must survive allocating.
+ */
+const MAX_XDC_UNZIPPED_BYTES = 192 * 1024 * 1024;
 const MAX_XDC_FILES = 20_000;
 
 function unzipXdc(bytes: Uint8Array): Map<string, Uint8Array> {

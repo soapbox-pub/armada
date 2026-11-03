@@ -53,6 +53,37 @@ describe("stripVideoMetadata", () => {
     expect(await stripVideoMetadata(webm)).toBe(webm);
   });
 
+  it("frees a timed-metadata track and zeroes its samples in mdat, leaving the video track's", async () => {
+    const u32 = (n: number) => [n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255];
+    const gps = ascii("GPS5+48.8583");
+    const frame = ascii("FRAME");
+    const mdatAt = ftyp.length;
+    const media = box("mdat", frame, gps);
+    const track = (handler: string, offset: number, size: number) => box(
+      "trak",
+      box("tkhd", [0]),
+      box(
+        "mdia",
+        box("hdlr", [0, 0, 0, 0], [0, 0, 0, 0], ascii(handler)),
+        box("minf", box("stbl",
+          box("stsc", [0, 0, 0, 0], u32(1), u32(1), u32(1), u32(1)),
+          box("stsz", [0, 0, 0, 0], u32(0), u32(1), u32(size)),
+          box("stco", [0, 0, 0, 0], u32(1), u32(offset)),
+        )),
+      ),
+    );
+    const moov = box("moov", box("mvhd", [0]), track("vide", mdatAt + 8, frame.length), track("meta", mdatAt + 8 + frame.length, gps.length));
+    const input = new Blob([new Uint8Array([...ftyp, ...media, ...moov])]);
+
+    const out = await stripVideoMetadata(input);
+    const text = await bytesOf(out);
+    expect(out!.size).toBe(input.size);
+    expect(text).toContain("mdatFRAME");
+    expect(text).not.toContain("GPS5");
+    expect(text).toContain("vide");
+    expect(text).not.toContain("meta");
+  });
+
   it("refuses an ISO-BMFF file it can't walk", async () => {
     const broken = new Blob([new Uint8Array([...ftyp, 0, 0, 0, 0x40, ...ascii("moov"), 1, 2, 3])]);
     expect(await stripVideoMetadata(broken)).toBeNull();
