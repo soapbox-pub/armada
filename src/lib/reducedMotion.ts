@@ -158,6 +158,14 @@ export function useStillMedia(): boolean {
   return useSyncExternalStore(onStillMediaChange, () => stillMedia() || isTrayResting());
 }
 
+/**
+ * {@link stillMedia} alone, for what is cached per setting (thumbnails): a
+ * rest flip must not re-make every mounted image.
+ */
+export function useStillMediaSetting(): boolean {
+  return useSyncExternalStore(onReducedMotionChange, stillMedia);
+}
+
 /** {@link hiddenFlair}, re-rendering when it changes. */
 export function useHiddenFlair(): boolean {
   return useSyncExternalStore(onReducedMotionChange, hiddenFlair);

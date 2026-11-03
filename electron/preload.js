@@ -9,6 +9,13 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 let screenSourcePicker = null;
 
+// The load-time visibility message can land before the page subscribes, so
+// remember it here, where the listener exists before any page script runs.
+let lastWindowVisibility;
+ipcRenderer.on("armada:window-visibility", (_event, visible) => {
+  lastWindowVisibility = visible === true;
+});
+
 ipcRenderer.on("armada:hevc-screen-share-port", (event, message) => {
   const next = event.ports?.[0];
   const sessionId = message?.sessionId;
@@ -140,6 +147,7 @@ contextBridge.exposeInMainWorld("armadaDesktop", {
     if (typeof handler !== "function") return () => {};
     const listener = (_event, visible) => handler(visible === true);
     ipcRenderer.on("armada:window-visibility", listener);
+    if (lastWindowVisibility !== undefined) handler(lastWindowVisibility);
     return () => ipcRenderer.removeListener("armada:window-visibility", listener);
   },
 

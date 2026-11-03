@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { acquireThumb, releaseThumb, settledThumb, thumbBucket, thumbsSupported, type AnimatedThumb, type Thumb } from "@/lib/imageThumb";
-import { useStillMedia } from "@/lib/reducedMotion";
+import { useStillMediaSetting } from "@/lib/reducedMotion";
 
 /**
  * `src` downscaled to `boxPx` CSS pixels (see `lib/imageThumb.ts`). `pending`
@@ -14,7 +14,7 @@ export function useImageThumb(
   src: string | undefined,
   boxPx: number,
 ): { src: string | undefined; anim?: AnimatedThumb; pending: boolean } {
-  const still = useStillMedia();
+  const still = useStillMediaSetting();
   const enabled = thumbsSupported();
   const bucket = enabled && boxPx > 0 ? thumbBucket(boxPx, typeof devicePixelRatio === "number" ? devicePixelRatio : 1) : 0;
   const [done, setDone] = useState<{ key: string; url: Thumb | null }>();

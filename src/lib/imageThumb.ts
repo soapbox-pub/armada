@@ -28,6 +28,12 @@ const CONCURRENCY = 2;
 const KEEP_UNUSED = 400;
 /** Longer animations are shown as they are rather than held frame by frame. */
 const MAX_FRAMES = 400;
+/** Nor is one whose frames at thumbnail size would take more than this. */
+const MAX_ANIMATION_BYTES = 16 * 1024 * 1024;
+/** Decoded frames of unreferenced animations kept for a remount. */
+const KEEP_UNUSED_ANIMATION_BYTES = 64 * 1024 * 1024;
+/** Image downloads in flight at once (the desktop shell's run in its main process). */
+const FETCH_CONCURRENCY = 6;
 
 /**
  * An animation's frames at thumbnail size, shared by every element showing it.
@@ -46,6 +52,11 @@ export class AnimatedThumb {
     private readonly durations: number[],
     private readonly repetitions: number,
   ) {}
+
+  /** The decoded frames' size, for the cache's budget. */
+  get bytes(): number {
+    return this.width * this.height * 4 * this.frames.length;
+  }
 
   /** Draw the current frame now and every later one. Returns an unsubscribe. */
   subscribe(draw: (frame: ImageBitmap) => void): () => void {
@@ -108,23 +119,27 @@ interface Entry {
 const entries = new Map<string, Entry>();
 /** Hosts whose images can't be read (no CORS); asked once per session. */
 const unreadableHosts = new Set<string>();
-let running = 0;
-const queue: Array<() => void> = [];
+function limiter(max: number): <T>(fn: () => Promise<T>) => Promise<T> {
+  let running = 0;
+  const queue: Array<() => void> = [];
+  return async (fn) => {
+    if (running >= max) await new Promise<void>((r) => queue.push(r));
+    running++;
+    try {
+      return await fn();
+    } finally {
+      running--;
+      queue.shift()?.();
+    }
+  };
+}
+
+const slot = limiter(CONCURRENCY);
+const fetchSlot = limiter(FETCH_CONCURRENCY);
 
 /** Whether this browser can make thumbnails at all; otherwise every image is shown as it is. */
 export function thumbsSupported(): boolean {
   return typeof createImageBitmap === "function" && typeof OffscreenCanvas === "function";
-}
-
-async function slot<T>(fn: () => Promise<T>): Promise<T> {
-  if (running >= CONCURRENCY) await new Promise<void>((r) => queue.push(r));
-  running++;
-  try {
-    return await fn();
-  } finally {
-    running--;
-    queue.shift()?.();
-  }
 }
 
 function hostOf(src: string): string | undefined {
@@ -159,6 +174,7 @@ async function makeAnimated(blob: Blob, type: string, bucket: number): Promise<A
           if (scale * SMALL_ENOUGH >= 1) return null;
           w = Math.max(1, Math.round(image.displayWidth * scale));
           h = Math.max(1, Math.round(image.displayHeight * scale));
+          if (w * h * 4 * count > MAX_ANIMATION_BYTES) return null;
         }
         frames.push(await createImageBitmap(image, { resizeWidth: w, resizeHeight: h, resizeQuality: "high" }));
         // Microseconds; like browsers, a delay of 10ms or less plays as 100ms.
@@ -198,7 +214,7 @@ async function fetchBlob(src: string): Promise<Blob | null> {
 }
 
 async function make(src: string, bucket: number, still: boolean): Promise<Thumb | null> {
-  const blob = await fetchBlob(src);
+  const blob = await fetchSlot(() => fetchBlob(src));
   if (!blob) return null;
   const head = new Uint8Array(await blob.slice(0, 4096).arrayBuffer());
   const type = sniffImageType(head, blob.type);
@@ -233,10 +249,16 @@ function disposeThumb(t: Thumb | null | undefined): void {
 }
 
 function trim(): void {
-  if (entries.size <= KEEP_UNUSED) return;
+  let animationBytes = 0;
+  for (const e of entries.values()) if (e.refs === 0 && e.url instanceof AnimatedThumb) animationBytes += e.url.bytes;
+  if (entries.size <= KEEP_UNUSED && animationBytes <= KEEP_UNUSED_ANIMATION_BYTES) return;
   for (const [key, e] of entries) {
-    if (entries.size <= KEEP_UNUSED) break;
+    const overCount = entries.size > KEEP_UNUSED;
+    const overBytes = animationBytes > KEEP_UNUSED_ANIMATION_BYTES;
+    if (!overCount && !overBytes) break;
     if (e.refs > 0 || e.url === undefined) continue;
+    if (!overCount && !(e.url instanceof AnimatedThumb)) continue;
+    if (e.url instanceof AnimatedThumb) animationBytes -= e.url.bytes;
     disposeThumb(e.url);
     entries.delete(key);
   }
@@ -252,7 +274,14 @@ export function acquireThumb(src: string, bucket: number, still: boolean): { key
   let e = entries.get(key);
   if (!e) {
     const entry: Entry = { refs: 0, promise: thumbsSupported() ? make(src, bucket, still) : Promise.resolve(null) };
-    entry.promise.then((url) => (entry.url = url), () => (entry.url = null));
+    entry.promise.then(
+      (url) => {
+        // Cleared (logout) or trimmed while being made: nothing will revoke it later.
+        if (entries.get(key) !== entry) disposeThumb(url);
+        else entry.url = url;
+      },
+      () => (entry.url = null),
+    );
     entries.set(key, entry);
     e = entry;
   } else {

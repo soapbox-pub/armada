@@ -15,6 +15,9 @@ export const MotionImg = forwardRef<HTMLImageElement, ImgHTMLAttributes<HTMLImag
   return <StillImg {...props} />;
 });
 
+/** Longest edge a frozen frame is kept at, whatever its box. */
+const MAX_STILL_EDGE = 2048;
+
 function StillImg({ src, onLoad, className, style, alt, title, ...rest }: ImgHTMLAttributes<HTMLImageElement>) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [drawnFor, setDrawnFor] = useState<string>();
@@ -25,9 +28,15 @@ function StillImg({ src, onLoad, className, style, alt, title, ...rest }: ImgHTM
     const canvas = canvasRef.current;
     // At `load` an animated image is on its first frame.
     if (canvas && img.naturalWidth > 0) {
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      canvas.getContext("2d")?.drawImage(img, 0, 0);
+      // A canvas's pixels are never discarded the way a decoded <img>'s are, so
+      // keep only what the box shows: enough to cover it at this pixel ratio.
+      const dpr = typeof devicePixelRatio === "number" ? Math.max(1, devicePixelRatio) : 1;
+      const cover = Math.max(img.clientWidth * dpr / img.naturalWidth, img.clientHeight * dpr / img.naturalHeight);
+      const edge = MAX_STILL_EDGE / Math.max(img.naturalWidth, img.naturalHeight);
+      const scale = Math.min(1, edge, cover > 0 ? cover : 1);
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
       setDrawnFor(src);
     }
     onLoad?.(e);
