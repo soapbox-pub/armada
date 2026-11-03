@@ -8,7 +8,7 @@ the account.
 
 | Document | Contents | Written when | Merge |
 |---|---|---|---|
-| `metadata` | theme, custom theme, relay toggles, `appRelays`, `communityRelays`, replaceable app DM/media endpoints, voice-server preference, DM typing indicators, DM requests, DM previews, muted words, Discover scope/curated list/relays, zap defaults, Account Standing nag | a preference changes | wholesale |
+| `metadata` | theme, custom theme, relay toggles, `appRelays`, `communityRelays`, replaceable app DM/media endpoints, voice-server preference, DM typing indicators, DM requests, DM previews, muted words, Discover curated list, zap defaults, Account Standing nag | a preference changes | wholesale |
 | `rail` | `railLayout` | every rail drag | wholesale |
 | `read-state` | `readState`, the whole map | when `read-state-recent` passes 8 KB | max per key |
 | `read-state-recent` | `readState`, only entries newer than `read-state`'s | every channel view (4 s debounce) | max per key |

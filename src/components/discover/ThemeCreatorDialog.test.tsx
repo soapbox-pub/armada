@@ -48,9 +48,9 @@ const PUBLISHED = {
 } as NostrRumor;
 
 /** The unsearched Discover themes key: [.., relays, authorFilter, query]. */
-const BROWSE_KEY = ["discover", "themes", ["wss://relay.example"], "all", ""];
+const BROWSE_KEY = ["discover", "themes", ["wss://relay.example"], ["a".repeat(64)], ""];
 /** The same tab with a search term — deliberately left alone. */
-const SEARCH_KEY = ["discover", "themes", ["wss://relay.example"], "all", "sunset"];
+const SEARCH_KEY = ["discover", "themes", ["wss://relay.example"], ["a".repeat(64)], "sunset"];
 
 function renderDialog() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

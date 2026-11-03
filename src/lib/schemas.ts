@@ -150,7 +150,6 @@ export const AppConfigSchema = z.object({
   showDmPreviews: z.boolean().catch(defaultConfig.showDmPreviews),
   mutedWords: z.array(z.string()).catch([]),
   showRecentRailDms: z.boolean().catch(defaultConfig.showRecentRailDms),
-  discoverAllContent: z.boolean().catch(defaultConfig.discoverAllContent),
   discoverCuration: z.string().catch(defaultConfig.discoverCuration),
   stripTrackingParams: z.boolean().catch(defaultConfig.stripTrackingParams),
   mediaProxies: z.array(z.string()).catch(defaultConfig.mediaProxies),
@@ -201,7 +200,6 @@ export const MetadataDocSchema = z.looseObject({
   showDmPreviews: z.boolean().optional(),
   mutedWords: z.array(z.string()).optional(),
   showRecentRailDms: z.boolean().optional(),
-  discoverAllContent: z.boolean().optional(),
   discoverCuration: z.string().optional(),
   stripTrackingParams: z.boolean().optional(),
   /** Media proxy templates; empty = off. */

@@ -29,6 +29,12 @@ import {
 } from "@/concord/lib/inviteDiscovery";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 import {
+  chunkAuthors,
+  packNetwork,
+  rankDiscoverNetwork,
+  unpackNetwork,
+} from "@/lib/discoverNetwork";
+import {
   curatedPubkeys,
   curationFilter,
   curationKey,
@@ -60,26 +66,37 @@ const TIMEOUT_MS = 6000;
  */
 const RELAY_GRACE_MS = 2500;
 
-/** Run `filters` against each relay separately so a dead relay costs only its own events. */
+/**
+ * Run each filter set as its own REQ against each relay separately, so a dead
+ * relay costs only its own events. One answer per (relay, set).
+ */
 async function queryEachRelay(
   nostr: ReturnType<typeof useNostr>["nostr"],
   relays: string[],
-  filters: NostrFilter[],
+  filterSets: NostrFilter[][],
   signal: AbortSignal,
+  { timeout = TIMEOUT_MS, graceMs = RELAY_GRACE_MS }: { timeout?: number; graceMs?: number } = {},
 ): Promise<NostrRumor[][]> {
   const grace = new AbortController();
-  const settled = AbortSignal.any([signal, grace.signal, AbortSignal.timeout(TIMEOUT_MS)]);
+  const settled = AbortSignal.any([signal, grace.signal, AbortSignal.timeout(timeout)]);
   let graceTimer: ReturnType<typeof setTimeout> | undefined;
   const answers: NostrRumor[][] = [];
   await Promise.allSettled(
-    relays.map(async (url) => {
-      const events = await nostr.relay(url).query(filters, { signal: settled });
-      answers.push(events);
-      graceTimer ??= setTimeout(() => grace.abort(), RELAY_GRACE_MS);
-    }),
+    relays.flatMap((url) =>
+      filterSets.map(async (filters) => {
+        const events = await nostr.relay(url).query(filters, { signal: settled });
+        answers.push(events);
+        graceTimer ??= setTimeout(() => grace.abort(), graceMs);
+      }),
+    ),
   );
   clearTimeout(graceTimer);
   return answers;
+}
+
+/** One filter set per author chunk; none at all for no authors, so nothing is sent. */
+function chunkedSets(authors: string[], build: (authors: string[]) => NostrFilter[]): NostrFilter[][] {
+  return chunkAuthors(authors).map(build);
 }
 
 function mergeAnswers(answers: NostrRumor[][]): NostrRumor[] {
@@ -189,23 +206,24 @@ interface DiscoverFeedPage {
   cursor: number | undefined;
 }
 
-async function fetchDiscoverPage(
+export async function fetchDiscoverPage(
   nostr: ReturnType<typeof useNostr>["nostr"],
   relays: string[],
   kind: number,
   query: string,
-  authors: string[] | undefined,
+  authors: string[],
   signal: AbortSignal,
   until: number | undefined,
 ): Promise<DiscoverFeedPage> {
-  // `authors === undefined` bypasses the allow-list; callers guard against an empty array.
-  const base: NostrFilter = { kinds: [kind], limit: FETCH_LIMIT };
-  if (authors) base.authors = authors;
-  if (until !== undefined) base.until = until;
-  const filters: NostrFilter[] = [base];
-  if (query) filters.push({ ...base, search: query });
+  // Every filter names its authors: Discover never reads anyone off a relay unvetted.
+  const sets = chunkedSets(authors, (chunk) => {
+    const base: NostrFilter = { kinds: [kind], authors: chunk, limit: FETCH_LIMIT };
+    if (until !== undefined) base.until = until;
+    return query ? [base, { ...base, search: query }] : [base];
+  });
+  if (sets.length === 0) return { events: [], cursor: undefined };
 
-  const answers = await queryEachRelay(nostr, relays, filters, signal);
+  const answers = await queryEachRelay(nostr, relays, sets, signal);
   // Judged on raw per-relay counts (pre-dedup) so collapsed pages still page on.
   const cursor = windowFloor(answers, () => true);
   const events = mergeAnswers(answers).filter((e) => cursor === undefined || e.created_at >= cursor);
@@ -250,7 +268,7 @@ async function fetchFollowPack(
   const answers = await queryEachRelay(
     nostr,
     [...relays, ...extraCurationRelays(curation, relays)],
-    [filter],
+    [[filter]],
     signal,
   );
   // Newest across relays: a stale version must not win by answering first.
@@ -291,38 +309,45 @@ function foldAnnouncements(anns: NostrRumor[], dels: NostrRumor[]): DiscoveredIn
 
 const isAnnouncement = (e: NostrRumor) => e.kind === KIND_COMMUNITY_ANNOUNCEMENT;
 
-/** Announcement ids per un-publish filter (`#e`), to keep each REQ a sane size. */
-const DELETION_ID_CHUNK = 200;
+/** Announcements per un-publish REQ (`#e` plus their authors), to keep each a sane size. */
+const DELETION_ID_CHUNK = 150;
 
 /**
- * Community announcements, by `authors` (the allow-list) unless `undefined`
- * (`discoverAllContent`), then the un-publishes of exactly those announcements,
- * by `#e` and their authors, in a second round.
+ * Community announcements by `authors` (the allow-list; empty reads nothing),
+ * then the un-publishes of exactly those announcements, by `#e` and their
+ * authors, in a second round.
  */
 export async function fetchCommunityAnnouncements(
   nostr: ReturnType<typeof useNostr>["nostr"],
   relays: string[],
-  authors: string[] | undefined,
+  authors: string[],
   signal: AbortSignal,
   until?: number,
 ): Promise<{ invites: DiscoveredInvite[]; cursor: number | undefined; found: number }> {
-  const filter: NostrFilter = { kinds: [KIND_COMMUNITY_ANNOUNCEMENT], limit: FETCH_LIMIT };
-  if (authors) filter.authors = authors;
-  if (until !== undefined) filter.until = until;
-  const answers = await queryEachRelay(nostr, relays, [filter], signal);
+  const sets = chunkedSets(authors, (chunk) => {
+    const filter: NostrFilter = { kinds: [KIND_COMMUNITY_ANNOUNCEMENT], authors: chunk, limit: FETCH_LIMIT };
+    if (until !== undefined) filter.until = until;
+    return [filter];
+  });
+  if (sets.length === 0) return { invites: [], cursor: undefined, found: 0 };
+  const answers = await queryEachRelay(nostr, relays, sets, signal);
+  const allowed = new Set(authors);
   const cursor = windowFloor(answers, isAnnouncement);
   const anns = mergeAnswers(answers).filter(
-    (e) => isAnnouncement(e) && (cursor === undefined || e.created_at >= cursor),
+    (e) => isAnnouncement(e) && allowed.has(e.pubkey) && (cursor === undefined || e.created_at >= cursor),
   );
   if (anns.length === 0) return { invites: [], cursor, found: 0 };
 
-  const ids = anns.map((e) => e.id);
-  const annAuthors = [...new Set(anns.map((e) => e.pubkey))];
-  const delFilters: NostrFilter[] = [];
-  for (let i = 0; i < ids.length; i += DELETION_ID_CHUNK) {
-    delFilters.push({ kinds: [5], authors: annAuthors, "#e": ids.slice(i, i + DELETION_ID_CHUNK) });
+  const delSets: NostrFilter[][] = [];
+  for (let i = 0; i < anns.length; i += DELETION_ID_CHUNK) {
+    const slice = anns.slice(i, i + DELETION_ID_CHUNK);
+    delSets.push([{
+      kinds: [5],
+      authors: [...new Set(slice.map((e) => e.pubkey))],
+      "#e": slice.map((e) => e.id),
+    }]);
   }
-  const dels = mergeAnswers(await queryEachRelay(nostr, relays, delFilters, signal));
+  const dels = mergeAnswers(await queryEachRelay(nostr, relays, delSets, signal));
   return { invites: foldAnnouncements(anns, dels), cursor, found: anns.length };
 }
 
@@ -339,7 +364,7 @@ interface CommunitiesSeed {
 async function fetchCommunitiesPage(
   nostr: ReturnType<typeof useNostr>["nostr"],
   relays: string[],
-  authors: string[] | undefined,
+  authors: string[],
   until: number | undefined,
   signal: AbortSignal,
 ): Promise<CommunitiesPage> {
@@ -386,16 +411,16 @@ export async function forgetDiscoverAnnouncements(
   void queryClient.invalidateQueries({ queryKey: ["discover", "directory-infinite"] });
 }
 
-/** By the allow-list it was read under, or `"all"` for `discoverAllContent`. */
-function directoryInfiniteKey(relays: string[], authors: string[] | undefined): QueryKey {
-  return ["discover", "directory-infinite", relays, authors ?? "all"];
+/** By the allow-list it was read under. */
+function directoryInfiniteKey(relays: string[], authors: string[]): QueryKey {
+  return ["discover", "directory-infinite", relays, authors];
 }
 
 /** Shared by the page hook and {@link useWarmDiscover} so both prime the same cache entry. */
 function communitiesInfiniteOptions(
   nostr: ReturnType<typeof useNostr>["nostr"],
   relays: string[],
-  authors: string[] | undefined,
+  authors: string[],
 ) {
   return {
     queryKey: directoryInfiniteKey(relays, authors),
@@ -406,35 +431,105 @@ function communitiesInfiniteOptions(
   };
 }
 
-export type DiscoverScope = "you" | "friends" | "world";
+export type DiscoverScope = "you" | "friends" | "network";
+
+const NETWORK_KV = "discover:network";
+const NETWORK_TTL_MS = 24 * 60 * 60 * 1000;
+
+function networkQueryKey(pubkey: string): QueryKey {
+  return ["discover", "network", pubkey];
+}
+
+/** The follows' newest kind 3s, read straight off the Discover relays (not mirrored into the store). */
+async function fetchDiscoverNetwork(
+  nostr: ReturnType<typeof useNostr>["nostr"],
+  relays: string[],
+  viewer: string,
+  follows: string[],
+  signal: AbortSignal,
+): Promise<string[]> {
+  const sets = chunkedSets(follows, (chunk) => [{ kinds: [3], authors: chunk, limit: chunk.length }]);
+  const answers = await queryEachRelay(nostr, relays, sets, signal, { timeout: 20_000, graceMs: 8000 });
+  const lists = mergeAnswers(answers);
+  // A relay outage must not be cached for a day as a tiny network.
+  if (lists.length === 0) throw new Error("No follow lists found");
+  const authors = rankDiscoverNetwork(viewer, follows, lists);
+  getArmadaDB().kv.set(`${NETWORK_KV}:${viewer}`, packNetwork(authors, Date.now())).catch(() => undefined);
+  return authors;
+}
+
+/**
+ * The viewer's one-hop network ({@link rankDiscoverNetwork}), kept a day in KV.
+ * `build` gates only the relay read: a stored network is used either way.
+ */
+function useDiscoverNetwork(build: boolean): string[] {
+  const { nostr } = useNostr();
+  const { user } = useCurrentUser();
+  const relays = useDiscoverRelays();
+  const followList = useFollowList();
+  const queryClient = useQueryClient();
+  const follows = followList.data?.pubkeys ?? NO_AUTHORS;
+  const pubkey = user?.pubkey;
+
+  useEffect(() => {
+    if (!pubkey) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const stored = unpackNetwork(await getArmadaDB().kv.get(`${NETWORK_KV}:${pubkey}`));
+        const key = networkQueryKey(pubkey);
+        if (cancelled || !stored || queryClient.getQueryData(key) !== undefined) return;
+        queryClient.setQueryData(key, stored.authors, { updatedAt: stored.updatedAt });
+      } catch {
+        // Best-effort: no stored network just means building one.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pubkey, queryClient]);
+
+  const network = useQuery<string[]>({
+    queryKey: networkQueryKey(pubkey ?? ""),
+    enabled: build && !!pubkey && relays.length > 0 && follows.length > 0,
+    staleTime: NETWORK_TTL_MS,
+    gcTime: Infinity,
+    retry: 2,
+    queryFn: ({ signal }) => fetchDiscoverNetwork(nostr, relays, pubkey!, follows, signal),
+  });
+  return pubkey ? network.data ?? NO_AUTHORS : NO_AUTHORS;
+}
 
 /**
  * The author allow-list gating every Discover feed, by scope: the viewer alone
- * ("you"), the viewer and their follows ("friends"), or ("world") the curated
- * list's members plus both — unfiltered instead under `discoverAllContent`.
- * Signed out, "you" and "friends" have nobody in them and read as "world".
- * Fail-closed: empty means show nothing — some relays treat empty `authors` as no
- * filter, so callers must NOT query when empty.
+ * ("you"), the viewer and their follows ("friends"), or ("network") the curated
+ * list's members plus both plus one hop of the viewer's follows' follows.
+ * Signed out, "you" and "friends" have nobody in them and read as "network",
+ * which is then the curated list alone. There is deliberately no unfiltered
+ * mode: empty means show nothing, and callers must NOT query when empty (some
+ * relays treat empty `authors` as no filter).
  */
-export function useDiscoverAuthors(requested: DiscoverScope): {
+export function useDiscoverAuthors(
+  requested: DiscoverScope,
+  { buildNetwork = true }: { buildNetwork?: boolean } = {},
+): {
   authors: string[];
   /** The curated list's members alone, for ranking. */
   packAuthors: string[];
-  unrestricted: boolean;
+  /** The viewer and their follows, for ranking. */
+  trustedAuthors: string[];
   isLoading: boolean;
 } {
   const { nostr } = useNostr();
   const { mutedPubkeys } = useMutedPubkeys();
-  const { config } = useAppContext();
   const relays = useDiscoverRelays();
   const { user } = useCurrentUser();
   const followList = useFollowList();
 
   const curation = useDiscoverCuration();
-  const scope = user ? requested : "world";
-
-  const unrestricted = scope === "world" && config.discoverAllContent;
-  const usesPack = scope === "world" && !unrestricted && curation.type !== "none";
+  const scope = user ? requested : "network";
+  const usesPack = scope === "network" && curation.type !== "none";
+  const network = useDiscoverNetwork(scope === "network" && buildNetwork);
 
   const packKey = packQueryKey(relays, curation);
   useKvQuerySeed<string[]>(packSeedKey(curation), usesPack ? packKey : undefined);
@@ -446,34 +541,39 @@ export function useDiscoverAuthors(requested: DiscoverScope): {
     queryFn: ({ signal }) => fetchFollowPack(nostr, relays, curation, signal),
   });
 
+  const trustedAuthors = useMemo(() => {
+    if (!user) return NO_AUTHORS;
+    const set = new Set<string>([user.pubkey, ...(followList.data?.pubkeys ?? [])]);
+    for (const pk of mutedPubkeys) set.delete(pk);
+    return [...set].sort();
+  }, [user, followList.data, mutedPubkeys]);
+
   const authors = useMemo(() => {
     if (scope === "you") return user ? [user.pubkey] : NO_AUTHORS;
-    const set = new Set<string>(usesPack ? pack.data ?? [] : []);
-    if (user) {
-      set.add(user.pubkey);
-      for (const pk of followList.data?.pubkeys ?? []) set.add(pk);
+    const set = new Set<string>(trustedAuthors);
+    if (scope === "network") {
+      if (usesPack) for (const pk of pack.data ?? []) set.add(pk);
+      for (const pk of network) set.add(pk);
     }
-    // Covers the restricted path only; `discoverAllContent` sends no author filter, so
-    // each feed also filters its results.
     for (const pk of mutedPubkeys) set.delete(pk);
     // Sorted for a stable react-query key.
     return [...set].sort();
-  }, [scope, usesPack, pack.data, user, followList.data, mutedPubkeys]);
+  }, [scope, usesPack, pack.data, network, user, trustedAuthors, mutedPubkeys]);
 
   return {
     authors,
     packAuthors: usesPack ? pack.data ?? NO_AUTHORS : NO_AUTHORS,
-    unrestricted,
-    // Only the pack read gates the feeds; follows merely widen the list and re-key later
-    // (`placeholderData` holds results meanwhile).
+    trustedAuthors,
+    // Only the pack read gates the feeds; follows and the network merely widen the
+    // list and re-key later (`placeholderData` holds results meanwhile).
     isLoading: usesPack ? pack.isLoading : false,
   };
 }
 
 /**
  * Public Concord communities (kind-3314 announcements whose content is an invite link),
- * deduped by link signer, read by the allow-list's authors (all of them under
- * `discoverAllContent`). No search filter: announcements carry no metadata to match.
+ * deduped by link signer, read by the allow-list's authors. No search filter:
+ * announcements carry no metadata to match.
  */
 export function useDiscoverCommunities(scope: DiscoverScope): DiscoverFeed<DiscoveredInvite> & {
   packAuthors: string[];
@@ -483,13 +583,12 @@ export function useDiscoverCommunities(scope: DiscoverScope): DiscoverFeed<Disco
   const { mutedPubkeys } = useMutedPubkeys();
   const relays = useDiscoverRelays();
   const queryClient = useQueryClient();
-  const { authors, packAuthors, unrestricted, isLoading: authorsLoading } = useDiscoverAuthors(scope);
-  const authorFilter = unrestricted ? undefined : authors;
+  const { authors, packAuthors, trustedAuthors, isLoading: authorsLoading } = useDiscoverAuthors(scope);
 
   // Warm load: seed last session's listings as the (stale) first page.
   useEffect(() => {
-    if (relays.length === 0) return;
-    const key = directoryInfiniteKey(relays, authorFilter);
+    if (relays.length === 0 || authors.length === 0) return;
+    const key = directoryInfiniteKey(relays, authors);
     let cancelled = false;
     void (async () => {
       try {
@@ -508,11 +607,11 @@ export function useDiscoverCommunities(scope: DiscoverScope): DiscoverFeed<Disco
     return () => {
       cancelled = true;
     };
-  }, [relays, authorFilter, queryClient]);
+  }, [relays, authors, queryClient]);
 
   const result = useInfiniteQuery({
-    ...communitiesInfiniteOptions(nostr, relays, authorFilter),
-    enabled: relays.length > 0 && !authorsLoading && (unrestricted || authors.length > 0),
+    ...communitiesInfiniteOptions(nostr, relays, authors),
+    enabled: relays.length > 0 && !authorsLoading && authors.length > 0,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
@@ -520,22 +619,22 @@ export function useDiscoverCommunities(scope: DiscoverScope): DiscoverFeed<Disco
   const data = useMemo(() => {
     if (!result.data) return undefined;
     // The read is already by the allow-list; a seed or a held-over page may not be.
-    const allowed = unrestricted ? null : new Set(authors);
+    const allowed = new Set(authors);
     const byLinkSigner = new Map<string, DiscoveredInvite>();
     const invites = result.data.pages.flatMap((p) => p.invites);
     for (const invite of invites.sort((a, b) => b.source.created_at - a.source.created_at)) {
       if (mutedPubkeys.has(invite.source.pubkey)) continue;
-      if (allowed && !allowed.has(invite.source.pubkey)) continue;
+      if (!allowed.has(invite.source.pubkey)) continue;
       if (!byLinkSigner.has(invite.linkSigner)) byLinkSigner.set(invite.linkSigner, invite);
     }
     return [...byLinkSigner.values()];
-  }, [result.data, unrestricted, authors, mutedPubkeys]);
+  }, [result.data, authors, mutedPubkeys]);
 
   // Error only when there is nothing painted to show.
   return {
     data,
     packAuthors,
-    trustedAuthors: authors,
+    trustedAuthors,
     isLoading: result.isLoading || authorsLoading,
     isError: result.isError && !data,
     fetchNextPage: result.fetchNextPage,
@@ -557,9 +656,9 @@ export function useWarmDiscover(): void {
   const { nostr } = useNostr();
   const relays = useDiscoverRelays();
   const queryClient = useQueryClient();
-  const { authors, packAuthors, unrestricted, isLoading: authorsLoading } = useDiscoverAuthors("world");
-  const authorFilter = unrestricted ? undefined : authors;
-  const ready = relays.length > 0 && !authorsLoading && (unrestricted || authors.length > 0);
+  // A stored network is used, but boot never builds one: that waits for the page.
+  const { authors, packAuthors, isLoading: authorsLoading } = useDiscoverAuthors("network", { buildNetwork: false });
+  const ready = relays.length > 0 && !authorsLoading && authors.length > 0;
 
   useEffect(() => {
     if (!ready) return;
@@ -568,7 +667,7 @@ export function useWarmDiscover(): void {
         try {
           // Same infinite-query entry and cursor options the page reads.
           const infinite = await queryClient.fetchInfiniteQuery({
-            ...communitiesInfiniteOptions(nostr, relays, authorFilter),
+            ...communitiesInfiniteOptions(nostr, relays, authors),
             staleTime: 30_000,
           });
           const invites = infinite.pages[0]?.invites ?? [];
@@ -597,7 +696,7 @@ export function useWarmDiscover(): void {
       })();
     }, WARM_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [nostr, queryClient, relays, authorFilter, packAuthors, ready]);
+  }, [nostr, queryClient, relays, authors, packAuthors, ready]);
 }
 
 /** Coalesce Control peeks, each of which expands a card's author set, into one REQ. */
@@ -639,7 +738,7 @@ export function useDiscoverCommunityActivity(
       if (batches.length === 0) return {};
       // Per relay, so the first to answer can't cut off one holding a newer wrap.
       const pages = await Promise.all(
-        batches.map((b) => queryEachRelay(nostr, b.relays, b.filters, signal)),
+        batches.map((b) => queryEachRelay(nostr, b.relays, [b.filters], signal)),
       );
       const events = pages.flatMap(mergeAnswers);
       return activityByLinkSigner(parsed, events, now);
@@ -665,24 +764,21 @@ export function useDiscoverEmojiPacks(query: string, scope: DiscoverScope): Disc
   const { nostr } = useNostr();
   const { mutedPubkeys } = useMutedPubkeys();
   const relays = useDiscoverRelays();
-  const { authors, unrestricted, isLoading: authorsLoading } = useDiscoverAuthors(scope);
+  const { authors, isLoading: authorsLoading } = useDiscoverAuthors(scope);
   const debounced = useDebounce(query, 300);
-
-  const authorFilter = unrestricted ? undefined : authors;
   const q = debounced.trim();
 
   const result = useInfiniteQuery({
-    queryKey: ["discover", "emoji-packs", relays, authorFilter ?? "all", q],
-    enabled: relays.length > 0 && !authorsLoading && (unrestricted || authors.length > 0),
+    queryKey: ["discover", "emoji-packs", relays, authors, q],
+    enabled: relays.length > 0 && !authorsLoading && authors.length > 0,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
     initialPageParam: undefined as number | undefined,
     queryFn: ({ pageParam, signal }) =>
-      fetchDiscoverPage(nostr, relays, KIND_EMOJI_SET, q, authorFilter, signal, pageParam),
+      fetchDiscoverPage(nostr, relays, KIND_EMOJI_SET, q, authors, signal, pageParam),
     getNextPageParam: (lastPage: DiscoverFeedPage) => lastPage.cursor,
   });
 
-  // Muting is applied here, outside the query, so it covers `discoverAllContent` too.
   const data = useMemo(() => {
     if (!result.data) return undefined;
     const events = newestPerAddr(result.data.pages.flatMap((p) => p.events));
@@ -694,9 +790,10 @@ export function useDiscoverEmojiPacks(query: string, scope: DiscoverScope): Disc
         return `${emojiPackName(e)} ${shortcodes}`.toLowerCase().includes(needle);
       });
     }
-    if (mutedPubkeys.size > 0) usable = usable.filter((e) => !mutedPubkeys.has(e.pubkey));
-    return usable;
-  }, [result.data, q, mutedPubkeys]);
+    // A held-over page (`placeholderData`) may predate the current allow-list.
+    const allowed = new Set(authors);
+    return usable.filter((e) => allowed.has(e.pubkey) && !mutedPubkeys.has(e.pubkey));
+  }, [result.data, q, authors, mutedPubkeys]);
 
   return {
     data,
@@ -714,20 +811,18 @@ export function useDiscoverThemes(query: string, scope: DiscoverScope): Discover
   const { nostr } = useNostr();
   const { mutedPubkeys } = useMutedPubkeys();
   const relays = useDiscoverRelays();
-  const { authors, unrestricted, isLoading: authorsLoading } = useDiscoverAuthors(scope);
+  const { authors, isLoading: authorsLoading } = useDiscoverAuthors(scope);
   const debounced = useDebounce(query, 300);
-
-  const authorFilter = unrestricted ? undefined : authors;
   const q = debounced.trim();
 
   const result = useInfiniteQuery({
-    queryKey: ["discover", "themes", relays, authorFilter ?? "all", q],
-    enabled: relays.length > 0 && !authorsLoading && (unrestricted || authors.length > 0),
+    queryKey: ["discover", "themes", relays, authors, q],
+    enabled: relays.length > 0 && !authorsLoading && authors.length > 0,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
     initialPageParam: undefined as number | undefined,
     queryFn: ({ pageParam, signal }) =>
-      fetchDiscoverPage(nostr, relays, THEME_DEFINITION_KIND, q, authorFilter, signal, pageParam),
+      fetchDiscoverPage(nostr, relays, THEME_DEFINITION_KIND, q, authors, signal, pageParam),
     getNextPageParam: (lastPage: DiscoverFeedPage) => lastPage.cursor,
   });
 
@@ -740,9 +835,10 @@ export function useDiscoverThemes(query: string, scope: DiscoverScope): Discover
       const needle = q.toLowerCase();
       usable = usable.filter((e) => parseDittoTheme(e)?.title.toLowerCase().includes(needle));
     }
-    if (mutedPubkeys.size > 0) usable = usable.filter((e) => !mutedPubkeys.has(e.pubkey));
-    return usable;
-  }, [result.data, q, mutedPubkeys]);
+    // A held-over page (`placeholderData`) may predate the current allow-list.
+    const allowed = new Set(authors);
+    return usable.filter((e) => allowed.has(e.pubkey) && !mutedPubkeys.has(e.pubkey));
+  }, [result.data, q, authors, mutedPubkeys]);
 
   return {
     data,

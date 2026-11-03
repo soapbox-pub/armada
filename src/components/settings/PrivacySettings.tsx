@@ -1,6 +1,7 @@
-import { AlertTriangle, LifeBuoy, SpellCheck, UserX } from "lucide-react";
+import { LifeBuoy, SpellCheck, UserX } from "lucide-react";
 import { useContext } from "react";
 
+import { DiscoverCurationSettings } from "@/components/settings/DiscoverCurationSettings";
 import { MediaPrivacySettings } from "@/components/settings/MediaPrivacySettings";
 import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
 import { SettingsNavContext } from "@/components/settings/settingsNav";
@@ -8,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
-import { FormattedMessage, useIntl } from "@/i18n";
+import { useIntl } from "@/i18n";
 
 /** Settings › Privacy & safety: who and what is hidden, what loads without asking, and links. */
 export function PrivacySettings() {
@@ -74,27 +75,7 @@ export function PrivacySettings() {
               updateConfig((current) => ({ ...current, showDiscover }))}
           />
         </SettingsRow>
-        {/* Bypasses Discover's curated allow-list (a foot-gun). */}
-        <SettingsRow
-          label={intl.formatMessage({ id: "privacySettings.showAll", defaultMessage: "Show all content" })}
-          description={
-            <>
-              <FormattedMessage id="privacySettings.showAllDescription" defaultMessage="Not just curated picks and people you follow." />
-              {config.discoverAllContent && (
-                <span className="mt-1 flex items-start gap-1.5 text-destructive">
-                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                  <span><FormattedMessage id="privacySettings.showAllWarning" defaultMessage="Unmoderated. Expect spam and offensive content." /></span>
-                </span>
-              )}
-            </>
-          }
-        >
-          <Switch
-            checked={config.discoverAllContent}
-            onCheckedChange={(discoverAllContent) =>
-              updateConfig((current) => ({ ...current, discoverAllContent }))}
-          />
-        </SettingsRow>
+        <DiscoverCurationSettings />
       </SettingsGroup>
 
       <SettingsGroup>

@@ -211,11 +211,6 @@ export interface AppConfig {
    */
   showRecentRailDms: boolean;
   /**
-   * Whether Discover shows the unfiltered firehose instead of the curated author
-   * list (default off; may surface objectionable content). Synced.
-   */
-  discoverAllContent: boolean;
-  /**
    * Override for Discover's curated author source (`BUILD_DISCOVER_CURATION`):
    * an `naddr` list, an npub/hex (their follows), or `none`. Empty = build default. Synced.
    */
@@ -343,7 +338,6 @@ export const METADATA_CONFIG_KEYS = [
   "showDmPreviews",
   "mutedWords",
   "showRecentRailDms",
-  "discoverAllContent",
   "discoverCuration",
   "stripTrackingParams",
   "mediaProxies",
@@ -445,7 +439,6 @@ export const defaultConfig: AppConfig = {
   showDmPreviews: true,
   mutedWords: [],
   showRecentRailDms: true,
-  discoverAllContent: false,
   discoverCuration: "",
   stripTrackingParams: true,
   mediaProxies: [],

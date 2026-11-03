@@ -1,9 +1,8 @@
 import {
-  AlertTriangle,
   Compass,
-  Globe,
   Info,
   Loader2,
+  Network,
   Palette,
   Plus,
   SlidersHorizontal,
@@ -31,7 +30,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DiscoverActivityTarget } from "@/concord/lib/discoverActivity";
 import type { DiscoveredInvite } from "@/concord/lib/inviteDiscovery";
-import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import {
   useDiscoverCommunities,
@@ -83,11 +81,10 @@ const m = defineMessages({
   },
   you: { id: "discoverPage.scope.you", defaultMessage: "You" },
   friends: { id: "discoverPage.scope.friends", defaultMessage: "Friends" },
-  world: { id: "discoverPage.scope.world", defaultMessage: "The world" },
+  network: { id: "discoverPage.scope.network", defaultMessage: "Network" },
   relaysError: { id: "discoverPage.relaysError", defaultMessage: "Couldn't reach the relays. Try again." },
   whatDiscoverShows: { id: "discoverPage.whatDiscoverShows", defaultMessage: "What Discover shows" },
   discoverSettings: { id: "discoverPage.discoverSettings", defaultMessage: "Discover settings" },
-  showEverything: { id: "discoverPage.showEverything", defaultMessage: "Show everything" },
 });
 
 type TabDef = Omit<PillTab<DiscoverTab>, "label"> & {
@@ -123,7 +120,7 @@ const TAB_DEFS: TabDef[] = [
 const SCOPE_DEFS: (Omit<PillTab<DiscoverScope>, "label"> & { label: MessageDescriptor })[] = [
   { id: "you", label: m.you, icon: UserRound },
   { id: "friends", label: m.friends, icon: UsersRound },
-  { id: "world", label: m.world, icon: Globe },
+  { id: "network", label: m.network, icon: Network },
 ];
 
 /** {@link SCOPE_DEFS} in the current language, stable per language for `PillTabs`. */
@@ -157,10 +154,9 @@ export function DiscoverPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [themeCreateOpen, setThemeCreateOpen] = useState(false);
-  const [chosenScope, setScope] = useState<DiscoverScope>("world");
+  const [chosenScope, setScope] = useState<DiscoverScope>("network");
   // "You" and "Friends" have nobody in them signed out.
-  const scope = user ? chosenScope : "world";
-  const unrestricted = useAppContext().config.discoverAllContent && scope === "world";
+  const scope = user ? chosenScope : "network";
   const query = queries[tab];
   const setQuery = (v: string) => setQueries((prev) => ({ ...prev, [tab]: v }));
   const active = TAB_DEFS.find((t) => t.id === tab)!;
@@ -260,8 +256,6 @@ export function DiscoverPage() {
             </div>
           </div>
 
-          {unrestricted && <UnfilteredWarning />}
-
           {/* Top spacing is a MARGIN so the gap stays put while the grid scrolls. */}
           <div className="flex-1 min-h-0 overflow-y-auto scrollbar-stable mt-3 sm:mt-4 pb-8">
             {tab === "communities" && <CommunitiesTab query={query} scope={scope} />}
@@ -292,7 +286,7 @@ export function DiscoverPage() {
   );
 }
 
-/** Whose content the feeds show. Signed-in only: signed out there's only the world. */
+/** Whose content the feeds show. Signed-in only: signed out there's only the curated list. */
 function DiscoverScopeToggle({
   scope,
   onChange,
@@ -304,21 +298,6 @@ function DiscoverScopeToggle({
 }) {
   const scopes = useScopes();
   return <PillTabs tabs={scopes} value={scope} onChange={onChange} className={cn("p-0.5", className)} />;
-}
-
-/** Inline while "The world" is unfiltered (`discoverAllContent`), since it's one tap away. */
-function UnfilteredWarning() {
-  return (
-    <p className="mt-3 flex items-start gap-1.5 px-1 text-xs leading-snug text-destructive">
-      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-      <span>
-        <FormattedMessage
-          id="discoverPage.unfilteredWarning"
-          defaultMessage="Showing everything posted to your relays, by anyone. None of it is filtered or moderated, so expect spam and things you may not want to see. People you've muted stay hidden."
-        />
-      </span>
-    </p>
-  );
 }
 
 /**
@@ -335,7 +314,7 @@ function DiscoverScopeInfo({
   className?: string;
 }) {
   const intl = useIntl();
-  const { hint, unrestricted } = useDiscoverScopeHint(scope, signedIn);
+  const hint = useDiscoverScopeHint(scope, signedIn);
   const settings = useContext(SettingsOverlayContext);
   const [open, setOpen] = useState(false);
 
@@ -353,7 +332,7 @@ function DiscoverScopeInfo({
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 space-y-3 p-3 text-xs text-muted-foreground">
         <p className="leading-snug">{hint}</p>
-        {scope === "world" && (
+        {scope === "network" && (
           <Button
             variant="secondary"
             size="sm"
@@ -364,7 +343,7 @@ function DiscoverScopeInfo({
             }}
           >
             <SlidersHorizontal className="size-3.5" />
-            {intl.formatMessage(unrestricted ? m.discoverSettings : m.showEverything)}
+            {intl.formatMessage(m.discoverSettings)}
           </Button>
         )}
       </PopoverContent>
@@ -372,46 +351,39 @@ function DiscoverScopeInfo({
   );
 }
 
-function useDiscoverScopeHint(
-  scope: DiscoverScope,
-  signedIn: boolean,
-): { hint: string; unrestricted: boolean } {
+function useDiscoverScopeHint(scope: DiscoverScope, signedIn: boolean): string {
   const intl = useIntl();
-  const { config } = useAppContext();
   const curation = useDiscoverCuration();
-  const unrestricted = scope === "world" && config.discoverAllContent;
 
-  const followed = intl.formatMessage({
-    id: "discoverPage.hint.followed",
-    defaultMessage: "Showing only what you and people you follow have shared.",
-  });
-  const hint = scope === "you"
-    ? intl.formatMessage({ id: "discoverPage.hint.you", defaultMessage: "Showing only what you've shared." })
-    : scope === "friends"
-      ? followed
-      : unrestricted
-        ? intl.formatMessage({
-          id: "discoverPage.hint.unrestricted",
-          defaultMessage: "Showing everything posted to your relays, by anyone. None of it is filtered or moderated, so expect spam and things you may not want to see.",
-        })
-        : curation.type !== "none"
-          ? signedIn
-            ? intl.formatMessage({
-              id: "discoverPage.hint.curatedSignedIn",
-              defaultMessage: "Showing picks from a curated list and from people you follow. Everything else on your relays is hidden.",
-            })
-            : intl.formatMessage({
-              id: "discoverPage.hint.curatedSignedOut",
-              defaultMessage: "Showing picks from a curated list. Sign in to also see what people you follow have shared.",
-            })
-          : signedIn
-            ? followed
-            : intl.formatMessage({
-              id: "discoverPage.hint.signedOut",
-              defaultMessage: "Sign in to see picks from people you follow.",
-            });
-
-  return { hint, unrestricted };
+  if (scope === "you") {
+    return intl.formatMessage({ id: "discoverPage.hint.you", defaultMessage: "Showing only what you've shared." });
+  }
+  if (scope === "friends") {
+    return intl.formatMessage({
+      id: "discoverPage.hint.followed",
+      defaultMessage: "Showing only what you and people you follow have shared.",
+    });
+  }
+  if (!signedIn) {
+    return curation.type !== "none"
+      ? intl.formatMessage({
+        id: "discoverPage.hint.curatedSignedOut",
+        defaultMessage: "Showing picks from a curated list. Sign in to also see what people you follow have shared.",
+      })
+      : intl.formatMessage({
+        id: "discoverPage.hint.signedOut",
+        defaultMessage: "Sign in to see picks from people you follow.",
+      });
+  }
+  return curation.type !== "none"
+    ? intl.formatMessage({
+      id: "discoverPage.hint.networkCurated",
+      defaultMessage: "Showing picks from a curated list, from people you follow, and from people they follow. Nothing from anyone else is shown.",
+    })
+    : intl.formatMessage({
+      id: "discoverPage.hint.network",
+      defaultMessage: "Showing picks from people you follow and from people they follow. Nothing from anyone else is shown.",
+    });
 }
 
 /**
@@ -431,7 +403,7 @@ function DiscoverScopeMenu({
 }) {
   const intl = useIntl();
   const scopes = useScopes();
-  const { hint, unrestricted } = useDiscoverScopeHint(scope, signedIn);
+  const hint = useDiscoverScopeHint(scope, signedIn);
   const settings = useContext(SettingsOverlayContext);
   const [open, setOpen] = useState(false);
   const current = scopes.find((s) => s.id === scope)!;
@@ -483,7 +455,7 @@ function DiscoverScopeMenu({
           </div>
         )}
         <p className="px-1 leading-snug">{hint}</p>
-        {scope === "world" && (
+        {scope === "network" && (
           <Button
             variant="secondary"
             size="sm"
@@ -494,7 +466,7 @@ function DiscoverScopeMenu({
             }}
           >
             <SlidersHorizontal className="size-3.5" />
-            {intl.formatMessage(unrestricted ? m.discoverSettings : m.showEverything)}
+            {intl.formatMessage(m.discoverSettings)}
           </Button>
         )}
       </PopoverContent>
@@ -554,7 +526,6 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
     isFetchingNextPage,
     pageCount,
   } = useDiscoverCommunities(scope);
-  const unrestricted = useAppContext().config.discoverAllContent && scope === "world";
   const sentinelRef = useInfiniteScroll({
     hasNextPage,
     isFetchingNextPage,
@@ -613,8 +584,8 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
   const activityTargetList = useMemo(() => Object.values(activityTargets), [activityTargets]);
   const lastActiveBySigner = useDiscoverCommunityActivity(activityTargetList);
 
-  // Order: curated-list owners, then the trusted set (list ∪ viewer ∪
-  // follows), then everyone else; newest-first within tiers. Until a bundle
+  // Order: curated-list owners, then the viewer and their follows, then the
+  // rest of the network; newest-first within tiers. Until a bundle
   // resolves, the announcement author stands in for its owner.
   const ordered = useMemo(() => {
     if (!data) return data;
@@ -671,11 +642,6 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
             <FormattedMessage
               id="discoverPage.communities.emptyFriends"
               defaultMessage="None of the people you follow have listed a community yet. Yours could be the first."
-            />
-          ) : unrestricted ? (
-            <FormattedMessage
-              id="discoverPage.communities.emptyWorld"
-              defaultMessage="No public communities listed yet. Yours could be the first."
             />
           ) : (
             <FormattedMessage

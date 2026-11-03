@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildInviteUrl, mintLinkSigner, mintToken } from "@/concord/lib/invite";
 import { KIND_COMMUNITY_ANNOUNCEMENT } from "@/concord/lib/inviteDiscovery";
-import { fetchCommunityAnnouncements } from "@/hooks/useDiscover";
+import { fetchCommunityAnnouncements, fetchDiscoverPage } from "@/hooks/useDiscover";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
@@ -82,13 +82,32 @@ describe("fetchCommunityAnnouncements", () => {
     ]);
   });
 
-  it("reads everyone's under discoverAllContent, but un-publishes still by id", async () => {
+  it("sends nothing at all for an empty allow-list", async () => {
     const { nostr, filters } = relayOf(events);
-    const { invites } = await fetchCommunityAnnouncements(nostr, [RELAY], undefined, signal());
+    const result = await fetchCommunityAnnouncements(nostr, [RELAY], [], signal());
 
-    expect(invites.map((i) => i.source.id).sort()).toEqual([kept.id, spam.id].sort());
-    expect(filters[0]).toEqual({ kinds: [KIND_COMMUNITY_ANNOUNCEMENT], limit: 100 });
-    expect(filters.slice(1).every((f) => f["#e"] && f.authors)).toBe(true);
+    expect(result).toEqual({ invites: [], cursor: undefined, found: 0 });
+    expect(filters).toEqual([]);
+  });
+
+  it("drops announcements a relay returns from outside the allow-list", async () => {
+    const lax = {
+      relay: () => ({ query: async () => [kept, spam] }),
+    } as unknown as Parameters<typeof fetchCommunityAnnouncements>[0];
+    const { invites } = await fetchCommunityAnnouncements(lax, [RELAY], [getPublicKey(curated)], signal());
+
+    expect(invites.map((i) => i.source.id)).toEqual([kept.id]);
+  });
+
+  it("splits a large allow-list across REQs, each naming its authors", async () => {
+    const { nostr, filters } = relayOf(events);
+    const many = [getPublicKey(curated), ...Array.from({ length: 700 }, () => getPublicKey(generateSecretKey()))];
+    await fetchCommunityAnnouncements(nostr, [RELAY], many, signal());
+
+    const reads = filters.filter((f) => f.kinds?.includes(KIND_COMMUNITY_ANNOUNCEMENT));
+    expect(reads).toHaveLength(3);
+    expect(reads.every((f) => f.authors && f.authors.length > 0 && f.authors.length <= 300)).toBe(true);
+    expect(reads.flatMap((f) => f.authors).sort()).toEqual([...many].sort());
   });
 
   it("asks for no un-publishes when there's nothing to un-publish", async () => {
@@ -97,5 +116,16 @@ describe("fetchCommunityAnnouncements", () => {
 
     expect(result).toEqual({ invites: [], cursor: undefined, found: 0 });
     expect(filters).toHaveLength(1);
+  });
+});
+
+describe("fetchDiscoverPage", () => {
+  it("never sends a filter without authors", async () => {
+    const { nostr, filters } = relayOf([]);
+    await fetchDiscoverPage(nostr, [RELAY], 30030, "cats", [getPublicKey(generateSecretKey())], signal(), undefined);
+    await fetchDiscoverPage(nostr, [RELAY], 30030, "", [], signal(), undefined);
+
+    expect(filters).toHaveLength(2);
+    expect(filters.every((f) => f.authors?.length === 1)).toBe(true);
   });
 });
