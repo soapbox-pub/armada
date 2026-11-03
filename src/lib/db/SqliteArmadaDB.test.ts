@@ -725,11 +725,13 @@ describe("SqliteArmadaDB — injection", () => {
     const { db, driver } = makeDb();
 
     // ENGINE NOTE (node:sqlite): a TEXT column holding a NUL is stored and
-    // compared byte-exactly, but reads back truncated AT the NUL — so the id,
-    // pubkey and content of the one NUL payload come back cut short, while
-    // tags (stored as JSON text, where a NUL is escaped) round-trip in full.
-    // The IndexedDB adapter and Android's engine return the full string.
-    const trunc = (s: string) => s.split("\u0000")[0];
+    // compared byte-exactly, but older Node releases (22) read it back
+    // truncated AT the NUL, while newer ones (24) return it whole. Tags,
+    // stored as JSON text where a NUL is escaped, round-trip either way.
+    const probe = new DatabaseSync(":memory:");
+    const truncates = (probe.prepare("SELECT ? AS v").get("a\u0000b") as { v: string }).v === "a";
+    probe.close();
+    const trunc = (s: string) => (truncates ? s.split("\u0000")[0] : s);
 
     for (const [i, payload] of HOSTILE.entries()) {
       const store = db.tenant(`tenant-${payload}`);
