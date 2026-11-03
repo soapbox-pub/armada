@@ -83,7 +83,7 @@ export function emojiMaskFontVersion(): number {
 
 /**
  * Whether the mask font can draw `emoji` now; if not, starts loading it. A
- * mask drawn before then is provisional (system font) and isn't cached.
+ * mask drawn before then is provisional (system font) until the load settles.
  */
 function maskFontReady(emoji: string): boolean {
   const fonts = typeof document !== 'undefined' ? document.fonts : undefined;
@@ -131,9 +131,10 @@ export function getEmojiMaskUrl(emoji: string): string {
     emojiMaskCache.set(emoji, cached);
     return cached;
   }
-  const ready = maskFontReady(emoji);
+  // A provisional mask (font still loading) is cached too: the load's
+  // settling clears the cache and bumps the version, so it is recut once.
+  maskFontReady(emoji);
   const url = renderEmojiMask(emoji);
-  if (!ready) return url;
   emojiMaskCache.set(emoji, url);
   if (emojiMaskCache.size > EMOJI_MASK_CACHE_MAX) {
     emojiMaskCache.delete(emojiMaskCache.keys().next().value as string);

@@ -10,11 +10,12 @@ export function pubkeyHueColor(hue: number): string {
 }
 
 /**
- * The `#tag`'s color: the same hue, desaturated and translucent, so it reads as
- * secondary to whatever color the name itself is drawn in.
+ * The `#tag`'s color: the same hue blended into the theme's secondary text, so
+ * it reads as secondary to the name while keeping that text's contrast on a
+ * light theme as well as a dark one — the tag is what tells two people apart.
  */
 export function pubkeyHueTagColor(hue: number): string {
-  return `hsl(${hue} 35% 60% / 0.7)`;
+  return `color-mix(in oklab, hsl(var(--muted-foreground)) 65%, hsl(${hue} 70% 50%))`;
 }
 
 /** The `#1a2b` that tells two nameless people apart: the pubkey's last four hex digits. */
