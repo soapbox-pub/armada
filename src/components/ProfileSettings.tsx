@@ -51,6 +51,7 @@ import { isValidAvatarShape } from '@/lib/avatarShape';
 import { isAnimatedImage, METADATA_SCAN_BYTES } from '@/lib/imageMetadata';
 import { getPronouns, MAX_PRONOUNS_LENGTH } from '@/lib/pronouns';
 import { isGifBytes } from '@/lib/runGifCrop';
+import { isIosApp } from '@/lib/platform';
 import { common, defineMessage, FormattedMessage, t, useIntl, type MessageDescriptor } from '@/i18n';
 
 const WALLET_TICKERS = [
@@ -875,6 +876,7 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave, showNip05 = tr
                       )}
                     />
 
+                    {!isIosApp() && (<>
                     <FormField
                       control={form.control}
                       name="lud16"
@@ -904,6 +906,7 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave, showNip05 = tr
                         </div>
                       )}
                     />
+                    </>)}
 
                     {fields.map((field, index) => (
                       <FieldRow
@@ -973,7 +976,7 @@ export function ProfileSettings({ onSaved, saveLabel, centerSave, showNip05 = tr
                   )}
                 />
 
-                <PaymentTargetsEditor ref={paymentTargetsRef} />
+                {!isIosApp() && <PaymentTargetsEditor ref={paymentTargetsRef} />}
               </div>
             </CollapsibleContent>
           </Collapsible>

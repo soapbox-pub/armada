@@ -11,6 +11,7 @@ import { resetKvCaches } from "@/lib/db/kvCache";
 import { resetDecryptConsent } from "@/lib/decryptConsent";
 import { clearEvictedMediaMemory } from "@/lib/evictMessageMedia";
 import { FONT_SCALE_KEY } from "@/lib/fontScale";
+import { TERMS_ACCEPTED_KEY } from "@/lib/platform";
 import { EFFECT_KEYS } from "@/lib/reducedMotion";
 import { closeDmEphemeralSubs } from "@/lib/nip17/ephemeralInbox";
 import { clearFoldedMemory } from "@/lib/foldedCache";
@@ -69,6 +70,8 @@ const PRESERVE_LOCAL_STORAGE_KEYS = new Set<string>([
   LOCALE_KEY,
   // And the motion and effects switches.
   ...EFFECT_KEYS,
+  // A device's agreement to the Terms, not an account's.
+  TERMS_ACCEPTED_KEY,
 ]);
 
 /**

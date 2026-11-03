@@ -77,6 +77,7 @@ import { common, useIntl } from "@/i18n";
 import { appVersionLabel } from "@/lib/appVersion";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { isDesktop } from "@/lib/desktop";
+import { isIosApp } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 
 import type { LucideIcon } from "lucide-react";
@@ -255,7 +256,7 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
         ),
       };
       // Reachable even with zaps off, since its enable toggle lives inside.
-      pages.wallet = {
+      if (!isIosApp()) pages.wallet = {
         title: intl.formatMessage({ id: "settingsPage.wallet.title", defaultMessage: "Wallet" }),
         icon: Zap,
         tone: "warning",

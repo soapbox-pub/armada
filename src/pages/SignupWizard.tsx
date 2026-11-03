@@ -11,6 +11,8 @@ import {
   useSignupKey,
 } from "@/components/onboarding/signupSteps";
 import { SignupTerms } from "@/components/onboarding/SignupTerms";
+import { TermsGate } from "@/components/onboarding/TermsGate";
+import { termsNeeded } from "@/lib/platform";
 import { Button } from "@/components/ui/button";
 import { FormattedMessage } from "@/i18n";
 import { useAppContext } from "@/hooks/useAppContext";
@@ -52,6 +54,7 @@ export function SignupWizard({ onExit }: SignupWizardProps) {
   const [join, setJoin] = useState<JoinLink | undefined>(() => peekPendingJoin());
   // `null` is the join confirmation step.
   const [step, setStep] = useState<WizardStep | null>(() => (peekPendingJoin() ? null : "create"));
+  const [termsOk, setTermsOk] = useState(() => !termsNeeded());
   const dismissJoin = () => {
     clearPendingJoin();
     setJoin(undefined);
@@ -119,9 +122,17 @@ export function SignupWizard({ onExit }: SignupWizardProps) {
   };
 
   useEffect(() => {
-    if (step === "create") void createAccount();
+    if (step === "create" && termsOk) void createAccount();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
+  }, [step, termsOk]);
+
+  if (step === "create" && !termsOk) {
+    return (
+      <WizardShell index={0} total={0} stepKey="terms" onClose={onExit}>
+        <TermsGate onAccepted={() => setTermsOk(true)} />
+      </WizardShell>
+    );
+  }
 
   if (step === "create") {
     return (

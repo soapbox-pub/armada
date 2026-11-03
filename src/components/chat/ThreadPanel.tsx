@@ -56,6 +56,7 @@ import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { isTombstoneRoot } from "@/concord/hooks/useConcordThreads";
 import { ComposerBoundsProvider, getComposerCollisionPadding, useComposerBoundsRef } from "@/contexts/ComposerBoundsContext";
 import { contextActionsAt, keepSelectionOnRightPress, withImageActions } from "@/contexts/ChatImageMenuContext";
+import { isIosApp } from "@/lib/platform";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
 import { fullDateTime, shortClockTime, shortTimeAgo } from "@/lib/formatTime";
@@ -621,7 +622,7 @@ export function ThreadPanel({ root, rootTitle, transport, relayUrl, groupId, can
   const rootMuted = mutesReady && mutedPubkeys.has(root.pubkey);
   const { config } = useAppContext();
   const reactionsFor = transport.reactionsFor;
-  const zapsFor = transport.zapsFor;
+  const zapsFor = isIosApp() ? undefined : transport.zapsFor;
   const zapEnabled = config.zapsEnabled && Boolean(transport.zapsFor);
   const onSendZap = transport.sendZap;
   const onSendOnchainZap = transport.sendOnchainZap;

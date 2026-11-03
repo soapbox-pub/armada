@@ -46,6 +46,7 @@ import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { useToast } from "@/hooks/useToast";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
 import { AppContext } from "@/contexts/AppContext";
+import { isIosApp } from "@/lib/platform";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
 import { getComposerCollisionPadding, useComposerBoundsRef } from "@/contexts/ComposerBoundsContext";
 import { ChatImageMenuContext, contextActionsAt, keepSelectionOnRightPress, withImageActions, type ChatImageMenu } from "@/contexts/ChatImageMenuContext";
@@ -827,7 +828,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
   );
 
   const zapPill =
-    !isEditing && zaps && zaps.tally.count > 0 ? (
+    !isEditing && !isIosApp() && zaps && zaps.tally.count > 0 ? (
       <ZapPill tally={zaps.tally} canZap={canZap} onZap={() => setZapOpen(true)} />
     ) : null;
 

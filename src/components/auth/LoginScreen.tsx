@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { ArmadaKey } from '@/components/brand/ArmadaCrest';
 import { SignupTerms } from '@/components/onboarding/SignupTerms';
 import { WizardShell } from '@/components/onboarding/WizardShell';
+import { TermsGate } from '@/components/onboarding/TermsGate';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   DropdownMenu,
@@ -374,6 +375,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ isOpen, onClose, onLogin, onS
     // Portalled to <body>: a transformed ancestor (SwipeReveal) would otherwise
     // become the containing block for `position: fixed` and clip the takeover.
     <WizardShell index={0} total={0} stepKey={view} zClassName="z-[255]" onClose={onClose}>
+      <TermsGate>
       <div className="flex flex-col items-center gap-8 text-center">
         <ArmadaKey size={110} />
 
@@ -594,6 +596,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ isOpen, onClose, onLogin, onS
           )}
         </div>
       </div>
+      </TermsGate>
     </WizardShell>,
     document.body,
   );

@@ -27,6 +27,27 @@ export function hasNativeNotificationService(): boolean {
   return Capacitor.getPlatform() === "android";
 }
 
+/**
+ * The App Store iOS app: no zaps or wallet (App Review guideline 3.1.5 reads
+ * them as a crypto exchange), and terms are agreed to explicitly (1.2).
+ */
+export function isIosApp(): boolean {
+  return Capacitor.getPlatform() === "ios";
+}
+
+/** Device-wide record that the iOS app's explicit Terms agreement was given. */
+export const TERMS_ACCEPTED_KEY = "armada:terms-accepted";
+
+/** Whether this device still has to agree to the Terms before an account is used or made. */
+export function termsNeeded(): boolean {
+  if (!isIosApp()) return false;
+  try {
+    return localStorage.getItem(TERMS_ACCEPTED_KEY) !== "1";
+  } catch {
+    return true;
+  }
+}
+
 /** Normalize a relay URL: require ws/wss scheme, strip trailing slash. */
 export function normalizeRelayUrl(url: string): string | undefined {
   let value = url.trim();

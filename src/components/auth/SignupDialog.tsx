@@ -4,6 +4,8 @@ import type { NostrEvent } from '@nostrify/nostrify';
 
 import { ProfileStepBody } from '@/components/onboarding/ProfileStep';
 import { WizardShell } from '@/components/onboarding/WizardShell';
+import { TermsGate } from '@/components/onboarding/TermsGate';
+import { termsNeeded } from '@/lib/platform';
 import {
   CreatingAccountStepBody,
   signupIdentity,
@@ -47,6 +49,7 @@ const SignupDialog: React.FC<SignupDialogProps> = ({ isOpen, onClose, onComplete
   // One login per attempt; `createFailed` offers the retry.
   const creatingRef = useRef(false);
   const [createFailed, setCreateFailed] = useState(false);
+  const [termsOk, setTermsOk] = useState(() => !termsNeeded());
 
   // Awaited: the profile step renders on `user`, and a rejected persist must be handled.
   const createAccount = async (nsec: string, home: string[]) => {
@@ -80,7 +83,7 @@ const SignupDialog: React.FC<SignupDialogProps> = ({ isOpen, onClose, onComplete
 
   // Opening the dialog IS the request to create an account.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !termsOk) return;
     setStep('create');
     const fresh = defaultSignupSetup(config.appRelays, config);
     setSetup(fresh);
@@ -88,7 +91,7 @@ const SignupDialog: React.FC<SignupDialogProps> = ({ isOpen, onClose, onComplete
     creatingRef.current = false;
     void createAccount(signupKey.reset(), fresh.home);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, termsOk]);
 
   // Backstop for an unmount that skips finishOnboarding.
   useEffect(() => () => setOnboardingActive(false), []);
@@ -102,6 +105,14 @@ const SignupDialog: React.FC<SignupDialogProps> = ({ isOpen, onClose, onComplete
   };
 
   if (!isOpen) return null;
+
+  if (!termsOk) {
+    return (
+      <WizardShell index={0} total={0} stepKey="terms" zClassName="z-[255]" onClose={onClose}>
+        <TermsGate onAccepted={() => setTermsOk(true)} />
+      </WizardShell>
+    );
+  }
 
   if (step === 'create') {
     return (

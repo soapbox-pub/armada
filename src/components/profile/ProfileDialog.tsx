@@ -34,6 +34,7 @@ import { isValidBlurhash } from "@/lib/blurhash";
 import { imetaFor } from "@/lib/profileImeta";
 import { ChromeDialogContent, Dialog } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { isIosApp } from "@/lib/platform";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -229,6 +230,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
   const shortNpub = npub ? `${npub.slice(0, 12)}…${npub.slice(-6)}` : "";
   const fields = useMemo(() => parseProfileFields(author.data?.event?.content), [author.data?.event]);
   const website = sanitizeUrl(metadata?.website);
+  const lud16 = isIosApp() ? undefined : metadata?.lud16;
   const dittoHref = dittoProfileUrl(pubkey);
   const moderation = useUserModeration(pubkey);
   const { isFollowing, isPending: followPending, toggle: toggleFollow } = useFollowToggle(pubkey);
@@ -563,18 +565,18 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
           {painted && (
           <div className="mt-3 md:mt-4 grid gap-3 md:gap-4 lg:grid-cols-[1fr_18rem] items-start">
             <div className="space-y-3 md:space-y-4 min-w-0">
-              {(fields.length > 0 || website || metadata?.lud16) && (
+              {(fields.length > 0 || website || lud16) && (
                 <section className={cn("clip-corner-lg p-4 md:p-5", card)}>
                   <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
                     <FormattedMessage id="profileDialog.about" defaultMessage="About" />
                   </h2>
                   <div className="space-y-4">
-                    {metadata?.lud16 && (
+                    {lud16 && (
                       <div>
                         <div className="text-sm font-semibold"><FormattedMessage id="profileDialog.lightning" defaultMessage="Lightning" /></div>
                         <div className="mt-0.5 flex items-center gap-1.5 text-sm">
                           <Zap className="size-4 shrink-0 text-primary" />
-                          <span className="break-all">{metadata.lud16}</span>
+                          <span className="break-all">{lud16}</span>
                         </div>
                       </div>
                     )}

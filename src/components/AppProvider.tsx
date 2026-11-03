@@ -16,6 +16,7 @@ import { setPowDifficulty } from "@/lib/pow";
 import { useThemePreview } from "@/lib/themePreview";
 import { hslStringToHex, isDarkTheme } from "@/lib/colorUtils";
 import { applyPaneWidth } from "@/lib/paneWidth";
+import { isIosApp } from "@/lib/platform";
 import { syncNativeStatusBar } from "@/lib/statusBar";
 import {
   buildThemeCssFromCore,
@@ -145,8 +146,9 @@ export function AppProvider({ storageKey, children }: AppProviderProps) {
 
   // Memoized: dozens of files (and NostrProvider) read this context.
   // `setConfig` is reference-stable.
+  // Read-side only, so the stored choice survives for other platforms' builds.
   const value = useMemo(
-    () => ({ config, updateConfig: setConfig }),
+    () => ({ config: isIosApp() && config.zapsEnabled ? { ...config, zapsEnabled: false } : config, updateConfig: setConfig }),
     [config, setConfig],
   );
 
