@@ -80,6 +80,16 @@ public enum AvatarCache {
         evict(in: directory)
     }
 
+    /// Total bytes of the cached avatars, for Settings › Storage.
+    static func bytes(in directory: URL) -> Int {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.fileSizeKey]
+        ) else { return 0 }
+        return entries.reduce(0) { total, entry in
+            total + ((try? entry.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        }
+    }
+
     /// Drop the least recently used entries past `maxEntries`.
     static func evict(in directory: URL) {
         let files = FileManager.default
@@ -124,6 +134,11 @@ public enum AvatarCache {
         public static func store(url: String, data: Data) {
             guard let directory = directory() else { return }
             store(url: url, data: data, in: directory)
+        }
+
+        public static func bytes() -> Int {
+            guard let directory = directory() else { return 0 }
+            return bytes(in: directory)
         }
 
         /// Forget every cached avatar. Called alongside the config on logout,

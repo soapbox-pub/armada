@@ -376,6 +376,25 @@ final class ArmadaDbTests: XCTestCase {
         XCTAssertEqual(try db.query(tenant: "b", filters: filters("{}")).map { $0.id }, ["two"])
     }
 
+    // MARK: - usage
+
+    func testUsageCountsAndSizesRumorsPerTenantInUtf8Bytes() throws {
+        let db = try open()
+        try db.event(tenant: "b", rumor: try rumor(id: "b1"))
+        try db.event(tenant: "t", rumor: try rumor(id: "x", pubkey: "pk", tags: [["p", "q"]], content: "é"))
+        try db.kvSet("k", "\"é\"")
+
+        let usage = try db.usage()
+
+        XCTAssertEqual(usage.tenants.map { $0.id }, ["b", "t"])
+        XCTAssertEqual(usage.tenants.map { $0.rumors }, [1, 1])
+        // "é" (2) + '[["p","q"]]' (11) + "x" (1) + "pk" (2), as `ArmadaDB.test.ts` asserts.
+        XCTAssertEqual(usage.tenants[1].bytes, 16)
+        XCTAssertEqual(usage.kvEntries, 1)
+        XCTAssertEqual(usage.kvBytes, 5)
+        XCTAssertGreaterThan(usage.fileBytes, 0)
+    }
+
     // MARK: - forget (removed from this device)
 
     func testForgetDeletesTheIdFromEveryTenantAndLeavesTheRest() throws {

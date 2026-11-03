@@ -68,6 +68,17 @@ final class AvatarCacheTests: XCTestCase {
         XCTAssertNil(AvatarCache.cached(url: url, in: dir))
     }
 
+    func testBytesSumsTheCachedFiles() {
+        XCTAssertEqual(AvatarCache.bytes(in: dir), 0)
+        AvatarCache.store(url: url, data: Data([1, 2, 3]), in: dir)
+        AvatarCache.store(url: "https://example.com/bob.png", data: Data([4, 5]), in: dir)
+        XCTAssertEqual(AvatarCache.bytes(in: dir), 5)
+    }
+
+    func testBytesOfAMissingDirectoryIsZero() {
+        XCTAssertEqual(AvatarCache.bytes(in: dir.appendingPathComponent("absent")), 0)
+    }
+
     /// Eviction keeps the cache bounded. The exact victims are timestamp-driven
     /// and not worth pinning; the count is.
     func testEvictsDownToTheEntryCap() {

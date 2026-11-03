@@ -16,6 +16,7 @@ export type SettingsPageId =
   | "emojis"
   | "relays"
   | "wallet"
+  | "storage"
   | "desktop"
   | "diagnostics"
   | "support"
@@ -47,7 +48,7 @@ const SECTION_PAGE: Record<string, SettingsPageId> = {
 
 const PAGE_IDS = new Set<string>([
   "profile", "ultra", "account", "notifications", "privacy", "blocked", "muted-words", "appearance", "chat",
-  "dms", "voice", "emojis", "relays", "wallet", "desktop", "diagnostics", "support", "about",
+  "dms", "voice", "emojis", "relays", "wallet", "storage", "desktop", "diagnostics", "support", "about",
 ] satisfies SettingsPageId[]);
 
 function isPageId(id: string): id is SettingsPageId {

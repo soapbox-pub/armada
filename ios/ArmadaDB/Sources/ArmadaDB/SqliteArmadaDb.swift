@@ -240,6 +240,39 @@ public final class SqliteArmadaDb {
         return try db.query("SELECT id FROM tenants ORDER BY ord") { $0.text(0) }
     }
 
+    /// One tenant's share of `usage()`.
+    public struct TenantUsage: Equatable {
+        public let id: String
+        public let rumors: Int64
+        public let bytes: Int64
+    }
+
+    /// `ArmadaDB.usage`: the same SQL as `SqliteArmadaDB.ts`, so the three engines report alike.
+    public struct Usage {
+        public let tenants: [TenantUsage]
+        public let kvEntries: Int64
+        public let kvBytes: Int64
+        public let fileBytes: Int64
+    }
+
+    public func usage() throws -> Usage {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let tenants = try db.query(
+            "SELECT t.id AS id, COUNT(*) AS rumors, "
+                + "SUM(length(CAST(r.content AS BLOB)) + length(CAST(r.tags AS BLOB)) + length(r.id) + length(r.pubkey)) AS bytes "
+                + "FROM rumors r JOIN tenants t ON t.ord = r.tenant GROUP BY r.tenant ORDER BY t.id"
+        ) { TenantUsage(id: $0.text(0), rumors: $0.int(1), bytes: $0.int(2)) }
+        let kv = try db.query(
+            "SELECT COUNT(*) AS entries, "
+                + "COALESCE(SUM(length(CAST(key AS BLOB)) + length(CAST(value AS BLOB))), 0) AS bytes FROM kv"
+        ) { ($0.int(0), $0.int(1)) }.first ?? (0, 0)
+        let pages = try db.query("PRAGMA page_count") { $0.int(0) }.first ?? 0
+        let pageSize = try db.query("PRAGMA page_size") { $0.int(0) }.first ?? 0
+        return Usage(tenants: tenants, kvEntries: kv.0, kvBytes: kv.1, fileBytes: pages * pageSize)
+    }
+
     // MARK: - Write path
 
     /// Store one rumor. Committed when this returns.

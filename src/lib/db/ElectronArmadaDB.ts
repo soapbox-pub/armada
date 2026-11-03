@@ -42,5 +42,6 @@ function electronBridge(call: (op: string, payload?: unknown) => Promise<unknown
     kvOps: (options) => send("kvOps", options),
     wipe: () => send("wipe"),
     forget: (options) => send("forget", options),
+    usage: () => send("usage"),
   };
 }

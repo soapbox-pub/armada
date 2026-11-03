@@ -4,8 +4,8 @@ import WebKit
 
 /// The app's Capacitor view controller. It exists to:
 ///
-/// 1. register the app-local plugins (`ArmadaDbPlugin`, `ArmadaPushPlugin`, and
-///    `ArmadaYouTubePlugin`), and
+/// 1. register the app-local plugins (`ArmadaDbPlugin`, `ArmadaPushPlugin`,
+///    `ArmadaYouTubePlugin` and `ArmadaStoragePlugin`), and
 /// 2. limit the native bridge to the app's own top-level document
 ///    (`MainFrameBridgeGate`).
 ///
@@ -24,6 +24,7 @@ class ViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(ArmadaDbPlugin())
         bridge?.registerPluginInstance(ArmadaPushPlugin())
         bridge?.registerPluginInstance(ArmadaYouTubePlugin())
+        bridge?.registerPluginInstance(ArmadaStoragePlugin())
         MainFrameBridgeGate.install(on: bridge)
     }
 }

@@ -82,6 +82,26 @@ final class ArmadaDbBridgeTests: XCTestCase {
         XCTAssertEqual(tenants.compactMap { $0 as? String }, ["main", "c2:abc"])
     }
 
+    func testUsageIsTheArmadaDBUsageShape() throws {
+        let bridge = try open()
+        try bridge.event(tenant: "c2:\"x\"", rumors: "[\(rumorJson(id: "a"))]")
+        try bridge.kvSet(key: "k", value: "1")
+
+        let usage = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(try bridge.usage().utf8)) as? [String: Any]
+        )
+        let tenants = try XCTUnwrap(usage["tenants"] as? [[String: Any]])
+        XCTAssertEqual(tenants.count, 1)
+        XCTAssertEqual(tenants[0]["id"] as? String, "c2:\"x\"")
+        XCTAssertEqual(tenants[0]["rumors"] as? Int, 1)
+        // "hello" (5) + '[["channel","c1"]]' (18) + "a" (1) + "alice" (5)
+        XCTAssertEqual(tenants[0]["bytes"] as? Int, 29)
+        let kv = try XCTUnwrap(usage["kv"] as? [String: Any])
+        XCTAssertEqual(kv["entries"] as? Int, 1)
+        XCTAssertEqual(kv["bytes"] as? Int, 2)
+        XCTAssertGreaterThan(try XCTUnwrap(usage["fileBytes"] as? Int), 0)
+    }
+
     /// A filter list that didn't parse is a programming error on the JS side.
     /// Answering it with "no constraints" would hand back the whole tenant,
     /// which is the opposite of what a narrowing query should do.

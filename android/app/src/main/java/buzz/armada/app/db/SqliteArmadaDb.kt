@@ -186,6 +186,36 @@ class SqliteArmadaDb(
         db.query("SELECT id FROM tenants ORDER BY ord") { it.text(0) }
     }
 
+    /** One tenant's share of [usage]. */
+    data class TenantUsage(val id: String, val rumors: Long, val bytes: Long)
+
+    /** `ArmadaDB.usage`: the same SQL as `SqliteArmadaDB.ts`, so the three engines report alike. */
+    data class Usage(val tenants: List<TenantUsage>, val kvEntries: Long, val kvBytes: Long, val fileBytes: Long) {
+        fun toJson(): String = JSONObject()
+            .put(
+                "tenants",
+                JSONArray(tenants.map { JSONObject().put("id", it.id).put("rumors", it.rumors).put("bytes", it.bytes) }),
+            )
+            .put("kv", JSONObject().put("entries", kvEntries).put("bytes", kvBytes))
+            .put("fileBytes", fileBytes)
+            .toString()
+    }
+
+    fun usage(): Usage = lock.withLock {
+        val tenants = db.query(
+            "SELECT t.id AS id, COUNT(*) AS rumors, " +
+                "SUM(length(CAST(r.content AS BLOB)) + length(CAST(r.tags AS BLOB)) + length(r.id) + length(r.pubkey)) AS bytes " +
+                "FROM rumors r JOIN tenants t ON t.ord = r.tenant GROUP BY r.tenant ORDER BY t.id",
+        ) { TenantUsage(it.text(0), it.long(1), it.long(2)) }
+        val kv = db.query(
+            "SELECT COUNT(*) AS entries, " +
+                "COALESCE(SUM(length(CAST(key AS BLOB)) + length(CAST(value AS BLOB))), 0) AS bytes FROM kv",
+        ) { it.long(0) to it.long(1) }.first()
+        val pages = db.query("PRAGMA page_count") { it.long(0) }.first()
+        val pageSize = db.query("PRAGMA page_size") { it.long(0) }.first()
+        Usage(tenants, kv.first, kv.second, pages * pageSize)
+    }
+
     // ── Write path ────────────────────────────────────────────────────────────
 
     /** Store one rumor. Committed when this returns. */

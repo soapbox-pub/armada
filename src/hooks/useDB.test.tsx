@@ -63,6 +63,7 @@ describe("useDB", () => {
       tenant: vi.fn(),
       kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
       forget: vi.fn(),
+      usage: vi.fn(),
     };
     const { result } = renderHook(() => useDB(), {
       wrapper: ({ children }) => <ArmadaDBProvider db={db}>{children}</ArmadaDBProvider>,

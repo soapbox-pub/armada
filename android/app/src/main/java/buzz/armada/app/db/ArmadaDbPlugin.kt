@@ -211,6 +211,18 @@ class ArmadaDbPlugin : Plugin() {
         }
     }
 
+    /** What the store holds, for Settings › Storage, as JSON text. */
+    @PluginMethod
+    fun usage(call: PluginCall) = onDbThread { profiled(call, "usage") { usageNow(call) } }
+
+    private fun usageNow(call: PluginCall) {
+        try {
+            call.resolve(JSObject().put("usage", db.usage().toJson()))
+        } catch (error: Exception) {
+            call.reject(error.message, error)
+        }
+    }
+
     // ── KV ────────────────────────────────────────────────────────────────────
     //
     // Values cross as the JSON text the WebView serialized. Nothing here parses

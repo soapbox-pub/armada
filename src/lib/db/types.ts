@@ -132,6 +132,21 @@ export interface ArmadaDB {
    * delivers them (the Android service and iOS extension share the engine).
    */
   forget(ids: readonly string[]): Promise<void>;
+  /** What the store holds, for Settings › Storage. Read-only. */
+  usage(): Promise<ArmadaDBUsage>;
+}
+
+/**
+ * {@link ArmadaDB.usage}. Sizes exist only where the engine can measure them
+ * (SQLite); IndexedDB can count rows but not size one database.
+ */
+export interface ArmadaDBUsage {
+  /** Every tenant holding rumors, with the bytes of its rows' JSON (indexes excluded). */
+  tenants: { id: string; rumors: number; bytes?: number }[];
+  /** The KV store: entries, and bytes of keys plus value text. */
+  kv?: { entries: number; bytes: number };
+  /** The whole file, indexes and free pages included. */
+  fileBytes?: number;
 }
 
 export interface ArmadaDBOpts {

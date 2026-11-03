@@ -290,6 +290,26 @@ class ArmadaDbTest {
         assertEquals(listOf("two"), db.query("b", filters("{}")).map { it.id })
     }
 
+    // ── usage ─────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `usage counts and sizes rumors per tenant in UTF-8 bytes`() {
+        val db = open()
+        db.event("b", rumor(id = "b1"))
+        db.event("t", rumor(id = "x", pubkey = "pk", content = "é", tags = listOf(listOf("p", "q"))))
+        db.kvSet("k", "\"é\"")
+
+        val usage = db.usage()
+
+        assertEquals(listOf("b", "t"), usage.tenants.map { it.id })
+        assertEquals(listOf(1L, 1L), usage.tenants.map { it.rumors })
+        // "é" (2) + '[["p","q"]]' (11) + "x" (1) + "pk" (2), as `ArmadaDB.test.ts` asserts.
+        assertEquals(16L, usage.tenants[1].bytes)
+        assertEquals(1L, usage.kvEntries)
+        assertEquals(5L, usage.kvBytes)
+        assertTrue(usage.fileBytes > 0)
+    }
+
     // ── forget (removed from this device) ─────────────────────────────────────
 
     @Test

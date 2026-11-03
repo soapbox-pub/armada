@@ -190,6 +190,32 @@ export async function cachedMediaUrl(hash: string): Promise<string | undefined> 
   return url;
 }
 
+/** Entries and bytes held, from the index (synchronous). */
+export function mediaCacheUsage(): { entries: number; bytes: number } {
+  if (!available()) return { entries: 0, bytes: 0 };
+  let bytes = 0;
+  const entries = Object.values(loadIndex());
+  for (const e of entries) bytes += e.b;
+  return { entries: entries.length, bytes };
+}
+
+/**
+ * Settings › Storage: empty the cache. Object URLs already handed out stay
+ * valid (they are memory, and may be on screen); everything else re-downloads.
+ */
+export async function clearMediaCache(): Promise<void> {
+  index = {};
+  clearTimeout(persistTimer);
+  persistTimer = undefined;
+  try {
+    localStorage.removeItem(INDEX_KEY);
+  } catch { /* the cache below is what matters */ }
+  if (typeof caches === "undefined") return;
+  try {
+    await caches.delete(CACHE_NAME);
+  } catch { /* best effort */ }
+}
+
 /** Logout: drop this session's object URLs (Cache Storage itself is purged with the rest). */
 export function clearMediaCacheMemory(): void {
   forgotten.clear();

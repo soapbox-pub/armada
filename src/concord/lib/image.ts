@@ -92,6 +92,25 @@ async function writeCached(hash: string, plaintext: Uint8Array, mime: string): P
   }
 }
 
+/** Settings › Storage: images held, and their bytes. */
+export async function communityImageCacheUsage(): Promise<{ entries: number; bytes: number }> {
+  if (typeof caches === "undefined" || !(await caches.has(CACHE_NAME))) return { entries: 0, bytes: 0 };
+  const cache = await caches.open(CACHE_NAME);
+  let bytes = 0;
+  const requests = await cache.keys();
+  for (const request of requests) {
+    const res = await cache.match(request);
+    if (res) bytes += (await res.blob()).size;
+  }
+  return { entries: requests.length, bytes };
+}
+
+/** Settings › Storage: drop every cached icon and banner; each decrypts again on next view. */
+export async function clearCommunityImageCache(): Promise<void> {
+  if (typeof caches === "undefined") return;
+  await caches.delete(CACHE_NAME);
+}
+
 /**
  * Fetch + decrypt an {@link ImagePointer} to an object URL (caller revokes).
  * Verifies SHA-256; content-addressed Cache Storage skips re-fetch across reloads.

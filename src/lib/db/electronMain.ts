@@ -168,6 +168,10 @@ export function openArmadaDbServer(file: string): ArmadaDbServer {
     async forget({ ids }) {
       await db.forget(JSON.parse(String(ids)) as string[]);
     },
+
+    async usage() {
+      return { usage: JSON.stringify(await db.usage()) };
+    },
   };
 
   return {

@@ -92,6 +92,23 @@ public final class ArmadaDbBridge {
         return String(decoding: out, as: UTF8.self)
     }
 
+    /// What the store holds, for Settings › Storage, in `ArmadaDBUsage`'s shape.
+    public func usage() throws -> String {
+        let usage = try db.usage()
+        var out = [UInt8]()
+        out.append(contentsOf: Array("{\"tenants\":[".utf8))
+        for (index, tenant) in usage.tenants.enumerated() {
+            if index > 0 { out.append(UInt8(ascii: ",")) }
+            out.append(contentsOf: Array("{\"id\":".utf8))
+            JsonText.quote(&out, tenant.id)
+            out.append(contentsOf: Array(",\"rumors\":\(tenant.rumors),\"bytes\":\(tenant.bytes)}".utf8))
+        }
+        out.append(contentsOf: Array(
+            "],\"kv\":{\"entries\":\(usage.kvEntries),\"bytes\":\(usage.kvBytes)},\"fileBytes\":\(usage.fileBytes)}".utf8
+        ))
+        return String(decoding: out, as: UTF8.self)
+    }
+
     /// Empty every table (logout purge). The file and its schema survive.
     public func wipe() throws {
         try db.wipe()

@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Download,
   Gem,
+  HardDrive,
   Info,
   LifeBuoy,
   MessageSquare,
@@ -61,6 +62,7 @@ import {
   type SettingsPageId,
 } from "@/components/settings/settingsNav";
 import { useSettingsFilter } from "@/components/settings/settingsSearch";
+import { StorageSettings } from "@/components/settings/StorageSettings";
 import { UltraSettings } from "@/components/settings/UltraSettings";
 import { VoiceSettings } from "@/components/settings/VoiceSettings";
 import { WalletSettings } from "@/components/settings/WalletSettings";
@@ -268,6 +270,13 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
         ),
       };
     }
+    pages.storage = {
+      title: intl.formatMessage({ id: "settingsPage.storage.title", defaultMessage: "Storage" }),
+      icon: HardDrive,
+      tone: "muted",
+      summary: intl.formatMessage({ id: "settingsPage.storage.summary", defaultMessage: "What's kept on this device" }),
+      render: () => <StorageSettings />,
+    };
     if (isDesktop()) {
       pages.desktop = {
         title: intl.formatMessage({ id: "settingsPage.desktop.title", defaultMessage: "Desktop" }),
@@ -299,7 +308,7 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
       ["ultra"],
       ["account", "notifications", "privacy"],
       ["appearance", "chat", "dms", "voice", "emojis"],
-      ["relays", "wallet", "desktop", "diagnostics"],
+      ["relays", "wallet", "storage", "desktop", "diagnostics"],
       ["support", "about"],
     ];
     return { pages, groups: groups.map((ids) => ids.filter((id) => pages[id])).filter((ids) => ids.length > 0) };

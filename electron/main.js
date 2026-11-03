@@ -1867,6 +1867,9 @@ function installIpc() {
   ipcMain.handle("armada:low-memory-mode", lowMemoryState);
   // Bytes of an image whose host sends no CORS headers (see imageFetch.js).
   handleFromMainWindow("armada:fetch-image", (_event, url) => fetchImage(typeof url === "string" ? url : ""));
+  // Chromium's HTTP cache, for Settings › Storage.
+  handleFromMainWindow("armada:web-cache-size", () => session.defaultSession.getCacheSize());
+  handleFromMainWindow("armada:clear-web-cache", () => session.defaultSession.clearCache());
   handleFromMainWindow("armada:set-low-memory-mode", (_event, on) => {
     try {
       writeLowMemoryMode(on === true, { userDataPath: app.getPath("userData") });

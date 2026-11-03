@@ -38,6 +38,7 @@ public class ArmadaDbPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "kvOps", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "wipe", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "forget", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "usage", returnType: CAPPluginReturnPromise),
     ]
 
     /// The store, opened on first use.
@@ -136,6 +137,15 @@ public class ArmadaDbPlugin: CAPPlugin, CAPBridgedPlugin {
         do {
             try db().forget(ids: ids)
             call.resolve()
+        } catch {
+            call.reject("\(error)")
+        }
+    }
+
+    /// What the store holds, for Settings › Storage, as JSON text.
+    @objc func usage(_ call: CAPPluginCall) {
+        do {
+            call.resolve(["usage": try db().usage()])
         } catch {
             call.reject("\(error)")
         }

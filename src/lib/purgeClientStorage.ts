@@ -54,6 +54,7 @@ import { ArmadaNotification } from "@/lib/nativeNotifications";
 import { clearIosPushConfig } from "@/lib/nativePush";
 import { hasNativeNotificationService } from "@/lib/platform";
 import { STAGING_DIR as CALL_RECORDING_STAGING_DIR } from "@/lib/callRecording/protocol";
+import { RETIRED_DATABASES, RETIRED_OPFS_DIR } from "@/lib/retiredStorage";
 
 /**
  * localStorage keys that survive a purge. `armada:login` is mutated by
@@ -75,26 +76,11 @@ const PRESERVE_LOCAL_STORAGE_KEYS = new Set<string>([
 ]);
 
 /**
- * Pre-ArmadaDB databases. Upgraded installs may still hold them (undrained, with
- * decrypted data), so logout keeps deleting them.
- */
-const RETIRED_DATABASES = [
-  "armada-concord-cache",
-  "armada-decrypt-cache",
-  "armada-concord-invites",
-  "armada-dm17-rumors",
-  "armada-concord-rumors",
-  "armada-events",
-  "armada-relay-provenance",
-  "armada-concord-pending",
-];
-
-/**
  * Remove the retired SQLite-WASM store's OPFS directory, still present on
  * upgraded devices, and any staged call recording (decrypted call audio).
  */
 async function purgeOrphanedOpfs(): Promise<void> {
-  for (const dir of [".armada-sqlite", CALL_RECORDING_STAGING_DIR]) {
+  for (const dir of [RETIRED_OPFS_DIR, CALL_RECORDING_STAGING_DIR]) {
     try {
       const root = await navigator.storage?.getDirectory?.();
       await root?.removeEntry(dir, { recursive: true });

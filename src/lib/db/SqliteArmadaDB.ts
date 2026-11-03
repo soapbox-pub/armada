@@ -44,6 +44,7 @@ import type { ArmadaSqlDriver, SqlRow, SqlValue } from "./driver";
 import type {
   ArmadaDB,
   ArmadaDBOpts,
+  ArmadaDBUsage,
   ArmadaKV,
   ArmadaKVEntry,
   ArmadaKVListOptions,
@@ -91,6 +92,16 @@ const BACKFILL_PAGE = 500;
 const RUMOR_COLUMNS = "id, kind, pubkey, created_at, tags, content";
 
 const R_RUMOR_COLUMNS = "r.id, r.kind, r.pubkey, r.created_at, r.tags, r.content";
+
+/** Rows and their stored bytes per tenant. `CAST … AS BLOB` measures UTF-8 bytes, not characters. */
+const USAGE_TENANTS_SQL =
+  "SELECT t.id AS id, COUNT(*) AS rumors, " +
+  "SUM(length(CAST(r.content AS BLOB)) + length(CAST(r.tags AS BLOB)) + length(r.id) + length(r.pubkey)) AS bytes " +
+  "FROM rumors r JOIN tenants t ON t.ord = r.tenant GROUP BY r.tenant ORDER BY t.id";
+
+const USAGE_KV_SQL =
+  "SELECT COUNT(*) AS entries, " +
+  "COALESCE(SUM(length(CAST(key AS BLOB)) + length(CAST(value AS BLOB))), 0) AS bytes FROM kv";
 
 export interface SqliteArmadaDBOpts extends ArmadaDBOpts {
   /** Install the schema on construction (default `true`; `false` when the transport owns it). */
@@ -280,6 +291,20 @@ export class SqliteArmadaDB implements ArmadaDB {
 
     // Policies stay bound; empty tenants need no backfill.
     this.backfills.clear();
+  }
+
+  /** See {@link ArmadaDB.usage}; the Kotlin and Swift ports run the same SQL. */
+  async usage(): Promise<ArmadaDBUsage> {
+    await this.ready;
+    const tenants = await this.all(USAGE_TENANTS_SQL);
+    const [kv] = await this.all(USAGE_KV_SQL);
+    const [pages] = await this.all(`PRAGMA page_count`);
+    const [size] = await this.all(`PRAGMA page_size`);
+    return {
+      tenants: tenants.map((row) => ({ id: String(row.id), rumors: Number(row.rumors), bytes: Number(row.bytes) })),
+      kv: { entries: Number(kv?.entries ?? 0), bytes: Number(kv?.bytes ?? 0) },
+      fileBytes: Number(pages?.page_count ?? 0) * Number(size?.page_size ?? 0),
+    };
   }
 
   async close(): Promise<void> {

@@ -798,6 +798,38 @@ describe.each(backends)("$name", ({ create }) => {
     });
   });
 
+  describe("usage", () => {
+    it("counts rumors per tenant and leaves out empty ones", async () => {
+      await db.tenant("b").event(rumor({ id: "b1" }));
+      await db.tenant("a").event(rumor({ id: "a1" }));
+      await db.tenant("a").event(rumor({ id: "a2" }));
+      db.tenant("empty");
+
+      const usage = await db.usage();
+
+      expect(usage.tenants.map(({ id, rumors }) => ({ id, rumors }))).toEqual([
+        { id: "a", rumors: 2 },
+        { id: "b", rumors: 1 },
+      ]);
+    });
+
+    it("sizes rows in UTF-8 bytes where the engine can", async () => {
+      await db.tenant("t").event(rumor({ id: "x", pubkey: "pk", content: "é", tags: [["p", "q"]] }));
+      await db.kv.set("k", "é");
+
+      const usage = await db.usage();
+      if (usage.fileBytes === undefined) {
+        expect(usage.tenants[0].bytes).toBeUndefined();
+        return;
+      }
+      // "é" (2) + '[["p","q"]]' (11) + "x" (1) + "pk" (2)
+      expect(usage.tenants[0].bytes).toBe(16);
+      // "k" (1) + '"é"' (4)
+      expect(usage.kv).toEqual({ entries: 1, bytes: 5 });
+      expect(usage.fileBytes).toBeGreaterThan(0);
+    });
+  });
+
   describe("kv", () => {
     it("returns undefined for a key that was never set", async () => {
       expect(await db.kv.get("missing")).toBeUndefined();

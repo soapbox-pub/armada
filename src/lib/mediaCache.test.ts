@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchCapped } from "@/lib/encryptedMedia";
-import { blobHashOf, cachedBlob, clearMediaCacheMemory, forgetBlob, isMediaCached, storeBlob } from "@/lib/mediaCache";
+import {
+  blobHashOf,
+  cachedBlob,
+  clearMediaCache,
+  clearMediaCacheMemory,
+  forgetBlob,
+  isMediaCached,
+  mediaCacheUsage,
+  storeBlob,
+} from "@/lib/mediaCache";
 
 const H = "a".repeat(64);
 
@@ -48,6 +57,21 @@ describe("storeBlob / cachedBlob", () => {
     await storeBlob(hash, bytes.buffer as ArrayBuffer, "image/jpeg");
     expect(isMediaCached(hash)).toBe(true);
     expect(new Uint8Array(await (await cachedBlob(hash))!.arrayBuffer())).toEqual(bytes);
+  });
+
+  it("reports what it holds and empties on clear", async () => {
+    const deleted: string[] = [];
+    vi.stubGlobal("caches", { ...globalThis.caches, delete: async (name: string) => void deleted.push(name) });
+    const bytes = new TextEncoder().encode("a picture");
+    const hash = await hashOf(bytes);
+    await storeBlob(hash, bytes.buffer as ArrayBuffer, "image/jpeg");
+    expect(mediaCacheUsage()).toEqual({ entries: 1, bytes: bytes.byteLength });
+
+    await clearMediaCache();
+
+    expect(mediaCacheUsage()).toEqual({ entries: 0, bytes: 0 });
+    expect(isMediaCached(hash)).toBe(false);
+    expect(deleted).toEqual(["armada-media-v1"]);
   });
 
   it("refuses bytes that don't hash to the name they'd be stored under", async () => {

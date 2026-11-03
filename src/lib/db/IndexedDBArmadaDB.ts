@@ -26,6 +26,7 @@ import type { NostrRumor } from "@/lib/nostrRumor";
 import type {
   ArmadaDB,
   ArmadaDBOpts,
+  ArmadaDBUsage,
   ArmadaKV,
   ArmadaKVEntry,
   ArmadaKVListOptions,
@@ -1137,6 +1138,15 @@ export class IndexedDBArmadaDB implements ArmadaDB {
   /** Every tenant id with a database: registry plus opened-this-session. */
   async tenantIds(): Promise<string[]> {
     return [...new Set([...(await this.kv.knownTenants()), ...this.stores.keys()])];
+  }
+
+  /** See {@link ArmadaDB.usage}: counts only, since IndexedDB can't size a database. */
+  async usage(): Promise<ArmadaDBUsage> {
+    const ids = (await this.tenantIds()).sort();
+    const counts = await Promise.all(ids.map((id) => this.tenant(id).count([{}]).then(({ count }) => count, () => 0)));
+    return {
+      tenants: ids.map((id, i) => ({ id, rumors: counts[i] })).filter((t) => t.rumors > 0),
+    };
   }
 
   /** A tenant's IndexedDB database name (lets a purge delete without opening). */

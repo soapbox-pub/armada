@@ -20,6 +20,7 @@ import type { NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type {
   ArmadaDB,
+  ArmadaDBUsage,
   ArmadaKV,
   ArmadaKVEntry,
   ArmadaKVListOptions,
@@ -61,6 +62,8 @@ export interface ArmadaDBPlugin {
   wipe(): Promise<void>;
   /** `ArmadaDB.forget`: `ids` is a JSON array string. */
   forget(options: { ids: string }): Promise<void>;
+  /** `ArmadaDB.usage` as JSON text. Absent from builds that predate it. */
+  usage?(): Promise<{ usage: string }>;
 }
 
 let bridge: ArmadaDBPlugin | undefined;
@@ -117,6 +120,17 @@ export class NativeArmadaDB implements ArmadaDB {
   async forget(ids: readonly string[]): Promise<void> {
     if (ids.length === 0) return;
     await perfTime("db.forget", () => this.bridge.forget({ ids: JSON.stringify([...ids]) }));
+  }
+
+  /** A native build without `usage` still answers with row counts. */
+  async usage(): Promise<ArmadaDBUsage> {
+    try {
+      const reply = await this.bridge.usage?.();
+      if (reply) return JSON.parse(reply.usage) as ArmadaDBUsage;
+    } catch { /* an older build: count instead */ }
+    const ids = await this.tenantIds();
+    const counts = await Promise.all(ids.map((id) => this.bridge.count({ tenant: id, filters: "[{}]" }).then(({ count }) => count, () => 0)));
+    return { tenants: ids.map((id, i) => ({ id, rumors: counts[i] })).filter((t) => t.rumors > 0) };
   }
 
   /** Empty every table. Unlike the IndexedDB purge this keeps the connection. */

@@ -170,6 +170,8 @@ interface ArmadaDesktopBridge {
     openAsHidden: boolean;
   }) => Promise<DesktopLaunchSettings>;
   fetchImage?: (url: string) => Promise<{ type: string; data: Uint8Array<ArrayBuffer> } | null>;
+  getWebCacheSize?: () => Promise<number>;
+  clearWebCache?: () => Promise<void>;
   getLowMemoryMode?: () => Promise<DesktopLowMemoryState>;
   setLowMemoryMode?: (on: boolean) => Promise<DesktopLowMemoryState>;
   relaunch?: () => Promise<void>;
@@ -236,6 +238,21 @@ export async function getDesktopLowMemoryState(): Promise<DesktopLowMemoryState 
   } catch {
     return null;
   }
+}
+
+/** Bytes in the shell's HTTP cache, or null where the shell can't say. */
+export async function getDesktopWebCacheSize(): Promise<number | null> {
+  try {
+    return (await desktop()?.getWebCacheSize?.()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearDesktopWebCache(): Promise<void> {
+  try {
+    await desktop()?.clearWebCache?.();
+  } catch { /* nothing cleared */ }
 }
 
 export async function setDesktopLowMemoryMode(on: boolean): Promise<DesktopLowMemoryState | null> {
