@@ -30,6 +30,7 @@ vi.mock("@/hooks/useCustomEmojis", () => ({
 import { ChatContent } from "@/components/chat/ChatContent";
 import { MediaHoldContext } from "@/components/chat/mediaHold";
 import { clearRevealedMedia } from "@/components/chat/revealedMedia";
+import { MutedPubkeysContext } from "@/contexts/MutedPubkeysContext";
 
 afterEach(() => {
   cleanup();
@@ -96,6 +97,23 @@ describe("ChatContent media hold", () => {
   it("is a no-op without a provider", () => {
     renderWith(null);
     expect(screen.queryByText("Image from a new member")).toBeNull();
+  });
+
+  it("holds a blocked author's media without any provider", () => {
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <MutedPubkeysContext.Provider value={{ mutedPubkeys: new Set([STRANGER]), ready: true }}>
+            <ChatContent event={message()} />
+          </MutedPubkeysContext.Provider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("Image from someone you blocked")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Load" }));
+    expect(container.querySelector(`img[src="${EMOJI}"]`)).not.toBeNull();
   });
 
   it("holds audio behind Load", () => {

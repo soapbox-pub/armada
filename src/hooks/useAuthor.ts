@@ -1,7 +1,8 @@
 import { useNostr } from '@nostrify/react';
 import { type QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useContext, useEffect } from 'react';
 
+import { MutedPubkeysContext } from '@/contexts/MutedPubkeysContext';
 import { useEventStore } from '@/hooks/useEventStore';
 import { authorQueryKey, parseAuthorEvent, type AuthorResult } from '@/lib/authorCache';
 import { isUserBannedNow } from '@/lib/bannedUsers';
@@ -54,11 +55,22 @@ export function authorQueryOptions(
 const BANNED: AuthorResult = {};
 const asBanned = (): AuthorResult => BANNED;
 
+/** A blocked user's profile without its images: their picture and banner are theirs to choose. */
+function asBlocked(data: AuthorResult): AuthorResult {
+  const metadata = data.metadata;
+  if (!metadata?.picture && !metadata?.banner && !data.imeta) return data;
+  const stripped = metadata && { ...metadata };
+  delete stripped?.picture;
+  delete stripped?.banner;
+  return { ...data, metadata: stripped, imeta: undefined };
+}
+
 export function useAuthor(pubkey: string | undefined) {
   const { nostr } = useNostr();
   const queryClient = useQueryClient();
   const eventStore = useEventStore();
   const banned = useIsUserBanned()(pubkey);
+  const blocked = useContext(MutedPubkeysContext).mutedPubkeys.has(pubkey ?? '');
 
   // Declare demand to the profile sync topic for the life of the mount.
   useEffect(() => {
@@ -68,6 +80,6 @@ export function useAuthor(pubkey: string | undefined) {
 
   return useQuery<AuthorResult>({
     ...authorQueryOptions(queryClient, eventStore, pubkey),
-    select: banned ? asBanned : undefined,
+    select: banned ? asBanned : blocked ? asBlocked : undefined,
   });
 }

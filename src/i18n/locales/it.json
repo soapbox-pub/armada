@@ -1946,6 +1946,7 @@
   "groupSettingsDialog.topic": "Argomento",
   "groupSettingsDialog.updateFailed": "Aggiornamento non riuscito",
   "heldMedia.alwaysLoad": "Carica sempre da {host}",
+  "heldMedia.blocked": "{kind, select, video {Video di qualcuno che hai bloccato} audio {Audio di qualcuno che hai bloccato} other {{count, plural, one {Immagine di qualcuno che hai bloccato} other {# immagini di qualcuno che hai bloccato}}}}",
   "heldMedia.load": "Carica",
   "heldMedia.loadPreviews": "Carica anteprime",
   "heldMedia.newMember": "{kind, select, video {Video di un nuovo membro} audio {Audio di un nuovo membro} other {{count, plural, one {Immagine di un nuovo membro} other {# immagini di un nuovo membro}}}}",

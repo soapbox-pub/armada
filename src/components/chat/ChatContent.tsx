@@ -12,7 +12,7 @@ import { emojify } from "@/components/chat/emojify";
 import { EmbeddedNaddr, EmbeddedNote } from "@/components/chat/EmbeddedNote";
 import { FileAttachment } from "@/components/chat/FileAttachment";
 import { HeldMedia, HeldPreviews } from "@/components/chat/HeldMedia";
-import { revealMessageMedia, useMediaHeld, useMediaUrlHold, useMessageRevealed } from "@/components/chat/mediaHold";
+import { revealMessageMedia, useAuthorBlocked, useMediaHeld, useMediaUrlHold, useMessageRevealed } from "@/components/chat/mediaHold";
 import { mediaHost } from "@/lib/mediaPolicy";
 import { BuzzInviteEmbed } from "@/components/chat/BuzzInviteEmbed";
 import { Nip29GroupInviteEmbed } from "@/components/chat/Nip29GroupInviteEmbed";
@@ -961,6 +961,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
   // Held media (mediaHold.ts) is never fetched: no sender emoji images, no previews,
   // until the reader loads this message's media.
   const mediaHeld = useMediaHeld(event.pubkey);
+  const authorBlocked = useAuthorBlocked(event.pubkey);
   const mediaLoaded = useMessageRevealed(event.id);
   const holdMedia = mediaHeld && !mediaLoaded;
   const loadMedia = useCallback(() => revealMessageMedia(event.id), [event.id]);
@@ -1252,7 +1253,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
       case "image-embed": {
         if (inQuote) return inlineLink(key, token.url);
         const held = heldReason(token.url) ?? (token.thumb ? heldReason(token.thumb) : undefined);
-        if (held !== undefined) return <HeldMedia key={key} kind="image" host={held || undefined} onLoad={loadMedia} />;
+        if (held !== undefined) return <HeldMedia key={key} kind="image" host={held || undefined} blocked={authorBlocked} onLoad={loadMedia} />;
         const imgIndex = topIndex !== null ? tokenImageIndex.get(topIndex) ?? 0 : 0;
         const image = imageRefOf(token);
         // A spoilered PNG keeps its cover: the card preview would reveal its art.
@@ -1278,7 +1279,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
           .flatMap((u) => [heldReason(u.url), u.thumb ? heldReason(u.thumb) : undefined])
           .find((r) => r !== undefined);
         if (held !== undefined) {
-          return <HeldMedia key={key} kind="image" count={token.urls.length} host={held || undefined} onLoad={loadMedia} />;
+          return <HeldMedia key={key} kind="image" count={token.urls.length} host={held || undefined} blocked={authorBlocked} onLoad={loadMedia} />;
         }
         const galleryStartIndex = topIndex !== null ? tokenImageIndex.get(topIndex) ?? 0 : 0;
         return (
@@ -1348,7 +1349,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         const isAudio = mime.startsWith("audio/") || AUDIO_EXT_URL_REGEX.test(token.url);
         if (isAudio) {
           const held = heldReason(token.url);
-          if (held !== undefined) return <HeldMedia key={key} kind="audio" host={held || undefined} onLoad={loadMedia} />;
+          if (held !== undefined) return <HeldMedia key={key} kind="audio" host={held || undefined} blocked={authorBlocked} onLoad={loadMedia} />;
           const waveform = imeta ? getImetaField(event.tags, token.url, "waveform") : undefined;
           const duration = imeta ? getImetaField(event.tags, token.url, "duration") : undefined;
           return (
@@ -1378,7 +1379,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
           );
         }
         const heldVideo = heldReason(token.url);
-        if (heldVideo !== undefined) return <HeldMedia key={key} kind="video" host={heldVideo || undefined} onLoad={loadMedia} />;
+        if (heldVideo !== undefined) return <HeldMedia key={key} kind="video" host={heldVideo || undefined} blocked={authorBlocked} onLoad={loadMedia} />;
         return (
           <VideoPlayer
             key={key}

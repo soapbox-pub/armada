@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlurhashCanvas } from "@/components/BlurhashCanvas";
 import { DisplayName } from "@/components/DisplayName";
 import { HeldMedia } from "@/components/chat/HeldMedia";
-import { revealMessageMedia, useMediaHeld, useMediaUrlHold, useMessageRevealed } from "@/components/chat/mediaHold";
+import { revealMessageMedia, useAuthorBlocked, useMediaHeld, useMediaUrlHold, useMessageRevealed } from "@/components/chat/mediaHold";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { PillTabs, type PillTab } from "@/components/ui/pill-tabs";
@@ -69,6 +69,7 @@ const ForumPostRow = memo(function ForumPostRow({
   const images = useMemo(() => forumImages(post.root), [post.root]);
   const revealed = useMessageRevealed(post.root.id);
   const senderHeld = useMediaHeld(post.root.pubkey) && !revealed;
+  const authorBlocked = useAuthorBlocked(post.root.pubkey);
   const holds = useMediaUrlHold(post.root.pubkey, post.root.id);
   // Like a chat gallery, one held image holds them all; the card sits outside the
   // row's button so its own buttons aren't nested in it.
@@ -128,7 +129,7 @@ const ForumPostRow = memo(function ForumPostRow({
       </button>
       {heldImage && (
         <div className="px-3 pb-1.5 sm:pl-14">
-          <HeldMedia kind="image" count={images.length} host={heldHost} onLoad={load} />
+          <HeldMedia kind="image" count={images.length} host={heldHost} blocked={authorBlocked} onLoad={load} />
         </div>
       )}
     </div>

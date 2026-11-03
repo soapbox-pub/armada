@@ -19,12 +19,15 @@ export function HeldMedia({
   kind,
   count = 1,
   host,
+  blocked,
   onLoad,
 }: {
   kind: "image" | "video" | "audio";
   count?: number;
   /** Held for where it is hosted rather than who sent it. */
   host?: string;
+  /** Held because the viewer blocked the sender. */
+  blocked?: boolean;
   onLoad: () => void;
 }) {
   const intl = useIntl();
@@ -34,7 +37,12 @@ export function HeldMedia({
 
   let title: string;
   let detail: string | undefined;
-  if (host) {
+  if (blocked) {
+    title = intl.formatMessage(
+      { id: "heldMedia.blocked", defaultMessage: "{kind, select, video {Video from someone you blocked} audio {Audio from someone you blocked} other {{count, plural, one {Image from someone you blocked} other {# images from someone you blocked}}}}" },
+      values,
+    );
+  } else if (host) {
     title = intl.formatMessage(
       { id: "heldMedia.onHost", defaultMessage: "{kind, select, video {Video on {host}} audio {Audio on {host}} other {{count, plural, one {Image on {host}} other {# images on {host}}}}}" },
       values,

@@ -1946,6 +1946,7 @@
   "groupSettingsDialog.topic": "トピック",
   "groupSettingsDialog.updateFailed": "更新に失敗しました",
   "heldMedia.alwaysLoad": "{host} から常に読み込む",
+  "heldMedia.blocked": "{kind, select, video {ブロックした人からの動画} audio {ブロックした人からの音声} other {{count, plural, other {ブロックした人からの画像 # 枚}}}}",
   "heldMedia.load": "読み込む",
   "heldMedia.loadPreviews": "プレビューを読み込む",
   "heldMedia.newMember": "{kind, select, video {新しいメンバーからの動画} audio {新しいメンバーからの音声} other {{count, plural, other {新しいメンバーからの画像 # 枚}}}}",

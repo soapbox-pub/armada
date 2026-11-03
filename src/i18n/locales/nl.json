@@ -1946,6 +1946,7 @@
   "groupSettingsDialog.topic": "Onderwerp",
   "groupSettingsDialog.updateFailed": "Bijwerken mislukt",
   "heldMedia.alwaysLoad": "Altijd laden van {host}",
+  "heldMedia.blocked": "{kind, select, video {Video van iemand die je hebt geblokkeerd} audio {Audio van iemand die je hebt geblokkeerd} other {{count, plural, one {Afbeelding van iemand die je hebt geblokkeerd} other {# afbeeldingen van iemand die je hebt geblokkeerd}}}}",
   "heldMedia.load": "Laden",
   "heldMedia.loadPreviews": "Voorbeelden laden",
   "heldMedia.newMember": "{kind, select, video {Video van een nieuw lid} audio {Audio van een nieuw lid} other {{count, plural, one {Afbeelding van een nieuw lid} other {# afbeeldingen van een nieuw lid}}}}",
