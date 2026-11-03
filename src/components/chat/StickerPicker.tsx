@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useId } from 'react';
 import { Sticker } from 'lucide-react';
 import { SearchField } from '@/components/ui/search-field';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -27,11 +27,23 @@ export function StickerPicker({ customEmojis, onSelect, height = 350, autoFocus 
     }
   }, [autoFocus]);
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return customEmojis;
-    const q = query.toLowerCase();
-    return customEmojis.filter((e) => e.shortcode.toLowerCase().includes(q));
-  }, [customEmojis, query]);
+  // One section per source pack, as in EmojiPicker; stickers inlined on the
+  // kind-10030 list share a "Custom" section.
+  const packs = useMemo(() => {
+    const q = query.trim() ? query.toLowerCase() : '';
+    const customLabel = intl.formatMessage({ id: 'emojiPicker.custom', defaultMessage: 'Custom' });
+    const groups = new Map<string, StickerPack>();
+    for (const e of customEmojis) {
+      if (q && !e.shortcode.toLowerCase().includes(q)) continue;
+      const key = e.packCoord ?? '';
+      let group = groups.get(key);
+      if (!group) {
+        groups.set(key, (group = { key, name: (key && e.packName) || customLabel, stickers: [] }));
+      }
+      group.stickers.push(e);
+    }
+    return [...groups.values()];
+  }, [customEmojis, query, intl]);
 
   if (customEmojis.length === 0) {
     return (
@@ -54,7 +66,7 @@ export function StickerPicker({ customEmojis, onSelect, height = 350, autoFocus 
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
-        {filtered.length === 0 ? (
+        {packs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <p className="text-sm">
           <FormattedMessage id="stickerPicker.noResults" defaultMessage="No stickers found" />
@@ -64,25 +76,48 @@ export function StickerPicker({ customEmojis, onSelect, height = 350, autoFocus 
         </p>
           </div>
         ) : (
-          <div className="grid grid-cols-4 gap-1.5 px-3 pb-3">
-            {filtered.map((emoji) => (
-              <button
-                key={emoji.shortcode}
-                type="button"
-                title={emoji.shortcode}
-                onClick={() => onSelect(emoji)}
-                className="aspect-square clip-corner-lg overflow-hidden hover:bg-muted transition-colors p-1 group"
-              >
-                <CustomEmojiImg
-                  name={emoji.shortcode}
-                  url={emoji.url}
-                  className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-150"
-                />
-              </button>
+          <div className="flex flex-col gap-3 px-3 pb-3">
+            {packs.map((pack) => (
+              <StickerPackSection key={pack.key} pack={pack} onSelect={onSelect} />
             ))}
           </div>
         )}
       </ScrollArea>
+    </div>
+  );
+}
+
+interface StickerPack {
+  /** The pack's `30030:pubkey:dtag`, or '' for stickers inlined on the list. */
+  key: string;
+  name: string;
+  stickers: CustomEmoji[];
+}
+
+function StickerPackSection({ pack, onSelect }: { pack: StickerPack; onSelect: (emoji: CustomEmoji) => void }) {
+  const headingId = useId();
+  return (
+    <div role="group" aria-labelledby={headingId}>
+      <div id={headingId} className="pb-1.5 text-2xs font-medium text-muted-foreground uppercase tracking-wider truncate">
+        {pack.name}
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {pack.stickers.map((emoji) => (
+          <button
+            key={emoji.shortcode}
+            type="button"
+            title={emoji.shortcode}
+            onClick={() => onSelect(emoji)}
+            className="aspect-square clip-corner-lg overflow-hidden hover:bg-muted transition-colors p-1 group"
+          >
+            <CustomEmojiImg
+              name={emoji.shortcode}
+              url={emoji.url}
+              className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-150"
+            />
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
