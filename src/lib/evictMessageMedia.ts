@@ -50,6 +50,21 @@ export function evictMessageMedia(tags: readonly string[][], content = "", kept:
   for (const hash of refs.hashes) if (!inUse?.hashes.has(hash)) forgetBlob(hash);
 }
 
+/** The media a profile shows: its picture and banner, as URLs in a body. */
+function profileMedia(content: string): string {
+  try {
+    const metadata = JSON.parse(content) as { picture?: unknown; banner?: unknown };
+    return [metadata.picture, metadata.banner].filter((url) => typeof url === "string").join(" ");
+  } catch {
+    return "";
+  }
+}
+
+/** {@link evictMessageMedia} for a stored row of any kind, a kind-0 profile's picture and banner included. */
+export function evictRowMedia(row: { kind: number; tags: readonly string[][]; content: string }): void {
+  evictMessageMedia(row.tags, row.kind === 0 ? profileMedia(row.content) : row.content);
+}
+
 /** Removed messages whose media was already evicted; rumor ids, so cleared on logout. */
 const evicted = new Set<string>();
 

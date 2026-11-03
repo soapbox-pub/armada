@@ -15,6 +15,7 @@ import { useResumePendingJoins } from "@/concord/hooks/useCommunityActions";
 import { useResumeOutgoing } from "@/concord/hooks/useResumeOutgoing";
 import { useResumeGuestbookJoins } from "@/concord/hooks/usePendingGuestbookJoin";
 import { useBannedUserPurge } from "@/hooks/useBannedUserPurge";
+import { useBlockedMediaEviction } from "@/hooks/useBlockedMediaEviction";
 import { useBlocklistSync } from "@/hooks/useBlocklistSync";
 import { useWarmDiscover } from "@/hooks/useDiscover";
 import { useForegroundNotifications } from "@/hooks/useForegroundNotifications";
@@ -42,8 +43,14 @@ export function SignedInServices() {
       <NativeReadDismiss />
       {/* Its own leaf: it reads app config, which changes often. */}
       <NotificationSettingsAbsenceProof />
+      <BlockedMediaEviction />
     </>
   );
+}
+
+function BlockedMediaEviction() {
+  useBlockedMediaEviction();
+  return null;
 }
 
 /** Its own leaf: it reads the live community list, which changes often. */

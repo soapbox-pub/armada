@@ -18,7 +18,7 @@ import { isUserBannedNow } from "@/lib/bannedUsers";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 import { forgetDecrypt, forgetDecryptsByAuthor } from "@/lib/decryptCache";
 import { scrubDmListSnapshotsByAuthor } from "@/lib/dmListSnapshot";
-import { evictMessageMedia } from "@/lib/evictMessageMedia";
+import { evictRowMedia } from "@/lib/evictMessageMedia";
 import { DM_TOMBSTONE_TAGS, purgeAuthorDms } from "@/lib/nip17/dm17Store";
 import { scrubDm17ThreadSnapshotsByAuthor } from "@/lib/nip17/threadSnapshot";
 import { tenantIdsOf } from "@/lib/removeMessageFromDevice";
@@ -58,14 +58,9 @@ export async function pruneKnownBannedUsers(): Promise<void> {
   if (still.length !== known.length) await getArmadaDB().kv.set(MET_KEY, still).catch(() => undefined);
 }
 
-/** The media a profile shows: its picture and banner, as URLs in a body. */
-function profileMedia(row: NostrRumor): string {
-  try {
-    const metadata = JSON.parse(row.content) as { picture?: unknown; banner?: unknown };
-    return [metadata.picture, metadata.banner].filter((url) => typeof url === "string").join(" ");
-  } catch {
-    return "";
-  }
+/** Whether `tenant` holds wraps under one-off keys rather than anyone's rows. */
+export function isWrapTenant(tenant: string): boolean {
+  return WRAP_TENANTS.has(tenant) || tenant.startsWith("svc:");
 }
 
 /**
@@ -92,7 +87,7 @@ export async function purgeBannedUser(
   const purged: NostrRumor[] = [];
   const forgotten: NostrRumor[] = [];
   for (const tenant of tenants) {
-    if (WRAP_TENANTS.has(tenant) || tenant.startsWith("svc:")) continue;
+    if (isWrapTenant(tenant)) continue;
     try {
       if (tenant.startsWith(C2_TENANT)) {
         purged.push(...await purgeAuthorChat(tenant.slice(C2_TENANT.length), pubkey));
@@ -127,9 +122,7 @@ export async function purgeBannedUser(
   ]).catch(() => undefined);
 
   // Their media goes wherever it's named, a forward of it included: it's theirs.
-  for (const row of rows) {
-    evictMessageMedia(row.tags, row.kind === 0 ? profileMedia(row) : row.content);
-  }
+  for (const row of rows) evictRowMedia(row);
 
   // A tombstone in place of what was showing.
   if (opts.queryClient) tombstoneAuthorInQueries(opts.queryClient, pubkey, QUERY_TOMBSTONE_TAGS);
