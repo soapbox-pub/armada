@@ -4,6 +4,17 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.67.7] - 2026-11-03
+
+The desktop app now keeps itself current between releases on every edition,
+and Armada's Android releases are listed on Zapstore again.
+
+### Changed
+- The desktop app downloads updates to Armada in the background and starts with them on the next launch, on every edition rather than just the Flatpak
+
+### Fixed
+- New Android releases appear on Zapstore again
+
 ## [0.67.6] - 2026-11-03
 
 A new Storage page in Settings shows what Armada keeps on this device and lets
