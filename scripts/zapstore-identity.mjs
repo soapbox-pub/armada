@@ -182,6 +182,11 @@ async function main() {
     const holding = existing.find((e) => proofHolds(e, cert, certHash, pubkey, renewAfter));
     if (holding) {
       stderr.write(`proof: ${holding.id} holds until ${new Date(Number(tagValue(holding, 'expiry')) * 1000).toISOString()}\n`);
+      // Found on any relay, but the first is the one that has to store it.
+      const stored = await pool.querySync([relays[0]], { ids: [holding.id] }, { maxWait: QUERY_WAIT_MS });
+      if (stored.length > 0) return;
+      stderr.write(`proof: missing from ${relays[0]}${opts.dryRun ? '' : ', re-sending it'}\n`);
+      if (!opts.dryRun) await publish(pool, relays, holding);
       return;
     }
 

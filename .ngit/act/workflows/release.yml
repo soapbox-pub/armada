@@ -681,12 +681,6 @@ jobs:
         with:
           node-version: 22
 
-      # keytool, for the NIP-C1 step's keystore conversion.
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-
       # No checkout step: dependent ngit-ci jobs bind the same working tree, so
       # the sources, the node_modules the android job installed, and the
       # .release-artifacts/ both build jobs staged into are all already here.
@@ -745,10 +739,18 @@ jobs:
       - uses: danconwaydev/setup-ngit@v3
         if: ${{ always() }}
 
+      # keytool, for the NIP-C1 step's keystore conversion. Here rather than
+      # with the job's setup, so a failed JDK download costs that step alone.
+      - uses: actions/setup-java@v4
+        if: ${{ always() && !contains(github.ref_name, '-') }}
+        with:
+          distribution: temurin
+          java-version: "21"
+
       # relay.zapstore.dev holds APK listings pending a NIP-C1 proof (kind
       # 30509) linking the APK signing certificate to the key that signs the
       # release, so it has to be there before the listings arrive. A no-op once
-      # a valid proof exists; renewed in its last 60 days. Never blocks the
+      # a valid proof is on it; renewed in its last 60 days. Never blocks the
       # release: the steps after it run whatever this does.
       - name: Link the APK signing certificate for Zapstore (NIP-C1)
         if: ${{ always() && !contains(github.ref_name, '-') }}
