@@ -98,7 +98,7 @@ export function ChatSettings() {
         </SettingsRow>
         <SettingsRow
           label={intl.formatMessage({ id: "chatSettings.foldSimilar", defaultMessage: "Fold similar messages" })}
-          description={intl.formatMessage({ id: "chatSettings.foldSimilarDescription", defaultMessage: "Collapse bursts of near-identical messages in communities into one row. Off, every message is shown." })}
+          description={intl.formatMessage({ id: "chatSettings.foldSimilarDescription", defaultMessage: "Collapse bursts of near-identical messages in communities into one row. Off, every message is shown, though a burst still never counts as unread or as a mention." })}
         >
           <Switch
             checked={config.foldSimilarMessages}

@@ -2780,11 +2780,13 @@ export function DMsPage() {
 
   const dismissRequests = useCallback(() => {
     closeManyDms(visibleRequestRows.map((row) => ({ peer: row.conversation, latest: dmListRowLatestMarker(row) })));
-    if (activePeer && visibleRequestRows.some((row) => row.conversation === activePeer)) {
+    const dismissed = (peer: string | undefined) => !!peer && visibleRequestRows.some((row) => row.conversation === peer);
+    if (dismissed(returnPeer)) setReturnPeer(undefined);
+    if (dismissed(activePeer)) {
       setRenderedPeer(undefined);
       navigate("/dm");
     }
-  }, [closeManyDms, visibleRequestRows, activePeer, navigate]);
+  }, [closeManyDms, visibleRequestRows, activePeer, returnPeer, navigate]);
 
   // Opening a request switches the list INTO the request view (never out of it mid-thread).
   useEffect(() => {

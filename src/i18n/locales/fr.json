@@ -732,7 +732,7 @@
   "chatSettings.backLeavesApp": "Retour quitte l’app",
   "chatSettings.backLeavesAppDescription": "Désactivé, Retour bascule entre la liste des salons et le chat.",
   "chatSettings.foldSimilar": "Regrouper les messages similaires",
-  "chatSettings.foldSimilarDescription": "Regroupe en une seule ligne les rafales de messages presque identiques dans les communautés. Désactivé, chaque message est affiché.",
+  "chatSettings.foldSimilarDescription": "Regroupe en une seule ligne les rafales de messages presque identiques dans les communautés. Désactivé, chaque message est affiché, mais une rafale ne compte toujours ni comme non lue ni comme mention.",
   "chatSettings.hoverActions": "Actions de message au survol",
   "chatSettings.hoverActionsDescription": "Affiche les réactions et actions au survol d’un message. Désactivé, faites un clic droit sur un message pour les voir.",
   "chatSettings.replyGestures": "Gestes de réponse",

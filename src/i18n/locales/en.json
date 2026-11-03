@@ -732,7 +732,7 @@
   "chatSettings.backLeavesApp": "Back leaves the app",
   "chatSettings.backLeavesAppDescription": "Off, back switches between the channel list and the chat.",
   "chatSettings.foldSimilar": "Fold similar messages",
-  "chatSettings.foldSimilarDescription": "Collapse bursts of near-identical messages in communities into one row. Off, every message is shown.",
+  "chatSettings.foldSimilarDescription": "Collapse bursts of near-identical messages in communities into one row. Off, every message is shown, though a burst still never counts as unread or as a mention.",
   "chatSettings.hoverActions": "Message actions on hover",
   "chatSettings.hoverActionsDescription": "Show reactions and actions when hovering a message. Off, right-click a message for them.",
   "chatSettings.replyGestures": "Reply gestures",

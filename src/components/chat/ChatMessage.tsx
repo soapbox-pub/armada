@@ -909,8 +909,8 @@ const ChatMessageInner = memo(function ChatMessageInner({
             "data-active": sheetOpen || undefined,
             "data-event-id": event.id,
           } as React.HTMLAttributes<HTMLDivElement>}
-          onSwipeReply={isTouch && onReply && (replyGestures === "swipe" || replyGestures === "both") ? () => onReply(event) : undefined}
-          onDoubleTapReply={isTouch && onReply && !isEditing && (replyGestures === "doubleTap" || replyGestures === "both") ? () => onReply(event) : undefined}
+          onSwipeReply={isTouch && canWrite && onReply && (replyGestures === "swipe" || replyGestures === "both") ? () => onReply(event) : undefined}
+          onDoubleTapReply={isTouch && canWrite && onReply && !isEditing && (replyGestures === "doubleTap" || replyGestures === "both") ? () => onReply(event) : undefined}
           onLongPress={isTouch && !isEditing && menuActions.length > 0 ? openSheet : undefined}
         >
           {body}

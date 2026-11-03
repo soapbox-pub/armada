@@ -732,7 +732,7 @@
   "chatSettings.backLeavesApp": "Indietro esce dall’app",
   "chatSettings.backLeavesAppDescription": "Se disattivato, Indietro passa dall’elenco dei canali alla chat e viceversa.",
   "chatSettings.foldSimilar": "Raggruppa i messaggi simili",
-  "chatSettings.foldSimilarDescription": "Raggruppa in una sola riga le raffiche di messaggi quasi identici nelle community. Disattivato, ogni messaggio viene mostrato.",
+  "chatSettings.foldSimilarDescription": "Raggruppa in una sola riga le raffiche di messaggi quasi identici nelle community. Disattivato, ogni messaggio viene mostrato, ma una raffica continua a non contare come non letta né come menzione.",
   "chatSettings.hoverActions": "Azioni sui messaggi al passaggio del mouse",
   "chatSettings.hoverActionsDescription": "Mostra reazioni e azioni passando il mouse su un messaggio. Se disattivato, fai clic destro su un messaggio per vederle.",
   "chatSettings.replyGestures": "Gesti per rispondere",

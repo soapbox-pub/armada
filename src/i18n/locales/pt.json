@@ -732,7 +732,7 @@
   "chatSettings.backLeavesApp": "Voltar sai do app",
   "chatSettings.backLeavesAppDescription": "Desativado, voltar alterna entre a lista de canais e o chat.",
   "chatSettings.foldSimilar": "Agrupar mensagens parecidas",
-  "chatSettings.foldSimilarDescription": "Agrupa em uma só linha as rajadas de mensagens quase idênticas nas comunidades. Desativado, todas as mensagens aparecem.",
+  "chatSettings.foldSimilarDescription": "Agrupa em uma só linha as rajadas de mensagens quase idênticas nas comunidades. Desativado, todas as mensagens aparecem, mas uma rajada continua sem contar como não lida nem como menção.",
   "chatSettings.hoverActions": "Ações da mensagem ao passar o mouse",
   "chatSettings.hoverActionsDescription": "Mostra reações e ações ao passar o mouse sobre uma mensagem. Desativado, clique com o botão direito na mensagem para vê-las.",
   "chatSettings.replyGestures": "Gestos para responder",

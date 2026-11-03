@@ -732,7 +732,7 @@
   "chatSettings.backLeavesApp": "Zurück verlässt die App",
   "chatSettings.backLeavesAppDescription": "Wenn aus, wechselt Zurück zwischen Kanalliste und Chat.",
   "chatSettings.foldSimilar": "Ähnliche Nachrichten zusammenfassen",
-  "chatSettings.foldSimilarDescription": "Fasst in Communitys Serien fast gleicher Nachrichten in einer Zeile zusammen. Aus: Jede Nachricht wird angezeigt.",
+  "chatSettings.foldSimilarDescription": "Fasst in Communitys Serien fast gleicher Nachrichten in einer Zeile zusammen. Aus: Jede Nachricht wird angezeigt, eine Serie zählt aber weiterhin nicht als ungelesen oder als Erwähnung.",
   "chatSettings.hoverActions": "Nachrichtenaktionen beim Überfahren",
   "chatSettings.hoverActionsDescription": "Reaktionen und Aktionen anzeigen, wenn du mit der Maus über eine Nachricht fährst. Wenn aus, klicke eine Nachricht mit der rechten Maustaste an.",
   "chatSettings.replyGestures": "Antwortgesten",

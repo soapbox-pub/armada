@@ -732,7 +732,7 @@
   "chatSettings.backLeavesApp": "戻るでアプリを終了",
   "chatSettings.backLeavesAppDescription": "オフの場合、戻るでチャンネルリストとチャットを切り替えます。",
   "chatSettings.foldSimilar": "似たメッセージをまとめる",
-  "chatSettings.foldSimilarDescription": "コミュニティで連続するほぼ同じメッセージを1行にまとめます。オフにするとすべてのメッセージが表示されます。",
+  "chatSettings.foldSimilarDescription": "コミュニティで連続するほぼ同じメッセージを1行にまとめます。オフにするとすべてのメッセージが表示されますが、連続したメッセージは未読やメンションとして数えられません。",
   "chatSettings.hoverActions": "ホバー時にメッセージ操作を表示",
   "chatSettings.hoverActionsDescription": "メッセージにカーソルを合わせるとリアクションと操作を表示します。オフの場合はメッセージを右クリックしてください。",
   "chatSettings.replyGestures": "返信ジェスチャー",

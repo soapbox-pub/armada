@@ -732,7 +732,7 @@
   "chatSettings.backLeavesApp": "Terug verlaat de app",
   "chatSettings.backLeavesAppDescription": "Uit: Terug wisselt tussen de kanaallijst en de chat.",
   "chatSettings.foldSimilar": "Vergelijkbare berichten samenvouwen",
-  "chatSettings.foldSimilarDescription": "Vouwt reeksen bijna identieke berichten in community’s samen tot één rij. Uit: elk bericht wordt getoond.",
+  "chatSettings.foldSimilarDescription": "Vouwt reeksen bijna identieke berichten in community’s samen tot één rij. Uit: elk bericht wordt getoond, maar een reeks telt nog steeds niet als ongelezen of als vermelding.",
   "chatSettings.hoverActions": "Berichtacties bij aanwijzen",
   "chatSettings.hoverActionsDescription": "Toon reacties en acties wanneer je een bericht aanwijst. Uit: klik met rechts op een bericht om ze te zien.",
   "chatSettings.replyGestures": "Antwoordgebaren",

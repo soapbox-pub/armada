@@ -22,12 +22,15 @@ export function useDoubleTap(onDoubleTap: (() => void) | undefined) {
 
   return {
     onPointerDown: (e: React.PointerEvent) => {
-      down.current = e.pointerType === "touch" && callback.current ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
+      // React bubbles events out of portals (a lightbox, a dialog) into the row.
+      const inside = !(e.currentTarget instanceof Node && e.target instanceof Node) || e.currentTarget.contains(e.target);
+      down.current = e.pointerType === "touch" && callback.current && inside ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
     },
     onPointerUp: (e: React.PointerEvent) => {
       const start = down.current;
       down.current = null;
       if (!start || !callback.current) return;
+      if (e.currentTarget instanceof Node && e.target instanceof Node && !e.currentTarget.contains(e.target)) return;
       if (e.target instanceof Element && e.target.closest(OWN_TAPS)) return;
       if (e.timeStamp - start.t > TAP_MAX_MS || Math.hypot(e.clientX - start.x, e.clientY - start.y) > TAP_SLOP_PX) {
         lastTap.current = null;
