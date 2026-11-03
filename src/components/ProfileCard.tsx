@@ -339,7 +339,7 @@ export function ProfileCard({
         {editable ? (
           <EditableInput
             value={typeof metadata.pronouns === 'string' ? metadata.pronouns : ''}
-            placeholder={intl.formatMessage({ id: 'profileCard.pronounsPlaceholder', defaultMessage: 'Pronouns, e.g. they/them' })}
+            placeholder={intl.formatMessage({ id: 'profileCard.pronounsPlaceholder', defaultMessage: 'Pronouns' })}
             ariaLabel={intl.formatMessage({ id: 'profileCard.pronouns', defaultMessage: 'Pronouns' })}
             maxLength={MAX_PRONOUNS_LENGTH}
             onChange={patch('pronouns')}
