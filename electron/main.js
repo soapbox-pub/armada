@@ -1866,7 +1866,16 @@ function installIpc() {
   };
   ipcMain.handle("armada:low-memory-mode", lowMemoryState);
   // Bytes of an image whose host sends no CORS headers (see imageFetch.js).
-  handleFromMainWindow("armada:fetch-image", (_event, url) => fetchImage(typeof url === "string" ? url : ""));
+  handleFromMainWindow("armada:fetch-image", (_event, url) =>
+    fetchImage(typeof url === "string" ? url : "", {
+      fetchImpl: (href, init) => session.defaultSession.fetch(href, init),
+      resolveImpl: async (u) => {
+        if ((await session.defaultSession.resolveProxy(u.href)).trim() !== "DIRECT") return null;
+        const { endpoints } = await session.defaultSession.resolveHost(u.hostname);
+        return endpoints.map((e) => e.address);
+      },
+    }),
+  );
   // Chromium's HTTP cache, for Settings › Storage.
   handleFromMainWindow("armada:web-cache-size", () => session.defaultSession.getCacheSize());
   handleFromMainWindow("armada:clear-web-cache", () => session.defaultSession.clearCache());
@@ -1880,7 +1889,8 @@ function installIpc() {
   });
   handleFromMainWindow("armada:relaunch", () => {
     isQuitting = true;
-    app.relaunch();
+    // The AppImage runtime unmounts `execPath` once this process exits; $APPIMAGE is the file itself.
+    app.relaunch(process.platform === "linux" && process.env.APPIMAGE ? { execPath: process.env.APPIMAGE } : undefined);
     app.quit();
   });
   handleFromMainWindow("armada:set-video-encoder-mode", (_event, mode) => {

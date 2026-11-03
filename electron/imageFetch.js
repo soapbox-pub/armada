@@ -3,11 +3,13 @@
 // (src/lib/imageThumb.ts). An animated avatar on such a host measured ~25 MB of
 // decoded frames in a busy room.
 //
-// The request is the one the page's <img> already makes, from this machine, so
+// The request is the one the page's <img> already makes, from this machine and
+// through the session's proxy (main.js hands in Chromium's net.fetch), so
 // nothing new learns the user's address. What this adds is READING the bytes
-// cross-origin, so it answers only for public https hosts (every redirect hop
-// checked), never sends cookies, caps the size, and returns only bytes that are
-// an image by their own signature.
+// cross-origin, so it answers only for public https hosts — every redirect hop
+// checked, by name and, on a direct connection, by what the name resolves to,
+// since a public name can point at the LAN — never sends cookies, caps the
+// size, and returns only bytes that are an image by their own signature.
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
@@ -87,13 +89,26 @@ async function readCapped(res) {
   return out;
 }
 
+/**
+ * Whether `url`'s host resolves only to public addresses. `resolveImpl`
+ * returns the addresses, or null when the connection goes through a proxy,
+ * which resolves the name itself (asking here would leak it to local DNS).
+ */
+async function resolvesPublic(url, resolveImpl) {
+  if (!resolveImpl) return true;
+  const addresses = await resolveImpl(url);
+  if (addresses === null) return true;
+  return addresses.length > 0 && !addresses.some((a) => isLocalHost(a.includes(":") ? `[${a}]` : a));
+}
+
 /** `{ type, data }` for a public https image, else null. Never throws. */
-async function fetchImage(raw, { fetchImpl = globalThis.fetch } = {}) {
+async function fetchImage(raw, { fetchImpl = globalThis.fetch, resolveImpl } = {}) {
   let url = publicHttps(raw);
   if (!url) return null;
   const signal = AbortSignal.timeout(TIMEOUT_MS);
   try {
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      if (!(await resolvesPublic(url, resolveImpl))) return null;
       const res = await fetchImpl(url.href, {
         credentials: "omit",
         redirect: "manual",
