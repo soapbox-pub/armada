@@ -16,7 +16,7 @@ bundle="$release_dir/Armada-flatpak-$(uname -m).flatpak"
 # origin here would be discarded. Only --runtime-repo is kept: npkg names it in
 # its .flatpakref. The local repo built below is only the
 # intermediate `flatpak build-bundle` exports from. The installed app's web
-# bundle still updates in place (electron/webBundleUpdate.js); its shell updates
+# app still updates in place (electron/webSite.js); its shell updates
 # through `flatpak update` from whichever remote it was installed from.
 
 builder=system

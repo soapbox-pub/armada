@@ -2,8 +2,8 @@
  * The desktop shell's update feed: the NIP-82 release and asset events (the
  * same ones `/downloads` reads), narrowed to the installer this machine can
  * install — content-addressed and signed by a pinned maintainer key. Also
- * resolves the Flatpak's web bundle from the signed nsite manifest
- * ({@link resolveWebBundle}).
+ * resolves the web app the shell serves from Armada's signed nsite manifest
+ * ({@link resolveWebSite}, {@link parseWebSite}).
  *
  * Bundled into `electron/updateFeed.cjs` (like `electronMain.ts`) so
  * `parseRelease()`/`parseAsset()` stay the single read contract. Keep it free
@@ -12,6 +12,7 @@
 
 import { verifyEvent } from "nostr-tools/pure";
 
+import { APP_BLOSSOM_SERVERS } from "./blossom";
 import {
   ASSET_KIND,
   RELEASE_APP_ID,
@@ -51,7 +52,7 @@ const ASSET_LOOKUPS = 5;
  *
  * `flatpak` is a SYNTHETIC target (passed when `FLATPAK_ID` is set), kept out
  * of `linux` so electron-updater never gets it: `/app` is read-only and the
- * shell updates its web bundle instead (`electron/webBundleUpdate.js`).
+ * shell updates its web app from the site instead (`electron/webSite.js`).
  */
 const DESKTOP_FORMATS: Record<string, { os: string; accepts: (filename: string, variant?: string) => boolean }> = {
   linux: { os: "linux", accepts: (name) => /\.appimage$/i.test(name) },
@@ -283,7 +284,7 @@ function isSignedEvent(value: unknown): value is SignedEvent {
  */
 function queryRelay(
   url: string,
-  filter: unknown,
+  filters: readonly unknown[],
   WebSocketImpl: typeof WebSocket,
   signal: AbortSignal | undefined,
 ): Promise<unknown[]> {
@@ -321,7 +322,7 @@ function queryRelay(
 
     socket.addEventListener("open", () => {
       try {
-        socket.send(JSON.stringify(["REQ", subscriptionId, filter]));
+        socket.send(JSON.stringify(["REQ", subscriptionId, ...filters]));
       } catch {
         finish();
       }
@@ -346,91 +347,151 @@ function queryRelay(
 /** NIP-5A named site manifest. */
 const NSITE_KIND = 35128;
 
+/** BUD-03 user server list. */
+const BLOSSOM_SERVER_LIST_KIND = 10063;
+
 /** The named site `.nsite/config.json` publishes. */
-export const WEB_BUNDLE_SITE_ID = "armada";
+export const WEB_SITE_ID = "armada";
 
-/** Where every web deploy puts its `dist` archive (deploy-nsite.yml). */
-export const WEB_BUNDLE_PATH = "/downloads/armada-web.tar.gz";
-
-export interface WebBundleUpdate {
-  /**
-   * Manifest `created_at`; the shell refuses an older one (relays may serve
-   * stale replaceable events).
-   */
+/** A signed site manifest the desktop shell can serve app://armada from. */
+export interface WebSite {
+  /** The manifest event itself, stored as-is and re-verified at every launch. */
+  event: SignedEvent;
+  id: string;
   createdAt: number;
-  sha256: string;
-  /** `<server>/<sha256>` for each https Blossom server in the manifest, in order. */
-  urls: string[];
+  /** Absolute site path → sha256, from the `path` tags. */
+  files: Map<string, string>;
+  /** https Blossom origins to fetch blobs from, in order. */
+  servers: string[];
+}
+
+function httpsOrigins(urls: readonly unknown[]): string[] {
+  const origins: string[] = [];
+  for (const raw of urls) {
+    if (typeof raw !== "string") continue;
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== "https:") continue;
+      if (!origins.includes(url.origin)) origins.push(url.origin);
+    } catch { /* ignore */ }
+  }
+  return origins;
+}
+
+function httpsServers(tags: readonly string[][]): string[] {
+  return httpsOrigins(tags.filter((tag) => tag[0] === "server").map((tag) => tag[1]));
 }
 
 /**
- * The web bundle from the newest acceptable signed site manifest. Same
- * refusals as {@link selectDesktopRelease} (verified signature, BUILD-PINNED
- * author); `path`/`server` tags are read only from the verified event.
+ * One site manifest, if it is acceptable: a verified kind 35128 for `siteId`
+ * from a BUILD-PINNED author. Everything the shell serves is read from this
+ * event, so it is the whole trust decision — the shell runs it again on the
+ * stored copy at every launch, not only when it was downloaded.
  */
-export function selectWebBundle(
-  events: readonly unknown[],
+export function parseWebSite(
+  value: unknown,
   {
     authors = RELEASE_AUTHORS,
-    siteId = WEB_BUNDLE_SITE_ID,
+    siteId = WEB_SITE_ID,
   }: { authors?: readonly string[]; siteId?: string } = {},
-): WebBundleUpdate | undefined {
-  const trusted = new Set(authors.map((author) => author.toLowerCase()));
-  let newest: SignedEvent | undefined;
-  for (const event of events) {
-    if (!isSignedEvent(event) || event.kind !== NSITE_KIND) continue;
-    if (!trusted.has(event.pubkey.toLowerCase())) continue;
-    if (!event.tags.some((tag) => tag[0] === "d" && tag[1] === siteId)) continue;
-    if (newest && event.created_at <= newest.created_at) continue;
-    if (!verifyEvent(event)) continue;
-    newest = event;
-  }
-  if (!newest) return undefined;
+): WebSite | undefined {
+  if (!isSignedEvent(value) || value.kind !== NSITE_KIND) return undefined;
+  if (!value.tags.every((tag) => Array.isArray(tag))) return undefined;
+  if (!authors.some((author) => author.toLowerCase() === value.pubkey.toLowerCase())) return undefined;
+  if (!value.tags.some((tag) => tag[0] === "d" && tag[1] === siteId)) return undefined;
+  if (!verifyEvent(value)) return undefined;
 
-  const hash = newest.tags.find((tag) => tag[0] === "path" && tag[1] === WEB_BUNDLE_PATH)?.[2];
-  const sha256 = typeof hash === "string" ? hash.toLowerCase() : "";
-  if (!/^[0-9a-f]{64}$/.test(sha256)) return undefined;
-  const urls: string[] = [];
-  for (const tag of newest.tags) {
-    if (tag[0] !== "server" || typeof tag[1] !== "string") continue;
-    try {
-      const server = new URL(tag[1]);
-      if (server.protocol !== "https:") continue;
-      const url = new URL(`/${sha256}`, server).href;
-      if (!urls.includes(url)) urls.push(url);
-    } catch { /* ignore */ }
+  const files = new Map<string, string>();
+  for (const [name, sitePath, hash] of value.tags) {
+    if (name !== "path" || typeof sitePath !== "string" || !sitePath.startsWith("/")) continue;
+    const sha256 = typeof hash === "string" ? hash.toLowerCase() : "";
+    if (/^[0-9a-f]{64}$/.test(sha256) && !files.has(sitePath)) files.set(sitePath, sha256);
   }
-  if (urls.length === 0) return undefined;
-  return { createdAt: newest.created_at, sha256, urls };
+  return {
+    event: value,
+    id: value.id,
+    createdAt: value.created_at,
+    files,
+    servers: httpsServers(value.tags),
+  };
 }
 
-/** The deployed web bundle from the site manifest on the release relays; undefined if none acceptable. */
-export async function resolveWebBundle({
+/**
+ * The newest acceptable site manifest. Only a candidate newer than the best so
+ * far is verified, and a forgery is skipped rather than ending the search, so
+ * a newer forged manifest cannot hide a valid one.
+ */
+export function selectWebSite(
+  events: readonly unknown[],
+  options: { authors?: readonly string[]; siteId?: string } = {},
+): WebSite | undefined {
+  let newest: WebSite | undefined;
+  for (const event of events) {
+    if (!isSignedEvent(event) || event.kind !== NSITE_KIND) continue;
+    if (newest && event.created_at <= newest.createdAt) continue;
+    newest = parseWebSite(event, options) ?? newest;
+  }
+  return newest;
+}
+
+/** The `server` tags of the newest verified kind 10063 by `pubkey`. */
+function serverListOf(events: readonly unknown[], pubkey: string): string[] {
+  let newest: SignedEvent | undefined;
+  for (const event of events) {
+    if (!isSignedEvent(event) || event.kind !== BLOSSOM_SERVER_LIST_KIND) continue;
+    if (event.pubkey.toLowerCase() !== pubkey.toLowerCase()) continue;
+    if (!event.tags.every((tag) => Array.isArray(tag))) continue;
+    if (newest && event.created_at <= newest.created_at) continue;
+    if (verifyEvent(event)) newest = event;
+  }
+  return newest ? httpsServers(newest.tags) : [];
+}
+
+/**
+ * The deployed site from the release relays, undefined if none is acceptable.
+ * Its servers are the manifest's, then its author's kind 10063, then the app's
+ * own Blossom servers: every blob is hash-checked, so a server is only ever a
+ * source, never a trust decision.
+ */
+export async function resolveWebSite({
   relays = RELEASE_RELAYS,
   authors = RELEASE_AUTHORS,
-  siteId = WEB_BUNDLE_SITE_ID,
+  siteId = WEB_SITE_ID,
+  fallbackServers = APP_BLOSSOM_SERVERS,
   webSocket,
   signal,
 }: {
   relays?: readonly string[];
   authors?: readonly string[];
   siteId?: string;
+  fallbackServers?: readonly string[];
   webSocket?: typeof WebSocket;
   signal?: AbortSignal;
-} = {}): Promise<WebBundleUpdate | undefined> {
+} = {}): Promise<WebSite | undefined> {
   const WebSocketImpl =
     webSocket ?? (globalThis as { WebSocket?: typeof WebSocket }).WebSocket;
   if (!WebSocketImpl) {
-    throw new Error("no WebSocket implementation available for the bundle check");
+    throw new Error("no WebSocket implementation available for the site check");
   }
   if (relays.length === 0) throw new Error("no site relays configured");
   if (authors.length === 0) throw new Error("no release authors configured");
 
-  const filter = { kinds: [NSITE_KIND], authors: [...authors], "#d": [siteId] };
+  const filters = [
+    { kinds: [NSITE_KIND], authors: [...authors], "#d": [siteId] },
+    { kinds: [BLOSSOM_SERVER_LIST_KIND], authors: [...authors] },
+  ];
   const responses = await Promise.all(
-    relays.map((relay) => queryRelay(relay, filter, WebSocketImpl, signal)),
+    relays.map((relay) => queryRelay(relay, filters, WebSocketImpl, signal)),
   );
-  return selectWebBundle(responses.flat(), { authors, siteId });
+  const events = responses.flat();
+  const site = selectWebSite(events, { authors, siteId });
+  if (!site) return undefined;
+  const servers = httpsOrigins([
+    ...site.servers,
+    ...serverListOf(events, site.event.pubkey),
+    ...fallbackServers,
+  ]);
+  return { ...site, servers };
 }
 
 /**
@@ -456,7 +517,7 @@ export async function resolveDesktopUpdate({
   if (authors.length === 0) throw new Error("no release authors configured");
 
   const query = async (filter: unknown) =>
-    (await Promise.all(relays.map((relay) => queryRelay(relay, filter, WebSocketImpl, signal)))).flat();
+    (await Promise.all(relays.map((relay) => queryRelay(relay, [filter], WebSocketImpl, signal)))).flat();
 
   const releases = trustedReleases(
     await query({

@@ -240,17 +240,76 @@ the app is focused.
 
 ## Update ownership
 
-Every edition has exactly one update owner:
+Armada updates on two tracks. The **web app** (everything built from `src/`)
+loads from Armada's signed nsite on every edition but the store ones, so most
+releases reach every desktop with no installer at all. The **shell** (Electron,
+`electron/`, the native modules, and `db.cjs`/`updateFeed.cjs`) has exactly one
+update owner per edition:
 
-| Edition | Update mechanism |
-| --- | --- |
-| Windows NSIS installer | Armada downloads and installs from the release event |
-| Windows portable / Store | Replace manually / Microsoft Store |
-| Developer ID–signed macOS build | Armada consumes the signed zip from the release event |
-| CI cross-built ad-hoc macOS zip | Replace manually; marked no-self-update |
-| Linux AppImage | Armada replaces the running AppImage from the NIP-82 release |
-| Linux deb | Download and install the newer deb; in-app updater disabled |
-| Linux Flatpak | Armada updates its web bundle in place; the shell and major versions update via `flatpak update` from the install's remote (pkg.soapbox.pub for the published build) |
+| Edition | Web app | Shell |
+| --- | --- | --- |
+| Windows NSIS installer | From the site | Armada downloads and installs from the release event |
+| Windows portable | From the site | Replace manually |
+| Microsoft Store | Shipped only | Microsoft Store |
+| Developer ID–signed macOS build | From the site | Armada consumes the signed zip from the release event |
+| CI cross-built ad-hoc macOS zip | From the site | Replace manually; marked no-self-update |
+| Mac App Store | Shipped only | Mac App Store |
+| Linux AppImage | From the site | Armada replaces the running AppImage from the NIP-82 release |
+| Linux deb | From the site | Download and install the newer deb |
+| Linux Flatpak | From the site | `flatpak update` from the install's remote (pkg.soapbox.pub for the published build) |
+
+### The web app comes from the nsite
+
+Every web deploy (`deploy-nsite.yml`, every push to `main`) signs a kind-35128
+manifest (`d=armada`) naming each file of `dist` by sha256. The shell
+(`electron/webSite.js`, `parseWebSite`/`resolveWebSite` in
+`src/lib/desktopUpdate.ts`):
+
+- **checks** at startup (after 10 s), every 4 hours, and from the tray's "Check
+  for Updates…", reading the manifest from the release relays under the
+  build-pinned `RELEASE_AUTHORS` key — so that key must be the one deploys sign
+  with;
+- **downloads** only the blobs it lacks into `userData/web/blobs/<sha256>`, from
+  the manifest's servers, then its author's kind 10063, then the app's Blossom
+  defaults, checking every hash. `/downloads/*` and `/dictionaries/*` are
+  skipped. A typical deploy changes `index.html` and a few chunks, not the
+  13 MB bundle;
+- **stages** atomically: `userData/web/current.json` (the manifest verbatim) is
+  written only after every blob is in place, and the restart is offered as the
+  in-app toast. A window keeps the site it booted with, so it never mixes two
+  deploys' chunks;
+- **re-checks at every launch**, not only at download time: the stored manifest
+  is verified again, every file must be present, and each file's bytes are
+  hashed against the manifest whenever they are served. Anything that fails
+  means the shipped bundle in the asar is served instead. That is what makes a
+  file planted in userData unable to run as `app://armada`, with the whole
+  preload bridge behind it;
+- **never goes backwards**: a manifest older than the stored one, no newer than
+  the shell's own build (`builtAt` in its shipped `desktop.json`), or whose
+  CHANGELOG version is below the shell's is refused.
+
+Store editions (`process.mas`, `process.windowsStore`) serve only what they
+shipped with.
+
+### The shell API level
+
+A site built from `main` runs on whatever shell is installed, so a bundle that
+needs something a shell lacks must not reach it. `electron/desktopApi.json`
+holds that shell's `level`; the build copies it into `dist/desktop.json`, and a
+shell refuses a site whose level is above its own. Such a site is reported as
+needing a newer app (a notification, or a dialog from a manual check, linking
+to `/downloads`), and the shell keeps serving the web app it has.
+
+`electron/desktopApi.test.mjs` fingerprints what web bundles depend on — the
+preload bridge and the ArmadaDB engine `db.cjs` is built from — against the
+recorded `surface`, so changing either fails `npm run test` until it is
+re-recorded. When it fails, bump `level` if a web bundle built from the change
+cannot run on the previous shell (a new bridge method it requires, a new
+ArmadaDB op, query feature or term), then record the new `surface`. The web
+app already feature-detects optional bridge methods (`desktop()?.method?.()`),
+which needs no bump. IPC handlers in `main.js` are part of the same contract
+but are not fingerprinted; changing what an existing channel does needs the
+same judgment.
 
 ### The feed is the NIP-82 release
 
@@ -397,20 +456,20 @@ most Flatpak installations already have one. If needed, add it first with the
 
 Two update paths, and they do not conflict:
 
-- **The web bundle updates in place.** Every web deploy publishes its `dist`
-  as `/downloads/armada-web.tar.gz` in the signed nsite manifest. Armada reads
-  the newest manifest from the pinned release key, downloads the archive from
-  the Blossom servers it names, refuses it unless its sha256 matches the
-  manifest, unpacks it into the app's userData and serves that, then offers a
-  restart as an in-app toast (`checkForWebBundleUpdate` in `electron/main.js`,
-  `electron/webBundleUpdate.js`, `DesktopUpdateToast`). It checks once at
-  startup (and from the tray's "Check for Updates…"), never on a timer. Most releases touch only `src/`, so this is
-  what carries them, without a `flatpak update`.
+- **The web bundle updates in place**, as on every edition (see
+  [The web app comes from the nsite](#the-web-app-comes-from-the-nsite)):
+  Armada loads the newest signed nsite manifest from the pinned release key,
+  downloads the files it lacks, and offers a restart as an in-app toast
+  (`checkForWebUpdate` in `electron/main.js`, `electron/webSite.js`,
+  `DesktopUpdateToast`). Most releases touch only `src/`, so this is what
+  carries them, without a `flatpak update`. Flatpak shells up to v0.67.6 read
+  the whole `dist` as `/downloads/armada-web.tar.gz` instead, which the deploy
+  still publishes for them.
 - **The shell updates through `flatpak update`.** Electron, the native modules
   and any major version bump arrive when the soapbox remote publishes a newer
-  bundle and the user (or GNOME Software) runs `flatpak update`. The web bundle
-  the new shell ships is content-addressed like any other, so it slots in beside
-  whatever the in-place updater last fetched with no version file to reconcile.
+  bundle and the user (or GNOME Software) runs `flatpak update`. A stored site
+  no newer than the new shell's own build is not served, so the shell's shipped
+  bundle wins until the site moves past it.
 
 Installs from an older, self-hosted bundle embedded a now-dead origin. If a
 global `flatpak update` complains about it, disable it — this keeps the profile

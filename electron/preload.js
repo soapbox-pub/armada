@@ -70,16 +70,16 @@ contextBridge.exposeInMainWorld("armadaDesktop", {
   requestAttention: () => ipcRenderer.send("armada:request-attention"),
 
   /**
-   * Tell the shell the web bundle actually painted. The shell serves a
-   * swappable bundle from userData, and this is how it learns the one it chose
+   * Tell the shell the web app actually painted. The shell serves the site it
+   * stored from Armada's nsite, and this is how it learns the one it chose
    * comes up at all — silence past a grace period makes it look for a newer
    * one immediately rather than waiting for the next scheduled check.
    */
   signalWebReady: () => ipcRenderer.send("armada:web-ready"),
 
   /**
-   * Web-bundle updates (Flatpak): whether a newer bundle was installed this
-   * run, a subscription for when one is, and a restart to activate it.
+   * Updates: whether a newer web app (or an installer) was staged this run, a
+   * subscription for when one is, and a restart to activate it.
    */
   isWebUpdatePending: () => ipcRenderer.invoke("armada:web-update-pending"),
   onWebUpdateReady: (handler) => {

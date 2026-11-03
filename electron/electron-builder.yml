@@ -47,9 +47,9 @@ files:
   - desktopIntegration.js
   - updateSupport.js
   # The updater's release feed: the electron-updater Provider and the bundled
-  # build of src/lib/desktopUpdate.ts it reads the release event through.
-  # Unlisted, the app still boots (the provider requires the bundle lazily) and
-  # every update check fails instead — a shipped app that can never update
+  # build of src/lib/desktopUpdate.ts it reads the release event and the site
+  # manifest through. Unlisted, the app still boots, on its shipped web bundle
+  # forever, and every update check fails — a shipped app that can never update
   # itself again, which is the harder failure to notice.
   - nostrUpdateProvider.js
   - updateFeed.cjs
@@ -75,11 +75,11 @@ files:
   # Image bytes for hosts without CORS; required by main.js at startup.
   - imageFetch.js
   - preload.js
-  # Resolves which web bundle app:// serves. Unlisted, the require fails inside
-  # the asar and the shell cannot boot at all.
-  - bundleStore.js
-  # Fetches and activates a newer web bundle (the Flatpak's only update path).
-  - webBundleUpdate.js
+  # Loads, verifies and updates the web app app:// serves from Armada's nsite.
+  # Unlisted, the require fails inside the asar and the shell cannot boot.
+  - webSite.js
+  # The shell API level web bundles are checked against; required at startup.
+  - desktopApi.json
   # The ArmadaDB store, built from src/lib/db by vite.config.electron.ts. main.js
   # requires it at startup; unlisted, the require fails inside the asar and the
   # app silently falls back to IndexedDB with the user's data in the wrong place.

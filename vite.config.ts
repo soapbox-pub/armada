@@ -94,6 +94,26 @@ function serveChangelog(): Plugin {
 }
 
 /**
+ * Writes `/desktop.json`: the desktop shell API level this bundle was built
+ * against (`electron/desktopApi.json`) and the build time. A shell refuses a
+ * site whose level is above its own, and its own shipped copy's `builtAt` is
+ * the floor no site manifest may predate (`electron/webSite.js`).
+ */
+function desktopManifest(): Plugin {
+  const source = path.resolve(import.meta.dirname, "electron/desktopApi.json");
+  return {
+    name: "armada-desktop-manifest",
+    apply: "build",
+    writeBundle(options) {
+      const outDir = options.dir ?? path.resolve("dist");
+      const { level } = JSON.parse(fs.readFileSync(source, "utf-8")) as { level: number };
+      const manifest = { api: level, builtAt: Math.floor(Date.now() / 1000) };
+      fs.writeFileSync(path.join(outDir, "desktop.json"), `${JSON.stringify(manifest)}\n`);
+    },
+  };
+}
+
+/**
  * Stamps each build with a unique id:
  *  - index.html: fills the `<meta name="build">` placeholder so a device's
  *    running bundle can be identified from the DOM when debugging stale-PWA
@@ -380,7 +400,7 @@ export default defineConfig({
       ignored: [...BUILD_ARTIFACT_EXCLUDES, "**/electron/.dev-profile/**"],
     },
   },
-  plugins: [react(), buildConfigPlugin(), buildStamp(), serveChangelog(), serviceWorker(), npanelPreview(), oneByteScripts()],
+  plugins: [react(), buildConfigPlugin(), buildStamp(), serveChangelog(), desktopManifest(), serviceWorker(), npanelPreview(), oneByteScripts()],
   optimizeDeps: {
     // Pin the dep-scanner's entry points to the real HTML entries. Left to its
     // default the scanner GLOBS `**/*.html` from the project root, and that

@@ -63,8 +63,8 @@ finish-args:
 #
 # The bundle embeds no origin URL; its shell updates through `flatpak update`
 # from whichever remote it was installed from (npkg's, for pkg.soapbox.pub).
-# Its WEB BUNDLE also updates in place: the shell fetches the site's dist
-# archive into userData and serves that (electron/webBundleUpdate.js).
+# Its web app also updates in place: the shell loads it from Armada's signed
+# nsite into userData and serves that (electron/webSite.js).
 # `--share=network` is all that needs.
 
 modules:

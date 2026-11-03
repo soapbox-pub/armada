@@ -157,12 +157,12 @@ jobs:
       - name: Fetch spellcheck dictionaries
         run: scripts/fetch-spell-dictionaries.sh dist/dictionaries
 
-      # The web bundle as one archive, served beside the site. The desktop
-      # shell (electron/webBundleUpdate.js) reads its hash and servers from the
-      # signed site manifest this deploy publishes, fetches it from Blossom,
-      # and swaps its app:// origin to it — the Flatpak's only update path.
-      # Keep the path in step with WEB_BUNDLE_PATH in src/lib/desktopUpdate.ts.
-      # Deterministic tar+gzip so an unchanged build keeps its hash.
+      # The web bundle as one archive, served beside the site, for Flatpak
+      # shells up to v0.67.6: they read this path's hash from the signed site
+      # manifest and unpack it into userData. Newer shells load the site file
+      # by file (electron/webSite.js) and never fetch it, so it can go once
+      # those shells have updated. Deterministic so an unchanged build keeps
+      # its hash.
       - name: Pack the web bundle
         run: |
           set -eu

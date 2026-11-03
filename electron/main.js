@@ -54,6 +54,7 @@ const {
   dialog,
   powerMonitor,
   utilityProcess,
+  Notification,
 } = require("electron");
 // electron-updater and its dependency tree are ~650 KB of source kept resident
 // once required; only the self-updating packages ever use it, and only once
@@ -89,7 +90,15 @@ const createLinuxStatusNotifier =
 const path = require("node:path");
 const fs = require("node:fs");
 const { randomUUID } = require("node:crypto");
-const { pruneBundles, resolveDistRoot } = require("./bundleStore");
+const {
+  loadCurrent,
+  loadSite,
+  pruneBlobs,
+  readBlob,
+  readShippedDesktopManifest,
+  resolveSitePath,
+  stageSite,
+} = require("./webSite");
 const { spawnSync } = require("node:child_process");
 const {
   DEFAULT_LINUX_VIDEO_ENCODER_MODE,
@@ -149,27 +158,31 @@ if (process.platform === "win32") {
 }
 
 // The web bundle that shipped inside the asar. This is the floor: a fresh
-// install serves it, and the shell falls back to it whenever it cannot host a
-// downloaded bundle. `activeDist` is what the app:// handler actually reads.
+// install serves it, and so does any launch where the stored site (webSite.js)
+// does not check out. With `activeSite` set, app:// serves that site instead.
 const SHIPPED_DIST = path.join(__dirname, "dist");
-const BUNDLES_DIR = path.join(app.getPath("userData"), "bundles");
-let activeDist = SHIPPED_DIST;
-let activeBundleId = null;
+const WEB_DIR = path.join(app.getPath("userData"), "web");
+// Where Flatpak shells up to v0.67.6 unpacked the web archive; nothing reads it.
+const LEGACY_BUNDLES_DIR = path.join(app.getPath("userData"), "bundles");
+// The shell API level (desktopApi.json) and the build time of the bundle it
+// shipped with, below which no site manifest is served.
+const SHELL_API = require("./desktopApi.json").level;
+const SHELL_BUILT_AT = readShippedDesktopManifest(SHIPPED_DIST)?.builtAt ?? 0;
+let activeSite = null;
 
 // How long the renderer has to report that it painted before the shell treats
-// the active bundle as suspect. Generous: a cold start on a slow disk with a
+// the active site as suspect. Generous: a cold start on a slow disk with a
 // large store is not a failure.
 const BUNDLE_BOOT_GRACE_MS = 45_000;
 let bundleBooted = false;
 
 /**
- * Notice a bundle that never comes up.
+ * Notice a site that never comes up.
  *
- * Recovery is forward-only — the shell does not revert to an older bundle —
+ * Recovery is forward-only — the shell does not revert to an older site —
  * so the only thing this can usefully do is stop waiting for the next
- * scheduled poll and look for a newer bundle right now. That shortens a bad
- * release from "until the next check" to "until the fix is published", which
- * is why the bundle build is a separate, fast workflow.
+ * scheduled poll and look for a newer one right now. That shortens a bad
+ * deploy from "until the next check" to "until the fix is published".
  *
  * The check runs in the MAIN process, so a renderer that white-screens cannot
  * take the update path down with it.
@@ -179,10 +192,10 @@ function watchBundleBoot() {
   setTimeout(() => {
     if (bundleBooted) return;
     console.warn(
-      `[bundle] renderer did not report ready within ${BUNDLE_BOOT_GRACE_MS}ms`,
-      activeBundleId ? `(bundle ${activeBundleId})` : "(shipped bundle)",
+      `[web] renderer did not report ready within ${BUNDLE_BOOT_GRACE_MS}ms`,
+      activeSite ? `(site ${activeSite.id})` : "(shipped bundle)",
     );
-    if (flatpakUpdatesSupported()) void checkForDesktopUpdates(false);
+    if (webUpdatesSupported()) void checkForDesktopUpdates(false);
   }, BUNDLE_BOOT_GRACE_MS).unref();
 }
 
@@ -197,7 +210,7 @@ function installBundleIpc() {
   // The renderer asks on mount too, since the check can finish before it
   // subscribes to armada:web-update-ready.
   // A downloaded installer (electron-updater) is offered through the same toast.
-  ipcMain.handle("armada:web-update-pending", () => pendingWebBundle !== null || installerDownloaded);
+  ipcMain.handle("armada:web-update-pending", () => pendingWebSite !== null || installerDownloaded);
   ipcMain.on("armada:web-update-restart", (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents) return;
     if (installerDownloaded) {
@@ -205,7 +218,7 @@ function installBundleIpc() {
       updater().quitAndInstall(false, true);
       return;
     }
-    if (pendingWebBundle === null) return;
+    if (pendingWebSite === null) return;
     isQuitting = true;
     app.relaunch();
     app.exit(0);
@@ -223,39 +236,47 @@ function installBundleIpc() {
 }
 
 /**
- * Choose the bundle to serve. Called once, before the window loads, because
- * the app:// handler resolves every request against it.
+ * Choose what app:// serves. Called once, before the window loads, because
+ * the handler resolves every request against it; a window keeps the site it
+ * booted with until the next launch, so it never mixes two deploys' chunks.
  */
-function selectActiveBundle() {
-  // Only the Flatpak downloads bundles. Anywhere else a bundle in userData can
-  // only have been planted, and it would boot as app://armada with the whole
-  // preload bridge, under the signed app's identity and permission grants.
-  if (!flatpakUpdatesSupported()) {
-    activeDist = SHIPPED_DIST;
-    activeBundleId = null;
-    console.log("[bundle] serving shipped");
+function selectActiveSite() {
+  fs.rmSync(LEGACY_BUNDLES_DIR, { recursive: true, force: true });
+  if (!webUpdatesSupported()) {
+    console.log("[web] serving shipped");
     return;
   }
-  const selected = resolveDistRoot({
-    bundlesDir: BUNDLES_DIR,
-    shippedDist: SHIPPED_DIST,
-    // A shell upgraded since the last download (a `flatpak update`, an AppImage
-    // or NSIS self-update) ships a bundle at least as new; serving it rather
-    // than the stale download is what keeps the web layer from lagging the
-    // shell after an upgrade. The updater then re-pulls whatever the site has.
-    shellVersion: app.getVersion(),
-  });
-  activeDist = selected.root;
-  activeBundleId = selected.id;
-  console.log(`[bundle] serving ${selected.source}${selected.id ? ` ${selected.id}` : ""}`);
-  // A mid-session update leaves the bundle the previous run was serving in
-  // place (webBundleUpdate.js); this is the first moment nothing reads it.
   try {
-    pruneBundles(BUNDLES_DIR, activeBundleId);
+    const { parseWebSite } = require("./updateFeed.cjs");
+    activeSite = loadSite({ dir: WEB_DIR, parse: parseWebSite, shellApi: SHELL_API, floor: SHELL_BUILT_AT });
+    // A stored site that did not load (blobs missing) keeps its blobs for the
+    // update check to complete; anything else is unreferenced.
+    pruneBlobs(WEB_DIR, [activeSite, loadCurrent(WEB_DIR, parseWebSite)]);
   } catch (error) {
-    console.warn("[bundle] prune failed", error);
+    console.warn("[web] could not load the stored site", error);
+    activeSite = null;
   }
+  console.log(activeSite ? `[web] serving site ${activeSite.id}` : "[web] serving shipped");
 }
+
+let siteRepairRequested = false;
+
+function serveSiteFile(pathname) {
+  const sitePath = resolveSitePath(activeSite, pathname);
+  const bytes = readBlob(WEB_DIR, activeSite.files.get(sitePath));
+  if (bytes) {
+    return new Response(bytes, { status: 200, headers: { "Content-Type": contentTypeFor(sitePath) } });
+  }
+  // Deleted or altered since launch. Never substitute another deploy's copy;
+  // the update check downloads it again for the next launch.
+  console.warn(`[web] ${sitePath} is missing or does not match the manifest`);
+  if (!siteRepairRequested) {
+    siteRepairRequested = true;
+    void checkForDesktopUpdates(false);
+  }
+  return new Response("Unavailable", { status: 503 });
+}
+
 // Custom app scheme. Host segment "armada" keeps a stable origin
 // (app://armada) for the service worker + secure-context checks.
 const SCHEME = "app";
@@ -402,8 +423,10 @@ let manualUpdateCheck = false;
 let updateCheckInFlight = false;
 let macSelfUpdateEligible;
 let updateCheckTimer = null;
-// Id of a web bundle installed this run and awaiting a restart to activate.
-let pendingWebBundle = null;
+// Id of a site staged this run and awaiting a restart to activate.
+let pendingWebSite = null;
+// A site needing a newer shell has been announced this run.
+let shellUpdateAnnounced = false;
 // electron-updater has an installer staged; it also installs on quit.
 let installerDownloaded = false;
 const pushToTalk = new PushToTalkController({
@@ -505,16 +528,17 @@ function registerAppProtocol() {
     const url = new URL(request.url);
     // One origin: the preload bridge and permissions are granted to app://armada only.
     if (url.host !== "armada") return new Response("Not Found", { status: 404 });
-    // Strip query/hash, resolve within the active bundle, prevent traversal.
+    // Strip query/hash; resolve within the active site or the shipped bundle.
     let pathname;
     try {
       pathname = decodeURIComponent(url.pathname);
     } catch {
       return new Response("Bad Request", { status: 400 });
     }
+    if (activeSite) return serveSiteFile(pathname);
     if (pathname === "/" || pathname === "") pathname = "/index.html";
 
-    const dist = activeDist;
+    const dist = SHIPPED_DIST;
     const indexHtml = path.join(dist, "index.html");
     let filePath = path.normalize(path.join(dist, pathname));
     // Reject path traversal. Compare with a trailing separator so a sibling
@@ -709,7 +733,7 @@ function trayImage() {
 function trayMenuEntries() {
   return [
     { id: 1, label: "Show Armada", activate: showWindow },
-    autoUpdatesSupported() || flatpakUpdatesSupported()
+    autoUpdatesSupported() || webUpdatesSupported()
       ? {
           id: 2,
           label: "Check for Updates…",
@@ -933,19 +957,22 @@ function hideWindowToTray() {
 
 // ── Application updates ────────────────────────────────────────────────────
 //
-// electron-updater supports the installed NSIS build on Windows, signed macOS
-// builds, and AppImage on Linux. A portable .exe has nowhere stable to install
-// an update, and a deb stays owned by apt, so those formats never contact the
-// update feed. A Flatpak is never replaced; its web bundle is
-// (checkForWebBundleUpdate).
+// Two tracks. The WEB track (every build but the store editions) loads the web
+// app from Armada's signed nsite manifest, so the releases that only touch
+// src/ — nearly all of them — reach every desktop, including the ones that
+// cannot replace themselves (deb, Flatpak, cross-built macOS). See webSite.js.
 //
-// The feed is the NIP-82 release and its assets — the same ones /downloads reads —
-// resolved by ./nostrUpdateProvider.js (electron-updater path) and directly by
-// ./updateFeed.cjs (Flatpak path). The `publish` block in electron-builder.yml
-// is not a feed: it is the only thing that makes electron-builder package an
-// app-update.yml, which electron-updater reads on every DOWNLOAD for its cache
-// directory name. Its url is never fetched — setFeedURL below replaces the
-// provider outright. See electron/README.md.
+// The SHELL track is electron-updater, for the installed NSIS build on
+// Windows, signed macOS builds and the AppImage. A portable .exe has nowhere
+// stable to install an update, a deb stays owned by apt and a Flatpak by
+// `flatpak update`, so those never contact the release feed.
+//
+// The feed is the NIP-82 release and its assets — the same ones /downloads
+// reads — resolved by ./nostrUpdateProvider.js. The `publish` block in
+// electron-builder.yml is not a feed: it is the only thing that makes
+// electron-builder package an app-update.yml, which electron-updater reads on
+// every DOWNLOAD for its cache directory name. Its url is never fetched —
+// setFeedURL below replaces the provider outright. See electron/README.md.
 
 function autoUpdatesSupported() {
   if (!app.isPackaged) return false;
@@ -979,15 +1006,12 @@ function autoUpdatesSupported() {
   });
 }
 
-// A packaged Flatpak: read-only /app, so the in-app updater swaps its web
-// bundle rather than replacing itself. The shell (and major versions) update
-// through `flatpak update` from whichever remote it was installed from —
-// pkg.soapbox.pub for the published build — the same way Vesktop does it.
-// Mutually exclusive with supportsSelfUpdate(). ARMADA_DEV_WEB_UPDATE=1 under
-// `npm run electron:dev` runs the same path against the dev profile's userData.
-function flatpakUpdatesSupported() {
+// Store editions take their code from the store's review, not from a relay.
+// ARMADA_DEV_WEB_UPDATE=1 under `npm run electron:dev` runs the staging half
+// against the dev profile's userData (the window still loads the dev server).
+function webUpdatesSupported() {
   if (!app.isPackaged) return Boolean(DEV_URL) && process.env.ARMADA_DEV_WEB_UPDATE === "1";
-  return process.platform === "linux" && Boolean(process.env.FLATPAK_ID);
+  return !process.mas && !process.windowsStore;
 }
 
 async function showUpdateMessage(options) {
@@ -1002,8 +1026,8 @@ async function showUpdateMessage(options) {
 }
 
 async function checkForDesktopUpdates(manual = false) {
-  if (flatpakUpdatesSupported()) return checkForWebBundleUpdate(manual);
-  if (!autoUpdatesSupported()) return;
+  const shellUpdates = autoUpdatesSupported();
+  if (!shellUpdates && !webUpdatesSupported()) return;
   if (updateCheckInFlight) {
     if (manual) manualUpdateCheck = true;
     return;
@@ -1011,7 +1035,18 @@ async function checkForDesktopUpdates(manual = false) {
   updateCheckInFlight = true;
   manualUpdateCheck = manual;
   try {
-    await updater().checkForUpdates();
+    const web = webUpdatesSupported() ? await checkForWebUpdate() : "unchanged";
+    if (web === "installed") announceWebUpdate();
+    if (shellUpdates) {
+      // electron-updater's events report the outcome; a staged site has
+      // already answered a manual check with the restart toast.
+      if (web === "installed") manualUpdateCheck = false;
+      await updater().checkForUpdates();
+      return;
+    }
+    const wasManual = manualUpdateCheck;
+    manualUpdateCheck = false;
+    await reportWebUpdate(web, wasManual);
   } catch (error) {
     console.warn("[updater] update check failed", error);
     const shouldReport = manual && manualUpdateCheck;
@@ -1029,77 +1064,99 @@ async function checkForDesktopUpdates(manual = false) {
   }
 }
 
-// Vesktop-style: the Flatpak shell is never replaced, its WEB BUNDLE is.
-// Resolve the dist archive the newest signed site manifest names
-// (updateFeed.cjs), download and hash-check it, activate it
-// (electron/webBundleUpdate.js + bundleStore.js), offer a restart.
-async function checkForWebBundleUpdate(manual = false) {
-  if (updateCheckInFlight) {
-    if (manual) manualUpdateCheck = true;
+/**
+ * Stage the newest signed site for the next launch (webSite.js). Resolves
+ * `"installed"`, `"unchanged"`, `"incompatible"` (it needs a newer shell) or
+ * `"failed"`; never rejects, so the shell track still runs.
+ */
+async function checkForWebUpdate() {
+  try {
+    const { parseWebSite, resolveWebSite } = require("./updateFeed.cjs");
+    const site = await resolveWebSite();
+    // No acceptable manifest is "nothing newer", not a failure.
+    if (!site) return "unchanged";
+    const outcome = await stageSite({
+      dir: WEB_DIR,
+      site,
+      active: activeSite,
+      parse: parseWebSite,
+      shellApi: SHELL_API,
+      shellVersion: app.getVersion(),
+      floor: SHELL_BUILT_AT,
+    });
+    if (outcome.result === "installed" && pendingWebSite !== outcome.id) {
+      console.log(`[web] staged site ${outcome.id}`);
+      pendingWebSite = outcome.id;
+    }
+    if (outcome.result === "incompatible") console.log(`[web] site ${outcome.id} needs a newer shell`);
+    return outcome.result;
+  } catch (error) {
+    console.warn("[web] update failed", error);
+    return "failed";
+  }
+}
+
+function announceWebUpdate() {
+  // The renderer offers the restart as an in-app toast; no OS dialog.
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("armada:web-update-ready");
+    if (manualUpdateCheck) showWindow();
+  }
+}
+
+const DOWNLOADS_URL = "https://armada.buzz/downloads";
+
+/** The web track's outcome, for a build with no shell updater. */
+async function reportWebUpdate(result, manual) {
+  if (result === "installed") return;
+  if (result === "incompatible") {
+    if (manual) {
+      const { response } = await showUpdateMessage({
+        type: "info",
+        title: "Armada update available",
+        message: "This update needs a newer version of the Armada app.",
+        detail: "Install the latest Armada to keep getting updates.",
+        buttons: ["Open Downloads", "Later"],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (response === 0) void openExternalUrl(DOWNLOADS_URL);
+    } else if (!shellUpdateAnnounced && Notification.isSupported()) {
+      shellUpdateAnnounced = true;
+      const notification = new Notification({
+        title: "Armada update available",
+        body: "This update needs a newer version of the Armada app. Click to download it.",
+      });
+      notification.on("click", () => void openExternalUrl(DOWNLOADS_URL));
+      notification.show();
+    }
     return;
   }
-  updateCheckInFlight = true;
-  manualUpdateCheck = manual;
-  try {
-    const { updateWebBundle } = require("./webBundleUpdate");
-    const { resolveWebBundle } = require("./updateFeed.cjs");
-    const wasManual = manualUpdateCheck;
-    manualUpdateCheck = false;
-    const bundle = await resolveWebBundle();
-    // No manifest naming a bundle is "nothing newer", not a failure.
-    const outcome = bundle
-      ? await updateWebBundle({
-          bundlesDir: BUNDLES_DIR,
-          bundle,
-          activeId: activeBundleId,
-          shellVersion: app.getVersion(),
-        })
-      : { result: "unchanged" };
-    if (outcome.result !== "installed") {
-      if (wasManual) {
-        await showUpdateMessage({
-          type: "info",
-          title: "Armada is up to date",
-          message: "You are running the newest available version.",
-        });
-      }
-      return;
-    }
-    console.log(`[bundle] installed ${outcome.id}`);
-    // The renderer offers the restart as an in-app toast; no OS dialog.
-    pendingWebBundle = outcome.id;
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("armada:web-update-ready");
-      if (wasManual) showWindow();
-    }
-  } catch (error) {
-    console.warn("[bundle] update failed", error);
-    const shouldReport = manual && manualUpdateCheck;
-    manualUpdateCheck = false;
-    if (shouldReport) {
-      await showUpdateMessage({
-        type: "error",
-        title: "Update check failed",
-        message: "Armada could not check for updates.",
-        detail: "Check your connection and try again.",
-      });
-    }
-  } finally {
-    updateCheckInFlight = false;
+  if (!manual) return;
+  if (result === "failed") {
+    await showUpdateMessage({
+      type: "error",
+      title: "Update check failed",
+      message: "Armada could not check for updates.",
+      detail: "Check your connection and try again.",
+    });
+    return;
   }
+  await showUpdateMessage({
+    type: "info",
+    title: "Armada is up to date",
+    message: "You are running the newest available version.",
+  });
 }
 
 function installAutoUpdater() {
   const electronUpdater = autoUpdatesSupported();
-  // The electron-updater path owns AppImage/NSIS/mac; the Flatpak path owns a
-  // packaged Flatpak. Only the former needs electron-updater wired up.
-  if (!electronUpdater && !flatpakUpdatesSupported()) return;
+  if (!electronUpdater && !webUpdatesSupported()) return;
   if (electronUpdater) installElectronUpdater();
 
   // Let the UI and keyring finish booting before the first network request.
   setTimeout(() => void checkForDesktopUpdates(false), 10_000).unref();
-  // A web bundle is checked at startup only; its restart is offered in-app.
-  if (!electronUpdater) return;
   updateCheckTimer = setInterval(
     () => void checkForDesktopUpdates(false),
     4 * 60 * 60 * 1000,
@@ -2018,7 +2075,7 @@ if (!gotLock) {
     Menu.setApplicationMenu(null);
     // Before registerAppProtocol(): the handler resolves every request against
     // the bundle chosen here.
-    selectActiveBundle();
+    selectActiveSite();
     registerAppProtocol();
     // YouTube rejects embedded players whose client identity is a custom
     // scheme (error 153). Packaged app:// builds identify themselves by the
