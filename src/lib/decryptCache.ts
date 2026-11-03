@@ -101,6 +101,32 @@ export async function forgetDecryptsOfRumor(pubkey: string, rumor: { id: string;
   await Promise.all([...doomed].map((id) => kv.delete(decryptCacheKey(id)).catch(() => undefined)));
 }
 
+/**
+ * Forget every cached decrypt that is a banned user's: a rumor or a seal they
+ * signed. Kind 4 has one decrypt per message, which the caller forgets with
+ * {@link forgetDecrypt}.
+ */
+export async function forgetDecryptsByAuthor(author: string): Promise<void> {
+  const kv = getArmadaDB().kv;
+  const stored = await kv.list<unknown>({ prefix: decryptCacheKey("") }).catch(() => []);
+  const entries: Array<[string, unknown]> = [
+    ...recentDecrypts,
+    ...stored.map(({ key, value }): [string, unknown] => [key.slice(decryptCacheKey("").length), value]),
+  ];
+  const doomed = new Set<string>();
+  for (const [id, text] of entries) {
+    if (typeof text !== "string" || !text.startsWith("{") || !text.includes(author)) continue;
+    try {
+      const value = JSON.parse(text) as { pubkey?: unknown } | null;
+      if (value?.pubkey === author) doomed.add(id);
+    } catch {
+      // Not an event.
+    }
+  }
+  for (const id of doomed) recentDecrypts.delete(id);
+  await Promise.all([...doomed].map((id) => kv.delete(decryptCacheKey(id)).catch(() => undefined)));
+}
+
 /** Drop every in-memory decrypt (logout: see purgeClientStorage). */
 export function clearRecentDecrypts(): void {
   recentDecrypts.clear();

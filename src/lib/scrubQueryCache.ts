@@ -36,6 +36,53 @@ function without(value: unknown, id: string, depth: number): unknown {
   return out ?? value;
 }
 
+function isAuthors(value: unknown, author: string): value is { content?: unknown; tags?: unknown; preview?: unknown } {
+  if (!value || typeof value !== "object") return false;
+  const row = value as { pubkey?: unknown; author?: unknown };
+  return row.pubkey === author || row.author === author;
+}
+
+/** `value` with `author`'s rows tombstoned, sharing every untouched branch; `value` itself if none. */
+function tombstonedIn(value: unknown, author: string, keep: ReadonlySet<string>, depth: number): unknown {
+  if (depth > MAX_DEPTH || value === null || typeof value !== "object") return value;
+  if (isAuthors(value, author) && (typeof value.content === "string" || "preview" in value)) {
+    const row = { ...(value as Record<string, unknown>) };
+    if (typeof row.content === "string") row.content = "";
+    if (Array.isArray(row.tags)) row.tags = (row.tags as unknown[]).filter((tag) => Array.isArray(tag) && keep.has(tag[0] as string));
+    if ("preview" in row) row.preview = undefined;
+    return row;
+  }
+  if (Array.isArray(value)) {
+    let changed = false;
+    const out = value.map((item) => {
+      const next = tombstonedIn(item, author, keep, depth + 1);
+      if (next !== item) changed = true;
+      return next;
+    });
+    return changed ? out : value;
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+  let out: Record<string, unknown> | undefined;
+  for (const [key, field] of Object.entries(value)) {
+    const next = tombstonedIn(field, author, keep, depth + 1);
+    if (next !== field) (out ??= { ...(value as Record<string, unknown>) })[key] = next;
+  }
+  return out ?? value;
+}
+
+/**
+ * Empty a banned user's messages in every cached query, keeping each row (and
+ * the `keep` tags that place it) so a tombstone shows where it was.
+ */
+export function tombstoneAuthorInQueries(queryClient: QueryClient, author: string, keep: ReadonlySet<string>): void {
+  for (const query of queryClient.getQueryCache().getAll()) {
+    const data = query.state.data;
+    if (data === undefined) continue;
+    const next = tombstonedIn(data, author, keep, 0);
+    if (next !== data) queryClient.setQueryData(query.queryKey, next);
+  }
+}
+
 /**
  * Drop a message removed from this device from every cached query: rows in
  * timelines, threads and pages, and a query whose whole answer is the message

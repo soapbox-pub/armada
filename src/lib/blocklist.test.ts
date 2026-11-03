@@ -2,7 +2,7 @@
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { BLOCKLIST_KIND, blocklistHash, foldBlocklist, isCommunityBlocked, parseBlocklistEntry } from "./blocklist";
+import { BLOCKLIST_KIND, bannedUserHashes, blocklistHash, foldBlocklist, isCommunityBlocked, parseBlocklistEntry } from "./blocklist";
 
 const ID = "ef9453dbfeda7afa8e6b48bf5e2b8e8bc5bf6ed8175204ddb54e80249d33158b";
 const sk = generateSecretKey();
@@ -26,6 +26,33 @@ describe("blocklistHash", () => {
 
   it("ignores case", () => {
     expect(blocklistHash(ID.toUpperCase())).toBe(blocklistHash(ID));
+  });
+
+  it("matches armada-blocklist's user test vector", () => {
+    expect(blocklistHash("00".repeat(32), "user")).toBe("5651d56b6e1741880b2c3822dfe70dbf1d14ed6497ef26ea5e82b81c29cc1856");
+  });
+});
+
+describe("user entries", () => {
+  const user = (status: string, createdAt: number, hash = blocklistHash(ID, "user")) => JSON.parse(JSON.stringify(finalizeEvent({
+    kind: BLOCKLIST_KIND,
+    created_at: createdAt,
+    tags: [["d", hash], ["scope", "user"], ["status", status], ["v", "1"]],
+    content: "",
+  }, sk)));
+
+  it("ban a user, and the newest wins", () => {
+    expect(bannedUserHashes(foldBlocklist([user("blocked", 1)], [pk]))).toEqual(new Set([blocklistHash(ID, "user")]));
+    expect(bannedUserHashes(foldBlocklist([user("blocked", 1), user("lifted", 2)], [pk])).size).toBe(0);
+  });
+
+  it("don't block a community, even one listed under the same hash", () => {
+    const entries = foldBlocklist([user("blocked", 1, blocklistHash(ID))], [pk]);
+    expect(isCommunityBlocked(entries, ID)).toBe(false);
+  });
+
+  it("aren't community entries' business", () => {
+    expect(bannedUserHashes(foldBlocklist([entry("blocked", 1)], [pk])).size).toBe(0);
   });
 });
 

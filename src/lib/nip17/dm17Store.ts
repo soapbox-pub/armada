@@ -17,6 +17,7 @@ import { literalSearch } from "@/lib/db/ParsedFilter";
 import { tenantOptsFor } from "@/lib/db/termPolicies";
 import type { NRumorStore } from "@/lib/db/types";
 import { readFolded, writeFolded } from "@/lib/foldedCache";
+import { isUserBannedNow, tombstoned } from "@/lib/bannedUsers";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import {
   DM_MESSAGE_KINDS,
@@ -47,6 +48,39 @@ import { dmThreadScope, emitWireScopes } from "@/wire/bus";
 export function dm17Store(self: string): NRumorStore {
   const id = `dm17:${self}`;
   return getArmadaDB().tenant(id, tenantOptsFor(id));
+}
+
+/** The tags a banned user's message keeps, placing it in its conversation. */
+export const DM_TOMBSTONE_TAGS: ReadonlySet<string> = new Set(["p", "e", "ms"]);
+
+/** Kinds kept as a tombstone, rather than dropped, when their author is banned. */
+const DM_ROW_KINDS = new Set([KIND_DM_CHAT, KIND_DM_FILE]);
+
+/** DMs as stored when their author is banned: a message stays as a tombstone, anything else isn't kept. */
+export function withoutBannedDms<T extends Pick<OpenedDm, "author" | "kind" | "content" | "tags">>(opened: T[]): T[] {
+  if (!opened.some((o) => isUserBannedNow(o.author))) return opened;
+  return opened.flatMap((o) => {
+    if (!isUserBannedNow(o.author)) return [o];
+    return DM_ROW_KINDS.has(o.kind) ? [tombstoned(o, DM_TOMBSTONE_TAGS)] : [];
+  });
+}
+
+/**
+ * Purge a banned user's DMs from an account's tenant: each message becomes a
+ * tombstone in its place, and the rest of theirs goes. Resolves to the rows as
+ * they were, for their media and copies.
+ */
+export async function purgeAuthorDms(self: string, pubkey: string): Promise<NostrRumor[]> {
+  const store = dm17Store(self);
+  const rows = await store.query([{ authors: [pubkey] }]);
+  const doomed = rows.filter((row) => row.content !== "" || row.tags.some((tag) => !DM_TOMBSTONE_TAGS.has(tag[0])));
+  if (doomed.length === 0) return [];
+  await store.remove([{ ids: doomed.map((row) => row.id) }]);
+  await Promise.all(doomed
+    .filter((row) => DM_ROW_KINDS.has(row.kind))
+    .map((row) => store.event(tombstoned(row, DM_TOMBSTONE_TAGS)).catch(() => undefined)));
+  emitWireScopes(["dm"]);
+  return doomed;
 }
 
 /** Build the stored rumor for an opened DM: the rumor itself, unaltered. */
@@ -80,8 +114,9 @@ export function storedToDm17(ev: NostrRumor, self: string): OpenedDm {
  * affected peer. Best-effort; resolves once committed.
  */
 export async function writeDm17Rumors(self: string, opened: OpenedDm[]): Promise<void> {
-  // Single choke point for every writer: already-expired rumors are never stored.
-  const fresh = opened.filter((o) => !isExpired(o.tags));
+  // Single choke point for every writer: already-expired rumors are never stored,
+  // and a banned user's only as a tombstone in place of a message.
+  const fresh = withoutBannedDms(opened.filter((o) => !isExpired(o.tags)));
   if (fresh.length === 0) return;
   const s = dm17Store(self);
   await Promise.all(

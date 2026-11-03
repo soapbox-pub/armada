@@ -5,12 +5,14 @@ import { Link, useParams } from "react-router-dom";
 import { JoinButton } from "@/components/auth/JoinButton";
 import { DetailPage } from "@/components/layout/DetailPage";
 import { ProfileDialog } from "@/components/profile/ProfileDialog";
+import { UserBanned } from "@/components/profile/UserBanned";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useBackOrHome } from "@/hooks/useBackOrHome";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useNip05Resolve } from "@/hooks/useNip05Resolve";
+import { useUserBan } from "@/hooks/useUserBan";
 import { FormattedMessage, useIntl } from "@/i18n";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { parseNip05Address } from "@/lib/nip05Address";
@@ -45,6 +47,7 @@ export function UserPage() {
   const npub = pubkey ? tryNpubEncode(pubkey) : undefined;
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
+  const banned = useUserBan(pubkey);
 
   // Until kind 0 lands, show the followed address rather than "Anonymous".
   const shortNpub = npub ? `${npub.slice(0, 12)}…${npub.slice(-6)}` : "";
@@ -104,6 +107,9 @@ export function UserPage() {
       </DetailPage>
     );
   }
+
+  // Signed in, the dialog shows it; signed out, nothing of the profile is shown.
+  if (banned && !user) return <UserBanned />;
 
   return (
     <DetailPage

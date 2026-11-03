@@ -1,7 +1,8 @@
 /**
- * The community blocklist as the app holds it: the entries last fetched (kept
- * in KV, so a block survives going offline) and a refresh from relays. Entries
- * are verified and folded by `blocklist.ts`.
+ * The blocklist as the app holds it: the entries last fetched (kept in KV, so
+ * a block survives going offline) and a refresh from relays. Entries are
+ * verified and folded by `blocklist.ts`; banned users' are handed to
+ * `bannedUsers.ts`, which the stores and renderers ask.
  *
  * A failed fetch keeps what is held, and the app doesn't refuse to work
  * because a relay is down. Before the first fetch nothing is blocked.
@@ -9,7 +10,8 @@
 import { useMemo, useSyncExternalStore } from "react";
 
 import { STOCK_RELAYS } from "@/concord/lib/stockRelays";
-import { BLOCKLIST_AUTHORS, BLOCKLIST_KIND, foldBlocklist, isCommunityBlocked, type BlocklistEntry } from "@/lib/blocklist";
+import { bannedUserHashes, BLOCKLIST_AUTHORS, BLOCKLIST_KIND, blocklistHash, foldBlocklist, isCommunityBlocked, type BlocklistEntry } from "@/lib/blocklist";
+import { isUserBannedNow, resetBannedUsers, setBannedUserHashes } from "@/lib/bannedUsers";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 import { DEPLOYMENT_RELAYS } from "@/lib/platform";
 
@@ -48,6 +50,7 @@ function absorb(incoming: NostrEvent[]): boolean {
   const kept = new Set([...next.values()].map((entry) => entry.id));
   events = [...events, ...incoming].filter((event, i, all) => kept.has(event.id) && all.findIndex((e) => e.id === event.id) === i);
   entries = next;
+  setBannedUserHashes(bannedUserHashes(entries));
   version++;
   for (const listener of listeners) listener();
   return true;
@@ -89,6 +92,31 @@ export function refreshBlocklist(pool: BlocklistPool, { force = false } = {}): P
   return inflight;
 }
 
+/** When each user's entry was last fetched on its own, by {@link checkUserBan}. */
+const checkedUsers = new Map<string, number>();
+
+/**
+ * Fetch `pubkey`'s own entry, by `#d`, as their profile opens: a ban published
+ * since the last full refresh counts before anything of theirs shows. At most
+ * once per {@link FRESH_MS} per user. Never throws.
+ */
+export async function checkUserBan(pool: BlocklistPool, pubkey: string): Promise<void> {
+  if (BLOCKLIST_AUTHORS.length === 0 || !/^[0-9a-f]{64}$/.test(pubkey)) return;
+  const last = checkedUsers.get(pubkey);
+  if (last !== undefined && Date.now() - last < FRESH_MS) return;
+  checkedUsers.set(pubkey, Date.now());
+  await warm();
+  try {
+    const fetched = await pool.group(RELAYS).query(
+      [{ kinds: [BLOCKLIST_KIND], authors: BLOCKLIST_AUTHORS, "#d": [blocklistHash(pubkey, "user")], limit: 10 }],
+      { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
+    );
+    if (absorb(fetched)) await getArmadaDB().kv.set(KV_KEY, events).catch(() => undefined);
+  } catch {
+    checkedUsers.delete(pubkey);
+  }
+}
+
 /** Whether `communityId` is blocked, by what is held right now. Not an id, not blocked. */
 export function isBlockedNow(communityId: string): boolean {
   if (BLOCKLIST_AUTHORS.length === 0 || !/^[0-9a-f]{64}$/i.test(communityId)) return false;
@@ -114,10 +142,29 @@ export function useIsBlocked(): (communityId: string) => boolean {
   }, [current]);
 }
 
+/**
+ * {@link isUserBannedNow}, re-rendering when the held entries change. A new
+ * function each change, so memos that depend on it recompute.
+ */
+export function useIsUserBanned(): (pubkey: string | undefined) => boolean {
+  const current = useSyncExternalStore(subscribe, getVersion, getVersion);
+  return useMemo(() => {
+    void current;
+    return (pubkey: string | undefined) => isUserBannedNow(pubkey);
+  }, [current]);
+}
+
+/** Subscribe to changes in the held entries. */
+export function onBlocklistChange(listener: () => void): () => void {
+  return subscribe(listener);
+}
+
 /** For tests: forget everything. */
 export function resetBlocklistForTests(): void {
   events = [];
   entries = foldBlocklist(events, BLOCKLIST_AUTHORS);
+  resetBannedUsers();
+  checkedUsers.clear();
   version++;
   fetchedAt = 0;
   inflight = undefined;

@@ -13,6 +13,7 @@ import { DittoIcon } from "@/components/brand/DittoIcon";
 import { CardsIcon } from "@/components/icons/CardsIcon";
 import { ChestIcon } from "@/components/icons/ChestIcon";
 import { CalendarEventMessageCard } from "@/components/chat/CalendarEventCard";
+import { BannedTombstone } from "@/components/chat/BannedTombstone";
 import { ChatContent } from "@/components/chat/ChatContent";
 import { CustomEmojiImg, EmojifiedText } from "@/components/chat/CustomEmoji";
 import { EmojiPackCard } from "@/components/chat/EmojiPackCard";
@@ -30,6 +31,7 @@ import { useAuthor } from "@/hooks/useAuthor";
 import { useMediaWithFallback } from "@/hooks/useMediaWithFallback";
 import { toast } from "@/hooks/useToast";
 import { getAvatarShape } from "@/lib/avatarShape";
+import { useIsUserBanned } from "@/lib/blocklistStore";
 import { parseCalendarEvent, type RsvpTally } from "@/lib/calendar";
 import { writeClipboardText } from "@/lib/clipboard";
 import { GIT_REPOSITORY_ANNOUNCEMENT_KIND, parseGitRepositoryAnnouncement } from "@/lib/gitActivity";
@@ -222,6 +224,13 @@ export function EmbeddedNaddr({ addr, relays, className }: { addr: AddrCoords; r
 
 /** Shared card body for any resolved event, modeled on Ditto's NoteCard. */
 export function EmbeddedEventCard({ event, sourceUrl, className }: { event: NostrRumor; sourceUrl?: string; className?: string }) {
+  if (useIsUserBanned()(event.pubkey)) {
+    return (
+      <div className={cn("max-w-md w-full clip-corner-lg bg-secondary/20 px-3 py-2 my-1.5", className)}>
+        <BannedTombstone />
+      </div>
+    );
+  }
   // NIP-30 emoji packs: emojis live in tags, content is empty.
   if (event.kind === 30030) {
     return <EmojiPackCard event={event} className={className} />;

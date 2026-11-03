@@ -49,6 +49,23 @@ function writeIndex(index: string[]): void {
   }
 }
 
+/** Drop every snapshot holding an item by `author` (a banned user's): the next read repaints it. */
+export function dropTimelineSnapshotsByAuthor(author: string): void {
+  if (typeof localStorage === "undefined") return;
+  const index = readIndex();
+  const kept = index.filter((scope) => {
+    const items = readTimelineSnapshot<{ pubkey?: unknown; author?: unknown }>(scope);
+    if (!items?.some((item) => item?.pubkey === author || item?.author === author)) return true;
+    try {
+      localStorage.removeItem(PREFIX + scope);
+    } catch {
+      // ignore
+    }
+    return false;
+  });
+  if (kept.length !== index.length) writeIndex(kept);
+}
+
 /** Read a scope's snapshot, or undefined. Synchronous, for `initialData`. */
 export function readTimelineSnapshot<T>(scope: string | undefined): T[] | undefined {
   if (!scope || typeof localStorage === "undefined") return undefined;

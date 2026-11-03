@@ -21,17 +21,18 @@ vi.mock("@/lib/blocklist", async (importOriginal) => {
 });
 
 const { blocklistHash, BLOCKLIST_KIND } = await import("@/lib/blocklist");
-const { isBlockedNow, refreshBlocklist, resetBlocklistForTests } = await import("@/lib/blocklistStore");
+const { checkUserBan, isBlockedNow, refreshBlocklist, resetBlocklistForTests } = await import("@/lib/blocklistStore");
+const { isUserBannedNow } = await import("@/lib/bannedUsers");
 
 const SCRAMTOWN = "ef9453dbfeda7afa8e6b48bf5e2b8e8bc5bf6ed8175204ddb54e80249d33158b";
 const OTHER = "11".repeat(32);
 
 /** Through JSON, as from a relay: nostr-tools caches a verification on the object itself. */
-function entry(communityId: string, status: string, createdAt: number): NostrEvent {
+function entry(id: string, status: string, createdAt: number, scope: "community" | "user" = "community"): NostrEvent {
   return JSON.parse(JSON.stringify(finalizeEvent({
     kind: BLOCKLIST_KIND,
     created_at: createdAt,
-    tags: [["d", blocklistHash(communityId)], ["scope", "community"], ["status", status], ["v", "1"]],
+    tags: [["d", blocklistHash(id, scope)], ["scope", scope], ["status", status], ["v", "1"]],
     content: "",
   }, sk)));
 }
@@ -92,5 +93,22 @@ describe("blocklistStore", () => {
     expect(query).toHaveBeenCalledTimes(1);
     await refreshBlocklist(p, { force: true });
     expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it("bans the users it fetches, and only them", async () => {
+    await refreshBlocklist(pool([entry(OTHER, "blocked", 100, "user")]).pool);
+    expect(isUserBannedNow(OTHER)).toBe(true);
+    expect(isUserBannedNow(SCRAMTOWN)).toBe(false);
+    expect(isBlockedNow(OTHER)).toBe(false);
+  });
+
+  it("fetches a user's own entry by its hash, once while fresh", async () => {
+    const { query, pool: p } = pool([entry(OTHER, "blocked", 100, "user")]);
+    await checkUserBan(p, OTHER);
+    await checkUserBan(p, OTHER);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect((query.mock.calls[0] as unknown[])[0]).toMatchObject([{ "#d": [blocklistHash(OTHER, "user")] }]);
+    expect(isUserBannedNow(OTHER)).toBe(true);
+    expect(kv.get("blocklist:events")).toHaveLength(1);
   });
 });

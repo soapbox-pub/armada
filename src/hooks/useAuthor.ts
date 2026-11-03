@@ -4,6 +4,8 @@ import { useEffect } from 'react';
 
 import { useEventStore } from '@/hooks/useEventStore';
 import { authorQueryKey, parseAuthorEvent, type AuthorResult } from '@/lib/authorCache';
+import { isUserBannedNow } from '@/lib/bannedUsers';
+import { useIsUserBanned } from '@/lib/blocklistStore';
 import { demandProfiles } from '@/sync/profileSync';
 
 type EventStore = ReturnType<typeof useEventStore>;
@@ -22,7 +24,7 @@ export function authorQueryOptions(
   return {
     queryKey: authorQueryKey(pubkey ?? ''),
     queryFn: async (): Promise<AuthorResult> => {
-      if (!pubkey) {
+      if (!pubkey || isUserBannedNow(pubkey)) {
         return {};
       }
 
@@ -45,10 +47,15 @@ export function authorQueryOptions(
   };
 }
 
+/** A banned user's profile: nothing, whatever was cached before the ban. */
+const BANNED: AuthorResult = {};
+const asBanned = (): AuthorResult => BANNED;
+
 export function useAuthor(pubkey: string | undefined) {
   const { nostr } = useNostr();
   const queryClient = useQueryClient();
   const eventStore = useEventStore();
+  const banned = useIsUserBanned()(pubkey);
 
   // Declare demand to the profile sync topic for the life of the mount.
   useEffect(() => {
@@ -56,5 +63,8 @@ export function useAuthor(pubkey: string | undefined) {
     return demandProfiles([pubkey], { nostr, queryClient });
   }, [pubkey, nostr, queryClient]);
 
-  return useQuery<AuthorResult>(authorQueryOptions(queryClient, eventStore, pubkey));
+  return useQuery<AuthorResult>({
+    ...authorQueryOptions(queryClient, eventStore, pubkey),
+    select: banned ? asBanned : undefined,
+  });
 }

@@ -30,6 +30,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useAuthor } from "@/hooks/useAuthor";
 import { useNsite } from "@/hooks/useNsite";
 import { useOpenProfile } from "@/hooks/useOpenProfile";
+import { useCheckUserBan } from "@/hooks/useUserBan";
 import { usePrefetchProfile } from "@/hooks/usePrefetchProfile";
 import { useMemberRoles } from "@/hooks/useMemberRoles";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -44,6 +45,7 @@ import { getAvatarShape } from "@/lib/avatarShape";
 import { dittoProfileUrl } from "@/lib/dittoUrl";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { tryNpubEncode } from "@/lib/safeNip19";
+import { useIsUserBanned } from "@/lib/blocklistStore";
 import { getPronouns } from "@/lib/pronouns";
 import { useFrameCss, nameStyleCss, readUltra, ULTRA_NAME_CLASS } from "@/lib/ultra";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
@@ -393,16 +395,31 @@ export function ProfilePreviewCard({ pubkey, children }: ProfilePreviewCardProps
   // The Popover is built on first open (every row has two triggers); latched.
   const [armed, setArmed] = useState(false);
   const prefetchTheme = usePrefetchProfileTheme();
+  const checkBan = useCheckUserBan();
+  const banned = useIsUserBanned()(pubkey);
+  const openProfile = useOpenProfile();
+  // About to be opened: their own blocklist entry counts before their card shows.
+  const prefetch = () => {
+    prefetchTheme(pubkey);
+    checkBan(pubkey);
+  };
 
-  if (!armed) {
+  // A banned user's card would show their profile: their profile's game over instead.
+  if (!armed || banned) {
     return (
       <Slot
         aria-haspopup="dialog"
         aria-expanded={false}
-        onPointerEnter={() => prefetchTheme(pubkey)}
-        onFocus={() => prefetchTheme(pubkey)}
+        onPointerEnter={prefetch}
+        onFocus={prefetch}
         onClick={(e: MouseEvent) => {
           if (e.defaultPrevented) return;
+          if (banned) {
+            const npub = tryNpubEncode(pubkey);
+            if (npub) openProfile(npub);
+            return;
+          }
+          checkBan(pubkey);
           setArmed(true);
           setOpen(true);
         }}

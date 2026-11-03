@@ -26,6 +26,7 @@ import { UltraPill } from "@/components/UltraPill";
 import { DisplayName } from "@/components/DisplayName";
 import { EmojifiedText } from "@/components/chat/CustomEmoji";
 import { ProfileImageLightbox } from "@/components/profile/ProfileImageLightbox";
+import { UserBanned } from "@/components/profile/UserBanned";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { BlurhashCanvas } from "@/components/BlurhashCanvas";
@@ -52,6 +53,7 @@ import { useAcceptedDms } from "@/hooks/useAcceptedDms";
 import { useAndroidBack } from "@/hooks/useAndroidBack";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useAuthor } from "@/hooks/useAuthor";
+import { useUserBan } from "@/hooks/useUserBan";
 import { useClosedDms } from "@/hooks/useClosedDms";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useFollowList } from "@/hooks/useFollowList";
@@ -119,6 +121,7 @@ const MENU_PARTS = {
 
 export function ProfileDialog({ pubkey, onClose }: { pubkey: string; onClose: () => void }) {
   const intl = useIntl();
+  const banned = useUserBan(pubkey);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -150,7 +153,7 @@ export function ProfileDialog({ pubkey, onClose }: { pubkey: string; onClose: ()
         // Absolute, so the pane's safe-area padding doesn't reach it; add the top inset here.
         className="absolute inset-0 pt-[var(--safe-area-inset-top,env(safe-area-inset-top,0px))] md:pt-0 md:inset-4 md:top-[calc(1rem+var(--safe-area-inset-top,env(safe-area-inset-top,0px)))] md:clip-corner-lg z-30 overflow-hidden bg-background animate-in fade-in-0 zoom-in-95"
       >
-        <ProfileView pubkey={pubkey} onClose={onClose} />
+        {banned ? <UserBanned /> : <ProfileView pubkey={pubkey} onClose={onClose} />}
       </div>
     </>
   );

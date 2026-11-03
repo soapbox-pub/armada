@@ -3,6 +3,7 @@ import { type NostrMetadata, NSchema as n } from '@nostrify/nostrify';
 
 import type { QueryClient } from '@tanstack/react-query';
 
+import { isUserBannedNow } from '@/lib/bannedUsers';
 import type { NostrRumor } from '@/lib/nostrRumor';
 import { parseProfileImeta, type ProfileImeta } from '@/lib/profileImeta';
 
@@ -35,6 +36,8 @@ export function parseAuthorEvent(event: NostrRumor): AuthorResult & { event: Nos
  * All seeders must use this, or a background path can revert a fresher profile.
  */
 export function seedAuthorCache(queryClient: QueryClient, pubkey: string, event: NostrRumor): void {
+  // A banned user's profile isn't shown, so isn't held.
+  if (isUserBannedNow(pubkey)) return;
   const key = authorQueryKey(pubkey);
   const existing = queryClient.getQueryData<AuthorResult>(key);
   if (existing?.event && existing.event.created_at >= event.created_at) return;

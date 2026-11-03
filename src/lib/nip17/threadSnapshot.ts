@@ -41,6 +41,16 @@ export async function scrubDm17ThreadSnapshots(rumorId: string): Promise<void> {
   }));
 }
 
+/** Rewrite every conversation snapshot holding a banned user's messages without them. */
+export async function scrubDm17ThreadSnapshotsByAuthor(author: string): Promise<void> {
+  const keys = await listFoldedKeys(SNAP_PREFIX).catch(() => []);
+  await Promise.all(keys.map(async (key) => {
+    const snap = await readFolded<OpenedDm[]>(key);
+    if (!snap?.some((m) => m.author === author)) return;
+    await writeFolded(key, snap.filter((m) => m.author !== author));
+  }));
+}
+
 /**
  * One prewarm attempt per query key per session; the write path keeps it fresh.
  * FIFO-capped: a forgotten key only costs one more snapshot read.

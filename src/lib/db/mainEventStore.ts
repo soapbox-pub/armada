@@ -16,6 +16,8 @@
  */
 import { NKinds } from "@nostrify/nostrify";
 
+import { isUserBannedNow } from "@/lib/bannedUsers";
+
 import { ARMADA_TENANTS, getArmadaDB } from "./armadaDB";
 import { tenantForEvent, nip29Tenant } from "./relayScope";
 
@@ -44,8 +46,8 @@ class MainEventStore implements ArmadaEventStore {
   }
 
   event(event: NostrEvent, opts?: EventScope): Promise<void> {
-    // Ephemeral kinds aren't storable (NIP-01).
-    if (NKinds.ephemeral(event.kind)) return Promise.resolve();
+    // Ephemeral kinds aren't storable (NIP-01), nor is anything by a banned user.
+    if (NKinds.ephemeral(event.kind) || isUserBannedNow(event.pubkey)) return Promise.resolve();
     // No relay for relay-relative data: drop (see `relayScope.ts`).
     const id = tenantForEvent(event, opts?.relay, ARMADA_TENANTS.main);
     if (!id) return Promise.resolve();

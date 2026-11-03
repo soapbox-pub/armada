@@ -1,13 +1,17 @@
 /**
- * The community blocklist: one addressable kind-37307 event per entry, signed
- * by a moderation key this build pins, published with `armada-blocklist`. An
- * entry carries only a hash of the community id, never the id, a name or a
- * reason:
+ * The blocklist: one addressable kind-37307 event per entry, signed by a
+ * moderation key this build pins, published with `armada-blocklist`. An entry
+ * is a community or a user, and carries only a hash of its id, never the id, a
+ * name or a reason:
  *
- *   entry hash = sha256(utf8("armada/blocklist/community/v1") || 0x00 || community_id[32])
+ *   entry hash = sha256(utf8("armada/blocklist/<scope>/v1") || 0x00 || id[32])
+ *
+ * where the scope is `community` (a community id) or `user` (a pubkey).
  *
  * Read entries with `{ kinds: [BLOCKLIST_KIND], authors: BLOCKLIST_AUTHORS }`,
- * never by `#d`, which would tell the relay which community is being opened.
+ * never a community's by `#d`, which would tell the relay which community is
+ * being opened. A user's may be read by `#d` when their profile opens: the
+ * profile's own request already names them.
  */
 
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -21,8 +25,11 @@ import type { NostrEvent } from "nostr-tools/pure";
 export const BLOCKLIST_KIND = 37307;
 
 const VERSION = "1";
-const SCOPE = "community";
-const LABEL = new TextEncoder().encode(`armada/blocklist/${SCOPE}/v${VERSION}`);
+export type BlocklistScope = "community" | "user";
+const LABELS: Record<BlocklistScope, Uint8Array> = {
+  community: new TextEncoder().encode(`armada/blocklist/community/v${VERSION}`),
+  user: new TextEncoder().encode(`armada/blocklist/user/v${VERSION}`),
+};
 const HEX64 = /^[0-9a-f]{64}$/;
 
 /** Soapbox's moderation key, npub1ph0kcd0kr6cyqvtdq8mgmm2d8z6hnst5y0fxw90afzgst2vpjy9qfz24jj. */
@@ -41,18 +48,20 @@ export type BlocklistStatus = "blocked" | "lifted";
 
 export interface BlocklistEntry {
   hash: string;
+  scope: BlocklistScope;
   status: BlocklistStatus;
   createdAt: number;
   id: string;
 }
 
-/** The entry hash a community id is listed under. */
-export function blocklistHash(communityId: string): string {
-  const id = communityId.toLowerCase();
-  if (!HEX64.test(id)) throw new Error("a community id is 64 hex characters");
-  const input = new Uint8Array(LABEL.length + 1 + 32);
-  input.set(LABEL, 0);
-  input.set(hexToBytes(id), LABEL.length + 1);
+/** The entry hash a community id, or with scope `user` a pubkey, is listed under. */
+export function blocklistHash(id: string, scope: BlocklistScope = "community"): string {
+  const hex = id.toLowerCase();
+  if (!HEX64.test(hex)) throw new Error(`a ${scope === "user" ? "pubkey" : "community id"} is 64 hex characters`);
+  const label = LABELS[scope];
+  const input = new Uint8Array(label.length + 1 + 32);
+  input.set(label, 0);
+  input.set(hexToBytes(hex), label.length + 1);
   return bytesToHex(sha256(input));
 }
 
@@ -62,11 +71,12 @@ const tag = (event: NostrEvent, name: string) => event.tags.find((t) => t[0] ===
 export function parseBlocklistEntry(event: NostrEvent, authors: readonly string[] = BLOCKLIST_AUTHORS): BlocklistEntry | undefined {
   if (event.kind !== BLOCKLIST_KIND || !authors.includes(event.pubkey)) return undefined;
   const hash = tag(event, "d");
+  const scope = tag(event, "scope");
   const status = tag(event, "status");
-  if (!hash || !HEX64.test(hash) || tag(event, "scope") !== SCOPE || tag(event, "v") !== VERSION) return undefined;
+  if (!hash || !HEX64.test(hash) || (scope !== "community" && scope !== "user") || tag(event, "v") !== VERSION) return undefined;
   if (status !== "blocked" && status !== "lifted") return undefined;
   if (!verifyEvent(event)) return undefined;
-  return { hash, status, createdAt: event.created_at, id: event.id };
+  return { hash, scope, status, createdAt: event.created_at, id: event.id };
 }
 
 /** The newest entry per hash, the tie going to the lower id. */
@@ -85,5 +95,13 @@ export function foldBlocklist(events: Iterable<NostrEvent>, authors: readonly st
 
 /** Whether the folded entries block `communityId`. */
 export function isCommunityBlocked(entries: ReadonlyMap<string, BlocklistEntry>, communityId: string): boolean {
-  return entries.get(blocklistHash(communityId))?.status === "blocked";
+  const entry = entries.get(blocklistHash(communityId));
+  return entry?.scope === "community" && entry.status === "blocked";
+}
+
+/** The hashes of the users the folded entries ban. */
+export function bannedUserHashes(entries: ReadonlyMap<string, BlocklistEntry>): Set<string> {
+  const hashes = new Set<string>();
+  for (const entry of entries.values()) if (entry.scope === "user" && entry.status === "blocked") hashes.add(entry.hash);
+  return hashes;
 }

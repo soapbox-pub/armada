@@ -8,6 +8,7 @@ import { emojify } from "@/components/chat/emojify";
 import { MessageActionSheet } from "@/components/chat/MessageActionSheet";
 import { MessageEditBox } from "@/components/chat/MessageEditBox";
 import { MessageActionToolbar } from "@/components/chat/MessageActionToolbar";
+import { BannedTombstone } from "@/components/chat/BannedTombstone";
 import { MessageRow, type MessageIdentity } from "@/components/chat/MessageRow";
 import { CalendarEventMessageCard } from "@/components/chat/CalendarEventCard";
 import { PollCard } from "@/components/chat/PollCard";
@@ -35,6 +36,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { LazyContextMenuContent, useLazyContextMenu } from "@/components/chat/LazyContextMenu";
 import { EventJsonDialog } from "@/components/EventJsonDialog";
 import { useAuthor } from "@/hooks/useAuthor";
+import { useIsUserBanned } from "@/lib/blocklistStore";
 import { useChatScope } from "@/hooks/useChatScope";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useHiddenMessages } from "@/hooks/useHiddenMessages";
@@ -172,7 +174,9 @@ export function ReplyContextLine({
 }) {
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
+  const banned = useIsUserBanned()(pubkey);
   if (!name) return null;
+  if (banned) preview = <BannedTombstone className="text-xs" />;
   const content = (
     <>
       <span aria-hidden className="chat-reply-connector" />
@@ -423,6 +427,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
 }: ChatMessageProps) {
   const { user } = useCurrentUser();
   const isTouch = useIsTouch();
+  const banned = useIsUserBanned()(event.pubkey);
   // `useContext`, not `useAppContext` (which throws): mountable bare in tests.
   const appConfig = useContext(AppContext)?.config;
   const sendOnEnter = sendsOnEnter(appConfig?.sendOnEnter, isTouch);
@@ -911,6 +916,20 @@ const ChatMessageInner = memo(function ChatMessageInner({
           {body}
         </MessageRow>
   );
+
+  // A banned user's message: nothing of it, nor anything to do with it.
+  if (banned) {
+    return (
+      <MessageRow
+        pubkey={event.pubkey}
+        createdAt={event.created_at}
+        continuation={continuation && !isPinned}
+        containerProps={{ "data-event-id": event.id } as React.HTMLAttributes<HTMLDivElement>}
+      >
+        <BannedTombstone />
+      </MessageRow>
+    );
+  }
 
   return (
     <ChatImageMenuContext.Provider value={imageMenu}>

@@ -42,6 +42,16 @@ export async function scrubTimelineSnapshots(rumorId: string): Promise<void> {
   }));
 }
 
+/** Rewrite every channel snapshot holding a banned user's rows without them; the store's tombstones replace them. */
+export async function scrubTimelineSnapshotsByAuthor(author: string): Promise<void> {
+  const keys = await listFoldedKeys(SNAP_PREFIX).catch(() => []);
+  await Promise.all(keys.map(async (key) => {
+    const snap = await readFolded<OpenedChat[]>(key);
+    if (!snap?.some((m) => m.author === author)) return;
+    await writeFolded(key, snap.filter((m) => m.author !== author));
+  }));
+}
+
 const prewarmed = new Set<string>();
 /** Channels whose cache currently holds a snapshot seed no store read has replaced yet. */
 const seeded = new Set<string>();

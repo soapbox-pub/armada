@@ -41,6 +41,7 @@ import { messageMatchesMedia, type SearchMedia } from "@/concord/lib/search";
 import { emitWireScopes } from "@/wire/bus";
 import { ARMADA_TENANTS, getArmadaDB } from "@/lib/db/armadaDB";
 import { isRemovedMessageId } from "@/lib/removedMessages";
+import { isUserBannedNow, tombstoned } from "@/lib/bannedUsers";
 import { literalSearch } from "@/lib/db/ParsedFilter";
 import type { NRumorStore } from "@/lib/db/types";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -205,6 +206,20 @@ export function storedToOpenedChat(ev: NostrRumor, channelIdHex: string): Opened
 
 /** Chat kinds that render as their OWN item (timeline rows and events-bar entries). */
 export const CHAT_ROW_KINDS = [9, 1068, 1111, 1740, 31922, 31923];
+/** The tags a banned user's row keeps, placing it in its channel and thread ({@link tombstoned}). */
+export const TOMBSTONE_TAGS: ReadonlySet<string> = new Set([TAG_CHANNEL, "epoch", "ms", "d", "e", "E", "k", "K", "p", "P"]);
+
+/**
+ * Chat as stored when its author is banned: a row stays as a tombstone in its
+ * place, and what only decorates one (a reaction, an edit) isn't kept.
+ */
+export function withoutBannedChat<T extends Pick<OpenedEvent, "author" | "kind" | "content" | "tags">>(opened: T[]): T[] {
+  if (!opened.some((o) => isUserBannedNow(o.author))) return opened;
+  return opened.flatMap((o) => {
+    if (!isUserBannedNow(o.author)) return [o];
+    return CHAT_ROW_KINDS.includes(o.kind) ? [tombstoned(o, TOMBSTONE_TAGS)] : [];
+  });
+}
 /**
  * Chat kinds that only DECORATE a row. Read under their OWN budget (see
  * {@link queryChannelRumors}) so a flood of reactions can't bury the rows.
@@ -900,7 +915,7 @@ export function writeRumors(
   // as a control edition. A denylist, so new chat kinds aren't silently dropped.
   // Already-expired rumors are refused at ingest (CORD-08 §3).
   const now = Math.floor(Date.now() / 1000);
-  const chat = opened.filter((o) => !PLANE_KINDS.has(o.kind) && !isExpired(o.tags, now));
+  const chat = withoutBannedChat(opened.filter((o) => !PLANE_KINDS.has(o.kind) && !isExpired(o.tags, now)));
   if (chat.length === 0) return Promise.resolve(true);
   const channels = new Set(chat.map((o) => o.channelIdHex).filter(Boolean));
   notePresence(communityIdHex, chat);
@@ -908,6 +923,29 @@ export function writeRumors(
     if (ring && stored && channels.size > 0) emitWireScopes([...channels].map((id) => `c2:${id}`));
     return stored;
   });
+}
+
+/**
+ * Purge a banned user's chat from a community's tenant: each row they wrote
+ * becomes a tombstone in its place, and the rest of their chat goes. Their
+ * plane rows (control editions, joins) stay, or the community's history would
+ * change. Resolves to the rows as they were, for their media and copies.
+ */
+export async function purgeAuthorChat(communityIdHex: string, pubkey: string): Promise<NostrRumor[]> {
+  const store = rumorStore(communityIdHex);
+  try {
+    const rows = (await store.query([{ authors: [pubkey] }])).filter((row) => !PLANE_KINDS.has(row.kind));
+    if (rows.length === 0) return [];
+    const doomed = rows.filter((row) => row.content !== "" || row.tags.some((tag) => !TOMBSTONE_TAGS.has(tag[0])));
+    if (doomed.length === 0) return [];
+    await store.remove([{ ids: doomed.map((row) => row.id) }]);
+    await Promise.all(doomed
+      .filter((row) => CHAT_ROW_KINDS.includes(row.kind))
+      .map((row) => store.event(tombstoned(row, TOMBSTONE_TAGS)).catch(() => undefined)));
+    return doomed;
+  } finally {
+    touchTenant(communityIdHex);
+  }
 }
 
 /** Delete our own rows by rumor id (a discarded send that never reached a relay). */

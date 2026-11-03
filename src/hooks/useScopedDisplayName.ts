@@ -2,7 +2,8 @@ import type { NostrMetadata } from "@nostrify/nostrify";
 
 import { useServerScope } from "@/contexts/ServerScopeContext";
 import { useServerProfile } from "@/hooks/useServerProfile";
-import { getDisplayName } from "@/lib/getDisplayName";
+import { useIsUserBanned } from "@/lib/blocklistStore";
+import { bannedName, getDisplayName } from "@/lib/getDisplayName";
 
 export interface ScopedIdentity {
   /** Per-server nickname if set, else the global display name. */
@@ -22,6 +23,8 @@ export function useScopedIdentity(
 ): ScopedIdentity {
   const relayUrl = useServerScope();
   const { data: profile } = useServerProfile(relayUrl, pubkey);
+  const banned = useIsUserBanned()(pubkey);
+  if (banned) return { displayName: bannedName() };
   return {
     displayName: profile?.nickname?.trim() || getDisplayName(metadata, pubkey),
     color: profile?.color,

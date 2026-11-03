@@ -31,7 +31,7 @@ export interface RemovedMessage {
   content: string;
 }
 
-async function tenantIdsOf(db: ArmadaDB): Promise<string[]> {
+export async function tenantIdsOf(db: ArmadaDB): Promise<string[]> {
   return "tenantIds" in db && typeof db.tenantIds === "function"
     ? await (db as { tenantIds(): Promise<string[]> }).tenantIds().catch(() => [])
     : [];

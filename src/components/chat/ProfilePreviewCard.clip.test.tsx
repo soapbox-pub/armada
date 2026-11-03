@@ -29,6 +29,7 @@ vi.mock("@/hooks/useMuteList", () => ({
 }));
 vi.mock("@/hooks/useNsite", () => ({ useNsite: () => ({ data: undefined }) }));
 vi.mock("@/hooks/useOpenProfile", () => ({ useOpenProfile: () => vi.fn() }));
+vi.mock("@/hooks/useUserBan", () => ({ useCheckUserBan: () => vi.fn() }));
 vi.mock("@/hooks/usePrefetchProfile", () => ({ usePrefetchProfile: () => vi.fn() }));
 vi.mock("@/hooks/useMemberRoles", () => ({ useMemberRoles: () => [{ id: "r", name: "Member" }] }));
 vi.mock("@/hooks/useFollowToggle", () => ({

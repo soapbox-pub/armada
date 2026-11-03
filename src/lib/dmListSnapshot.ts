@@ -51,6 +51,28 @@ function isRow(value: unknown): value is DmListSnapshotRow {
   );
 }
 
+/** Drop the previews of a banned user's messages from every account's stored list. */
+export function scrubDmListSnapshotsByAuthor(author: string): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(PREFIX)) continue;
+      const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
+      if (!Array.isArray(parsed)) continue;
+      let changed = false;
+      const rows = parsed.map((row: unknown) => {
+        if (!isRow(row) || row.author !== author || (row.preview === undefined && row.emojiTags === undefined)) return row;
+        changed = true;
+        return { ...row, preview: undefined, emojiTags: undefined };
+      });
+      if (changed) localStorage.setItem(key, JSON.stringify(rows));
+    }
+  } catch {
+    // Purely a first-paint optimization.
+  }
+}
+
 /** The stored list for an account (newest-first), or undefined. Synchronous. */
 export function readDmListSnapshot(self: string | undefined): DmListSnapshotRow[] | undefined {
   if (!self || typeof localStorage === "undefined") return undefined;
