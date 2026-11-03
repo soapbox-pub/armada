@@ -102,6 +102,20 @@ describe("removeMessageFromDevice", () => {
     }
   });
 
+  it("takes the author's edits out of the persisted snapshots too", async () => {
+    const target = rumor("e".repeat(64));
+    const edit = rumor("d".repeat(64), { kind: 3302, content: "edited abuse", tags: [["e", target.id]] });
+    await getArmadaDB().tenant("c2:a").event(target);
+    await getArmadaDB().tenant("c2:a").event(edit);
+    const row = (rumorId: string) => ({ rumorId, ms: 1000, createdAt: 1, channelIdHex: "c", tags: [], content: rumorId });
+    await persistTimelineSnapshot(viewer, "c", [row(target.id), row(edit.id), row("kept")] as unknown as OpenedChat[]);
+
+    await removeMessageFromDevice(viewer, target);
+
+    const [key] = await listFoldedKeys("c2-timeline-snap:");
+    expect((await readFolded<{ rumorId: string }[]>(key))?.map((m) => m.rumorId)).toEqual(["kept"]);
+  });
+
   it("forgets the signer's cached rumor and seal plaintext, and a re-delivered wrap caches nothing", async () => {
     const senderSk = generateSecretKey();
     const sender = getPublicKey(senderSk);

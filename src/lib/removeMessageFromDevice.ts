@@ -91,15 +91,16 @@ export async function removeMessageFromDevice(
     forgetTokenizedContent(edit.id);
     if (opts.queryClient) scrubMessageFromQueries(opts.queryClient, edit.id);
   }
-  await db.forget([message.id, ...edits.map((edit) => edit.id)]);
+  const ids = [message.id, ...edits.map((edit) => edit.id)];
+  await db.forget(ids);
 
   const communities = tenants.filter((id) => id.startsWith(C2_TENANT)).map((id) => id.slice(C2_TENANT.length));
   const counterparty = message.pubkey === self
     ? message.tags.find(([name]) => name === "p")?.[1]
     : message.pubkey;
   await Promise.all([
-    scrubTimelineSnapshots(message.id),
-    scrubDm17ThreadSnapshots(message.id),
+    scrubTimelineSnapshots(ids),
+    scrubDm17ThreadSnapshots(ids),
     forgetStoredSeals(communities, message.id),
     ...edits.map((edit) => forgetStoredSeals(communities, edit.id)),
     forgetDecryptsOfRumor(self, message),

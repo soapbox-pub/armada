@@ -170,11 +170,6 @@ function clearSessionMemos(): void {
   resetSettingsKeysAnnouncements();
 }
 
-/**
- * Purge all client-side persistence on logout (caches, decrypt cache, read
- * state, drafts, prefs, the push gateway's per-install client key, …).
- * `armada:login` is left to the caller's `removeLogin`.
- */
 /** Local and idempotent; bounded so a native call that never answers can't stall the purge. */
 async function clearNativePushConfigs(): Promise<void> {
   const clears = [clearIosPushConfig()];
@@ -184,6 +179,11 @@ async function clearNativePushConfigs(): Promise<void> {
   await Promise.race([Promise.all(clears), new Promise((resolve) => setTimeout(resolve, 2_000))]);
 }
 
+/**
+ * Purge all client-side persistence on logout (caches, decrypt cache, read
+ * state, drafts, prefs, the push gateway's per-install client key, …).
+ * `armada:login` is left to the caller's `removeLogin`.
+ */
 export async function purgeClientStorage(): Promise<void> {
   // Before anything is cleared: no sync round may decrypt or write past this point.
   haltSyncManager();
@@ -228,9 +228,12 @@ export async function purgeClientStorage(): Promise<void> {
   await writePushDisabledFlag();
   // Again: in-flight warms/reads may have refilled caches from the old database.
   resetKvCaches();
+  clearRenderedPlaintext();
+  clearTokenCache();
   clearRecentDecrypts();
   clearFoldedMemory();
   clearRumorStoreMemory();
+  clearDeferredFoldMemory();
   clearIconThumbMemory();
   clearAudioMetadata();
   clearPendingJoins();

@@ -31,13 +31,14 @@ function snapKey(self: string, conversation: string): string {
   return `${SNAP_PREFIX}${self}:${conversation}`;
 }
 
-/** Rewrite every conversation snapshot holding `rumorId` without it (removed from this device). */
-export async function scrubDm17ThreadSnapshots(rumorId: string): Promise<void> {
+/** Rewrite every conversation snapshot holding any of `rumorIds` without them (removed from this device). */
+export async function scrubDm17ThreadSnapshots(rumorIds: readonly string[]): Promise<void> {
+  const ids = new Set(rumorIds);
   const keys = await listFoldedKeys(SNAP_PREFIX).catch(() => []);
   await Promise.all(keys.map(async (key) => {
     const snap = await readFolded<OpenedDm[]>(key);
-    if (!snap?.some((m) => m.rumorId === rumorId)) return;
-    await writeFolded(key, snap.filter((m) => m.rumorId !== rumorId));
+    if (!snap?.some((m) => ids.has(m.rumorId))) return;
+    await writeFolded(key, snap.filter((m) => !ids.has(m.rumorId)));
   }));
 }
 

@@ -32,13 +32,14 @@ function snapKey(viewerPubkey: string, channelIdHex: string): string {
   return `${SNAP_PREFIX}${viewerPubkey}:${channelIdHex}`;
 }
 
-/** Rewrite every channel snapshot holding `rumorId` without it (removed from this device). */
-export async function scrubTimelineSnapshots(rumorId: string): Promise<void> {
+/** Rewrite every channel snapshot holding any of `rumorIds` without them (removed from this device). */
+export async function scrubTimelineSnapshots(rumorIds: readonly string[]): Promise<void> {
+  const ids = new Set(rumorIds);
   const keys = await listFoldedKeys(SNAP_PREFIX).catch(() => []);
   await Promise.all(keys.map(async (key) => {
     const snap = await readFolded<OpenedChat[]>(key);
-    if (!snap?.some((m) => m.rumorId === rumorId)) return;
-    await writeFolded(key, snap.filter((m) => m.rumorId !== rumorId));
+    if (!snap?.some((m) => ids.has(m.rumorId))) return;
+    await writeFolded(key, snap.filter((m) => !ids.has(m.rumorId)));
   }));
 }
 
