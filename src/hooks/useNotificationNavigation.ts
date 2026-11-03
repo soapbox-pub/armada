@@ -1,6 +1,6 @@
 import { App as CapacitorApp } from "@capacitor/app";
 import { useEffect, useRef } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { type Location, type NavigateFunction, useLocation, useNavigate } from "react-router-dom";
 
 import { isNativeRuntime } from "@/lib/platform";
 import { onLateColdLaunchDeepLink } from "@/lib/coldLaunchDeepLink";
@@ -21,6 +21,17 @@ import { signalDeepLinkNavigated } from "@/lib/webReady";
  * native cap.
  */
 const GATE_FALLBACK_MS = 2500;
+
+/** Route a warm link in place; a link to the screen already open does nothing. */
+function softNavigate(path: string, location: Location, navigate: NavigateFunction): void {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+  if (path === location.pathname + location.search + location.hash) return;
+  // Before navigate so SwipeReveal skips its entrance slide.
+  markDeepLinkNavigation();
+  navigate(path);
+}
 
 export function useNotificationNavigation(): void {
   const navigate = useNavigate();
@@ -121,18 +132,27 @@ export function useNotificationNavigation(): void {
     const off = onDesktopDeepLink((path) => {
       // Re-guard rather than trust an IPC value to name a route.
       if (cancelled || !path || !isRouterPath(path)) return;
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
-      const { pathname, search, hash } = locationRef.current;
-      if (path === pathname + search + hash) return;
-      // Before navigate so SwipeReveal skips its entrance slide.
-      markDeepLinkNavigation();
-      navigate(path);
+      softNavigate(path, locationRef.current, navigate);
     });
     return () => {
       cancelled = true;
       off();
     };
+  }, [navigate]);
+
+  // Web: sw.js hands a notification tap to the open page, which routes it here rather than
+  // being reloaded onto the route. The reply tells the worker not to fall back to a reload.
+  useEffect(() => {
+    if (isNativeRuntime() || isDesktop() || !("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== "armada-open-route") return;
+      const port = event.ports[0];
+      const path = event.data.path;
+      if (!port || typeof path !== "string" || !isRouterPath(path)) return;
+      softNavigate(path, locationRef.current, navigate);
+      port.postMessage({ routed: path });
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
   }, [navigate]);
 }

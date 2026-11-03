@@ -1110,7 +1110,39 @@ function notificationTarget(raw: unknown): string {
   }
 }
 
-/** Navigate before focusing; if either step fails, open the route explicitly. */
+/** How long a live page has to confirm it routed a tap itself before the worker reloads it. */
+const SOFT_ROUTE_WAIT_MS = 1000;
+
+/**
+ * Ask a running page to route the tap through its own router. `client.navigate()` loads a new
+ * document, which cold-boots the whole app (splash included) even onto the screen already open.
+ */
+function softRoute(client: WindowClient, target: string): Promise<boolean> {
+  if (typeof MessageChannel === "undefined" || typeof client.postMessage !== "function") {
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    let settled = false;
+    const finish = (routed: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      channel.port1.close();
+      resolve(routed);
+    };
+    // A frozen or discarded page never answers.
+    const timer = setTimeout(() => finish(false), SOFT_ROUTE_WAIT_MS);
+    channel.port1.onmessage = (event) => finish(event.data?.routed === target);
+    try {
+      client.postMessage({ type: "armada-open-route", path: target }, [channel.port2]);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+/** Route in the live page, else navigate before focusing; if both fail, open the route explicitly. */
 async function openNotificationTarget(target: string): Promise<WindowClient | null | undefined> {
   let fallbackClient: WindowClient | undefined;
   try {
@@ -1127,6 +1159,14 @@ async function openNotificationTarget(target: string): Promise<WindowClient | nu
     });
 
     if (fallbackClient) {
+      if (await softRoute(fallbackClient, target)) {
+        try {
+          return await fallbackClient.focus();
+        } catch {
+          // Routed already; the explicit paths below would reload it.
+          return fallbackClient;
+        }
+      }
       try {
         // `navigate()` is asynchronous. Focusing the old document before it
         // settles races the SPA's startup redirect and sometimes loses the

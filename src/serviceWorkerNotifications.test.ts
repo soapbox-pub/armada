@@ -1386,6 +1386,27 @@ describe("Web Push click routing", () => {
     expect(worker.openWindow).not.toHaveBeenCalled();
   });
 
+  it("lets a live page route the tap itself instead of reloading it", async () => {
+    const posted: unknown[] = [];
+    const worker = loadWorker({
+      clients: [{
+        url: "https://armada.buzz/dm/alice",
+        visibilityState: "hidden",
+        focused: false,
+        postMessage: (message: unknown, transfer: Transferable[]) => {
+          posted.push(message);
+          (transfer[0] as MessagePort).postMessage({ routed: "/dm/alice" });
+        },
+      }],
+    });
+    await worker.notificationClick("/dm/alice");
+
+    expect(posted).toEqual([{ type: "armada-open-route", path: "/dm/alice" }]);
+    expect(worker.clients[0]?.navigate).not.toHaveBeenCalled();
+    expect(worker.clients[0]?.focus).toHaveBeenCalledTimes(1);
+    expect(worker.openWindow).not.toHaveBeenCalled();
+  });
+
   it("opens the exact route when an existing iOS client rejects navigation", async () => {
     const worker = loadWorker({
       clients: [{
