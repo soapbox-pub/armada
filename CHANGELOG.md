@@ -4,6 +4,38 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.67.4] - 2026-11-02
+
+Reply to a message with a swipe or a double-tap on touch screens, tell
+nameless people apart by a colored avatar and a short #tag, and tidy up DM
+requests with Dismiss and Dismiss all. Lists can now nest, and this release
+smooths out panes, emoji, the lightbox and jumping to a message.
+
+### Added
+- A Reply gestures setting for touch screens: swipe, double-tap, both, or off
+- People without a name get an avatar tinted by their key and a short #tag after their name, also shown in mention suggestions and profile search
+- Dismiss and Dismiss all for DM requests
+- Settings for message times, folding similar messages and the Discover button
+- Nested list items, up to five levels deep
+
+### Changed
+- On a narrow desktop window, list panes keep their own width and the channel list can still be resized
+- Pane resize handles are easier to grab and sit in the gutter instead of over the scrollbar
+- Member badges collapse to icons when a row is narrow, so names keep their room
+- Invite requests stay collapsed until you open them
+- Flag emoji and emoji avatars draw more reliably across platforms, including Ultra profile effects
+- Clicking the tray icon brings a buried desktop window to the front instead of hiding it
+- The no-JavaScript page lists the Linux install commands and Android repositories
+
+### Fixed
+- A verified address that is just a domain is accepted and saved as typed
+- Search opened from the ⋮ menu keeps focus
+- Tapping a web notification opens the conversation in the open tab without reloading it
+- A message you jump to stays on screen while the rest of the conversation loads
+- A double-tap-zoomed image in the lightbox can be panned without lifting your finger
+- Mini Apps sent from Vector open with their data and multiplayer
+- Android releases its background wakelock sooner once relays are connected
+
 ## [0.67.3] - 2026-11-02
 
 A new Reduce effects setting calms animations, animated images, blur and
