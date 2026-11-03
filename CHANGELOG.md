@@ -4,6 +4,33 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.67.6] - 2026-11-03
+
+A new Storage page in Settings shows what Armada keeps on this device and lets
+you clear its caches. Discover now shows only picks from a curated list you can
+change and from your network, media from people you've blocked stays hidden,
+and this release tightens privacy around images, videos and removed messages.
+
+### Added
+- A Storage page in Settings with the size of each cache and a button to clear it
+- Choose Discover's curated list in Settings, or turn it off
+
+### Changed
+- Discover shows only picks from the curated list, people you follow and people they follow
+- Media from people you've blocked is held behind a notice, their profile pictures and banners are hidden, and their cached media is removed from the device
+- Accounts banned by Armada's blocklist are removed from the device, and their profile says so
+- Profiles show a loading placeholder instead of "Anonymous" while they load
+- Animated thumbnails pause while the window is hidden, and images load as you scroll near them
+- More hidden metadata is removed from videos before they're sent
+- The desktop app loads images through its own connection settings and won't fetch them from local network addresses
+
+### Fixed
+- Reply gestures no longer fire inside menus and popups, or where you can't post
+- A verified address that is just a domain shows on profiles
+- Removing a message from this device also removes its earlier edits, and logging out clears more decrypted content from memory
+- The Linux AppImage relaunches correctly when it restarts itself
+- Emoji draw more reliably while the emoji font is still loading
+
 ## [0.67.5] - 2026-11-03
 
 The iPhone and iPad app asks you to agree to the Terms of Service before you
