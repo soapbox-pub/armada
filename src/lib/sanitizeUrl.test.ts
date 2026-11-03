@@ -71,6 +71,20 @@ describe('IPv4-mapped IPv6 literals', () => {
   });
 });
 
+describe('numeric and long-form IP spellings', () => {
+  it('reads them as the URL parser does, which the native ports mirror', () => {
+    expect(isLocalNetworkUrl('http://127.1/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://2130706433/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://0x7f000001/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://0300.0250.0.1/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://[0:0:0:0:0:0:0:1]/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://[0000::0001]/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://user@127.1:8080/x')).toBe(true);
+    expect(isLocalNetworkUrl('http://134744072/x')).toBe(false);
+    expect(isLocalNetworkUrl('http://[2001:db8:0:0:0:0:0:1]/x')).toBe(false);
+  });
+});
+
 describe('local names and ranges', () => {
   it('catches a trailing-dot name, LAN suffixes and carrier-grade NAT', () => {
     expect(isLocalNetworkUrl('http://localhost./x')).toBe(true);

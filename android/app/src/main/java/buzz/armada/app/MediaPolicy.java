@@ -154,16 +154,163 @@ final class MediaPolicy {
         return scheme.toLowerCase(Locale.ROOT);
     }
 
-    /** Lowercase hostname of a URL (IPv6 brackets stripped), or null. */
+    /**
+     * Lowercase hostname of a URL (IPv6 brackets stripped), or null, with IP
+     * literals in the WHATWG URL parser's canonical form ({@link #canonicalHost}).
+     */
     static String hostOf(String url) {
         if (url == null || url.isEmpty()) return null;
         try {
-            String host = new URI(url).getHost();
+            URI uri = new URI(url);
+            String host = uri.getHost();
+            // URI reads "127.1" or "2130706433" as a registry name and gives no host.
+            if (host == null) host = authorityHost(uri.getRawAuthority());
             if (host == null || host.isEmpty()) return null;
-            return host.toLowerCase(Locale.ROOT).replaceAll("^\\[|\\]$", "");
+            return canonicalHost(host.toLowerCase(Locale.ROOT).replaceAll("^\\[|\\]$", ""));
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** The host part of a raw authority: no userinfo, no port. */
+    private static String authorityHost(String authority) {
+        if (authority == null) return null;
+        String a = authority.substring(authority.lastIndexOf('@') + 1);
+        if (a.startsWith("[")) {
+            int close = a.indexOf(']');
+            return close < 0 ? null : a.substring(0, close + 1);
+        }
+        int colon = a.indexOf(':');
+        return colon < 0 ? a : a.substring(0, colon);
+    }
+
+    /**
+     * An IP literal as WHATWG's {@code URL} serializes it, so the checks below
+     * see what {@code sanitizeUrl.ts} sees: IPv4 in any of its numeric forms
+     * ({@code 127.1}, {@code 2130706433}, {@code 0x7f000001}) as a dotted quad,
+     * and IPv6 in lowercase hex with the longest zero run compressed. Anything
+     * else is returned unchanged.
+     */
+    static String canonicalHost(String h) {
+        if (h.indexOf(':') >= 0) {
+            int[] groups = parseIpv6(h);
+            return groups == null ? h : serializeIpv6(groups);
+        }
+        String v4 = parseIpv4(h);
+        return v4 == null ? h : v4;
+    }
+
+    private static Long ipv4Part(String part) {
+        if (part.isEmpty()) return null;
+        int radix = 10;
+        String digits = part;
+        if (part.length() > 1 && (part.startsWith("0x") || part.startsWith("0X"))) {
+            radix = 16;
+            digits = part.substring(2);
+            if (digits.isEmpty()) return 0L;
+        } else if (part.length() > 1 && part.charAt(0) == '0') {
+            radix = 8;
+            digits = part.substring(1);
+        }
+        if (digits.length() > 32) return null;
+        for (int i = 0; i < digits.length(); i++) {
+            if (Character.digit(digits.charAt(i), radix) < 0) return null;
+        }
+        try {
+            return Long.parseLong(digits, radix);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static String parseIpv4(String h) {
+        String[] parts = h.split("\\.", -1);
+        int n = parts.length;
+        if (n > 1 && parts[n - 1].isEmpty()) n--;
+        if (n == 0 || n > 4) return null;
+        long[] nums = new long[n];
+        for (int i = 0; i < n; i++) {
+            Long v = ipv4Part(parts[i]);
+            if (v == null) return null;
+            nums[i] = v;
+        }
+        for (int i = 0; i < n - 1; i++) if (nums[i] > 255) return null;
+        if (nums[n - 1] >= (1L << (8 * (5 - n)))) return null;
+        long ip = nums[n - 1];
+        for (int i = 0; i < n - 1; i++) ip += nums[i] << (8 * (3 - i));
+        return ((ip >>> 24) & 255) + "." + ((ip >>> 16) & 255) + "." + ((ip >>> 8) & 255) + "." + (ip & 255);
+    }
+
+    private static int[] parseIpv6(String h) {
+        if (h.indexOf('%') >= 0) return null;
+        int gap = h.indexOf("::");
+        if (gap >= 0 && h.indexOf("::", gap + 1) >= 0) return null;
+        java.util.List<Integer> head = new java.util.ArrayList<>();
+        java.util.List<Integer> tail = new java.util.ArrayList<>();
+        String left = gap >= 0 ? h.substring(0, gap) : h;
+        String right = gap >= 0 ? h.substring(gap + 2) : "";
+        if (!ipv6Groups(left, head, gap < 0 || right.isEmpty())) return null;
+        if (gap >= 0 && !ipv6Groups(right, tail, true)) return null;
+        int total = head.size() + tail.size();
+        if (gap < 0 ? total != 8 : total > 7) return null;
+        int[] out = new int[8];
+        for (int i = 0; i < head.size(); i++) out[i] = head.get(i);
+        for (int i = 0; i < tail.size(); i++) out[8 - tail.size() + i] = tail.get(i);
+        return out;
+    }
+
+    /** Colon-separated hex groups into {@code out}; a dotted quad may end the address. */
+    private static boolean ipv6Groups(String s, java.util.List<Integer> out, boolean last) {
+        if (s.isEmpty()) return true;
+        String[] parts = s.split(":", -1);
+        for (int i = 0; i < parts.length; i++) {
+            String p = parts[i];
+            if (last && i == parts.length - 1 && p.indexOf('.') >= 0) {
+                if (!p.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) return false;
+                String[] q = p.split("\\.");
+                int[] b = new int[4];
+                for (int k = 0; k < 4; k++) {
+                    if (q[k].length() > 1 && q[k].charAt(0) == '0') return false;
+                    b[k] = Integer.parseInt(q[k]);
+                    if (b[k] > 255) return false;
+                }
+                out.add((b[0] << 8) | b[1]);
+                out.add((b[2] << 8) | b[3]);
+                continue;
+            }
+            if (!p.matches("[0-9a-f]{1,4}")) return false;
+            out.add(Integer.parseInt(p, 16));
+        }
+        return true;
+    }
+
+    private static String serializeIpv6(int[] g) {
+        int best = -1;
+        int bestLen = 1;
+        for (int i = 0; i < 8; ) {
+            if (g[i] != 0) {
+                i++;
+                continue;
+            }
+            int j = i;
+            while (j < 8 && g[j] == 0) j++;
+            if (j - i > bestLen) {
+                best = i;
+                bestLen = j - i;
+            }
+            i = j;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 8; i++) {
+            if (i == best) {
+                sb.append(i == 0 ? "::" : ":");
+                i += bestLen - 1;
+                continue;
+            }
+            sb.append(Integer.toHexString(g[i]));
+            if (i < 7) sb.append(':');
+        }
+        return sb.toString();
     }
 
     private static final String[] LOCAL_SUFFIXES = {

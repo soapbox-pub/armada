@@ -122,7 +122,122 @@ struct MediaPolicy: Equatable {
         host = host.lowercased()
         if host.hasPrefix("[") { host.removeFirst() }
         if host.hasSuffix("]") { host.removeLast() }
-        return host
+        return canonicalHost(host)
+    }
+
+    /// An IP literal as WHATWG's `URL` serializes it, so the checks below see
+    /// what `sanitizeUrl.ts` sees: IPv4 in any of its numeric forms (`127.1`,
+    /// `2130706433`, `0x7f000001`) as a dotted quad, and IPv6 in lowercase hex
+    /// with the longest zero run compressed. Anything else is returned unchanged.
+    static func canonicalHost(_ h: String) -> String {
+        if h.contains(":") {
+            guard let groups = parseIpv6(h) else { return h }
+            return serializeIpv6(groups)
+        }
+        return parseIpv4(h) ?? h
+    }
+
+    private static func ipv4Part(_ part: Substring) -> UInt64? {
+        if part.isEmpty { return nil }
+        var radix = 10
+        var digits = part
+        if part.count > 1, part.hasPrefix("0x") || part.hasPrefix("0X") {
+            radix = 16
+            digits = part.dropFirst(2)
+            if digits.isEmpty { return 0 }
+        } else if part.count > 1, part.hasPrefix("0") {
+            radix = 8
+            digits = part.dropFirst()
+        }
+        if digits.count > 32 { return nil }
+        return UInt64(digits, radix: radix)
+    }
+
+    private static func parseIpv4(_ h: String) -> String? {
+        var parts = h.split(separator: ".", omittingEmptySubsequences: false)
+        if parts.count > 1, parts.last?.isEmpty == true { parts.removeLast() }
+        let n = parts.count
+        guard n >= 1, n <= 4 else { return nil }
+        var nums: [UInt64] = []
+        for part in parts {
+            guard let v = ipv4Part(part) else { return nil }
+            nums.append(v)
+        }
+        for i in 0..<(n - 1) where nums[i] > 255 { return nil }
+        guard nums[n - 1] < (UInt64(1) << (8 * UInt64(5 - n))) else { return nil }
+        var ip = nums[n - 1]
+        for i in 0..<(n - 1) { ip += nums[i] << (8 * UInt64(3 - i)) }
+        return "\((ip >> 24) & 255).\((ip >> 16) & 255).\((ip >> 8) & 255).\(ip & 255)"
+    }
+
+    private static func parseIpv6(_ h: String) -> [Int]? {
+        if h.contains("%") { return nil }
+        let halves = h.components(separatedBy: "::")
+        guard halves.count <= 2 else { return nil }
+        let gap = halves.count == 2
+        guard let head = ipv6Groups(halves[0], last: !gap || halves[1].isEmpty) else { return nil }
+        let tail = gap ? ipv6Groups(halves[1], last: true) : []
+        guard let tail else { return nil }
+        let total = head.count + tail.count
+        guard gap ? total <= 7 : total == 8 else { return nil }
+        return head + Array(repeating: 0, count: 8 - total) + tail
+    }
+
+    /// Colon-separated hex groups; a dotted quad may end the address.
+    private static func ipv6Groups(_ s: String, last: Bool) -> [Int]? {
+        if s.isEmpty { return [] }
+        let parts = s.split(separator: ":", omittingEmptySubsequences: false)
+        var out: [Int] = []
+        for (i, p) in parts.enumerated() {
+            if last, i == parts.count - 1, p.contains(".") {
+                guard isDottedQuad(String(p)) else { return nil }
+                var b: [Int] = []
+                for q in p.split(separator: ".") {
+                    if q.count > 1, q.hasPrefix("0") { return nil }
+                    guard let v = Int(q), v <= 255 else { return nil }
+                    b.append(v)
+                }
+                out.append((b[0] << 8) | b[1])
+                out.append((b[2] << 8) | b[3])
+                continue
+            }
+            guard (1...4).contains(p.count), p.allSatisfy({ $0.isHexDigit && $0.isASCII }),
+                  let v = Int(p, radix: 16) else { return nil }
+            out.append(v)
+        }
+        return out
+    }
+
+    private static func serializeIpv6(_ g: [Int]) -> String {
+        var best = -1
+        var bestLen = 1
+        var i = 0
+        while i < 8 {
+            if g[i] != 0 {
+                i += 1
+                continue
+            }
+            var j = i
+            while j < 8 && g[j] == 0 { j += 1 }
+            if j - i > bestLen {
+                best = i
+                bestLen = j - i
+            }
+            i = j
+        }
+        var out = ""
+        i = 0
+        while i < 8 {
+            if i == best {
+                out += i == 0 ? "::" : ":"
+                i += bestLen
+                continue
+            }
+            out += String(g[i], radix: 16)
+            if i < 7 { out += ":" }
+            i += 1
+        }
+        return out
     }
 
     private static let localSuffixes = [".localhost", ".local", ".localdomain", ".internal", ".lan", ".home.arpa"]

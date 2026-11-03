@@ -47,6 +47,18 @@ public class MediaPolicyTest {
         assertFalse(MediaPolicy.isLocalNetworkUrl("https://example.com./x"));
     }
 
+    @Test public void numericAndLongFormIpSpellingsMatchTheUrlParser() {
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://127.1/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://2130706433/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://0x7f000001/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://0300.0250.0.1/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://[0:0:0:0:0:0:0:1]/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://[0000::0001]/x"));
+        assertTrue(MediaPolicy.isLocalNetworkUrl("http://user@127.1:8080/x"));
+        assertFalse(MediaPolicy.isLocalNetworkUrl("http://134744072/x"));
+        assertFalse(MediaPolicy.isLocalNetworkUrl("http://[2001:db8:0:0:0:0:0:1]/x"));
+    }
+
     @Test public void nonHttpAndEmptyUrlsResolveToNothing() {
         MediaPolicy p = new MediaPolicy("");
         assertNull(p.resolve(null));

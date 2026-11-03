@@ -40,6 +40,18 @@ final class MediaPolicyTests: XCTestCase {
         XCTAssertFalse(MediaPolicy.isLocalNetworkUrl("https://example.com./x"))
     }
 
+    func testNumericAndLongFormIpSpellingsMatchTheUrlParser() {
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://127.1/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://2130706433/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://0x7f000001/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://0300.0250.0.1/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://[0:0:0:0:0:0:0:1]/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://[0000::0001]/x"))
+        XCTAssertTrue(MediaPolicy.isLocalNetworkUrl("http://user@127.1:8080/x"))
+        XCTAssertFalse(MediaPolicy.isLocalNetworkUrl("http://134744072/x"))
+        XCTAssertFalse(MediaPolicy.isLocalNetworkUrl("http://[2001:db8:0:0:0:0:0:1]/x"))
+    }
+
     func testNonHttpAndEmptyUrlsResolveToNothing() {
         let p = MediaPolicy(proxy: "")
         XCTAssertNil(p.resolve(nil))
