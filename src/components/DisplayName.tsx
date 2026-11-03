@@ -2,6 +2,7 @@ import { EmojifiedText } from "@/components/chat/CustomEmoji";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedIdentity } from "@/hooks/useScopedDisplayName";
 import { isAnonymousName } from "@/lib/getDisplayName";
+import { useProfilePending } from "@/lib/profileLoading";
 import { anonymousTag, pubkeyHue, pubkeyHueTagColor } from "@/lib/pubkeyHue";
 
 interface DisplayNameProps {
@@ -16,20 +17,43 @@ interface DisplayNameProps {
 /**
  * Scoped display name with NIP-30 emoji shortcodes rendered as images. Emits
  * no wrapper element. For plain strings use {@link useScopedDisplayName}.
- * A nameless person gets their {@link anonymousTag} after it, in a dimmed shade of their avatar's hue.
+ * A nameless person gets their {@link anonymousTag} after it, in a dimmed shade of their avatar's hue,
+ * or a skeleton while their profile is still loading.
  */
 export function DisplayName(props: DisplayNameProps) {
   if (props.name !== undefined && (props.tags !== undefined || props.pubkey === undefined)) {
-    return (
-      <>
-        <EmojifiedText tags={props.tags ?? NO_TAGS} imgClassName={props.imgClassName}>
-          {props.name}
-        </EmojifiedText>
-        <AnonymousTag name={props.name} pubkey={props.pubkey} />
-      </>
-    );
+    return <NameText name={props.name} pubkey={props.pubkey} tags={props.tags ?? NO_TAGS} imgClassName={props.imgClassName} />;
   }
   return <ResolvedDisplayName {...props} />;
+}
+
+function NameText({ name, pubkey, tags, imgClassName }: {
+  name: string;
+  pubkey: string | undefined;
+  tags: string[][];
+  imgClassName?: string;
+}) {
+  const anonymous = isAnonymousName(name);
+  const pending = useProfilePending(anonymous ? pubkey : undefined);
+  if (pending) return <NameSkeleton />;
+  return (
+    <>
+      <EmojifiedText tags={tags} imgClassName={imgClassName}>
+        {name}
+      </EmojifiedText>
+      {anonymous && <AnonymousTag name={name} pubkey={pubkey} />}
+    </>
+  );
+}
+
+/** Text-sized, so it sits in a line of text or a heading alike. */
+export function NameSkeleton() {
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-[0.8em] w-[6em] max-w-full animate-pulse rounded-sm bg-muted align-[-0.05em] [animation-iteration-count:8]"
+    />
+  );
 }
 
 /** Its own styled element, so a name typed as "Anonymous#1a2b" still reads as typed text. */
@@ -50,13 +74,12 @@ function ResolvedDisplayName({ pubkey, name, imgClassName }: DisplayNameProps) {
   const author = useAuthor(pubkey);
   const scoped = useScopedIdentity(pubkey, author.data?.metadata);
 
-  const shown = name ?? scoped.displayName;
   return (
-    <>
-      <EmojifiedText tags={author.data?.event?.tags ?? []} imgClassName={imgClassName}>
-        {shown}
-      </EmojifiedText>
-      <AnonymousTag name={shown} pubkey={pubkey} />
-    </>
+    <NameText
+      name={name ?? scoped.displayName}
+      pubkey={pubkey}
+      tags={author.data?.event?.tags ?? NO_TAGS}
+      imgClassName={imgClassName}
+    />
   );
 }

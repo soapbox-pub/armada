@@ -5,6 +5,7 @@ import type { QueryClient } from '@tanstack/react-query';
 
 import { isUserBannedNow } from '@/lib/bannedUsers';
 import type { NostrRumor } from '@/lib/nostrRumor';
+import { markProfileSettled } from '@/lib/profileLoading';
 import { parseProfileImeta, type ProfileImeta } from '@/lib/profileImeta';
 
 export type AuthorResult = {
@@ -40,6 +41,8 @@ export function seedAuthorCache(queryClient: QueryClient, pubkey: string, event:
   if (isUserBannedNow(pubkey)) return;
   const key = authorQueryKey(pubkey);
   const existing = queryClient.getQueryData<AuthorResult>(key);
-  if (existing?.event && existing.event.created_at >= event.created_at) return;
-  queryClient.setQueryData<AuthorResult>(key, parseAuthorEvent(event));
+  if (!existing?.event || existing.event.created_at < event.created_at) {
+    queryClient.setQueryData<AuthorResult>(key, parseAuthorEvent(event));
+  }
+  markProfileSettled(pubkey);
 }

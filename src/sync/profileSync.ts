@@ -13,6 +13,7 @@ import { KvPrefixCache } from "@/lib/db/kvCache";
 import { perfCount } from "@/lib/perf";
 import { appEventStore } from "@/lib/db/mainEventStore";
 import { seedAuthorCache } from "@/lib/authorCache";
+import { clearProfileLoading, markProfileSettled } from "@/lib/profileLoading";
 import { invalidateSyncTopic, registerSyncTopic, want } from "@/sync/syncManager";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
@@ -279,7 +280,14 @@ async function runProfileSync(signal: AbortSignal): Promise<void> {
     capFifo(stampedGeneration);
     missAttempts.set(pk, (missAttempts.get(pk) ?? 0) + 1);
     capFifo(missAttempts);
+    markProfileSettled(pk);
   }
+}
+
+/** Whether a profile round has ever answered for `pk`, found or missed (durable). */
+export async function hasProfileStamp(pk: string): Promise<boolean> {
+  await stamps.ready();
+  return stamps.get(pk) !== undefined;
 }
 
 registerSyncTopic(PROFILE_SYNC_TOPIC, {
@@ -298,6 +306,7 @@ export function clearProfileSyncMemory(): void {
   stampedGeneration.clear();
   foundProfiles.clear();
   missAttempts.clear();
+  clearProfileLoading();
 }
 
 /** Test seam: drop all demand, hints, context, and session generations. */

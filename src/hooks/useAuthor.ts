@@ -6,7 +6,8 @@ import { useEventStore } from '@/hooks/useEventStore';
 import { authorQueryKey, parseAuthorEvent, type AuthorResult } from '@/lib/authorCache';
 import { isUserBannedNow } from '@/lib/bannedUsers';
 import { useIsUserBanned } from '@/lib/blocklistStore';
-import { demandProfiles } from '@/sync/profileSync';
+import { markProfileSettled } from '@/lib/profileLoading';
+import { demandProfiles, hasProfileStamp } from '@/sync/profileSync';
 
 type EventStore = ReturnType<typeof useEventStore>;
 
@@ -36,6 +37,8 @@ export function authorQueryOptions(
       if (existing?.event && (!cached || existing.event.created_at >= cached.created_at)) {
         return existing;
       }
+      // A found profile settles when profileSync seeds it, after its data is in the cache.
+      if (!cached && await hasProfileStamp(pubkey)) markProfileSettled(pubkey);
       return cached ? parseAuthorEvent(cached) : {};
     },
     enabled: !!pubkey,

@@ -1,4 +1,5 @@
 import { isAnonymousName } from "@/lib/getDisplayName";
+import { useProfilePending } from "@/lib/profileLoading";
 import { pubkeyHue, pubkeyHueColor } from "@/lib/pubkeyHue";
 import { cn } from "@/lib/utils";
 
@@ -23,10 +24,20 @@ export function AnonymousFigure({ className }: { className?: string }) {
  * A person's avatar fallback: their initial, or {@link AnonymousFigure} while
  * they have no name — tinted by their pubkey, so nameless people tell apart.
  * The tint covers the whole avatar (the Avatar root is `relative`) over its
- * call site's own fallback colors.
+ * call site's own fallback colors. While their profile is still loading it is a skeleton instead.
  */
 export function AvatarInitial({ name, pubkey }: { name: string | undefined; pubkey?: string }) {
-  if (isAnonymousName(name)) {
+  const anonymous = isAnonymousName(name);
+  const pending = useProfilePending(anonymous ? pubkey : undefined);
+  if (pending) {
+    return (
+      <span
+        aria-hidden
+        className="absolute inset-0 animate-pulse bg-muted [animation-iteration-count:8]"
+      />
+    );
+  }
+  if (anonymous) {
     const hue = pubkeyHue(pubkey);
     if (hue === undefined) return <AnonymousFigure />;
     return (

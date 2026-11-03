@@ -20,7 +20,8 @@ async function freshModules() {
   const manager = await import("./syncManager");
   const profileSync = await import("./profileSync");
   const { appEventStore } = await import("@/lib/db/mainEventStore");
-  return { ...manager, ...profileSync, appEventStore };
+  const { isProfilePending } = await import("@/lib/profileLoading");
+  return { ...manager, ...profileSync, appEventStore, isProfilePending };
 }
 
 const sk1 = generateSecretKey();
@@ -291,6 +292,25 @@ describe("profileSync — the profiles topic", () => {
     // One empty round recorded, so the next retry is already past the flat minute.
     expect(m._profileMissAttemptsForTests(PK1)).toBe(1);
     expect(m._missRetryDelayMs(m._profileMissAttemptsForTests(PK1))).toBe(60_000);
+
+    release();
+    m._resetProfileSyncForTests();
+    m._resetSyncManagerForTests();
+  });
+
+  it("keeps a profile pending until its round answers, found or missed", { timeout: 30_000 }, async () => {
+    const m = await freshModules();
+    const { nostr } = makeNostr({ pool: (authors) => (authors.includes(PK1) ? [profile(sk1, "alice", 1)] : []) });
+    const queryClient = new QueryClient();
+
+    expect(m.isProfilePending(PK1)).toBe(true);
+    expect(m.isProfilePending(PK2)).toBe(true);
+    const release = m.demandProfiles([PK1, PK2], { nostr, queryClient });
+    await settled(m);
+    await vi.waitFor(() => {
+      expect(m.isProfilePending(PK1)).toBe(false);
+      expect(m.isProfilePending(PK2)).toBe(false);
+    });
 
     release();
     m._resetProfileSyncForTests();
