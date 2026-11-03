@@ -7,10 +7,11 @@ import {
   pickDesktopArtifact,
   selectDesktopArtifact,
   selectDesktopRelease,
-  selectWebBundle,
+  parseWebSite,
+  resolveWebSite,
+  selectWebSite,
   toDesktopUpdate,
   trustedReleases,
-  WEB_BUNDLE_PATH,
 } from "./desktopUpdate";
 import { parseAsset, parseRelease, type ReleaseArtifact } from "./releases";
 
@@ -346,79 +347,113 @@ describe("selectDesktopArtifact", () => {
   });
 });
 
-describe("selectWebBundle", () => {
-  const BUNDLE = "b".repeat(64);
+describe("web site manifests", () => {
+  const INDEX = "c".repeat(64);
 
   function manifest(
     secretKey: Uint8Array,
     {
       createdAt = 1_800_000_000,
       site = "armada",
-      bundle = BUNDLE as string | undefined,
+      paths = [["/index.html", INDEX], ["/assets/app.js", "d".repeat(64)]] as string[][],
       servers = ["https://blossom.one", "https://blossom.two/"],
     } = {},
   ): WireEvent {
-    const signed = finalizeEvent(
-      {
-        kind: 35128,
-        created_at: createdAt,
-        content: "",
-        tags: [
-          ["d", site],
-          ["path", "/index.html", "c".repeat(64)],
-          ...(bundle ? [["path", WEB_BUNDLE_PATH, bundle]] : []),
-          ...servers.map((server) => ["server", server]),
-        ],
-      },
-      secretKey,
-    );
-    // JSON round-trip: see sign() — a spread would carry the verified mark.
-    return JSON.parse(JSON.stringify(signed)) as WireEvent;
+    return sign(secretKey, {
+      kind: 35128,
+      created_at: createdAt,
+      content: "",
+      tags: [
+        ["d", site],
+        ...paths.map(([sitePath, hash]) => ["path", sitePath, hash]),
+        ...servers.map((server) => ["server", server]),
+      ],
+    });
   }
 
-  it("reads the bundle's hash and Blossom URLs from the newest pinned manifest", () => {
+  it("reads every path's hash and the https servers from a pinned manifest", () => {
     const key = generateSecretKey();
-    const pubkey = getPublicKey(key);
-    const older = manifest(key, { createdAt: 1_700_000_000, bundle: "d".repeat(64) });
-    const newer = manifest(key);
-    expect(selectWebBundle([newer, older], { authors: [pubkey] })).toEqual({
-      createdAt: 1_800_000_000,
-      sha256: BUNDLE,
-      urls: [`https://blossom.one/${BUNDLE}`, `https://blossom.two/${BUNDLE}`],
-    });
+    const event = manifest(key, { servers: ["https://blossom.one", "http://plain.example", "not a url", "https://blossom.two/x"] });
+    const site = parseWebSite(event, { authors: [getPublicKey(key)] });
+    expect(site?.id).toBe(event.id);
+    expect(site?.createdAt).toBe(1_800_000_000);
+    expect([...site!.files]).toEqual([["/index.html", INDEX], ["/assets/app.js", "d".repeat(64)]]);
+    expect(site?.servers).toEqual(["https://blossom.one", "https://blossom.two"]);
   });
 
-  it("ignores a manifest from any key but the pinned one", () => {
-    const pinned = getPublicKey(generateSecretKey());
-    expect(selectWebBundle([manifest(generateSecretKey())], { authors: [pinned] })).toBeUndefined();
-  });
-
-  it("ignores a manifest whose signature does not verify", () => {
+  it("drops path tags that are not absolute or carry no sha256", () => {
     const key = generateSecretKey();
-    const tampered = manifest(key);
-    tampered.tags = tampered.tags.map((tag) => (tag[1] === WEB_BUNDLE_PATH ? [tag[0], tag[1], "e".repeat(64)] : tag));
-    expect(selectWebBundle([tampered], { authors: [getPublicKey(key)] })).toBeUndefined();
+    const event = manifest(key, { paths: [["/index.html", INDEX.toUpperCase()], ["relative.js", INDEX], ["/x.js", "nope"]] });
+    expect([...parseWebSite(event, { authors: [getPublicKey(key)] })!.files]).toEqual([["/index.html", INDEX]]);
   });
 
-  it("does not let a newer forged manifest hide the valid one", () => {
-    const key = generateSecretKey();
-    const valid = manifest(key);
-    const forged = { ...manifest(key, { createdAt: 1_900_000_000 }), sig: "0".repeat(128) };
-    expect(selectWebBundle([forged, valid], { authors: [getPublicKey(key)] })?.createdAt).toBe(1_800_000_000);
-  });
-
-  it("ignores another site of the same key", () => {
-    const key = generateSecretKey();
-    expect(selectWebBundle([manifest(key, { site: "other" })], { authors: [getPublicKey(key)] })).toBeUndefined();
-  });
-
-  it("offers nothing when the manifest names no bundle, no hash or no https server", () => {
+  it("accepts only the pinned key, a valid signature and its own site", () => {
     const key = generateSecretKey();
     const authors = [getPublicKey(key)];
-    expect(selectWebBundle([manifest(key, { bundle: "" })], { authors })).toBeUndefined();
-    expect(selectWebBundle([manifest(key, { bundle: "not-a-hash" })], { authors })).toBeUndefined();
-    expect(
-      selectWebBundle([manifest(key, { servers: ["http://blossom.one", "not a url"] })], { authors }),
-    ).toBeUndefined();
+    expect(parseWebSite(manifest(generateSecretKey()), { authors })).toBeUndefined();
+    expect(parseWebSite(manifest(key, { site: "other" }), { authors })).toBeUndefined();
+    const tampered = manifest(key);
+    tampered.tags = tampered.tags.map((tag) => (tag[1] === "/index.html" ? [tag[0], tag[1], "e".repeat(64)] : tag));
+    expect(parseWebSite(tampered, { authors })).toBeUndefined();
+    expect(parseWebSite({ ...manifest(key), kind: 15128 }, { authors })).toBeUndefined();
+    expect(parseWebSite("not an event", { authors })).toBeUndefined();
+  });
+
+  it("selects the newest acceptable manifest, past a newer forgery", () => {
+    const key = generateSecretKey();
+    const authors = [getPublicKey(key)];
+    const older = manifest(key, { createdAt: 1_700_000_000 });
+    const valid = manifest(key);
+    const forged = { ...manifest(key, { createdAt: 1_900_000_000 }), sig: "0".repeat(128) };
+    expect(selectWebSite([older, forged, valid], { authors })?.id).toBe(valid.id);
+    expect(selectWebSite([manifest(generateSecretKey())], { authors })).toBeUndefined();
+  });
+
+  it("resolves the site with its servers, the author's 10063 and the fallbacks, in that order", async () => {
+    const key = generateSecretKey();
+    const pubkey = getPublicKey(key);
+    const site = manifest(key, { servers: ["https://blossom.one"] });
+    const serverList = sign(key, {
+      kind: 10063,
+      created_at: 1_800_000_000,
+      content: "",
+      tags: [["server", "https://list.example/"], ["server", "https://blossom.one"]],
+    });
+    const strangerList = sign(generateSecretKey(), {
+      kind: 10063,
+      created_at: 1_800_000_000,
+      content: "",
+      tags: [["server", "https://stranger.example"]],
+    });
+    const requests: unknown[] = [];
+
+    class FakeSocket extends EventTarget {
+      constructor(_url: string) {
+        super();
+        queueMicrotask(() => this.dispatchEvent(new Event("open")));
+      }
+      send(data: string) {
+        const [, id, ...filters] = JSON.parse(data) as [string, string, ...unknown[]];
+        requests.push(...filters);
+        for (const event of [site, serverList, strangerList]) {
+          this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(["EVENT", id, event]) }));
+        }
+        this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(["EOSE", id]) }));
+      }
+      close() {}
+    }
+
+    const resolved = await resolveWebSite({
+      relays: ["wss://relay.example"],
+      authors: [pubkey],
+      fallbackServers: ["https://fallback.example/", "http://insecure.example"],
+      webSocket: FakeSocket as unknown as typeof WebSocket,
+    });
+    expect(resolved?.id).toBe(site.id);
+    expect(resolved?.servers).toEqual(["https://blossom.one", "https://list.example", "https://fallback.example"]);
+    expect(requests).toEqual([
+      { kinds: [35128], authors: [pubkey], "#d": ["armada"] },
+      { kinds: [10063], authors: [pubkey] },
+    ]);
   });
 });

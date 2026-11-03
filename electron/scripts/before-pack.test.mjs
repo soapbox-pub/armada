@@ -92,11 +92,11 @@ describe("the packaged file list", () => {
       if (seen.has(file)) continue;
       seen.add(file);
       if (!packaged.has(file)) missing.push(file);
-      if (GENERATED.has(file)) continue;
+      if (GENERATED.has(file) || file.endsWith(".json")) continue;
       const source = fs.readFileSync(path.join(SHELL_DIR, file), "utf8");
       for (const match of source.matchAll(/require\(\s*["']\.\/([^"']+)["']\s*\)/g)) {
         const target = match[1];
-        queue.push(/\.c?js$/.test(target) ? target : `${target}.js`);
+        queue.push(/\.(c?js|json)$/.test(target) ? target : `${target}.js`);
       }
       // Scripts loaded by path rather than require: preload, utility processes.
       for (const match of source.matchAll(/path\.join\(__dirname,\s*["']([^"'/]+\.c?js)["']\)/g)) {

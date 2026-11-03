@@ -681,17 +681,23 @@ Things to know before touching it:
   into a content-hashed chunk, and a filename that changes with the dependency
   tree cannot be listed in `electron-builder.yml`'s `files:`. The static
   `latest*.yml` feed is GONE — not generated (`publishAutoUpdate: false`) and not
-  deployed, and nothing is sent over SSH. The Flatpak updates on two clocks: its
-  web bundle in place (the archive every web deploy publishes at
-  `/downloads/armada-web.tar.gz`, resolved through the signed kind-35128 site
-  manifest under the pinned `RELEASE_AUTHORS` key — `resolveWebBundle` in
-  `desktopUpdate.ts` — fetched from the manifest's Blossom servers, checked
-  against its `path` hash before extraction, and refused when named by a
-  manifest older than the installed one; `electron/webBundleUpdate.js`,
-  `bundleStore.js`), and its shell through `flatpak update` from whichever
-  remote it was installed from. The bundle becomes the app:// origin with the
-  whole preload bridge, so it is resolved only through that manifest, never
-  from a URL the renderer supplies. The published build is
+  deployed, and nothing is sent over SSH.
+- **Every desktop edition but the store ones loads its web app from the nsite.**
+  `electron/webSite.js` stores the newest signed kind-35128 manifest
+  (`parseWebSite`/`resolveWebSite` in `desktopUpdate.ts`, pinned
+  `RELEASE_AUTHORS` key) and the blobs it names, staged atomically and served
+  over app:// from the next launch; the shell (installer, AppImage, Flatpak
+  shell) updates separately and rarely. What it stores becomes the app://
+  origin with the whole preload bridge, so the manifest is re-verified at
+  every launch and each file hashed whenever it is served — never trust it for
+  having been checked when downloaded, and never resolve it from a URL the
+  renderer supplies. A site runs on OLDER shells too, which is what
+  `electron/desktopApi.json`'s `level` is for: a change to the preload bridge
+  or the ArmadaDB engine fails `electron/desktopApi.test.mjs` until its
+  `surface` is re-recorded, and `level` is bumped when a bundle built from the
+  change cannot run on the previous shell (see electron/README.md, "The shell
+  API level"). The `/downloads/armada-web.tar.gz` archive the deploy still
+  publishes is only for Flatpak shells up to v0.67.6. The published build is
   distributed by npkg at `pkg.soapbox.pub`, which watches the NIP-82 release
   events, hash-verifies each artifact, and re-signs the apt/flatpak/fdroid
   repositories under its own keys — so Armada ships the `.flatpak` (and `.deb`

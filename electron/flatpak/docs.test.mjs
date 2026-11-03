@@ -59,7 +59,7 @@ describe("Flatpak documentation", () => {
   it("documents both update paths: the web bundle in place and the shell via flatpak update", () => {
     expect(flatpakProse).toContain("The web bundle updates in place");
     expect(flatpakProse).toContain(
-      "`checkForWebBundleUpdate` in `electron/main.js`",
+      "`checkForWebUpdate` in `electron/main.js`",
     );
     expect(flatpakProse).toContain("The shell updates through `flatpak update`");
   });
