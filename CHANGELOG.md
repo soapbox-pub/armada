@@ -4,6 +4,15 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.67.5] - 2026-11-03
+
+The iPhone and iPad app asks you to agree to the Terms of Service before you
+log in or create an account, and leaves out zaps and the wallet for now.
+
+### Changed
+- On iPhone and iPad, agreeing to the Terms of Service is an explicit step before logging in or creating an account
+- On iPhone and iPad, zaps, the wallet and Lightning addresses are hidden
+
 ## [0.67.4] - 2026-11-02
 
 Reply to a message with a swipe or a double-tap on touch screens, tell
