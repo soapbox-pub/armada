@@ -133,4 +133,7 @@ whatever that script writes; nothing in this repository reads it. Delete the
 script and its step once few enough installs remain on those builds.
 
 `scripts/zapstore-compat.mjs` then re-signs the application and the APK asset
-for Zapstore's current client (see its header); it is skipped for prereleases.
+for Zapstore's current client, and sends relay.zapstore.dev alone a copy of the
+release naming only the APK, since that relay refuses the desktop assets and
+won't list a release it doesn't hold every asset of (see its header). It is
+skipped for prereleases.

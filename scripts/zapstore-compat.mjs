@@ -17,7 +17,16 @@
  *     fetches assets only by the ids its release names, so the copy is
  *     invisible to it.
  *
- * Idempotent: an event already in the wanted shape is left alone.
+ * relay.zapstore.dev also refuses every asset without `f android-arm64-v8a`,
+ * and holds a release pending until it has every asset the release names, so
+ * the NIP-82 release, which names the desktop builds too, is never listed.
+ * This signs a copy naming only the APK asset and sends it to that relay
+ * alone: the release is addressable, and anywhere else the copy would replace
+ * the full one that /downloads, the desktop updater and npkg read.
+ *
+ * Idempotent: an event already in the wanted shape is left alone. The
+ * Zapstore copy is signed again on every run, since a pending one can't be
+ * seen; the newer copy supersedes it.
  *
  * Usage:
  *   node scripts/zapstore-compat.mjs --version 1.2.3 [--app buzz.armada.app]
@@ -43,9 +52,11 @@ const RELEASE_KIND = 30063;
 const ASSET_KIND = 3063;
 const APK_MIME = 'application/vnd.android.package-archive';
 
+const ZAPSTORE_RELAY = 'wss://relay.zapstore.dev';
+
 /** Zapstore's catalog relay plus the publication relays of .ngit/release.yaml. */
 const DEFAULT_RELAYS = [
-  'wss://relay.zapstore.dev',
+  ZAPSTORE_RELAY,
   'wss://relay.ngit.dev',
   'wss://relay.ditto.pub',
   'wss://relay.dreamith.to',
@@ -140,7 +151,8 @@ async function main() {
     const now = Math.floor(Date.now() / 1000);
 
     const releaseD = `${opts.app}@${opts.version}`;
-    const release = newest(await queryUntil(pool, relays,
+    // Not from Zapstore's relay, whose copy of the release names the APK alone.
+    const release = newest(await queryUntil(pool, relays.filter((r) => r !== ZAPSTORE_RELAY),
       { kinds: [RELEASE_KIND], authors: [pubkey], '#d': [releaseD] }, (e) => e.length > 0));
     if (!release) throw new Error(`no release ${releaseD} found`);
 
@@ -155,6 +167,7 @@ async function main() {
     const latest = newest(others);
     const apkIsNewest = latest && tagValue(latest, 'x') === tagValue(apk, 'x')
       && others.every((a) => a.id === latest.id || a.created_at < latest.created_at);
+    let apkId = latest?.id;
     if (apkIsNewest) {
       stderr.write('asset: the APK is already the newest\n');
     } else {
@@ -165,6 +178,19 @@ async function main() {
         tags: apk.tags,
       });
       await publish(pool, relays, event, 'asset');
+      apkId = event.id ?? '<asset id>';
+    }
+
+    if (relays.includes(ZAPSTORE_RELAY)) {
+      const tags = release.tags.filter((t) => t[0] !== 'e' && (t[0] !== 'f' || t[1]?.startsWith('android-')));
+      tags.push(['e', apkId]);
+      const event = await signer.signEvent({
+        kind: RELEASE_KIND,
+        created_at: Math.max(now, release.created_at + 1),
+        content: release.content,
+        tags,
+      });
+      await publish(pool, [ZAPSTORE_RELAY], event, 'zapstore release');
     }
 
     const app = newest(await queryUntil(pool, relays,
