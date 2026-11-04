@@ -80,6 +80,9 @@ export interface AppStore {
   icon: string;
 }
 
+/** The public TestFlight invite for the iOS beta (not part of a release). */
+export const IOS_TESTFLIGHT_URL = "https://testflight.apple.com/join/t61a4BFe";
+
 /** Android store listings (not part of a release); shared by the landing page and `/downloads`. */
 export const ANDROID_STORES: AppStore[] = [
   {

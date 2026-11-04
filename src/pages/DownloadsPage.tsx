@@ -23,6 +23,7 @@ import {
   ANDROID_STORES,
   DOWNLOAD_PLATFORMS,
   type DownloadOs,
+  IOS_TESTFLIGHT_URL,
   NPKG_HOST,
   PACKAGE_MANAGERS,
   detectCurrentOs,
@@ -93,6 +94,8 @@ const OS_CAVEAT: Partial<Record<DownloadOs, MessageDescriptor>> = defineMessages
 
 const m = defineMessages({
   addToHomeScreen: { id: "downloadsPage.ios.addToHomeScreen", defaultMessage: "Then add it to your Home Screen" },
+  testflightTitle: { id: "downloadsPage.ios.testflightTitle", defaultMessage: "Join the beta on TestFlight" },
+  testflightDetail: { id: "downloadsPage.ios.testflightDetail", defaultMessage: "Requires Apple's TestFlight app" },
 });
 
 /** Earlier releases shown before "show all". */
@@ -461,7 +464,7 @@ function AndroidPanel({ artifacts }: { artifacts: ReleaseArtifact[] }) {
   );
 }
 
-/** iOS: no App Store build yet; the web app (Add to Home Screen) is presented as a real install. */
+/** iOS: the TestFlight beta first, then the web app (Add to Home Screen) as a real install. */
 const strong = (chunks: ReactNode[]) => <strong className="font-medium text-foreground">{chunks}</strong>;
 
 function IosPanel() {
@@ -484,6 +487,17 @@ function IosPanel() {
 
   return (
     <div className="space-y-5">
+      <Tile
+        href={IOS_TESTFLIGHT_URL}
+        external
+        primary
+        icon={<AppleMark className="size-5" />}
+        title={intl.formatMessage(m.testflightTitle)}
+        detail={intl.formatMessage(m.testflightDetail)}
+      />
+      <p className="text-xs text-muted-foreground">
+        <FormattedMessage id="downloadsPage.ios.orWebApp" defaultMessage="Or install the web app:" />
+      </p>
       <ol className="space-y-2.5">
         {steps.map((step, i) => (
           <li key={i} className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -503,9 +517,6 @@ function IosPanel() {
         )}
         detail={intl.formatMessage(m.addToHomeScreen)}
       />
-      <p className="text-xs text-muted-foreground">
-        <FormattedMessage id="downloadsPage.ios.nativeSoon" defaultMessage="A native iPhone app is on its way." />
-      </p>
     </div>
   );
 }
@@ -662,11 +673,13 @@ function OlderReleases({ releases }: { releases: Release[] }) {
 }
 
 /** The page's one call to action: the detected platform's mark, big, over its build details. */
-function HeroButton({ href, to, download, icon: Mark, title, detail, onClick, percent }: {
+function HeroButton({ href, to, external, download, icon: Mark, title, detail, onClick, percent }: {
   href?: string;
   onClick?: (event: MouseEvent) => void;
   percent?: number;
   to?: string;
+  /** An off-site page (opened in a new tab) rather than a file. */
+  external?: boolean;
   download?: string;
   icon: Icon;
   title: string;
@@ -689,7 +702,7 @@ function HeroButton({ href, to, download, icon: Mark, title, detail, onClick, pe
           ) : detail}
         </span>
       </span>
-      {to ? (
+      {to || external ? (
         <ArrowUpRight className="mr-1 size-5 shrink-0 opacity-90 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 motion-reduce:transition-none" />
       ) : (
         <Download className="mr-1 size-5 shrink-0 opacity-90 transition-transform group-hover:translate-y-0.5 motion-reduce:transition-none" />
@@ -704,7 +717,13 @@ function HeroButton({ href, to, download, icon: Mark, title, detail, onClick, pe
       {to ? (
         <Link to={to} className={className}>{body}</Link>
       ) : (
-        <a href={href} download={download} onClick={onClick} aria-busy={percent !== undefined || undefined} className={className}>
+        <a
+          href={href}
+          download={download}
+          target={external ? "_blank" : undefined}
+          rel={external ? "noreferrer" : undefined}
+          onClick={onClick}
+          aria-busy={percent !== undefined || undefined} className={className}>
           {body}
           {percent !== undefined && <ProgressBar percent={percent} />}
         </a>
@@ -732,7 +751,7 @@ export function DownloadsPage() {
   const pending = releases.isPending || (!!latest && artifacts.isPending);
 
 
-  // On iOS the primary action is the web app; with no detection, the hero cues the list.
+  // On iOS the primary action is the TestFlight beta; with no detection, the hero cues the list.
   const featured = DOWNLOAD_PLATFORMS.find((platform) => platform.os === detected);
   const heroArtifact = featured ? byOs.get(featured.os)?.[0] : undefined;
   const heroDownload = useArtifactDownload(heroArtifact);
@@ -799,10 +818,11 @@ export function DownloadsPage() {
               />
             ) : featured?.os === "ios" ? (
               <HeroButton
-                to="/"
+                href={IOS_TESTFLIGHT_URL}
+                external
                 icon={AppleMark}
-                title={intl.formatMessage({ id: "downloadsPage.openApp", defaultMessage: "Open {app}" }, { app: APP_NAME })}
-                detail={intl.formatMessage(m.addToHomeScreen)}
+                title={intl.formatMessage(m.testflightTitle)}
+                detail={intl.formatMessage(m.testflightDetail)}
               />
             ) : pending ? (
               <div className="h-[4.5rem] w-full animate-pulse clip-corner-lg bg-muted-foreground/15" />
@@ -812,7 +832,7 @@ export function DownloadsPage() {
               onClick={scrollToTargets}
               className="group mt-6 flex w-full flex-col items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
-              {heroArtifact ? (
+              {heroArtifact || featured?.os === "ios" ? (
                 <FormattedMessage id="downloadsPage.otherPlatforms" defaultMessage="Other platforms" />
               ) : (
                 <FormattedMessage id="downloadsPage.allPlatforms" defaultMessage="All platforms" />
