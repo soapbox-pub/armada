@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowUpRight, Check, ChevronDown, Copy, Download, Globe, Info, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, ChevronDown, Copy, Download, Info, RefreshCw } from "lucide-react";
 import { type ComponentType, type MouseEvent, type ReactNode, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -93,7 +93,6 @@ const OS_CAVEAT: Partial<Record<DownloadOs, MessageDescriptor>> = defineMessages
 });
 
 const m = defineMessages({
-  addToHomeScreen: { id: "downloadsPage.ios.addToHomeScreen", defaultMessage: "Then add it to your Home Screen" },
   testflightTitle: { id: "downloadsPage.ios.testflightTitle", defaultMessage: "Join the beta on TestFlight" },
   testflightDetail: { id: "downloadsPage.ios.testflightDetail", defaultMessage: "Requires Apple's TestFlight app" },
 });
@@ -464,60 +463,18 @@ function AndroidPanel({ artifacts }: { artifacts: ReleaseArtifact[] }) {
   );
 }
 
-/** iOS: the TestFlight beta first, then the web app (Add to Home Screen) as a real install. */
-const strong = (chunks: ReactNode[]) => <strong className="font-medium text-foreground">{chunks}</strong>;
-
+/** iOS: the TestFlight beta. */
 function IosPanel() {
   const intl = useIntl();
-  const steps = [
-    <FormattedMessage
-      key="open"
-      id="downloadsPage.ios.stepOpen"
-      defaultMessage="Open {app} in <b>Safari</b>"
-      values={{ app: APP_NAME, b: strong }}
-    />,
-    <FormattedMessage key="share" id="downloadsPage.ios.stepShare" defaultMessage="Tap <b>Share</b>" values={{ b: strong }} />,
-    <FormattedMessage
-      key="add"
-      id="downloadsPage.ios.stepAdd"
-      defaultMessage="Choose <b>Add to Home Screen</b>"
-      values={{ b: strong }}
-    />,
-  ];
-
   return (
-    <div className="space-y-5">
-      <Tile
-        href={IOS_TESTFLIGHT_URL}
-        external
-        primary
-        icon={<AppleMark className="size-5" />}
-        title={intl.formatMessage(m.testflightTitle)}
-        detail={intl.formatMessage(m.testflightDetail)}
-      />
-      <p className="text-xs text-muted-foreground">
-        <FormattedMessage id="downloadsPage.ios.orWebApp" defaultMessage="Or install the web app:" />
-      </p>
-      <ol className="space-y-2.5">
-        {steps.map((step, i) => (
-          <li key={i} className="flex items-center gap-3 text-sm text-muted-foreground">
-            <span className="flex size-7 shrink-0 items-center justify-center clip-corner bg-primary/15 font-mono text-xs font-bold text-primary">
-              {i + 1}
-            </span>
-            <span>{step}</span>
-          </li>
-        ))}
-      </ol>
-      <Tile
-        to="/"
-        icon={<Globe className="size-5" />}
-        title={intl.formatMessage(
-          { id: "downloadsPage.ios.openInBrowser", defaultMessage: "Open {app} in this browser" },
-          { app: APP_NAME },
-        )}
-        detail={intl.formatMessage(m.addToHomeScreen)}
-      />
-    </div>
+    <Tile
+      href={IOS_TESTFLIGHT_URL}
+      external
+      primary
+      icon={<AppleMark className="size-5" />}
+      title={intl.formatMessage(m.testflightTitle)}
+      detail={intl.formatMessage(m.testflightDetail)}
+    />
   );
 }
 
