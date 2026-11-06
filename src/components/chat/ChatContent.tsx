@@ -52,6 +52,7 @@ import { AUDIO_EXTS, EMBED_MEDIA_URL_REGEX, IMAGE_URL_REGEX, isGifLikeUrl, isUnp
 import { KIND_GROUP_METADATA, nip29GroupPath, parseGroupAddress, type GroupAddress } from "@/lib/nip29";
 import { normalizeRelayUrl, relayToRouteParam } from "@/lib/platform";
 import { isMagnetUri, sanitizeUrl } from "@/lib/sanitizeUrl";
+import { isNsiteUrl } from "@/lib/nsiteUrl";
 import { parseSelfLink } from "@/lib/selfLink";
 import { stripTrackingParams } from "@/lib/trackingParams";
 import { WEBXDC_MIME, isWebxdcMime } from "@/lib/webxdcMime";
@@ -179,6 +180,8 @@ export type ContentToken =
   | { type: "inline-link"; url: string }
   /** A BitTorrent `magnet:` URI, handed to the OS's torrent client on click. */
   | { type: "magnet-link"; url: string }
+  /** An `nsite://` URL, handed to the OS's nsite handler (Din, Tenna) on click. */
+  | { type: "nsite-link"; url: string }
   /** An own-origin chat link alone on its line — the in-app preview card. */
   | { type: "self-chat-embed"; url: string; route: ChatRoute; path: string }
   /** An own-origin chat link mid-sentence — an internal router link. */
@@ -250,6 +253,7 @@ function isSpannable(token: ContentToken): boolean {
     case "relay-link":
     case "inline-link":
     case "magnet-link":
+    case "nsite-link":
     case "self-link":
     case "md-link":
       return true;
@@ -450,7 +454,7 @@ function usableMime(m: string | undefined): string | undefined {
 
 /**
  * The body tokenizer's alternation: markdown image | BOLT11 | URL |
- * `nostr:` NIP-19 | bare/`@` NIP-19 | hashtag | Cashu | magnet. Compiled once; shared
+ * `nostr:` NIP-19 | bare/`@` NIP-19 | hashtag | Cashu | magnet | nsite. Compiled once; shared
  * `lastIndex` is reset by {@link tokenizeSegment} (synchronous, non-reentrant).
  */
 const SEGMENT_RE = new RegExp(
@@ -469,7 +473,8 @@ const SEGMENT_RE = new RegExp(
   `|(${HASHTAG_PATTERN})` +
   // New alternatives go last so the group numbers above are untouched.
   `|(${CASHU_TOKEN_PATTERN})` +
-  "|(magnet:\\?[^\\s<>|]+)",
+  "|(magnet:\\?[^\\s<>|]+)" +
+  "|(nsite:\\/\\/[^\\s<>|]+)",
   "giu",
 );
 
@@ -540,6 +545,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         const hashtag = match[8];
         const cashu = match[9];
         const magnet = match[10];
+        const nsite = match[11];
         const { 4: nostrPrefix, 5: nostrData, 6: barePrefix, 7: bareData } = match;
         const index = match.index;
 
@@ -552,6 +558,11 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         } else if (magnet) {
           const trimmed = magnet.replace(/[.,;:!?)\]"']+$/, "");
           out.push(isMagnetUri(trimmed) ? { type: "magnet-link", url: trimmed } : { type: "text", value: trimmed });
+          lastIndex = index + trimmed.length;
+          continue;
+        } else if (nsite) {
+          const trimmed = nsite.replace(/[.,;:!?)\]"']+$/, "");
+          out.push(isNsiteUrl(trimmed) ? { type: "nsite-link", url: trimmed } : { type: "text", value: trimmed });
           lastIndex = index + trimmed.length;
           continue;
         } else if (cashu) {
@@ -1319,6 +1330,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
       case "inline-link":
         return inlineLink(key, token.url);
       case "magnet-link":
+      case "nsite-link":
         return (
           <a
             key={key}

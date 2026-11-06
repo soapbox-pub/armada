@@ -72,6 +72,18 @@ function isMagnetUrl(value) {
 }
 
 /**
+ * Whether a URL is an `nsite://` link, handed to the OS's nsite handler (Din,
+ * Tenna) only for a click in the app's own top frame, like a magnet link.
+ */
+function isNsiteUrl(value) {
+  try {
+    return new URL(value).protocol === "nsite:";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The in-app router path of a link to our OWN public web host, or null.
  *
  * A "Copy message link" produces `https://<host>/<chat-path>/m/<id>` — the same
@@ -109,5 +121,6 @@ module.exports = {
   isExternallyOpenableUrl,
   isSignerHandoffUrl,
   isMagnetUrl,
+  isNsiteUrl,
   internalAppLinkPath,
 };

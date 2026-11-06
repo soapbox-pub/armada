@@ -162,3 +162,22 @@ describe("ChatContent magnet links", () => {
     expect(container.textContent).toContain("magnet:?dn=nothing-here");
   });
 });
+
+describe("ChatContent nsite links", () => {
+  const NSITE = "nsite://npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg/docs";
+
+  it("links the URL as a top-frame navigation, leaving trailing punctuation as text", () => {
+    const { container } = renderContent(`see ${NSITE}. thanks`);
+    expect(hrefs(container)).toEqual([NSITE]);
+    const link = container.querySelector("a")!;
+    expect(link.textContent).toBe(NSITE);
+    expect(link.hasAttribute("target")).toBe(false);
+    expect(container.textContent).toContain(". thanks");
+  });
+
+  it("leaves an nsite: URL that names no key as text", () => {
+    const { container } = renderContent("see nsite://example.com/ now");
+    expect(hrefs(container)).toEqual([]);
+    expect(container.textContent).toContain("nsite://example.com/");
+  });
+});

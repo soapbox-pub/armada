@@ -69,6 +69,7 @@ const {
   isExternallyOpenableUrl,
   isSignerHandoffUrl,
   isMagnetUrl,
+  isNsiteUrl,
   internalAppLinkPath,
 } = require("./appOrigin");
 const {
@@ -1685,10 +1686,11 @@ function installNavigationHandlers() {
     contents.on("will-navigate", (event, url) => {
       if (isAppOrigin(url)) return;
       event.preventDefault();
-      if (isSignerHandoffUrl(url) || isMagnetUrl(url)) {
-        // Only our own top frame may hand a pairing link to the signer, or a
-        // magnet link to the torrent client: an embed with top-navigation
-        // rights must not choose either. A missing initiator (frame gone) is refused.
+      if (isSignerHandoffUrl(url) || isMagnetUrl(url) || isNsiteUrl(url)) {
+        // Only our own top frame may hand a pairing link to the signer, a
+        // magnet link to the torrent client or an nsite link to its browser:
+        // an embed with top-navigation rights must not choose any of them. A missing
+        // initiator (frame gone) is refused.
         const initiator = event.initiator;
         if (initiator && !initiator.parent && isAppOrigin(initiator.url)) {
           shell.openExternal(url).catch((error) => {

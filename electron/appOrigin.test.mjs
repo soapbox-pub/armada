@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { isArmadaAppUrl, isExternallyOpenableUrl, isSignerHandoffUrl, isMagnetUrl, internalAppLinkPath } =
+const { isArmadaAppUrl, isExternallyOpenableUrl, isSignerHandoffUrl, isMagnetUrl, isNsiteUrl, internalAppLinkPath } =
   require("./appOrigin.js");
 
 describe("packaged Electron origin", () => {
@@ -55,6 +55,15 @@ describe("handing a magnet link to the torrent client", () => {
     expect(isMagnetUrl("https://example.com/magnet:")).toBe(false);
     expect(isMagnetUrl("not a URL")).toBe(false);
     expect(isExternallyOpenableUrl("magnet:?xt=urn:btih:abc")).toBe(false);
+  });
+});
+
+describe("handing an nsite link to the OS's nsite browser", () => {
+  it("recognizes nsite: only, and keeps it out of what window.open may reach", () => {
+    expect(isNsiteUrl("nsite://npub1abc/path")).toBe(true);
+    expect(isNsiteUrl("https://example.com/nsite://x")).toBe(false);
+    expect(isNsiteUrl("not a URL")).toBe(false);
+    expect(isExternallyOpenableUrl("nsite://npub1abc/")).toBe(false);
   });
 });
 
