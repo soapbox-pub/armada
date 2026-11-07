@@ -7,8 +7,9 @@
  * `dist/.well-known/npanel/preview.js`. Returning `null` leaves the page as
  * published, with the app's own card.
  *
- * Two kinds of page: a person (`UserPage`), drawn as their avatar over the
- * Armada mark; and a Concord invite (CORD-05), drawn as an invitation. An
+ * Three kinds of page: a person (`UserPage`), drawn as their avatar over the
+ * Armada mark; a Concord invite (CORD-05), drawn as an invitation; and an
+ * Armada Ultra gift (`GiftPage`), drawn as a wrapped box from its giver. An
  * invite's community is sealed under the token in the link's `#fragment`,
  * which never reaches a server, so its card names nothing about it.
  */
@@ -23,7 +24,7 @@ import { config } from "@/lib/env";
 import { parseNip05Address } from "@/lib/nip05Address";
 import { sanitizeImageSrc, sanitizeUrl } from "@/lib/sanitizeUrl";
 
-import { drawInvite, drawProfile } from "./draw";
+import { drawGift, drawInvite, drawProfile } from "./draw";
 
 /** What `preview()` returns to npanel. */
 export interface Preview {
@@ -52,7 +53,8 @@ export default {
    * URLPattern pathnames, the pages `UserPage` and `InvitePage` answer:
    * `/npub1…`, `/nprofile1…`, `/name@domain` or a bare `/domain` (NIP-05
    * `_@domain`, which a real file like `/og.png` never reaches, since npanel
-   * only previews HTML), and `/invite/naddr1…`. Groups are Rust regexes in
+   * only previews HTML), `/invite/naddr1…`, and `/gift/npub1…` (or an
+   * nprofile). Groups are Rust regexes in
    * npanel; `-` is escaped in classes so they also compile as JavaScript's
    * `v`-flag ones.
    */
@@ -60,6 +62,7 @@ export default {
     String.raw`/:id((?:@|%40)?n(?:pub|profile)1${BECH32}){/}?`,
     String.raw`/:name((?:@|%40)?(?:[\w.+\-]+(?:@|%40))?[\w\-]+(?:\.[\w\-]+)+){/}?`,
     String.raw`/invite/:naddr(naddr1${BECH32}){/}?`,
+    String.raw`/gift/:from(n(?:pub|profile)1${BECH32}){/}?`,
   ],
 
   async preview(request: Request, { nostr, signal }: Context): Promise<Preview | null> {
@@ -68,6 +71,13 @@ export default {
 
     if (segments.length === 2 && segments[0] === "invite") {
       return invite(segments[1], url);
+    }
+    if (segments.length === 2 && segments[0] === "gift") {
+      // Only a key: a gift is never a NIP-05 lookup.
+      const giver = /^n(?:pub|profile)1/.test(segments[1]) ? await resolve(segments[1], signal) : undefined;
+      if (!giver) return null;
+      const [event] = await nostr.query([{ kinds: [0], authors: [giver], limit: 1 } satisfies NostrFilter], { signal });
+      return gift(giver, event?.kind === 0 && event.pubkey === giver ? event : undefined, url);
     }
     if (segments.length !== 1) return null;
 
@@ -106,12 +116,17 @@ async function nip05(name: string, domain: string, signal: AbortSignal): Promise
   }
 }
 
-function profile(event: NostrEvent, url: URL): Preview {
-  const fields = parseObject(event.content);
+/** A kind 0's string fields, trimmed, and the name the app calls its author (`getDisplayName`). */
+function person(pubkey: string, content: string | undefined) {
+  const fields = content ? parseObject(content) : {};
   const field = (key: string) => (typeof fields[key] === "string" ? (fields[key] as string).trim() || undefined : undefined);
-  const npub = nip19.npubEncode(event.pubkey);
-  // As the app names people (`getDisplayName`), or by their npub.
+  const npub = nip19.npubEncode(pubkey);
   const name = clamp(field("name") ?? field("display_name") ?? `${npub.slice(0, 12)}…${npub.slice(-6)}`, MAX_NAME);
+  return { fields, field, npub, name };
+}
+
+function profile(event: NostrEvent, url: URL): Preview {
+  const { fields, field, npub, name } = person(event.pubkey, event.content);
   const about = field("about");
   const nip05 = field("nip05");
   const website = sanitizeUrl(field("website"));
@@ -166,6 +181,25 @@ function invite(segment: string, url: URL): Preview | null {
     description,
     body: `<article>\n<h1>${escape(title)}</h1>\n<p>${escape(description)}</p>\n</article>\n`,
     image: drawInvite(),
+    twitter: "summary_large_image",
+    jsonLd: { "@context": "https://schema.org", "@type": "WebPage", url: url.href, name: title, description },
+  };
+}
+
+/**
+ * An Ultra gift: who it is from is in the link, and Ultra is free, so the card
+ * is the giver and the box. A giver with no profile is named by their npub.
+ */
+function gift(pubkey: string, event: NostrEvent | undefined, url: URL): Preview {
+  const { fields, field, name } = person(pubkey, event?.content);
+  const appName = config("APP_NAME") || "Armada";
+  const title = `${name} gifted you ${appName} Ultra`;
+  const description = "Open the gift to claim a shimmering name, a glowing avatar, profile effects and exclusive themes. Free, forever.";
+  return {
+    title,
+    description,
+    body: `<article>\n<h1>${escape(title)}</h1>\n<p>${escape(description)}</p>\n</article>\n`,
+    image: drawGift(sanitizeImageSrc(field("picture")), getAvatarShape(fields), name),
     twitter: "summary_large_image",
     jsonLd: { "@context": "https://schema.org", "@type": "WebPage", url: url.href, name: title, description },
   };

@@ -9,10 +9,11 @@ import { bundleNaddr } from "@/concord/lib/invite";
 vi.mock("./draw", () => ({
   drawProfile: vi.fn(async () => null),
   drawInvite: vi.fn(async () => null),
+  drawGift: vi.fn(async () => null),
 }));
 
 const { default: script } = await import("./preview");
-const { drawProfile } = await import("./draw");
+const { drawGift, drawProfile } = await import("./draw");
 
 const sk = generateSecretKey();
 const pubkey = getPublicKey(sk);
@@ -59,11 +60,14 @@ describe.skipIf(typeof URLPattern === "undefined")("routes", () => {
       "/alex%40gleasonator.com",
       "/soapbox.pub",
       `/invite/${bundleNaddr(pubkey)}`,
+      `/gift/${npub}`,
+      `/gift/${npub}/`,
+      `/gift/${nip19.nprofileEncode({ pubkey })}`,
     ]) expect(routed(path), path).toBe(true);
   });
 
   it("leaves the rest of the app alone", () => {
-    for (const path of ["/", "/settings", "/dm", `/${npub}/x`, "/c/abc", "/invite/relay.example", `/nsec1${npub.slice(5)}`]) {
+    for (const path of ["/", "/settings", "/dm", `/${npub}/x`, "/c/abc", "/invite/relay.example", `/nsec1${npub.slice(5)}`, "/gift", "/gift/alex@gleasonator.com", `/gift/${npub}/x`]) {
       expect(routed(path), path).toBe(false);
     }
   });
@@ -110,5 +114,27 @@ describe("invite", () => {
   it("is null for an naddr that isn't an invite bundle", async () => {
     const naddr = nip19.naddrEncode({ kind: 30023, pubkey, identifier: "x" });
     expect(await run(`/invite/${naddr}`)).toBeNull();
+  });
+});
+
+describe("gift", () => {
+  it("previews an Ultra gift from its giver", async () => {
+    const preview = await run(`/gift/${npub}`);
+    expect(preview?.title).toBe("Ana <b> gifted you Armada Ultra");
+    expect(preview?.body).toContain("<h1>Ana &lt;b&gt; gifted you Armada Ultra</h1>");
+    expect(preview?.twitter).toBe("summary_large_image");
+    expect(drawGift).toHaveBeenCalledWith("https://example.com/a.png", "⭐", "Ana <b>");
+  });
+
+  it("still previews a gift from someone with no profile, by their npub", async () => {
+    const preview = await run(`/gift/${npub}`, []);
+    expect(preview?.title).toBe(`${npub.slice(0, 12)}…${npub.slice(-6)} gifted you Armada Ultra`);
+  });
+
+  it("never looks a gift up by NIP-05", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    expect(await run("/gift/ana@example.com")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
