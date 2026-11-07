@@ -4,6 +4,22 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.68.0] - 2026-11-06
+
+Give someone Armada Ultra: send a gift link from Settings or straight from
+their profile, and they unwrap it on a page where they pick their name style,
+glow, effect and photo before claiming it. Gift links in chats show as a gift
+card. The downloads page now links the iPhone beta on TestFlight.
+
+### Added
+- Gift Armada Ultra from Settings › Ultra or a person's profile menu, as a link sent to a chat or copied
+- An unwrapping page for gifts, where the recipient picks their Ultra look and claims it, signing up first if needed
+- Gift links in messages show as a gift card, and link previews of them show the giver's gift card
+- The downloads page's iPhone tab links the TestFlight beta
+
+### Changed
+- nsite links in messages are clickable and open in your nsite app
+
 ## [0.67.7] - 2026-11-03
 
 The desktop app now keeps itself current between releases on every edition,
