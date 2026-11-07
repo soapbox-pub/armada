@@ -135,5 +135,8 @@ script and its step once few enough installs remain on those builds.
 `scripts/zapstore-compat.mjs` then re-signs the application and the APK asset
 for Zapstore's current client, and sends relay.zapstore.dev alone a copy of the
 release naming only the APK, since that relay refuses the desktop assets and
-won't list a release it doesn't hold every asset of (see its header). It is
-skipped for prereleases.
+won't list a release it doesn't hold every asset of (see its header). The copy
+is dated one second before the full release, because it spreads from that
+relay to others, where a newer one would replace the full release; if a newer
+copy is found on the publication relays anyway, the full release is re-signed
+past it. It is skipped for prereleases.

@@ -21,12 +21,15 @@
  * and holds a release pending until it has every asset the release names, so
  * the NIP-82 release, which names the desktop builds too, is never listed.
  * This signs a copy naming only the APK asset and sends it to that relay
- * alone: the release is addressable, and anywhere else the copy would replace
- * the full one that /downloads, the desktop updater and npkg read.
+ * alone, dated one second BEFORE the full release: the release is
+ * addressable, and the copy does reach other relays (they sync from Zapstore's),
+ * where a newer copy would replace the full one that /downloads, the desktop
+ * updater and npkg read. If a newer copy is found there anyway, the full
+ * release is re-signed past it and republished to the publication relays.
  *
  * Idempotent: an event already in the wanted shape is left alone. The
  * Zapstore copy is signed again on every run, since a pending one can't be
- * seen; the newer copy supersedes it.
+ * seen.
  *
  * Usage:
  *   node scripts/zapstore-compat.mjs --version 1.2.3 [--app buzz.armada.app]
@@ -109,6 +112,11 @@ function newest(events) {
 
 const tagValue = (event, name) => event.tags.find((t) => t[0] === name)?.[1];
 
+/** The copy this script sends Zapstore names one asset and only Android platforms. */
+const isZapstoreCopy = (release) =>
+  release.tags.filter((t) => t[0] === 'e').length === 1
+  && release.tags.every((t) => t[0] !== 'f' || t[1]?.startsWith('android-'));
+
 /** Retried because ngit has only just published, and relays index asynchronously. */
 async function queryUntil(pool, relays, filter, ok) {
   for (let attempt = 1; ; attempt++) {
@@ -151,10 +159,25 @@ async function main() {
     const now = Math.floor(Date.now() / 1000);
 
     const releaseD = `${opts.app}@${opts.version}`;
-    // Not from Zapstore's relay, whose copy of the release names the APK alone.
-    const release = newest(await queryUntil(pool, relays.filter((r) => r !== ZAPSTORE_RELAY),
-      { kinds: [RELEASE_KIND], authors: [pubkey], '#d': [releaseD] }, (e) => e.length > 0));
+    const publication = relays.filter((r) => r !== ZAPSTORE_RELAY);
+    // Not from Zapstore's relay, and not its copy where that has spread: the
+    // copy names only Android platforms, the full release the desktop ones too.
+    const found = await queryUntil(pool, publication,
+      { kinds: [RELEASE_KIND], authors: [pubkey], '#d': [releaseD] }, (e) => e.some((r) => !isZapstoreCopy(r)));
+    let release = newest(found.filter((r) => !isZapstoreCopy(r)));
     if (!release) throw new Error(`no release ${releaseD} found`);
+
+    const leaked = newest(found.filter((r) => isZapstoreCopy(r) && r.created_at >= release.created_at));
+    if (leaked) {
+      const event = await signer.signEvent({
+        kind: RELEASE_KIND,
+        created_at: leaked.created_at + 1,
+        content: release.content,
+        tags: release.tags,
+      });
+      await publish(pool, publication, event, 'release (superseding a Zapstore copy)');
+      if (event.sig) release = event;
+    }
 
     const assetIds = release.tags.filter((t) => t[0] === 'e').map((t) => t[1]);
     const assets = await queryUntil(pool, relays, { ids: assetIds },
@@ -186,7 +209,8 @@ async function main() {
       tags.push(['e', apkId]);
       const event = await signer.signEvent({
         kind: RELEASE_KIND,
-        created_at: Math.max(now, release.created_at + 1),
+        // Older than the full release, so it can't replace it where it spreads.
+        created_at: release.created_at - 1,
         content: release.content,
         tags,
       });
