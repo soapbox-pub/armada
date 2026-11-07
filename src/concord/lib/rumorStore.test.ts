@@ -14,6 +14,7 @@ import { onWireScopes } from "@/wire/bus";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 import {
   ackPendingWraps,
+  heldPostAfter,
   openedToStored,
   parkPendingWraps,
   peekPendingWraps,
@@ -141,6 +142,16 @@ describe("concord rumor store", () => {
     expect(back.author).toBe(s.pubkey);
     expect(back.epoch).toBe(0n);
     expect(back.channelIdHex).toBe(idHex);
+  });
+
+  it("finds an author's post in any Channel after a time, to the millisecond", async () => {
+    const { channel, idHex } = makeChannel();
+    const alice = signer();
+    writeRumors(CID, await openChatBatch([await wrapChat(chatRumor(idHex, alice, KIND_MESSAGE, "back", 5_000_500), channel, alice)], channel));
+    await eventually(() => queryChannelRumors(CID, idHex, { limit: 10 }), (r) => r.length === 1);
+    expect(await heldPostAfter(CID, alice.pubkey, 5_000_000)).toBe(true);
+    expect(await heldPostAfter(CID, alice.pubkey, 5_000_500)).toBe(false);
+    expect(await heldPostAfter(CID, signer().pubkey, 0)).toBe(false);
   });
 
   it("queries rumors by channel tag with { kinds, #channel }", async () => {
@@ -535,6 +546,20 @@ describe("concord rumor store", () => {
       "Heads up @everyone",
       "ordinary moderator chatter",
     ]);
+  });
+
+  it("returns anyone's @everyone as a candidate once @everyone may mention everyone", async () => {
+    const { channel, idHex } = makeChannel();
+    const member = signer();
+    const me = signer();
+    const rumors = [
+      chatRumor(idHex, member, KIND_MESSAGE, "Heads up @everyone", 1000),
+      chatRumor(idHex, member, KIND_MESSAGE, "ordinary chatter", 2000),
+    ];
+    writeRumors(CID, await openChatBatch(await Promise.all(rumors.map((r) => wrapChat(r, channel, member))), channel));
+    await eventually(() => queryChannelRumors(CID, idHex, { limit: 10 }), (r) => r.length === 2);
+    const candidates = await queryMentionRumors(CID, [idHex], me.pubkey, { limit: 200, everyoneAnyone: true });
+    expect(candidates.map((r) => r.content)).toContain("Heads up @everyone");
   });
 
   // ── Cross-plane splice ────────────────────────────────────────────────────

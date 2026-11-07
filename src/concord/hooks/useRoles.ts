@@ -2,14 +2,17 @@ import { useNostr } from "@nostrify/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
-import { useControlFold, citationFor, invalidateControl, publishEdition } from "@/concord/hooks/useControlPlane";
+import { useControlFold, citationFor, foldStoredControl, invalidateControl, publishEdition, readControlWhole, withControlWrite } from "@/concord/hooks/useControlPlane";
+import type { FoldedControl } from "@/concord/lib/control";
 import { useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { buildGrantEdition, buildMetadataEdition, buildRoleEdition } from "@/concord/lib/control";
 import { bytesToHex, controlSignerGroupKey, grantLocator, hex32, random32 } from "@/concord/lib/derive";
 import { base64ToBytes, bytesToBase64, decodeControlWrap, encodeControlWrap } from "@/concord/lib/rekey";
-import { adminRole, canActOnMember, canActOnPosition, emptyRoles, grantRefusal, moderatorRole, Permissions, rolesMakeStaff, STAFF_MASK, type MemberGrant, type Role } from "@/concord/lib/roles";
+import { adminRole, canActOnMember, canActOnPosition, emptyRoles, moderatorRole, Permissions, rolesMakeStaff, STAFF_MASK, type MemberGrant, type Role } from "@/concord/lib/roles";
 import type { CommunityMetadata, Community, ImagePointer } from "@/concord/lib/types";
+import { planMemberRoles, planRoleSave } from "@/concord/lib/rankedWrites";
+import { planTenure, tenureRefusal } from "@/concord/lib/tenure";
 import { t } from "@/i18n";
 
 /**
@@ -19,7 +22,7 @@ import { t } from "@/i18n";
  * result. Attached on EVERY staff-leaving grant (re-issue is the spec's
  * re-delivery path). Throws if owed but unmintable — never seat a staffer who can't write.
  */
-async function controlWrapOwed(
+export async function controlWrapOwed(
   community: Community,
   makesStaff: boolean,
   nip44: { encrypt(pubkey: string, plaintext: string): Promise<string> } | undefined,
@@ -29,6 +32,10 @@ async function controlWrapOwed(
   if (!community.controlRoot) {
     // Unreachable today (publishing needs the same secret), but guard the promotion anyway.
     throw new Error(t({ id: "useRoles.noStaffKey", defaultMessage: "You don't hold this community's staff write key, so you can't promote to staff yet." }));
+  }
+  // Never deliver a secret that doesn't derive to the held address: the recipient drops it.
+  if (controlSignerGroupKey(community.controlRoot, community.id, community.rootEpoch).pk !== community.controlPk) {
+    throw new Error(t({ id: "useRoles.staffKeyCorrupt", defaultMessage: "This community's staff write key on this device is damaged. Let it sync again before promoting anyone to staff." }));
   }
   if (!nip44) throw new Error(t({ id: "useRoles.signerCantDeliverStaffKey", defaultMessage: "This signer can't deliver the staff write key (NIP-44 unsupported)." }));
   return await nip44.encrypt(
@@ -45,7 +52,7 @@ export function useMetadataActions(community: Community | undefined) {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
-  const { data: folded } = useControlFold(community);
+  const { data: rendered } = useControlFold(community);
 
   const updateMetadata = useMutation<
     void,
@@ -54,49 +61,53 @@ export function useMetadataActions(community: Community | undefined) {
   >({
     mutationFn: async (patch) => {
       if (!user || !community) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
-      const current: CommunityMetadata =
-        folded?.metadata ?? ({ name: community.name, relays: community.relays } as CommunityMetadata);
+      // One write at a time, from the store's fold: the rendered one lags this device's last write.
+      return withControlWrite(community.idHex, async () => {
+        const folded = await foldStoredControl(community).catch(() => rendered);
+        const current: CommunityMetadata =
+          folded?.metadata ?? ({ name: community.name, relays: community.relays } as CommunityMetadata);
 
-      const next: CommunityMetadata = { ...current }; // round-trips unknown fields
-      if (patch.name !== undefined) next.name = patch.name.trim();
-      if (patch.description !== undefined) next.description = patch.description.trim() || undefined;
-      if (patch.icon !== undefined) next.icon = patch.icon ?? undefined;
-      if (patch.banner !== undefined) next.banner = patch.banner ?? undefined;
-      if (patch.relays !== undefined) next.relays = patch.relays;
-      // CORD-02 §6: "none" is the field's ABSENCE (members fall back to their own broker).
-      if (patch.av_brokers !== undefined) {
-        if (patch.av_brokers.length > 0) next.av_brokers = patch.av_brokers;
-        else delete next.av_brokers;
-      }
-      // CORD-08: off is the field's ABSENCE.
-      if (patch.message_expiration !== undefined) {
-        if (patch.message_expiration > 0) next.message_expiration = Math.floor(patch.message_expiration);
-        else delete next.message_expiration;
-      }
+        const next: CommunityMetadata = { ...current }; // round-trips unknown fields
+        if (patch.name !== undefined) next.name = patch.name.trim();
+        if (patch.description !== undefined) next.description = patch.description.trim() || undefined;
+        if (patch.icon !== undefined) next.icon = patch.icon ?? undefined;
+        if (patch.banner !== undefined) next.banner = patch.banner ?? undefined;
+        if (patch.relays !== undefined) next.relays = patch.relays;
+        // CORD-02 §6: "none" is the field's ABSENCE (members fall back to their own broker).
+        if (patch.av_brokers !== undefined) {
+          if (patch.av_brokers.length > 0) next.av_brokers = patch.av_brokers;
+          else delete next.av_brokers;
+        }
+        // CORD-08: off is the field's ABSENCE.
+        if (patch.message_expiration !== undefined) {
+          if (patch.message_expiration > 0) next.message_expiration = Math.floor(patch.message_expiration);
+          else delete next.message_expiration;
+        }
 
-      // Publish to old ∪ new relays so members still on the old ones see the move.
-      const publishRelays =
-        patch.relays !== undefined ? [...new Set([...community.relays, ...patch.relays])] : undefined;
+        // Publish to old ∪ new relays so members still on the old ones see the move.
+        const publishRelays =
+          patch.relays !== undefined ? [...new Set([...community.relays, ...patch.relays])] : undefined;
 
-      const head = folded?.heads.get(community.idHex);
-      await publishEdition(
-        nostr,
-        community,
-        user.signer,
-        buildMetadataEdition(community.id, next, {
-          actorPubkey: user.pubkey,
-          version: head ? head.version + 1n : 1n,
-          prevHash: head?.hash,
-          authority: citationFor(community, folded, user.pubkey),
-        }),
-        publishRelays ? { relays: publishRelays } : undefined,
-      );
-      invalidateControl(queryClient, community.idHex);
+        const head = folded?.heads.get(community.idHex);
+        await publishEdition(
+          nostr,
+          community,
+          user.signer,
+          buildMetadataEdition(community.id, next, {
+            actorPubkey: user.pubkey,
+            version: head ? head.version + 1n : 1n,
+            prevHash: head?.hash,
+            authority: citationFor(community, folded, user.pubkey),
+          }),
+          publishRelays ? { relays: publishRelays } : undefined,
+        );
+        invalidateControl(queryClient, community.idHex);
+      });
     },
   });
 
   return {
-    metadata: folded?.metadata,
+    metadata: rendered?.metadata,
     updateMetadata: updateMetadata.mutateAsync,
     isUpdating: updateMetadata.isPending,
   };
@@ -110,22 +121,24 @@ export function useRoles(community: Community | undefined) {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const queryClient = useQueryClient();
-  const { data: folded, isLoading } = useControlFold(community);
+  const { data: rendered, isLoading } = useControlFold(community);
 
   const invalidate = () => {
     if (community) invalidateControl(queryClient, community.idHex);
   };
 
-  const grantHeadOf = (member: string) =>
-    community ? folded?.heads.get(bytesToHex(grantLocator(community.id, hex32(member)))) : undefined;
-
-  const adminRoleId = folded?.roster.roles.find((r) => r.name === "Admin")?.roleId;
-  const moderatorRoleId = folded?.roster.roles.find((r) => r.name === "Moderator")?.roleId;
+  /** One write at a time, planned on the store's fold, which holds this device's own last write. */
+  const write = <T,>(run: (folded: FoldedControl | undefined) => Promise<T>): Promise<T> => {
+    if (!community) return run(rendered);
+    return withControlWrite(community.idHex, async () => run(await foldStoredControl(community).catch(() => rendered)));
+  };
 
   const saveRole = useMutation<string, Error, { role: Role }>({
-    mutationFn: async ({ role }) => {
-      if (!user || !community) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
-      const head = folded?.heads.get(role.roleId);
+    mutationFn: ({ role: asked }) => write(async (folded) => {
+      if (!user || !community || !folded) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
+      // Refused here, before publishing, what readers would drop (Vector `create_role`, `edit_role`).
+      const role = planRoleSave(folded, user.pubkey, asked);
+      const head = folded.heads.get(role.roleId);
       await publishEdition(
         nostr,
         community,
@@ -138,19 +151,29 @@ export function useRoles(community: Community | undefined) {
         }),
       );
       return role.roleId;
-    },
+    }),
     onSuccess: invalidate,
   });
 
   const setMemberRoles = useMutation<void, Error, { member: string; roleIds: string[] }>({
-    mutationFn: async ({ member, roleIds }) => {
+    mutationFn: ({ member, roleIds: asked }) => write(async (folded) => {
+      let roleIds = asked;
       if (!user || !community) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
       // The fold's gate (CORD-04 §2/§3), checked before publishing so a doomed grant
       // fails with a reason instead of being silently dropped.
-      const ownerHex = folded?.ownerHex ?? community.owner;
-      const refusal = grantRefusal(folded?.roster ?? emptyRoles(), user.pubkey, ownerHex, member, roleIds);
-      if (refusal) throw new Error(refusal);
-      const head = grantHeadOf(member);
+      if (!folded) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
+      roleIds = planMemberRoles(folded, community.id, user.pubkey, member, roleIds);
+      // A Grant that drops a Role writes the member's Tenure first, or waits (CORD-04 §9).
+      const current = folded?.roster.grants.find((g) => g.member === member)?.roleIds ?? [];
+      if (folded?.rankedRoster && current.some((id) => !roleIds.includes(id))) {
+        // Sealed on the plane read whole again, or refused (Vector `Seal::Strict`).
+        const whole = await readControlWhole(nostr, community);
+        if (!whole) throw new Error(tenureRefusal());
+        const plan = planTenure(whole.folded, community.id, user.pubkey, member, false, citationFor(community, whole.folded, user.pubkey), whole.served);
+        if (plan.kind === "refuse") throw new Error(tenureRefusal());
+        if (plan.kind === "write") await publishEdition(nostr, community, user.signer, plan.rumor);
+      }
+      const head = folded.heads.get(bytesToHex(grantLocator(community.id, hex32(member))));
       // A staff-making grant carries the staff write key itself (CORD-04 §3).
       const controlWrap = await controlWrapOwed(
         community,
@@ -170,7 +193,7 @@ export function useRoles(community: Community | undefined) {
           authority: citationFor(community, folded, user.pubkey),
         }),
       );
-    },
+    }),
     onSuccess: invalidate,
   });
 
@@ -180,10 +203,17 @@ export function useRoles(community: Community | undefined) {
    * (revoke). Pre-checks the fold's authority rules (CORD-04 §3).
    */
   const setTier = useMutation<void, Error, { member: string; tier: "admin" | "moderator" | null }>({
-    mutationFn: async ({ member, tier }) => {
+    mutationFn: ({ member, tier }) => write(async (folded) => {
       if (!user || !community) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
+      const adminRoleId = folded?.roster.roles.find((r) => r.name === "Admin")?.roleId;
+      const moderatorRoleId = folded?.roster.roles.find((r) => r.name === "Moderator")?.roleId;
+      const grantHeadOf = (m: string) => folded?.heads.get(bytesToHex(grantLocator(community.id, hex32(m))));
       const ownerHex = folded?.ownerHex ?? community.owner;
       const roster = folded?.roster ?? emptyRoles();
+      // The stock tiers are vsk-1 Roles, which stand for nothing on the vsk-13 Roster (CORD-04 §2).
+      if (folded?.rankedRoster) {
+        throw new Error(t({ id: "useRoles.tiersRanked", defaultMessage: "This community uses ranked roles: give members roles from their Roles menu instead." }));
+      }
 
       // Strict outrank over the member, and over the granted role's position.
       if (!canActOnMember(roster, user.pubkey, ownerHex, member, Permissions.MANAGE_ROLES)) {
@@ -239,12 +269,12 @@ export function useRoles(community: Community | undefined) {
           authority: citationFor(community, folded, user.pubkey),
         }),
       );
-    },
+    }),
     onSuccess: invalidate,
   });
 
   return {
-    folded,
+    folded: rendered,
     isLoading,
     setTier: setTier.mutateAsync,
     isSettingTier: setTier.isPending,

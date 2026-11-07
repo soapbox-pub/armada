@@ -336,6 +336,13 @@ object ServiceStore {
      * signer, and that the channel/epoch binding matches the stream whose key
      * opened the wrap.
      */
+    /** A decrypted Concord rumor's time in ms, or null when its `ms` tag refuses it ([Concord.resolvedMs]). */
+    @JvmStatic
+    fun concordRumorMs(rumor: JSONObject): Long? {
+        val opened = Rumor.parse(rumor) ?: return null
+        return Concord.resolvedMs(opened.createdAt, opened.tags)
+    }
+
     @JvmStatic
     fun storeConcordRumor(
         context: Context,

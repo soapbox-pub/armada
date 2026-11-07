@@ -303,7 +303,7 @@ describe("color <-> u32 (CORD-04 §2)", () => {
     expect(colorToHex(back!.color)).toBe("#3ba55d");
   });
 
-  it("coerces a malformed wire colour to the theme default", () => {
+  it("refuses a Role whose wire colour isn't a u32 (serde, as Vector)", () => {
     const wire = (color: unknown) =>
       JSON.stringify({
         role_id: "a".repeat(64),
@@ -313,11 +313,11 @@ describe("color <-> u32 (CORD-04 §2)", () => {
         scope: { kind: "server" },
         color,
       });
-    expect(roleFromJSON(wire(1.5))?.color).toBe(1);
-    expect(roleFromJSON(wire(-1))?.color).toBe(0);
-    expect(roleFromJSON(wire(0x1_0000_0000))?.color).toBe(0);
-    expect(roleFromJSON(wire("#ff0000"))?.color).toBe(0);
-    expect(roleFromJSON(wire(Number.NaN))?.color).toBe(0);
+    expect(roleFromJSON(wire(0xff0000))?.color).toBe(0xff0000);
+    expect(roleFromJSON(wire(1.5))).toBeUndefined();
+    expect(roleFromJSON(wire(-1))).toBeUndefined();
+    expect(roleFromJSON(wire(0x1_0000_0000))).toBeUndefined();
+    expect(roleFromJSON(wire("#ff0000"))).toBeUndefined();
   });
 
   it("does not write a malformed colour back onto the wire", () => {

@@ -32,7 +32,8 @@ import { useMediaHeld, useMessageRevealed } from "@/components/chat/mediaHold";
 import { EmojiShortcodeAutocomplete } from "@/components/chat/EmojiShortcodeAutocomplete";
 import { GifPicker } from "@/components/chat/GifPicker";
 import { Lightbox } from "@/components/chat/Lightbox";
-import { MentionAutocomplete } from "@/components/chat/MentionAutocomplete";
+import { MentionAutocomplete, type MentionRole } from "@/components/chat/MentionAutocomplete";
+import { roleMentionTags } from "@/concord/lib/roleMentions";
 import { RichTextarea } from "@/components/chat/RichTextarea";
 import { useRichText } from "@/components/chat/useRichText";
 import { SlashCommandAutocomplete } from "@/components/chat/SlashCommandAutocomplete";
@@ -306,6 +307,8 @@ interface ChatComposerProps {
    */
   mentionPubkeys?: string[];
   canMentionEveryone?: boolean;
+  /** Concord Roles this author may ping (CORD-04 §8), offered beside people. */
+  mentionRoles?: readonly MentionRole[];
   placeholder?: string;
   /** Extra draft-key fragment (e.g. a thread root id) when composers share a group. */
   draftScope?: string;
@@ -513,7 +516,7 @@ function composerDraftKey({ relayUrl, groupId, draftScope }: Pick<ChatComposerPr
   return `${relayUrl}:${groupId}${draftScope ? `:${draftScope}` : ""}`;
 }
 
-function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply, onJumpToReply, sealed = false, onSent, shareLabel, shareIconUrl, sendOverride, canSend, mentionPubkeys, canMentionEveryone = false, placeholder, draftScope, shareRoute, onOptimisticInsert, onOptimisticSent, onOptimisticFailed, canModerate = false, autoFocus = false, onTyping, onSlashAction, encryptAttachments = false, disappearingTimer, botCommands = false, botDmPeer, recentAuthors, conversationRelays, pollsEnabled = true, onPollSubmit, messageKind = KIND_GROUP_CHAT, onEditLast, layout = "bar", documentEnterSends = false, submitLabel, onCancel }: ChatComposerProps) {
+function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply, onJumpToReply, sealed = false, onSent, shareLabel, shareIconUrl, sendOverride, canSend, mentionPubkeys, canMentionEveryone = false, mentionRoles, placeholder, draftScope, shareRoute, onOptimisticInsert, onOptimisticSent, onOptimisticFailed, canModerate = false, autoFocus = false, onTyping, onSlashAction, encryptAttachments = false, disappearingTimer, botCommands = false, botDmPeer, recentAuthors, conversationRelays, pollsEnabled = true, onPollSubmit, messageKind = KIND_GROUP_CHAT, onEditLast, layout = "bar", documentEnterSends = false, submitLabel, onCancel }: ChatComposerProps) {
   const isDocument = layout === "document";
   // Forum posts and comments (the document layout) have no length cap.
   const maxChars = isDocument ? Infinity : MAX_CHARS;
@@ -1053,7 +1056,13 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, [user?.pubkey]);
 
+  // Roles picked from the autocomplete in this draft.
+  const pickedRoles = useRef(new Set<string>());
+  const pickRole = useCallback((id: string) => {
+    pickedRoles.current.add(id);
+  }, []);
   const resetComposeState = useCallback(() => {
+    pickedRoles.current.clear();
     setContent("");
     setPickerOpen(false);
     setRemovedEmbeds(new Set());
@@ -1659,8 +1668,10 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
       tags.push(["imeta", `url ${url}`, `m ${mimeFromExt(match[1].toLowerCase())}`]);
     }
 
+    tags.push(...roleMentionTags(prose, mentionRoles ?? [], pickedRoles.current));
+
     return tags;
-  }, [groupId, user, replyTo, sealed, relayUrl, visibleEmbeds, customEmojis, uploadedFileGroups]);
+  }, [groupId, user, replyTo, sealed, relayUrl, visibleEmbeds, customEmojis, uploadedFileGroups, mentionRoles]);
 
   /**
    * Record this room in the Direct Share ledger. Room from the LOCATION
@@ -2418,6 +2429,8 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
                     onInsertMention={insertAtCursor}
                     restrictToPubkeys={memberPubkeys}
                     allowEveryone={canMentionEveryone}
+                    roles={mentionRoles}
+                    onPickRole={pickRole}
                   />
                 )}
                 <SlashCommandAutocomplete

@@ -32,6 +32,8 @@
  *                the query cache and module caches, and a heap-snapshot diff of
  *                round 2 against the last (`leak-diff.txt`: what grew, and what
  *                holds it). --leak-rounds <n> (10)
+ *                   (--ranked seeds the community on the vsk-13 Roster, so the
+ *                   owner's background Concord duties stay mounted)
  *   concord-type    composing in #general: per-keystroke cost to the next frame
  *   concord-type-touch  the same, phone-sized with touch emulation
  *   concord-walk    a community with only each channel's newest page on disk and
@@ -809,6 +811,7 @@ try {
         others: world.peers.slice(0, 8).map((p) => p.pubkey),
         channelSizes: [CONCORD_BIG, 60, 60, 60, 60, 60, 60, 60],
         lines: LINES,
+        ranked: process.argv.includes("--ranked"),
       },
     );
     console.log(`\nseeded community ${concord.communityId.slice(0, 8)}… (${CONCORD_BIG} + 7×60 messages) in ${Date.now() - seedAt}ms`);

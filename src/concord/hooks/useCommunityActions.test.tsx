@@ -15,7 +15,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReactNode } from "react";
 
+import { openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
 import { mintCommunity } from "@/concord/lib/community";
+import { readChannelContent } from "@/concord/lib/control";
+import { Permissions } from "@/concord/lib/roles";
+import { bytesToHex, hex32 } from "@/concord/lib/derive";
 import { STOCK_RELAYS } from "@/concord/lib/stockRelays";
 import { MAX_COMMUNITY_RELAYS, withChannelGitRepositoryAttachments, type ChannelMetadata } from "@/concord/lib/types";
 import { parseGitRepositoryAddress } from "@/lib/gitActivity";
@@ -33,6 +37,9 @@ const h = vi.hoisted(() => ({
   listWrites: [] as Array<Record<string, unknown>>,
   // Interleaved op log, for asserting durability ORDER (vault before edition).
   ops: [] as string[],
+  /** The store read the new community's switch plans on fails. */
+  storeFails: false,
+  rotations: [] as Array<{ epoch: bigint; recipients: string[] }>,
 }));
 
 vi.mock("@nostrify/react", () => ({
@@ -44,14 +51,32 @@ vi.mock("@/hooks/useCurrentUser", () => ({
 vi.mock("@/hooks/useAppContext", () => ({
   useAppContext: () => ({ config: { appRelays: ["wss://relay.test"] } }),
 }));
-vi.mock("@/concord/hooks/useControlPlane", () => ({
+vi.mock("@/concord/hooks/useControlPlane", async () => {
+  const { foldControlState } = await import("@/concord/lib/control");
+  const { parsedOf } = await import("@/concord/lib/rankedWrites");
+  return {
+  foldStoredControl: async (c: { id: Uint8Array; owner: string }) => {
+    if (h.storeFails) throw new Error("store unavailable");
+    // A test that hands the hook its fold stands for a store that holds the same.
+    if (h.folded) return h.folded;
+    return foldControlState(h.editions.map((e) => parsedOf(e as never)), c.id, c.owner);
+  },
   useControlFold: () => ({ data: h.folded }),
+  withControlWrite: (_id: string, run: () => Promise<unknown>) => run(),
   useDissolved: () => ({ data: undefined }),
   citationFor: () => undefined,
   invalidateControl: () => undefined,
   publishEdition: async (_pool: unknown, _c: unknown, _s: unknown, edition: { content: string; tags: string[][] }) => {
     h.editions.push(edition);
     h.ops.push(`edition:${edition.tags.find((t) => t[0] === "vsk")?.[1]}`);
+  },
+  };
+});
+vi.mock("@/concord/lib/channelRotation", async (orig) => ({
+  ...(await orig<typeof import("@/concord/lib/channelRotation")>()),
+  publishChannelRotation: async (_n: unknown, _c: unknown, _u: unknown, o: { epoch: bigint; recipients: string[] }) => {
+    h.rotations.push(o);
+    h.ops.push("rotation");
   },
 }));
 vi.mock("@/concord/hooks/useCommunityList", () => ({
@@ -94,6 +119,8 @@ beforeEach(() => {
   h.editions = [];
   h.listWrites = [];
   h.ops = [];
+  h.storeFails = false;
+  h.rotations = [];
   // The regression condition: the fold has not caught up with the new channel.
   h.folded = undefined;
   h.user = { pubkey: OWNER, signer: { nip44: {} } } as unknown as NUser;
@@ -208,6 +235,56 @@ describe("attachRepository", () => {
   });
 });
 
+describe("a repository on a ranked Private Channel (CORD-03 §2, Vector `channel_edition_content`)", () => {
+  const key = { id: hex32("33".repeat(32)), key: hex32("44".repeat(32)), epoch: 1n, name: "secret" };
+  const CHANNEL = bytesToHex(key.id);
+  const head = { version: 2n, hash: hex32("55".repeat(32)) };
+  const withKey = { ...community, privateChannels: [key] };
+
+  beforeEach(() => {
+    const sealed = readChannelContent(sealChannelMetadata({ name: "secret", private: true }, key.key, key.id, 1n, undefined))!.sealed!;
+    h.folded = {
+      rankedRoster: true,
+      ownerHex: OWNER,
+      roster: { roles: [], grants: [], everyone: 0n },
+      channels: new Map([[CHANNEL, { channelIdHex: CHANNEL, name: "", isPrivate: true, deleted: false, metadata: { name: "", private: true }, sealed }]]),
+      heads: new Map([[CHANNEL, head]]),
+      headEditions: new Map(),
+    };
+  });
+
+  const opened = (e: { content: string }) => {
+    const sealed = readChannelContent(e.content)?.sealed;
+    expect(sealed, "the edition is sealed, never plaintext").toBeDefined();
+    return openChannelSeal({ ...sealed!, prevHex: bytesToHex(head.hash) }, key)!.metadata;
+  };
+
+  it("attaches under the seal, keeping the details it opened", async () => {
+    const { result } = renderHook(() => useCommunityManagement(withKey), { wrapper });
+    await result.current.attachRepository({ channelIdHex: CHANNEL, address: COORDINATE, relayHints: RELAY_HINTS });
+    await waitFor(() => expect(h.editions).toHaveLength(1));
+    const meta = opened(h.editions[0]);
+    expect(meta.name).toBe("secret");
+    expect(attachmentsOf(meta)[0]?.address).toBe(COORDINATE);
+  });
+
+  it("detaches under the seal", async () => {
+    const { result } = renderHook(() => useCommunityManagement(withKey), { wrapper });
+    await result.current.attachRepository({ channelIdHex: CHANNEL, address: COORDINATE, relayHints: RELAY_HINTS });
+    const attached = h.editions[0];
+    const sealed = readChannelContent(attached.content)!.sealed!;
+    (h.folded as { channels: Map<string, unknown> }).channels.set(CHANNEL, {
+      channelIdHex: CHANNEL, name: "", isPrivate: true, deleted: false, metadata: { name: "", private: true }, sealed: { ...sealed, prevHex: bytesToHex(head.hash) },
+    });
+    h.editions = [];
+    await result.current.detachRepository({ channelIdHex: CHANNEL, address: COORDINATE });
+    await waitFor(() => expect(h.editions).toHaveLength(1));
+    const meta = opened(h.editions[0]);
+    expect(meta.name).toBe("secret");
+    expect(attachmentsOf(meta)[0]?.detachedAt).toBeDefined();
+  });
+});
+
 // ── CORD-03 §2: Private → Public ─────────────────────────────────────────────
 
 describe("publiciseChannel (CORD-03 §2, the reverse conversion)", () => {
@@ -247,6 +324,47 @@ describe("publiciseChannel (CORD-03 §2, the reverse conversion)", () => {
 
     await expect(result.current.publiciseChannel({ channelIdHex: CHANNEL })).rejects.toThrow(/already public/i);
     expect(h.editions).toHaveLength(0);
+  });
+});
+
+describe("channel writes are a channel manager's (Vector `ensure_channel_manager`)", () => {
+  const CHANNEL = "cd".repeat(32);
+  const MEMBER = "77".repeat(32);
+  const fold = (banned: string[] = [], grants: Array<{ member: string; roleIds: string[] }> = []) => ({
+    channels: new Map([[CHANNEL, { channelIdHex: CHANNEL, name: "general", isPrivate: false, deleted: false, metadata: { name: "general", private: false } }]]),
+    heads: new Map(),
+    headEditions: new Map(),
+    ownerHex: OWNER,
+    banned: new Set(banned),
+    roster: { roles: [{ roleId: "mgr", name: "Mgr", position: 1, permissions: Permissions.MANAGE_CHANNELS, scope: { kind: "server" }, color: 0 }], grants },
+  });
+
+  it("refuses every channel write from a member without Manage Channels, publishing nothing", async () => {
+    h.folded = fold();
+    h.user = { pubkey: MEMBER, signer: { nip44: {} } } as unknown as NUser;
+    const { result } = renderHook(() => useCommunityManagement(community), { wrapper });
+    await expect(result.current.createChannel({ name: "new", isPrivate: false })).rejects.toThrow(/permission to manage channels/);
+    await expect(result.current.renameChannel({ channelIdHex: CHANNEL, name: "x" })).rejects.toThrow(/permission to manage channels/);
+    await expect(result.current.deleteChannel({ channelIdHex: CHANNEL })).rejects.toThrow(/permission to manage channels/);
+    await expect(result.current.privatiseChannel({ channelIdHex: CHANNEL })).rejects.toThrow(/permission to manage channels/);
+    expect(h.editions).toHaveLength(0);
+    expect(h.listWrites).toHaveLength(0);
+  });
+
+  it("refuses a banned channel manager", async () => {
+    h.folded = fold([MEMBER], [{ member: MEMBER, roleIds: ["mgr"] }]);
+    h.user = { pubkey: MEMBER, signer: { nip44: {} } } as unknown as NUser;
+    const { result } = renderHook(() => useCommunityManagement(community), { wrapper });
+    await expect(result.current.renameChannel({ channelIdHex: CHANNEL, name: "x" })).rejects.toThrow(/banned/);
+    expect(h.editions).toHaveLength(0);
+  });
+
+  it("refuses to make a channel private on the legacy roles, which no Vector reader would honour", async () => {
+    h.folded = fold();
+    const { result } = renderHook(() => useCommunityManagement(community), { wrapper });
+    await expect(result.current.privatiseChannel({ channelIdHex: CHANNEL })).rejects.toThrow(/ranked roles/);
+    expect(h.editions).toHaveLength(0);
+    expect(h.listWrites).toHaveLength(0);
   });
 });
 
@@ -309,29 +427,41 @@ describe("create — genesis plus the starter rooms", () => {
   const vskOf = (e: { tags: string[][] }) => e.tags.find((t) => t[0] === "vsk")?.[1];
   const eidOf = (e: { tags: string[][] }) => e.tags.find((t) => t[0] === "eid")?.[1];
 
-  it("publishes a public #general and a private #private, its key vaulted before its edition", async () => {
+  it("starts on ranked roles: #general, the switch, and a sealed #private at epoch 1, its key vaulted first (Vector `create_community_on_roles_v2`)", async () => {
     const { result } = renderHook(() => useCommunityActions(), { wrapper });
 
     await result.current.create({ name: "Fleet", relays: ["wss://relay.test"] });
 
-    // Genesis metadata (vsk 0) + #general (2), then the follow-up starter
-    // room: its access role (1) BEFORE its channel edition (2) — the
-    // createChannel ordering, so a partial failure leaves the inert orphan.
-    expect(h.editions.map(vskOf)).toEqual(["0", "2", "1", "2"]);
+    // Genesis metadata (vsk 0) + #general (2), the switch's @everyone (13) and
+    // #general filed with a rank key (2), then #private sealed (2): no vsk-1 Role.
+    expect(h.editions.map(vskOf)).toEqual(["0", "2", "13", "2", "2"]);
     expect(JSON.parse(h.editions[1].content)).toMatchObject({ name: "general", private: false });
-    expect(JSON.parse(h.editions[3].content)).toMatchObject({ name: "private", private: true });
+    expect(JSON.parse(h.editions[2].content).legacy).toEqual([eidOf(h.editions[1])]);
+    expect(typeof JSON.parse(h.editions[3].content).position).toBe("string");
+    const sealed = JSON.parse(h.editions[4].content);
+    expect(sealed).toMatchObject({ private: true, epoch: "1" });
+    expect(sealed.name).toBeUndefined();
+    expect(h.rotations).toMatchObject([{ epoch: 1n, recipients: [OWNER] }]);
 
-    // The access role: named after the channel, scoped to it, zero bits.
-    const role = JSON.parse(h.editions[2].content);
-    expect(role).toMatchObject({ name: "private", permissions: "0" });
-    expect(role.scope).toEqual({ kind: "channel", channel_id: eidOf(h.editions[3]) });
-
-    // The channel key rides the vault entry, and that write lands BEFORE the
-    // channel exists on the wire — a lost list write must never orphan the
-    // only copy of the key behind a live channel definition.
+    // The channel key rides the vault entry before the channel exists on the wire.
     const add = h.listWrites.find((w) => w.type === "add") as { entry: { current: { channels: Array<{ name?: string }> } } };
     expect(add.entry.current.channels).toHaveLength(1);
     expect(add.entry.current.channels[0].name).toBe("private");
+    expect(h.ops.indexOf("list:add")).toBeLessThan(h.ops.indexOf("rotation"));
+  });
+
+  it("stays on the legacy roles when the switch can't land, with #private behind its access role", async () => {
+    h.storeFails = true;
+    const { result } = renderHook(() => useCommunityActions(), { wrapper });
+
+    await result.current.create({ name: "Fleet", relays: ["wss://relay.test"] });
+
+    // Access role (1) BEFORE the channel edition (2), so a partial failure leaves the inert orphan.
+    expect(h.editions.map(vskOf)).toEqual(["0", "2", "1", "2"]);
+    expect(JSON.parse(h.editions[3].content)).toMatchObject({ name: "private", private: true });
+    const role = JSON.parse(h.editions[2].content);
+    expect(role).toMatchObject({ name: "private", permissions: "0" });
+    expect(role.scope).toEqual({ kind: "channel", channel_id: eidOf(h.editions[3]) });
     expect(h.ops.indexOf("list:add")).toBeLessThan(h.ops.indexOf("edition:1"));
   });
 

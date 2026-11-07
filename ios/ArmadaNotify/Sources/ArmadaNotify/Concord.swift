@@ -9,6 +9,8 @@ struct OpenedChat {
     let content: String
     let tags: [[String]]
     let createdAt: Int
+    /// Its time in ms (CORD-02 §4): `createdAt` plus its `ms` tag.
+    let ms: Int
     /// The channel whose key opened it, already checked against the binding.
     let channelIdHex: String
 }
@@ -42,10 +44,10 @@ enum Concord {
     /// they can't yet see. A small grace, so ordinary sub-second clock jitter
     /// between honest clients doesn't flap — NOT the hour of ingest skew NIP-17
     /// tolerates (`Dm17.maxFutureSkewSecs`).
-    static let futureHoldSecs = 2
+    static let futureHoldSecs = 5
 
     /// Kinds claimed by a NON-chat plane (CORD-02 §5): control, guestbook
-    /// (join/leave, kick, snapshot) and rekey.
+    /// (join/leave, kick, snapshot, timeout, nickname) and rekey.
     ///
     /// The chat ingress refuses these, and that refusal is half a fence. A
     /// community's planes share one tenant and a plane is read back BY KIND, so
@@ -53,7 +55,7 @@ enum Concord {
     /// kind-3308 rumor carrying a valid channel binding and have it served as a
     /// control edition — and nothing downstream would catch it, a stored rumor
     /// having no seal left whose form could be checked.
-    static let planeKinds: Set<Int> = [3308, 3306, 3309, 3312, 3303]
+    static let planeKinds: Set<Int> = [3308, 3306, 3309, 3312, 3314, 3315, 3303]
 
     /// Open a chat wrap under the stream key that claims it.
     ///
@@ -106,6 +108,7 @@ enum Concord {
         guard rumor.uniqueTag("epoch") == stream.epoch else { return nil }
 
         guard rumor.kind == kindMessage || rumor.kind == kindReaction else { return nil }
+        guard let ms = resolvedMs(createdAt: rumor.createdAt, tags: rumor.tags) else { return nil }
 
         return OpenedChat(
             rumorId: claimedId,
@@ -114,8 +117,20 @@ enum Concord {
             content: rumor.content,
             tags: rumor.tags,
             createdAt: rumor.createdAt,
+            ms: ms,
             channelIdHex: stream.channelId
         )
+    }
+
+    /// A rumor's time in ms: `createdAt` plus its first `ms` tag, or nil when that tag is
+    /// malformed, which refuses the rumor as `resolveMs` in `src/concord/lib/stream.ts` does.
+    static func resolvedMs(createdAt: Int, tags: [[String]]) -> Int? {
+        guard let tag = tags.first(where: { $0.first == "ms" }) else { return createdAt * 1000 }
+        guard tag.count > 1 else { return nil }
+        let raw = tag[1]
+        let digits = raw.utf8.allSatisfy { $0 >= 0x30 && $0 <= 0x39 }
+        guard digits, (1...3).contains(raw.utf8.count), raw == "0" || !raw.hasPrefix("0"), let n = Int(raw) else { return nil }
+        return createdAt * 1000 + n
     }
 
     /// Find the stream whose address authored this wrap, if any is watched.

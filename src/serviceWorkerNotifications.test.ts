@@ -7,6 +7,7 @@ import {
   callsForTabAttention,
   desktopSafeNotificationIcon,
   foregroundPushRoomKey,
+  futureHold,
   pageMayShowOsNotification,
   retireSeenRoomLines,
   showPageOsNotification,
@@ -1826,5 +1827,20 @@ describe("napp.push.payload", () => {
     expect(worker.sockets).toEqual([]);
     expect(worker.showNotification).not.toHaveBeenCalled();
     expect(worker.unsubscribe).toHaveBeenCalled();
+  });
+});
+
+describe("futureHold (CORD-03 §3: a message dated ahead waits for its time)", () => {
+  const now = 1_700_000_000_000;
+  it("lets a candidate within the tolerance through", () => {
+    expect(futureHold(now / 1000 + 5, now)).toBe("now");
+    expect(futureHold(now / 1000 - 60, now)).toBe("now");
+  });
+  it("holds one dated ahead until it is inside the tolerance, as if it arrived then", () => {
+    expect(futureHold(now / 1000 + 30, now)).toBe(25_001);
+  });
+  it("doesn't hold one dated more than an hour ahead", () => {
+    expect(futureHold(now / 1000 + 3600, now)).toBe(3_595_001);
+    expect(futureHold(now / 1000 + 3601, now)).toBe("beyond");
   });
 });

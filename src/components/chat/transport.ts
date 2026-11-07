@@ -168,6 +168,8 @@ export interface ChatTransport {
   canModerate: boolean;
 
   canMentionEveryone?: boolean;
+  /** Concord Roles the viewer may ping (CORD-04 §8). */
+  mentionRoles?: readonly { id: string; name: string }[];
   mentionsEveryone?: (event: ChatMsg) => boolean;
 
   /** Unsigned rumors (Concord): "View event JSON" instead of the event-id off-ramps. */

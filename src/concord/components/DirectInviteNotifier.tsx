@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { ToastAction } from "@/components/ui/toast";
-import { assertNotDissolved, bundleToEntry, DissolvedCommunityError } from "@/concord/hooks/useCommunityActions";
+import { assertNotDissolved, DissolvedCommunityError } from "@/concord/hooks/useCommunityActions";
 import { useCommunity, useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { invalidateControl, useControlFold } from "@/concord/hooks/useControlPlane";
 import { useInviteInbox, type ParkedInvite } from "@/concord/hooks/useDirectInvites";
-import { judgeCatchUp, type CatchUpVerdict } from "@/concord/lib/catchUpAdoption";
-import { catchUpChannelIds, heldMembershipOf } from "@/concord/lib/directInvite";
+import { judgeCatchUpChannels, type CatchUpJudgement, type CatchUpVerdict } from "@/concord/lib/catchUpAdoption";
+import { setCatchUpVerdict } from "@/concord/lib/catchUpVerdicts";
+import { heldMembershipOf } from "@/concord/lib/directInvite";
 import { sweepControl } from "@/concord/lib/planeSync";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { toast } from "@/hooks/useToast";
@@ -31,13 +32,14 @@ const CATCH_UP_RESWEEP_MS = 4_000;
  * Never fetches the sender's profile before the user decides.
  */
 export function DirectInviteNotifier() {
-  const { items } = useInviteInbox();
+  const { items, catchUps } = useInviteInbox();
   const { pathname } = useLocation();
   // Session-scoped so polls don't re-toast; a relaunch nudges once more.
   const announced = useRef<Set<string>>(new Set());
   // Wait for each catch-up's verdict rather than toast a decision about to be made.
   const [verdicts, setVerdicts] = useState<ReadonlyMap<string, CatchUpVerdict>>(new Map());
   const onVerdict = useCallback((wrapId: string, verdict: CatchUpVerdict) => {
+    setCatchUpVerdict(wrapId, verdict);
     setVerdicts((prev) => (prev.get(wrapId) === verdict ? prev : new Map(prev).set(wrapId, verdict)));
   }, []);
   const onAdopted = useCallback((wrapId: string) => {
@@ -57,7 +59,7 @@ export function DirectInviteNotifier() {
       if (!it.invite.catchUp) return true;
       // Catch-ups are offered only once judged not adoptable.
       const verdict = verdicts.get(it.invite.wrapId);
-      return verdict === "banned" || verdict === "sender-not-staff" || verdict === "not-entitled";
+      return verdict !== undefined && verdict !== "adopt" && verdict !== "no-fold" && verdict !== "nothing-new";
     });
     if (fresh.length === 0) return;
     for (const it of fresh) announced.current.add(it.invite.wrapId);
@@ -83,11 +85,9 @@ export function DirectInviteNotifier() {
 
   return (
     <>
-      {items
-        .filter((it) => it.invite.catchUp)
-        .map((it) => (
-          <CatchUpAdopter key={it.invite.wrapId} invite={it.invite} onVerdict={onVerdict} onAdopted={onAdopted} />
-        ))}
+      {catchUps.map((invite) => (
+        <CatchUpAdopter key={invite.wrapId} invite={invite} onVerdict={onVerdict} onAdopted={onAdopted} />
+      ))}
     </>
   );
 }
@@ -113,15 +113,16 @@ function CatchUpAdopter({
   const applied = useRef(false);
 
   const held = useMemo(() => (entry ? heldMembershipOf(entry) : undefined), [entry]);
-  const verdict: CatchUpVerdict = useMemo(() => {
+  const judged: CatchUpJudgement = useMemo(() => {
     // An unreadable membership list is not a verdict.
-    if (!user || !held) return "no-fold";
-    return judgeCatchUp(folded, user.pubkey, invite.sender, invite.bundle, held);
+    if (!user || !held) return { verdict: "no-fold", adopt: [] };
+    return judgeCatchUpChannels(folded, user.pubkey, invite.sender, invite.bundle, held);
   }, [folded, user, invite, held]);
+  const verdict = judged.verdict;
 
   // A refusal that a Grant still in flight would overturn waits out the grace
   // (re-reading the plane once) before it becomes a manual Accept.
-  const mayBeLag = verdict === "not-entitled" || verdict === "sender-not-staff";
+  const mayBeLag = verdict === "not-entitled" || verdict === "sender-unauthorized";
   const [graceOver, setGraceOver] = useState(false);
   const sweepRef = useRef<() => void>(() => undefined);
   sweepRef.current = () => {
@@ -145,16 +146,17 @@ function CatchUpAdopter({
   }, [invite.wrapId, verdict, mayBeLag, graceOver, onVerdict]);
 
   useEffect(() => {
-    if (verdict !== "adopt" || applied.current || !held) return;
+    if (judged.verdict !== "adopt" || applied.current || !entry) return;
     applied.current = true;
-    const vended = new Set(catchUpChannelIds(held, invite.bundle));
-    const names = invite.bundle.channels.filter((c) => vended.has(c.id.toLowerCase())).map((c) => c.name);
+    const adopt = new Set(judged.adopt);
+    const channels = invite.bundle.channels.filter((c) => adopt.has(c.id.toLowerCase()));
+    const names = channels.map((c) => c.name);
     void (async () => {
       try {
         // A dissolved community takes no new keys; the inbox's Accept explains why.
         await assertNotDissolved(nostr, invite.bundle);
-        // Pinned to the held base (isCatchUpBundle), so it only contributes channel keys.
-        await updateList({ type: "add", entry: bundleToEntry(invite.bundle) });
+        // Only the judged keys, on the held entry: a vend seats keys and moves nothing else.
+        await updateList({ type: "add", entry: { ...entry, current: { ...entry.current, channels: channels.map((c) => ({ id: c.id, key: c.key, epoch: c.epoch, name: c.name })) } } });
       } catch (e) {
         if (e instanceof DissolvedCommunityError) return;
         // Vault write failed; a later render or Accept retries.
@@ -175,7 +177,7 @@ function CatchUpAdopter({
       queryClient.invalidateQueries({ queryKey: ["concord", "direct-invites"] });
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
     })();
-  }, [verdict, held, invite, nostr, updateList, onAdopted, queryClient]);
+  }, [judged, entry, invite, nostr, updateList, onAdopted, queryClient]);
 
   return null;
 }

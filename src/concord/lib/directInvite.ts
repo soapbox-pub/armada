@@ -194,6 +194,15 @@ function hexEq(a: string | undefined, b: string | undefined): boolean {
  * the member onto attacker-read streams via the List's `freshest` merge. The base
  * advances only by a CORD-06 §2 rekey blob whose `prevcommit` proves continuity.
  */
+/**
+ * A bundle channel whose "key" is the Community root: Vector lists every Public
+ * Channel this way (`bundle_of`), and a Public Channel's key is just the root. It
+ * is no Private key, so it is never held or vended.
+ */
+export function isRootKeyed(channel: { key: string }, bundle: { community_root: string }): boolean {
+  return hexEq(channel.key, bundle.community_root);
+}
+
 export function isCatchUpBundle(
   held: HeldMembership | undefined,
   bundle: Pick<InviteBundle, "root_epoch" | "channels" | "community_root" | "control_pk">,
@@ -219,6 +228,7 @@ export function catchUpChannelIds(
   // Normalize id spelling before consulting the cut floor.
   const out: string[] = [];
   for (const c of bundle.channels) {
+    if (isRootKeyed(c, bundle)) continue;
     const id = c.id.toLowerCase();
     const cut = held.channelCuts?.get(id);
     if (cut !== undefined && c.epoch < cut) continue; // revoked access, not a vend

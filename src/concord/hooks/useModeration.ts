@@ -2,8 +2,8 @@ import { useNostr } from "@nostrify/react";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
-import { useControlFold, citationFor, invalidateControl, publishEdition } from "@/concord/hooks/useControlPlane";
-import { useGuestbookPublisher } from "@/concord/hooks/useGuestbook";
+import { useControlFold, citationFor, foldStoredControl, invalidateControl, publishEdition, readControlWhole, withControlWrite } from "@/concord/hooks/useControlPlane";
+import { useGuestbook, useGuestbookPublisher } from "@/concord/hooks/useGuestbook";
 import { useChannelRekey, useRefound } from "@/concord/hooks/useRekey";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { banChannelCuts } from "@/concord/lib/channelAccess";
@@ -16,6 +16,7 @@ import {
   readCutPendingReady,
 } from "@/concord/lib/readCutPending";
 import { canActOnMember, isAuthorized, Permissions } from "@/concord/lib/roles";
+import { planTenure, tenureRefusal } from "@/concord/lib/tenure";
 import type { Community } from "@/concord/lib/types";
 import { toast } from "@/hooks/useToast";
 import { t } from "@/i18n";
@@ -24,7 +25,7 @@ import { t } from "@/i18n";
  * The Three Removals, ordered by when their guarantees arrive (CORD-04 §6):
  *
  *   - KICK: grant strip, then the cooperative Guestbook directive (re-joinable).
- *   - BAN: Banlist edition FIRST (instant silencing), grant strip alongside,
+ *   - BAN: the targets' Tenures, then the Banlist edition (instant silencing), grant strip alongside,
  *     Refounding LAST — and only in a Private community. A Public ban keeps the
  *     community keys (CORD-05 §5): live links would strand joiners on a dead
  *     epoch. It still rotates the targets' Private Channels, which no link vends.
@@ -45,8 +46,9 @@ export function useModeration(community: Community | undefined, recipients: stri
   const queryClient = useQueryClient();
   const { data: folded } = useControlFold(community);
   const guestbook = useGuestbookPublisher(community);
+  const { coalesced, data: guestbookRead } = useGuestbook(community);
   const { refound, canRefound } = useRefound(community);
-  const { rekeyChannel, canRekeyChannel } = useChannelRekey(community);
+  const { rekeyChannel, canSeverChannel } = useChannelRekey(community);
 
   const canActOn = (target: string, permission: bigint): boolean =>
     Boolean(user && folded && canActOnMember(folded.roster, user.pubkey, folded.ownerHex, target, permission));
@@ -58,48 +60,81 @@ export function useModeration(community: Community | undefined, recipients: stri
     }
   };
 
-  /** Publish the whole banlist, replaced entire, chained off the held head. */
-  const publishBanlist = async (banned: string[]) => {
+  /**
+   * Publish the whole banlist, replaced entire: `change` applied to the list this device
+   * stores now, which holds its own last ban (the rendered fold lags it), one write at a time.
+   */
+  const publishBanlist = async (change: (banned: Set<string>) => void) => {
     if (!user || !community) throw new Error(t({ id: "useModeration.notReady", defaultMessage: "Not ready." }));
-    const head = folded?.heads.get(bytesToHex(banlistLocator(community.id)));
-    await publishEdition(
-      nostr,
-      community,
-      user.signer,
-      buildBanlistEdition(community.id, banned, {
-        actorPubkey: user.pubkey,
-        version: head ? head.version + 1n : 1n,
-        prevHash: head?.hash,
-        authority: citationFor(community, folded, user.pubkey),
-      }),
-    );
+    const c = community;
+    const u = user;
+    await withControlWrite(c.idHex, async () => {
+      const now = await foldStoredControl(c).catch(() => folded);
+      const banned = new Set(now?.banned ?? []);
+      change(banned);
+      const head = now?.heads.get(bytesToHex(banlistLocator(c.id)));
+      await publishEdition(
+        nostr,
+        c,
+        u.signer,
+        buildBanlistEdition(c.id, [...banned], {
+          actorPubkey: u.pubkey,
+          version: head ? head.version + 1n : 1n,
+          prevHash: head?.hash,
+          authority: citationFor(c, now, u.pubkey),
+        }),
+      );
+    });
   };
 
   /**
-   * Strip every role from a member. Best-effort: skipped when the fold would drop
-   * it (needs MANAGE_ROLES + strict outrank, CORD-04 §5).
+   * The members' Tenures, so what they decided keeps standing past a removal (CORD-04 §6, §9),
+   * sealed on the plane read whole again; a removal never waits on a read (Vector `Seal::BestEffort`).
    */
-  const stripRoles = async (target: string) => {
+  const sealStanding = async (targets: string[]) => {
+    if (!user || !community || !folded?.rankedRoster) return;
+    const whole = await readControlWhole(nostr, community);
+    if (!whole) return;
+    for (const target of targets) {
+      const plan = planTenure(whole.folded, community.id, user.pubkey, target, true, citationFor(community, whole.folded, user.pubkey), whole.served);
+      if (plan.kind === "refuse") throw new Error(tenureRefusal());
+      if (plan.kind === "write") await publishEdition(nostr, community, user.signer, plan.rumor);
+    }
+  };
+
+  /**
+   * Strip every role from a member. Skipped when the fold would drop it (needs
+   * MANAGE_ROLES + strict outrank, CORD-04 §5); one attempted and lost is an error,
+   * since going on would leave the member their rank (Vector `kick_member`). `sealed` when the
+   * member's Tenure already went out in this action.
+   */
+  const stripRoles = async (target: string, sealed = false) => {
     if (!user || !community) return;
     const hasGrant = folded?.roster.grants.some((g) => g.member === target && g.roleIds.length > 0);
     if (!hasGrant) return;
     if (!canActOn(target, Permissions.MANAGE_ROLES)) return;
-    const head = folded?.heads.get(bytesToHex(grantLocator(community.id, hex32(target))));
-    await publishEdition(
-      nostr,
-      community,
-      user.signer,
-      buildGrantEdition(
-        community.id,
-        { member: target, roleIds: [] },
-        {
-          actorPubkey: user.pubkey,
-          version: head ? head.version + 1n : 1n,
-          prevHash: head?.hash,
-          authority: citationFor(community, folded, user.pubkey),
-        },
-      ),
-    ).catch(() => undefined);
+    if (!sealed) await sealStanding([target]);
+    const c = community;
+    const u = user;
+    await withControlWrite(c.idHex, async () => {
+      const now = await foldStoredControl(c).catch(() => folded);
+      const head = now?.heads.get(bytesToHex(grantLocator(c.id, hex32(target))));
+      await publishEdition(
+        nostr,
+        c,
+        u.signer,
+        buildGrantEdition(
+          c.id,
+          { member: target, roleIds: [] },
+          {
+            actorPubkey: u.pubkey,
+            version: head ? head.version + 1n : 1n,
+            prevHash: head?.hash,
+            authority: citationFor(c, now, u.pubkey),
+          },
+        ),
+      );
+    });
   };
 
   /** Every live Private Channel, flagged by whether I hold its key. */
@@ -115,12 +150,12 @@ export function useModeration(community: Community | undefined, recipients: stri
     const leaked: string[] = [];
     for (const cut of cuts) {
       const name = `#${folded?.channels.get(cut.channelIdHex)?.name ?? cut.channelIdHex.slice(0, 8)}`;
-      if (!cut.heldByMe || !canRekeyChannel) {
+      if (!cut.heldByMe || !canSeverChannel) {
         leaked.push(name);
         continue;
       }
       try {
-        await rekeyChannel({ channelIdHex: cut.channelIdHex, keepRecipients: cut.keep, removedTargets: cut.removed });
+        await rekeyChannel({ channelIdHex: cut.channelIdHex, keepRecipients: cut.keep, removedTargets: cut.removed, forBan: true });
       } catch {
         leaked.push(name);
       }
@@ -174,19 +209,23 @@ export function useModeration(community: Community | undefined, recipients: stri
       }
 
       // Judged on the pre-strip roster: once the Grants land, nobody holds the role to cut.
-      const channelCuts = folded ? banChannelCuts(folded.roster, folded.ownerHex, eligible, privateChannels(), folded.banned) : [];
+      const joined = [...coalesced].filter(([, m]) => m.state === "join").map(([pk]) => pk);
+      const channelCuts = folded ? banChannelCuts(folded.roster, folded.ownerHex, eligible, privateChannels(), folded.banned, joined) : [];
 
-      // 1. Banlist first (instant); it replaces entire (CORD-04 §4), so one edition.
+      // 0. Their Tenures before the Banlist: a ban drops every edition no Tenure lists (CORD-04 §9).
       onPhase?.("silence");
-      const next = new Set(folded?.banned ?? []);
-      for (const t of eligible) next.add(t);
-      await publishBanlist([...next]);
+      await sealStanding(eligible);
+
+      // 1. Banlist (instant); it replaces entire (CORD-04 §4), so one edition.
+      await publishBanlist((banned) => {
+        for (const t of eligible) banned.add(t);
+      });
 
       // 2. Role removal alongside — per-member entities, so per-member editions.
       onPhase?.("roles");
       let stripped = 0;
       for (const t of eligible) {
-        await stripRoles(t);
+        await stripRoles(t, true);
         stripped += 1;
         onStripProgress?.(stripped, eligible.length);
       }
@@ -251,9 +290,21 @@ export function useModeration(community: Community | undefined, recipients: stri
   const unban = useMutation<void, Error, { target: string }>({
     mutationFn: async ({ target }) => {
       if (!canActOn(target, Permissions.BAN)) throw new Error(t({ id: "useModeration.noPermission", defaultMessage: "You don't have permission." }));
-      const next = new Set(folded?.banned ?? []);
-      next.delete(target);
-      await publishBanlist([...next]);
+      // The Ban's departure first: a Kick dated at the Ban, or the pre-ban Join would
+      // count them again. A Join after the Ban outranks it (CORD-04 §6).
+      const bannedAt = folded?.bannedAt.get(target);
+      // Only for a member whose standing Join predates the Ban (CORD-04 §6, Vector `publish_ban_departures`);
+      // with the Guestbook not yet read, write it anyway: a spare Kick is outranked by a later Join.
+      const standing = coalesced.get(target);
+      const predates = (at: number) => !guestbookRead || (standing?.state === "join" && standing.ms <= at * 1000);
+      if (bannedAt !== undefined && community && user && predates(bannedAt)) {
+        const citation = citationFor(community, folded, user.pubkey);
+        const vac = citation
+          ? { eid: bytesToHex(citation.entityId), version: citation.version, hash: bytesToHex(citation.editionHash) }
+          : undefined;
+        await guestbook.mutateAsync({ type: "kick", target, vac, ms: bannedAt * 1000 });
+      }
+      await publishBanlist((banned) => void banned.delete(target));
     },
     onSuccess: invalidate,
   });

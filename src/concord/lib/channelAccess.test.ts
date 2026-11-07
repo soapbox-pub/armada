@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import { banChannelCuts, channelRoleIds, channelsHingingOn, isEntitled, roleRevokeCut, vendableChannels } from "./channelAccess";
 import { bytesToHex } from "./derive";
-import { Permissions, type CommunityRoles, type Role } from "./roles";
+import { EVERYONE_DEFAULT, Permissions, type CommunityRoles, type Role } from "./roles";
 
 const hexToBytes32 = (prefix: string) =>
   Uint8Array.from((prefix.repeat(64).slice(0, 64)).match(/.{2}/g)!.map((b) => parseInt(b, 16)));
@@ -152,6 +152,22 @@ describe("vendableChannels (what an invite bundle may carry)", () => {
     expect(vendableChannels(held, asMember(OUTSIDER), { only: new Set([CH_SECRET]) })).toEqual([]);
   });
 
+  it("on ranked roles, carries a key only to a member who may also read the channel's history (CORD-03 §5)", () => {
+    const VIP = "e".repeat(64);
+    const ranked: CommunityRoles = {
+      everyone: EVERYONE_DEFAULT,
+      roles: [{ ...role(VIP, "VIP", 2, { kind: "server" }) }],
+      grants: [{ member: HOLDER, roleIds: [VIP] }, { member: OUTSIDER, roleIds: [VIP] }],
+      overwrites: [
+        { scope: CH_SECRET, target: { kind: "role", id: VIP }, allow: Permissions.VIEW_CHANNEL, deny: 0n },
+        { scope: CH_SECRET, target: { kind: "member", id: OUTSIDER }, allow: 0n, deny: Permissions.READ_MESSAGE_HISTORY },
+      ],
+    };
+    const to = (memberHex: string) => vendableChannels(held, { kind: "member", roster: ranked, ownerHex: OWNER, memberHex });
+    expect(to(HOLDER).map((c) => bytesToHex(c.id))).toEqual([CH_SECRET]);
+    expect(to(OUTSIDER), "without Read Message History a key comes only with a fresh epoch").toEqual([]);
+  });
+
   it("THROWS rather than silently vending nothing when the roster has not loaded", () => {
     // "Entitled to nothing" and "I can't tell yet" are different answers, and
     // the silent version gives the sender no signal.
@@ -288,6 +304,22 @@ describe("banChannelCuts (the rekeys a ban owes)", () => {
 
   it("owes nothing for a target with no channel role", () => {
     expect(banChannelCuts(held, OWNER, [OUTSIDER], channels)).toEqual([]);
+  });
+
+  it("keeps a reader only a member overwrite lets in (Vector `access_candidates`)", () => {
+    const VIP = "e".repeat(64);
+    const NEWCOMER = "7".repeat(64);
+    const ranked: CommunityRoles = {
+      everyone: EVERYONE_DEFAULT,
+      roles: [role(VIP, "VIP", 2, { kind: "server" })],
+      grants: [{ member: HOLDER, roleIds: [VIP] }],
+      overwrites: [
+        { scope: CH_SECRET, target: { kind: "role", id: VIP }, allow: Permissions.VIEW_CHANNEL, deny: 0n },
+        { scope: CH_SECRET, target: { kind: "member", id: SECOND }, allow: Permissions.VIEW_CHANNEL, deny: 0n },
+      ],
+    };
+    const [cut] = banChannelCuts(ranked, OWNER, [HOLDER], [{ idHex: CH_SECRET, heldByMe: true }], undefined, [NEWCOMER]);
+    expect(cut.keep.sort()).toEqual([OWNER, SECOND].sort());
   });
 
   it("rotates a channel once for several targets", () => {

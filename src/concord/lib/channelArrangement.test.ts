@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyArrangement,
+  arrangedBefore,
   arrangementChanges,
+  dropChanges,
   arrangementSettled,
   pendingFromPlan,
   planChannelDrop,
@@ -137,5 +139,40 @@ describe("the optimistic overlay", () => {
       { idHex: "a", name: "alpha", position: 2, category: "VOICE" },
     ];
     expect(arrangementSettled(landed, pending)).toBe(true);
+  });
+});
+
+describe("a drop on the vsk-13 Roster (CORD-03 §2, §4)", () => {
+  const A = "a".repeat(64);
+  const B = "b".repeat(64);
+  const rendered = [
+    { idHex: "1", name: "one" },
+    { idHex: "2", name: "two", category: "Text", categoryId: A },
+    { idHex: "3", name: "three", category: "Text", categoryId: A },
+    { idHex: "4", name: "four", category: "Text", categoryId: B },
+  ];
+
+  it("publishes the dropped Channel alone, at its index, under the Category's id", () => {
+    const before = arrangedBefore(rendered, true);
+    expect(before.map((c) => c.category)).toEqual([undefined, A, A, B]);
+    const plan = planChannelDrop(before, "1", 2, B);
+    expect(dropChanges(before, plan, "1", true)).toEqual([{ idHex: "1", position: 2, category: B }]);
+  });
+
+  it("publishes nothing for a drop back where it was", () => {
+    const before = arrangedBefore(rendered, true);
+    expect(dropChanges(before, planChannelDrop(before, "2", 1, A), "2", true)).toEqual([]);
+  });
+
+  it("overlays the plan by Category id, and settles once the fold sorts the same", () => {
+    const before = arrangedBefore(rendered, true);
+    const plan = planChannelDrop(before, "1", 3, B);
+    const pending = pendingFromPlan(plan);
+    const names = new Map([[A, "Text"], [B, "Text"]]);
+    const shown = applyArrangement(rendered, pending, (id) => names.get(id));
+    expect(shown.map((c) => [c.idHex, c.categoryId])).toEqual([["2", A], ["3", A], ["4", B], ["1", B]]);
+    expect(arrangementSettled(rendered, pending, true)).toBe(false);
+    const landed = [rendered[1], rendered[2], rendered[3], { ...rendered[0], category: "Text", categoryId: B }];
+    expect(arrangementSettled(landed, pending, true)).toBe(true);
   });
 });

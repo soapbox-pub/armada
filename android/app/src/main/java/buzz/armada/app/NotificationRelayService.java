@@ -848,16 +848,32 @@ public class NotificationRelayService extends Service {
         // but must never notify, so handleEvent drops it after decrypt.
         // Community-wide, so every channel's stream carries the same set.
         final Set<String> banned;
-        // Authors currently authorized to issue a literal @everyone in this
-        // channel. The WebView derives this from the channel-scoped role fold.
+        // Authors currently authorized to issue a literal @everyone, server-wide
+        // (Vector `is_authorized`), and whether @everyone itself holds the bit.
         final Set<String> mentionEveryoneAuthors;
+        final boolean mentionEveryoneAnyone;
+        // The Roles the viewer holds, and who may ping any Role (CORD-04 §8).
+        final List<RoleMentions.Held> roleMentions;
+        final Set<String> roleMentionAuthors;
+        // The relays' clock minus this device's (CORD-03 §3), from the WebView's sync.
+        final long clockOffsetMs;
+        // Posts readers collapse ring nobody (CORD-04 §8): authors without SEND here, and
+        // the running Timeouts as {from, until} unix seconds by author.
+        final Set<String> sendDenied;
+        // In a restricted Channel, the only authors whose posts ring; null elsewhere (CORD-03 §1).
+        final Set<String> postAuthors;
+        final Map<String, long[]> timeouts;
+        // The Nicknames members go by in this Community (CORD-04 §10), which name the sender.
+        final Map<String, String> nicknames;
         // When this membership began (ms, the vault entry's `added_at`; 0 =
         // unknown). Nothing sent earlier notifies: the viewer wasn't there.
         final long joinedAtMs;
         ConcordStream(byte[] convKey, String communityId, String channelId, String epoch,
                        String name, String url, CommunityRef community, long timerSecs,
                        boolean mentionOnly, Set<String> banned, Set<String> mentionEveryoneAuthors,
-                       long joinedAtMs) {
+                       boolean mentionEveryoneAnyone, List<RoleMentions.Held> roleMentions, Set<String> roleMentionAuthors,
+                       long clockOffsetMs, Set<String> sendDenied, Set<String> postAuthors, Map<String, long[]> timeouts,
+                       Map<String, String> nicknames, long joinedAtMs) {
             this.convKey = convKey;
             this.communityId = communityId;
             this.channelId = channelId;
@@ -869,6 +885,14 @@ public class NotificationRelayService extends Service {
             this.mentionOnly = mentionOnly;
             this.banned = banned;
             this.mentionEveryoneAuthors = mentionEveryoneAuthors;
+            this.mentionEveryoneAnyone = mentionEveryoneAnyone;
+            this.roleMentions = roleMentions;
+            this.roleMentionAuthors = roleMentionAuthors;
+            this.clockOffsetMs = clockOffsetMs;
+            this.sendDenied = sendDenied;
+            this.postAuthors = postAuthors;
+            this.timeouts = timeouts;
+            this.nicknames = nicknames;
             this.joinedAtMs = joinedAtMs;
         }
     }
@@ -2225,6 +2249,50 @@ public class NotificationRelayService extends Service {
                         if (pk != null && !pk.isEmpty()) mentionEveryoneAuthors.add(pk);
                     }
                 }
+                List<RoleMentions.Held> roleMentions = RoleMentions.parse(sub.optJSONArray("roleMentions"));
+                Set<String> sendDenied = new HashSet<>();
+                JSONArray deniedArr = sub.optJSONArray("sendDenied");
+                if (deniedArr != null) {
+                    for (int j = 0; j < deniedArr.length(); j++) {
+                        String pk = deniedArr.optString(j, null);
+                        if (pk != null && !pk.isEmpty()) sendDenied.add(pk);
+                    }
+                }
+                Set<String> postAuthors = null;
+                JSONArray postersArr = sub.optJSONArray("postAuthors");
+                if (postersArr != null) {
+                    postAuthors = new HashSet<>();
+                    for (int j = 0; j < postersArr.length(); j++) {
+                        String pk = postersArr.optString(j, null);
+                        if (pk != null && !pk.isEmpty()) postAuthors.add(pk);
+                    }
+                }
+                Map<String, String> nicknames = new HashMap<>();
+                JSONObject nicksObj = sub.optJSONObject("nicknames");
+                if (nicksObj != null) {
+                    for (java.util.Iterator<String> it = nicksObj.keys(); it.hasNext(); ) {
+                        String pk = it.next();
+                        String nick = nicksObj.optString(pk, "");
+                        if (!nick.isEmpty()) nicknames.put(pk, nick);
+                    }
+                }
+                Map<String, long[]> timeouts = new HashMap<>();
+                JSONArray timeoutsArr = sub.optJSONArray("timeouts");
+                if (timeoutsArr != null) {
+                    for (int j = 0; j < timeoutsArr.length(); j++) {
+                        JSONObject t = timeoutsArr.optJSONObject(j);
+                        if (t == null || t.optString("pk", "").isEmpty()) continue;
+                        timeouts.put(t.optString("pk"), new long[] { t.optLong("fromSecs", 0), t.optLong("until", 0) });
+                    }
+                }
+                Set<String> roleMentionAuthors = new HashSet<>();
+                JSONArray roleAuthorsArr = sub.optJSONArray("roleMentionAuthors");
+                if (roleAuthorsArr != null) {
+                    for (int j = 0; j < roleAuthorsArr.length(); j++) {
+                        String pk = roleAuthorsArr.optString(j, null);
+                        if (pk != null && !pk.isEmpty()) roleMentionAuthors.add(pk);
+                    }
+                }
 
                 // The community this channel belongs to — its image/name
                 // brand the channel's notification. The community ref
@@ -2245,7 +2313,8 @@ public class NotificationRelayService extends Service {
                     pkToStream2.put(pk, new ConcordStream(
                             convKey, communityId, channelId, s.optString("epoch", ""),
                             name, url, ref, Math.max(0, sub.optLong("timerSecs", 0)),
-                            mentionOnly, banned, mentionEveryoneAuthors,
+                            mentionOnly, banned, mentionEveryoneAuthors, sub.optBoolean("mentionEveryoneAnyone", false),
+                            roleMentions, roleMentionAuthors, sub.optLong("clockOffsetMs", 0), sendDenied, postAuthors, timeouts, nicknames,
                             Math.max(0, sub.optLong("joinedAtMs", 0))));
                 }
                 Set<String> listed = communityRelays.computeIfAbsent(communityId, k -> new LinkedHashSet<>());
@@ -4569,7 +4638,7 @@ public class NotificationRelayService extends Service {
      * ordinary sub-second clock jitter between honest clients doesn't flap —
      * NOT the hour of ingest skew NIP-17 tolerates (MAX_FUTURE_SKEW_SECS).
      */
-    private static final long FUTURE_HOLD_MS = 2_000;
+    private static final long FUTURE_HOLD_MS = 5_000;
 
     /**
      * Verify a decrypted rumor's NIP-01 id — filling it in when the payload
@@ -5477,6 +5546,10 @@ public class NotificationRelayService extends Service {
             }
 
             JSONObject rumor = opened.rumor;
+            // A malformed `ms` tag refuses the rumor, as the WebView's open does (CORD-02 §4).
+            Long rumorMsBoxed = ServiceStore.concordRumorMs(rumor);
+            if (rumorMsBoxed == null) return;
+            final long rumorMs = rumorMsBoxed;
 
             // File the decrypted rumor in its community's opened-event tenant —
             // the same row, byte for byte, that the WebView writes (the rumor
@@ -5512,6 +5585,16 @@ public class NotificationRelayService extends Service {
             if (st.banned.contains(author2)) {
                 return;
             }
+            // A post its readers collapse rings nobody (CORD-04 §8): no SEND in this
+            // open Channel, or inside a running Timeout's window.
+            if (st.sendDenied.contains(author2)) return;
+            // At a restricted Channel's read address a post stands only from those who manage it (CORD-03 §1).
+            if (st.postAuthors != null && rumorKind != 7 && !st.postAuthors.contains(author2)) return;
+            long[] timeout = st.timeouts.get(author2);
+            if (timeout != null) {
+                long nowMs = System.currentTimeMillis() + st.clockOffsetMs;
+                if (timeout[1] * 1000L > nowMs && rumorMs >= timeout[0] * 1000L && rumorMs < timeout[1] * 1000L) return;
+            }
 
             // A rumor dated ahead of the local clock is HELD: stored above like
             // every other message (the timeline hides it until its time comes,
@@ -5520,7 +5603,7 @@ public class NotificationRelayService extends Service {
             // notification "in 5m" from the future created_at.
             final long rumorCreatedAt = rumor.optLong("created_at", 0);
             if (rumorCreatedAt > 0
-                    && rumorCreatedAt * 1000L > System.currentTimeMillis() + FUTURE_HOLD_MS) {
+                    && rumorMs > System.currentTimeMillis() + st.clockOffsetMs + FUTURE_HOLD_MS) {
                 return;
             }
             // Sent before this membership began: stored, never announced.
@@ -5532,6 +5615,8 @@ public class NotificationRelayService extends Service {
                 if (!isMentioned(rumor, userPubkey)) {
                     return; // a reaction to someone else's message — silent
                 }
+                // One no row could render rings nobody, as the timeline drops it.
+                if (!ReactionContent.renderable(rumor.optString("content", ""))) return;
                 if (!prefBool("reactions", true)) {
                     return;
                 }
@@ -5547,7 +5632,8 @@ public class NotificationRelayService extends Service {
                     return;
                 }
                 resolveAuthor(author2, relayUrl, profile -> {
-                    String name = authorName(profile);
+                    String nick = fStR.nicknames.get(author2);
+                    String name = nick != null ? nick : authorName(profile);
                     String picture = communityAvatarShown(author2) && profile != null ? profile.picture : null;
                     if (BuildConfig.DEBUG) Log.d(TAG, "NOTIFY concord reaction: " + fStR.name + " / " + name);
                     enqueueRoomMessage(
@@ -5562,8 +5648,10 @@ public class NotificationRelayService extends Service {
                 return;
             }
             boolean mentionsMe2 = isMentioned(rumor, userPubkey)
-                    || (st.mentionEveryoneAuthors.contains(author2)
-                        && hasEveryoneMention(rumor.optString("content", "")));
+                    || ((st.mentionEveryoneAnyone || st.mentionEveryoneAuthors.contains(author2))
+                        && hasEveryoneMention(rumor.optString("content", "")))
+                    || RoleMentions.pings(rumor.optString("content", ""), rumor.optJSONArray("tags"),
+                        st.roleMentions, st.roleMentionAuthors, author2);
             // The WebView already resolved channel -> community -> global into
             // this subscription: omitted means nothing, mentionOnly means only
             // a real mention, and an included non-mentionOnly stream means all.
@@ -5590,7 +5678,8 @@ public class NotificationRelayService extends Service {
                 return;
             }
             resolveAuthor(author2, relayUrl, profile -> {
-                String name = authorName(profile);
+                String nick = fSt.nicknames.get(author2);
+                String name = nick != null ? nick : authorName(profile);
                 String picture = communityAvatarShown(author2) && profile != null ? profile.picture : null;
                 String text = NotificationContent.messageText(labels(), preview2, threadRoot2 != null);
                 if (BuildConfig.DEBUG) Log.d(TAG, "NOTIFY concord: " + fSt.name + " / " + name);

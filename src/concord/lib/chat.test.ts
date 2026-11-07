@@ -2,7 +2,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure
 import type { EventTemplate, NostrEvent } from "nostr-tools/pure";
 import { describe, expect, it, vi } from "vitest";
 
-import { _resetChatMemoForTests, buildConcordCommentTags, filterEpochCutoff, foldTimeline, openChatBatch, replyTargetOf } from "@/concord/lib/chat";
+import { _resetChatMemoForTests, buildConcordCommentTags, filterEpochCutoff, foldTimeline, isHeldAhead, openChatBatch, replyTargetOf } from "@/concord/lib/chat";
 import { ecVerifyBatch } from "@/lib/verifyPool";
 import { bytesToHex, channelGroupKey, voiceGroupKey, voiceMediaKey } from "@/concord/lib/derive";
 import { KIND_CALENDAR_RSVP, KIND_CALENDAR_TIME, KIND_COMMENT, KIND_DELETE, KIND_EDIT, KIND_MESSAGE, KIND_POLL, KIND_POLL_VOTE, KIND_REACTION, KIND_SEAL_ENCRYPTED, KIND_TIMER_NOTICE, KIND_ZAP } from "@/concord/lib/kinds";
@@ -276,6 +276,24 @@ describe("chat plane (CORD-03)", () => {
     const folded = foldTimeline(await openChatBatch(wraps, channel));
     const tally = folded.reactions.get(msg.id)!;
     expect(tally.get("🔥")?.reactors.has(bob.pubkey)).toBe(true);
+    expect(tally.get(":pepe:")?.url).toBe("https://x/pepe.png");
+  });
+
+  it("drops a reaction no row could render, and takes only the emoji tag naming its own shortcode (Vector v0.5.0-5)", async () => {
+    const channel = makeChannel();
+    const alice = signer();
+    const bob = signer();
+    const msg = chatRumor(alice, KIND_MESSAGE, "react to me", 1000);
+    const reactions = [
+      chatRumor(bob, KIND_REACTION, ":catclap:https://i.nostr.build/lLMrw.gif", 1100, [["e", msg.id]]),
+      chatRumor(bob, KIND_REACTION, "this is a whole sentence", 1110, [["e", msg.id]]),
+      chatRumor(bob, KIND_REACTION, ":catJAM:", 1120, [["e", msg.id], ["emoji", "dogJAM", "https://x/dog.gif"]]),
+      chatRumor(alice, KIND_REACTION, ":pepe:", 1130, [["e", msg.id], ["emoji", "other", "https://x/o.png"], ["emoji", "pepe", "https://x/pepe.png"]]),
+    ];
+    const wraps = await Promise.all([wrapChat(msg, channel, alice), ...reactions.map((r) => wrapChat(r, channel, r.pubkey === bob.pubkey ? bob : alice))]);
+    const tally = foldTimeline(await openChatBatch(wraps, channel)).reactions.get(msg.id)!;
+    expect([...tally.keys()].sort()).toEqual([":catJAM:", ":pepe:"]);
+    expect(tally.get(":catJAM:")?.url).toBeUndefined();
     expect(tally.get(":pepe:")?.url).toBe("https://x/pepe.png");
   });
 
@@ -821,6 +839,19 @@ describe("foldTimeline — holding future-dated messages", () => {
     expect(folded.messages.map((m) => m.content)).toEqual(["here"]);
     // Its ms is surfaced so the app can schedule the reveal.
     expect(folded.nextRevealMs).toBe(future.ms);
+  });
+
+  it("holds messages only, and nothing dated past the hour's horizon waits on a reveal (CORD-03 §3)", () => {
+    const now = Date.now();
+    const poll = { ...msg("poll", now + 60_000), kind: KIND_POLL };
+    const far = msg("far", now + 2 * 3_600_000);
+    const folded = foldTimeline([poll, far]);
+    expect(folded.messages.map((m) => m.content)).toEqual(["poll"]);
+    expect(folded.nextRevealMs).toBeUndefined();
+    expect(isHeldAhead(KIND_MESSAGE, now + 5_001, now)).toBe(true);
+    expect(isHeldAhead(KIND_MESSAGE, now + 5_000, now)).toBe(false);
+    expect(isHeldAhead(KIND_MESSAGE, now + 3_600_001, now)).toBe(false);
+    expect(isHeldAhead(KIND_POLL, now + 60_000, now)).toBe(false);
   });
 
   it("reveals a message once its timestamp is no longer in the future", () => {

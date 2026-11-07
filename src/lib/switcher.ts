@@ -6,7 +6,7 @@
 
 import { matchPath } from "react-router-dom";
 
-import { channelsView } from "@/concord/lib/community";
+import { channelsView, visibleChannels } from "@/concord/lib/community";
 import { replyTargetOf } from "@/concord/lib/chat";
 import { rehydrateCommunity, type CommunityListEntry } from "@/concord/lib/communityList";
 import { searchRumors } from "@/concord/lib/rumorStore";
@@ -164,7 +164,7 @@ const concordTransport: Transport = {
     if (!entry) return null;
     return { key, name: entry.current.name, route: `/c/${encodeURIComponent(id)}` };
   },
-  async channels(key, { communities }) {
+  async channels(key, { communities, self }) {
     const id = key.slice("c2:".length);
     const entry = communities.get(id);
     if (!entry) return [];
@@ -172,7 +172,8 @@ const concordTransport: Transport = {
     const community = rehydrateCommunity(entry);
     if (!community) return [];
     const folded = await readControlFold(id);
-    return channelsView(community, folded).map((c) => ({
+    // A Channel the viewer can't view isn't offered (CORD-04 §8).
+    return visibleChannels(channelsView(community, folded), folded, self).map((c) => ({
       key: `${key}::${c.idHex}`,
       id: c.idHex,
       name: c.name,

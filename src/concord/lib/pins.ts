@@ -120,6 +120,12 @@ export function buildPinEntryOrReason(
 export function verifyPinEntry(entry: PinEntry, channelIdHex: string): VerifiedPin | undefined {
   // Unvalidated wire data (`{"entries":[null]}`): throwing here would break the channel view.
   if (!entry || typeof entry !== "object") return undefined;
+  // A field of the wrong type makes the whole entry invalid (CORD-04 §7, Vector serde `PinEntry`).
+  if (typeof entry.keys !== "string") return undefined;
+  if (entry.wrap != null && typeof entry.wrap !== "string") return undefined;
+  if (entry.edit != null && (typeof entry.edit !== "object" || typeof entry.edit.seal !== "object" || entry.edit.seal === null || typeof entry.edit.keys !== "string")) {
+    return undefined;
+  }
   const seal = entry.seal;
   if (!seal || typeof seal !== "object") return undefined;
   if (seal.kind !== KIND_SEAL_ENCRYPTED) return undefined;
@@ -146,11 +152,10 @@ export function verifyPinEntry(entry: PinEntry, channelIdHex: string): VerifiedP
   // NIP-59 impersonation check.
   if (rumor.pubkey !== seal.pubkey) return undefined;
   if (rumor.kind !== KIND_MESSAGE && rumor.kind !== KIND_COMMENT) return undefined;
-  if (!Array.isArray(rumor.tags)) return undefined;
+  if (!rumorShapeOk(rumor)) return undefined;
   // Strict channel binding (CORD-01), or a private Channel's keyholder could pin
   // its messages into a public list, disclosing them with proof.
   if (!HEX64.test(channelIdHex) || tagValue(rumor.tags, "channel") !== channelIdHex) return undefined;
-  if (typeof rumor.content !== "string" || !Number.isSafeInteger(rumor.created_at)) return undefined;
 
   let rumorId: string;
   try {
@@ -219,16 +224,27 @@ function verifyEditBundle(
   if (typeof rumor !== "object" || rumor === null) return undefined;
   if (rumor.pubkey !== seal.pubkey) return undefined;
   if (rumor.kind !== KIND_EDIT) return undefined;
-  if (!Array.isArray(rumor.tags)) return undefined;
+  if (!rumorShapeOk(rumor)) return undefined;
   // Bind the Edit to this Channel too, matching withProvenEdit on the write side.
   if (tagValue(rumor.tags, "channel") !== channelIdHex) return undefined;
   if (tagValue(rumor.tags, "e") !== originalRumorId) return undefined;
-  if (typeof rumor.content !== "string" || !Number.isSafeInteger(rumor.created_at)) return undefined;
   return { content: rumor.content, ms: resolveMs(rumor.created_at, rumor.tags) };
+}
+
+/** Every tag a non-empty array of strings, string content, a `created_at` in u64 (Vector's `RumorFields`). */
+function rumorShapeOk(rumor: NostrRumor): boolean {
+  return (
+    Array.isArray(rumor.tags) &&
+    rumor.tags.every((t) => Array.isArray(t) && t.length > 0 && t.every((v) => typeof v === "string")) &&
+    typeof rumor.content === "string" &&
+    Number.isSafeInteger(rumor.created_at) &&
+    rumor.created_at >= 0
+  );
 }
 
 // The list's two self-describing content forms
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
+const U64_MAX = 2n ** 64n - 1n;
 
 /**
  * Serialize a PUBLIC Channel's pin list (plaintext; the plane wrap is the gate).
@@ -279,11 +295,14 @@ export function readPinList(
   if (typeof parsed !== "object" || parsed === null) return EMPTY;
   const obj = parsed as { entries?: unknown; epoch?: unknown; sealed?: unknown };
 
-  if (Array.isArray(obj.entries)) {
-    if (obj.entries.length > PIN_MAX_ENTRIES) return EMPTY;
+  // An `entries` key makes it the public form, whatever else it carries (Vector).
+  if ("entries" in obj) {
+    if (!Array.isArray(obj.entries) || obj.entries.length > PIN_MAX_ENTRIES) return EMPTY;
     return { entries: obj.entries as PinEntry[], sealed: false };
   }
 
+  // An epoch past u64 names none a key exists for: empty, as Vector reads it.
+  if (typeof obj.epoch === "string" && DECIMAL.test(obj.epoch) && BigInt(obj.epoch) > U64_MAX) return EMPTY;
   if (typeof obj.epoch === "string" && DECIMAL.test(obj.epoch) && typeof obj.sealed === "string") {
     const key = unsealKey(BigInt(obj.epoch));
     if (!key) return { entries: [], sealed: true };

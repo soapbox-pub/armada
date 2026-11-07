@@ -40,6 +40,10 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
+        // The headless shell's renderer can crash booting the whole app where
+        // full Chromium in new headless mode runs it; ARMADA_E2E_FULL_CHROMIUM=1
+        // opts in to the latter.
+        ...(process.env.ARMADA_E2E_FULL_CHROMIUM ? { channel: "chromium" } : {}),
         launchOptions: {
           args: [
             "--use-fake-ui-for-media-stream",

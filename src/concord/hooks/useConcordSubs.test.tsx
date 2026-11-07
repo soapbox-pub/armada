@@ -47,6 +47,7 @@ vi.mock("@/concord/lib/concordNotifications", () => ({
   buildConcordSubs: () => ({ subs: [SUB], streamKeys: [] }),
 }));
 
+vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: undefined }) }));
 vi.mock("@/concord/lib/streamAuth", () => ({ registerStreamKeys: () => {} }));
 vi.mock("@/wire/bus", () => ({ onWireScopes: () => () => {} }));
 

@@ -28,6 +28,7 @@ const h = vi.hoisted(() => ({
   banned: new Set<string>(),
   everyoneAuthors: new Set<string>(),
   joinedAtMs: undefined as number | undefined,
+  posters: undefined as Set<string> | undefined,
 }));
 
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: { pubkey: ME } }) }));
@@ -40,6 +41,7 @@ vi.mock("@/concord/hooks/useChannel", () => ({
     banned: h.banned,
     canDelete: () => false,
     canMentionEveryone: (author: string) => h.everyoneAuthors.has(author),
+    holdsPost: (author: string) => h.posters !== undefined && !h.posters.has(author),
   }),
 }));
 vi.mock("@/concord/hooks/useCommunityList", () => ({
@@ -95,6 +97,7 @@ beforeEach(() => {
   h.rumors = [];
   h.readState = {};
   h.banned = new Set<string>();
+  h.posters = undefined;
   h.everyoneAuthors = new Set<string>();
   h.joinedAtMs = undefined;
 });
@@ -189,6 +192,17 @@ describe("useConcordUnread — the Banlist folds into the badge", () => {
     h.readState[`c2:${CH}`] = 100;
     h.banned = new Set([Y]);
     expect(render().result.current.byChannel[CH]).toEqual({ latest: 200, mention: false });
+  });
+});
+
+describe("useConcordUnread — a restricted Channel's held posts (CORD-03 §1)", () => {
+  it("a post nobody vouches for does not light the channel; a manager's does", () => {
+    h.rumors = [row("A", X, KIND_MESSAGE, 200, [["p", ME]])];
+    h.readState[`c2:${CH}`] = 100;
+    h.posters = new Set([Y]);
+    expect(render().result.current.byChannel[CH]).toBeUndefined();
+    h.posters = new Set([X]);
+    expect(render().result.current.byChannel[CH]).toEqual({ latest: 200, mention: true });
   });
 });
 

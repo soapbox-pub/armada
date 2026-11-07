@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useChannelRekey } from "@/concord/hooks/useRekey";
+import { RankedRolesBody, RankedRolesSwitch } from "@/concord/components/RankedRolesView";
 import { useRoles } from "@/concord/hooks/useRoles";
 import { roleRevokeCut } from "@/concord/lib/channelAccess";
 import { bytesToHex } from "@/concord/lib/derive";
@@ -75,6 +76,12 @@ export function RolesView({ community }: { community: Community }) {
 }
 
 function RolesBody({ community }: { community: Community }) {
+  const { folded } = useRoles(community);
+  if (folded?.rankedRoster) return <RankedRolesBody community={community} />;
+  return <LegacyRolesBody community={community} />;
+}
+
+function LegacyRolesBody({ community }: { community: Community }) {
   const { folded, saveRole, isSavingRole, setMemberRoles, isSettingRoles, newRoleId } = useRoles(community);
   const { rekeyChannel, isRekeyingChannel, canRekeyChannel } = useChannelRekey(community);
   const { user } = useCurrentUser();
@@ -579,6 +586,7 @@ function RolesBody({ community }: { community: Community }) {
 
   return (
     <div className="flex flex-col items-center gap-6">
+      {actor === ownerHex && folded && <RankedRolesSwitch community={community} />}
       <p className="text-sm text-muted-foreground">
         <FormattedMessage
           id="rolesView.intro"
@@ -829,7 +837,7 @@ export function RoleEditor({
           );
           if (!ok) return;
         }
-        onSave({ ...role, name: name.trim() || "Role", permissions: perms, color, scope, display: display || undefined });
+        onSave({ ...role, name: name.trim(), permissions: perms, color, scope, display: display || undefined });
       }}
       className="flex flex-col gap-5"
     >
@@ -959,7 +967,7 @@ export function RoleEditor({
           </p>
         )}
         <div className="space-y-2 rounded-lg bg-secondary/40 p-3">
-          {PERMISSION_LABELS.map(({ bit, label, hint }) => {
+          {PERMISSION_LABELS.filter((l) => !l.rankedRoles).map(({ bit, label, hint }) => {
             const id = `perm2-${bit.toString()}`;
             const on = (perms & bit) === bit;
             return (

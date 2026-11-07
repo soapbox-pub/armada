@@ -125,7 +125,7 @@ export async function buildRefreshedBundleEvents(
     try {
       const perLink: InviteBundle = {
         ...bundle,
-        ...(entry.expires_at ? { expires_at: entry.expires_at * 1000 } : {}),
+        ...(inviteExpirySecs(entry.expires_at) !== undefined ? { expires_at: inviteExpirySecs(entry.expires_at)! * 1000 } : {}),
         ...(entry.label ? { label: entry.label } : {}),
       };
       events.push(await buildBundleEvent(perLink, hexToBytes(entry.token), hexToBytes(entry.signer_sk)));
@@ -450,13 +450,18 @@ export interface InviteListEntry {
   url: string;
   label?: string;
   created_at: number;
+  /** Unix seconds, like `created_at` (the bundle's is ms). */
   expires_at?: number;
+  /** The root epoch it was minted at (CORD-06 §3 Severing); absent reads as 0. */
+  epoch?: number;
   [k: string]: unknown;
 }
 
 export interface InviteListTombstone {
   token: string;
   community_id: string;
+  /** The retired link's `expires_at`, so the tombstone can be pruned with it (CORD-05 §4). */
+  expires_at?: number;
   [k: string]: unknown;
 }
 
@@ -492,6 +497,62 @@ export function mergeInviteLists(a: InviteList, b: InviteList): InviteList {
     entries: [...entries.values()].sort((x, y) => x.token.localeCompare(y.token)),
     tombstones: [...tombstones.values()].sort((x, y) => x.token.localeCompare(y.token)),
   };
+}
+
+/** The root epoch an entry was minted at (CORD-05 §4): absent or malformed reads as 0. */
+export function inviteEntryEpoch(entry: InviteListEntry): number {
+  return typeof entry.epoch === "number" && Number.isSafeInteger(entry.epoch) && entry.epoch > 0 ? entry.epoch : 0;
+}
+
+/** A tombstone for an entry, carrying its expiry (CORD-05 §4). */
+export function inviteTombstoneFor(entry: InviteListEntry): InviteListTombstone {
+  return {
+    token: entry.token,
+    community_id: entry.community_id,
+    ...(typeof entry.expires_at === "number" ? { expires_at: entry.expires_at } : {}),
+  };
+}
+
+/**
+ * Drop entries and tombstones past their `expires_at` (CORD-05 §4): an expired
+ * link admits no one, so one a stale device brings back is as dead as a retired one.
+ */
+/**
+ * An Invite List `expires_at` in unix seconds (CORD-05 §4). The list carries seconds;
+ * a value past the year 5000 in seconds is an older Vector's milliseconds.
+ */
+export function inviteExpirySecs(expiresAt: unknown): number | undefined {
+  if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt) || expiresAt <= 0) return undefined;
+  return expiresAt >= 100_000_000_000 ? Math.floor(expiresAt / 1000) : expiresAt;
+}
+
+export function pruneExpiredInvites(list: InviteList, nowSec: number): InviteList {
+  const live = (x: { expires_at?: unknown }) => {
+    const at = inviteExpirySecs(x.expires_at);
+    return at === undefined || at > nowSec;
+  };
+  const entries = list.entries.filter(live);
+  const tombstones = list.tombstones.filter(live);
+  if (entries.length === list.entries.length && tombstones.length === list.tombstones.length) return list;
+  return { ...list, entries, tombstones };
+}
+
+/**
+ * The registry's link signers that are this creator's live links in `communityIdHex`
+ * (CORD-05 §5): an expired link, and one the Invite List no longer holds because it
+ * pruned the expired entry, keep nothing Public. With no list read (`entries`
+ * undefined) the signers pass through, so a cold read never empties the registry.
+ */
+export function liveRegistrySigners(linkSigners: string[], entries: InviteListEntry[] | undefined, communityIdHex: string, nowSec: number): string[] {
+  if (!entries) return linkSigners;
+  const live = new Set<string>();
+  for (const e of entries) {
+    const at = inviteExpirySecs(e.expires_at);
+    if (e.community_id !== communityIdHex || (at !== undefined && at <= nowSec)) continue;
+    const p = parseInviteLink(e.url);
+    if (p) live.add(p.linkSigner);
+  }
+  return linkSigners.filter((s) => live.has(s));
 }
 
 export function mintLinkSigner(): { sk: Uint8Array; pk: string } {

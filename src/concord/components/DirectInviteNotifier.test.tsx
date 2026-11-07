@@ -30,7 +30,14 @@ const updateList = vi.fn(async () => undefined);
 const toast = vi.fn();
 
 let items: InviteInboxItem[] = [];
-let fold: { roster: { roles: Role[]; grants: { member: string; roleIds: string[] }[] }; ownerHex: string; banned: Set<string> } | undefined;
+let fold:
+  | {
+      roster: { roles: Role[]; grants: { member: string; roleIds: string[] }[] };
+      ownerHex: string;
+      banned: Set<string>;
+      channels: Map<string, { isPrivate: boolean; deleted: boolean }>;
+    }
+  | undefined;
 
 const entry = {
   community_id: CID,
@@ -41,7 +48,7 @@ const community = { idHex: CID, rootEpoch: 0n } as const;
 vi.mock("@/hooks/useToast", () => ({ toast: (...a: unknown[]) => toast(...a) }));
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: { pubkey: ME } }) }));
 vi.mock("@/concord/hooks/useDirectInvites", () => ({
-  useInviteInbox: () => ({ items, requests: [], unreadCount: items.filter((i) => i.unread).length }),
+  useInviteInbox: () => ({ items, requests: [], unreadCount: items.filter((i) => i.unread).length, catchUps: items.filter((i) => i.invite.catchUp).map((i) => i.invite) }),
 }));
 vi.mock("@/concord/hooks/useCommunityList", () => ({
   useCommunityEntry: () => entry,
@@ -81,7 +88,7 @@ const staffRole: Role = {
   roleId: "staff",
   name: "Admin",
   position: 1,
-  permissions: Permissions.MANAGE_ROLES,
+  permissions: Permissions.MANAGE_ROLES | Permissions.MANAGE_CHANNELS,
   scope: { kind: "server" },
   color: 0,
 };
@@ -94,7 +101,7 @@ function catchUpFrom(sender: string): InviteInboxItem {
     community_root: ROOT,
     control_pk: CPK,
     root_epoch: 0,
-    channels: [{ id: CH, key: "1".repeat(64), epoch: 0, name: "testers" }],
+    channels: [{ id: CH, key: "3".repeat(64), epoch: 0, name: "testers" }],
     relays: [],
     name: "Crew",
   } as unknown as InviteBundle;
@@ -115,6 +122,7 @@ function entitledFold() {
     },
     ownerHex: OWNER,
     banned: new Set<string>(),
+    channels: new Map([[CH, { isPrivate: true, deleted: false }]]),
   };
 }
 
@@ -161,6 +169,26 @@ describe("DirectInviteNotifier: a granted channel key", () => {
     expect(toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: "New channel keys offered" }));
   });
 
+  it("seats only the judged key on the held entry, taking nothing else from the bundle", async () => {
+    fold = entitledFold();
+    const pub = "dd".repeat(32);
+    fold.channels.set(pub, { isPrivate: false, deleted: false });
+    const item = catchUpFrom(ADMIN);
+    item.invite.bundle = {
+      ...item.invite.bundle,
+      relays: ["wss://elsewhere"],
+      name: "Renamed",
+      channels: [...item.invite.bundle.channels, { id: pub, key: "4".repeat(64), epoch: 0, name: "lobby" }],
+    };
+    items = [item];
+    mount();
+    await flush();
+    expect(updateList).toHaveBeenCalledWith({
+      type: "add",
+      entry: { ...entry, current: { ...entry.current, channels: [{ id: CH, key: "3".repeat(64), epoch: 0, name: "testers" }] } },
+    });
+  });
+
   it("is applied once the Control fold catches up to the Grant", async () => {
     // The key arrives before the fold has the Grant that entitles the member.
     items = [catchUpFrom(ADMIN)];
@@ -182,7 +210,7 @@ describe("DirectInviteNotifier: a granted channel key", () => {
     expect(updateList).toHaveBeenCalledTimes(1);
   });
 
-  it("stays a manual Accept when the sender is not staff", async () => {
+  it("stays a manual Accept when the sender neither manages channels nor may read this one", async () => {
     fold = entitledFold();
     items = [catchUpFrom(PEER)];
     mount();

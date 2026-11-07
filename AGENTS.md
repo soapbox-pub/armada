@@ -100,6 +100,18 @@ Two things that are easy to get wrong here:
   overrides the default (all cores but two) for a machine that wants all of
   itself, or less of it.
 
+### The Vector parity ledger
+
+`scripts/vector-parity/points.json` lists every decision Vector makes, extracted
+from `vector-core/src` outside its tests: each refusal (`Err("…")`, `ok_or("…")`,
+the fold's `refuse(…)`, a vend verdict, a permission gate) and each branch on
+ranked vs legacy roles. `ledger.json` names the Armada test reproducing each one,
+or why it doesn't apply; `vectorParity.test.ts` fails on a point with no entry or
+an entry naming a test that doesn't exist, and lists the `todo`s. Passing Armada
+tests are not parity: a `covered` entry is a test written against Vector's
+behaviour. On a Vector bump, `VECTOR_SRC=<vector>/crates/vector-core/src npm run
+parity:extract`, then give every new point an entry.
+
 ### Profiling (never in a shipped build)
 
 Runtime instrumentation exists only in profiling builds, gated on compile-time

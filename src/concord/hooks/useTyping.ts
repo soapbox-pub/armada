@@ -1,6 +1,9 @@
 import { useNostr } from "@nostrify/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useControlFold } from "@/concord/hooks/useControlPlane";
+import { useGuestbook } from "@/concord/hooks/useGuestbook";
+import { sendTarget } from "@/concord/lib/writerKeys";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { KIND_SEAL_ENCRYPTED, KIND_TYPING } from "@/concord/lib/kinds";
@@ -17,8 +20,9 @@ const TYPING_THROTTLE_MS = 4000;
 
 /**
  * Live "who is typing" for a channel: kind 23311 rumor in a kind-21059 wrap at
- * the channel's current address (CORD-02 Appendix B). Relays store nothing, so
- * it's subscription-only into a decaying in-memory map.
+ * the channel's current address (CORD-02 Appendix B), and in a restricted Channel at
+ * its live writer address, where typing moves with posting (CORD-03 §1). Relays store
+ * nothing, so it's subscription-only into a decaying in-memory map.
  */
 export function useTyping(community: Community | undefined, channel: Channel | undefined): string[] {
   const { nostr } = useNostr();
@@ -29,12 +33,16 @@ export function useTyping(community: Community | undefined, channel: Channel | u
 
   const channelIdHex = channel?.idHex ?? null;
   const currentPk = channel?.current.group.pk;
+  const listened = channel
+    ? [channel.current.group, ...channel.streams.filter((st) => st.writer && st.epoch === channel.current.epoch && st.writer.to === undefined).map((st) => st.group)]
+    : [];
+  const listenedSig = listened.map((g) => g.pk).join(",");
 
   useEffect(() => {
     seen.current = new Map();
     setTypers([]);
     if (!enabled || !community || !channel || !channelIdHex || !currentPk) return;
-    const group = channel.current.group;
+    const groups = new Map(listened.map((g) => [g.pk, g]));
     const epoch = channel.current.epoch;
 
     // One-shot timer for the next expiry, so an idle channel schedules no wakeups.
@@ -58,6 +66,8 @@ export function useTyping(community: Community | undefined, channel: Channel | u
     };
 
     const apply = (event: NostrEvent) => {
+      const group = groups.get(event.pubkey);
+      if (!group) return;
       try {
         const opened = openWrap(event, group);
         if (opened.kind !== KIND_TYPING) return;
@@ -73,14 +83,14 @@ export function useTyping(community: Community | undefined, channel: Channel | u
     };
 
     // One shared 21059 REQ per relay across channels (see `ephemeralSub.ts`).
-    const unsubs = community.relays.map((url) => subscribeEphemeral(nostr, url, currentPk, apply));
+    const unsubs = community.relays.flatMap((url) => [...groups.keys()].map((pk) => subscribeEphemeral(nostr, url, pk, apply)));
 
     return () => {
       for (const unsub of unsubs) unsub();
       if (decay) clearTimeout(decay);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nostr, community?.idHex, channelIdHex, currentPk, user?.pubkey, enabled]);
+  }, [nostr, community?.idHex, channelIdHex, listenedSig, user?.pubkey, enabled]);
 
   return typers;
 }
@@ -91,9 +101,14 @@ export function useTypingPublisher(community: Community | undefined, channel: Ch
   const { user } = useCurrentUser();
   const enabled = useAppContext().config.dmTypingIndicators;
   const lastSent = useRef(0);
+  const { data: folded } = useControlFold(community);
+  const { history } = useGuestbook(folded?.rankedRoster ? community : undefined);
 
   return useCallback(() => {
     if (!enabled || !user || !community || !channel) return;
+    // Where a post would land; one who can't post there doesn't type there either.
+    const at = sendTarget(channel.current.group, KIND_TYPING, folded, community.id, channel.idHex, user.pubkey, history);
+    if (!at) return;
     const now = Date.now();
     if (now - lastSent.current < TYPING_THROTTLE_MS) return;
     lastSent.current = now;
@@ -103,12 +118,12 @@ export function useTypingPublisher(community: Community | undefined, channel: Ch
         const rumor = buildRumor({
           kind: KIND_TYPING,
           content: "",
-          tags: channelBindingTags(channel.idHex, channel.current.epoch),
+          tags: [...channelBindingTags(channel.idHex, channel.current.epoch), ...at.tags],
           pubkey: user.pubkey,
           ms: now,
         });
-        const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, user.signer);
-        const wrap = await wrapSeal(seal, channel.current.group, { ephemeral: true });
+        const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, at.group, user.signer);
+        const wrap = await wrapSeal(seal, at.group, { ephemeral: true });
         await Promise.allSettled(
           community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(6000) })),
         );
@@ -116,5 +131,5 @@ export function useTypingPublisher(community: Community | undefined, channel: Ch
         // best-effort; typing is ephemeral
       }
     })();
-  }, [nostr, user, community, channel, enabled]);
+  }, [nostr, user, community, channel, enabled, folded, history]);
 }

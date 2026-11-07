@@ -1,5 +1,7 @@
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Check,
   Folder,
   GitBranch,
@@ -9,10 +11,12 @@ import {
   History,
   ImagePlus,
   Info,
+  KeyRound,
   Loader2,
   Lock,
   Megaphone,
   MessageSquareText,
+  Volume2,
   MoreVertical,
   Pencil,
   Plug,
@@ -66,10 +70,11 @@ import {
   messageExpirationOf,
   publishTimerNotices,
 } from "@/concord/lib/disappearing";
-import { categoryKey, categoryNames, groupChannelsByCategory } from "@/concord/lib/channelCategory";
+import { categoryKey, withRankedCategories, categoryNames, groupChannelsByCategory } from "@/concord/lib/channelCategory";
 import {
   applyArrangement,
-  arrangementChanges,
+  arrangedBefore,
+  dropChanges,
   arrangementSettled,
   pendingFromPlan,
   planChannelDrop,
@@ -77,6 +82,7 @@ import {
 } from "@/concord/lib/channelArrangement";
 import { ChannelCategoryHeading } from "@/concord/components/ChannelCategoryHeading";
 import { CategoryNameDialog } from "@/concord/components/CategoryNameDialog";
+import { useRankedCategoryControls } from "@/concord/components/RankedCategoryControls";
 import { useChannelDrag, type ChannelDrop, type ChannelDropSlot } from "@/concord/hooks/useChannelDrag";
 import { useCommunityManagement } from "@/concord/hooks/useCommunityActions";
 import { useChannels, useControlFold } from "@/concord/hooks/useControlPlane";
@@ -111,6 +117,13 @@ import { parseGitRepositoryAddress } from "@/lib/gitActivity";
 import { AvatarInitial } from "@/components/AvatarInitial";
 
 type SettingsTab = "overview" | "channels" | "integrations" | "relays";
+
+/** What a Channel opens to (CORD-03 §2 `view`), as the new channel dialog offers it. */
+const CHANNEL_TYPES = [
+  { view: "chat", icon: Hash, label: { id: "newChannelDialog.viewText", defaultMessage: "Text" } },
+  { view: "voice", icon: Volume2, label: { id: "newChannelDialog.viewVoice", defaultMessage: "Voice" } },
+  { view: "forum", icon: MessageSquareText, label: { id: "newChannelDialog.viewForum", defaultMessage: "Forum" } },
+] as const;
 
 const tabLabels = defineMessages({
   overview: { id: "communitySettingsView.tab.overview", defaultMessage: "Overview" },
@@ -914,29 +927,40 @@ function ChannelsSection({
 }) {
   const intl = useIntl();
   const channels = useChannels(community);
-  const { renameChannel, isRenaming, setChannelCategory, isFiling, setChannelView, deleteChannel, createChannel, isAddingChannel, arrangeChannels } =
+  const { renameChannel, isRenaming, setChannelCategory, isFiling, setChannelView, deleteChannel, createChannel, isAddingChannel, arrangeChannels, nameCategory } =
     useCommunityManagement(community);
+  const rankedControls = useRankedCategoryControls(community, canManage);
 
   // Dropped as soon as the fold agrees, so others' later changes aren't masked (channelArrangement.ts).
   const [pendingArrangement, setPendingArrangement] = useState<PendingArrangement | null>(null);
+  /** On the vsk-13 Roster a drop names Categories by id (CORD-03 §4); this reads one back. */
+  const rankedNames = useMemo(
+    () => {
+      if (!rankedControls.ranked) return undefined;
+      const names = new Map(rankedControls.categories.map((c) => [c.idHex, c.name || c.idHex.slice(0, 8)]));
+      return (id: string) => names.get(id);
+    },
+    [rankedControls.ranked, rankedControls.categories],
+  );
   const arrangedChannels = useMemo(
-    () => applyArrangement(channels, pendingArrangement),
-    [channels, pendingArrangement],
+    () => applyArrangement(channels, pendingArrangement, rankedNames),
+    [channels, pendingArrangement, rankedNames],
   );
   useEffect(() => {
-    if (pendingArrangement && arrangementSettled(channels, pendingArrangement)) {
+    if (pendingArrangement && arrangementSettled(channels, pendingArrangement, Boolean(rankedNames))) {
       setPendingArrangement(null);
     }
-  }, [channels, pendingArrangement]);
+  }, [channels, pendingArrangement, rankedNames]);
 
-  const { uncategorized: uncategorizedChannels, categories: channelCategories } = useMemo(
-    () => groupChannelsByCategory(arrangedChannels, (c) => c.category),
-    [arrangedChannels],
-  );
+  const { uncategorized: uncategorizedChannels, categories: channelCategories } = useMemo(() => {
+    const grouped = groupChannelsByCategory(arrangedChannels, (c) => c.category);
+    // Every vsk-13 Category, an empty one included (CORD-03 §4).
+    return rankedControls.ranked ? { ...grouped, categories: withRankedCategories(grouped.categories, rankedControls.categories, () => true) } : grouped;
+  }, [arrangedChannels, rankedControls.ranked, rankedControls.categories]);
   // Offer existing names so "Voice" isn't retyped as "voice".
   const categoryPicklist = useMemo(
-    () => categoryNames(arrangedChannels, (c) => c.category),
-    [arrangedChannels],
+    () => (rankedControls.ranked ? rankedControls.categories.map((c) => c.name) : categoryNames(arrangedChannels, (c) => c.category)),
+    [arrangedChannels, rankedControls.ranked, rankedControls.categories],
   );
 
   // Drop indexes refer to THIS flattened order.
@@ -948,6 +972,16 @@ function ChannelsSection({
     () => new Map(renderedChannels.map((c, index) => [c.idHex, index])),
     [renderedChannels],
   );
+  /** Where a drop into an empty Category lands in the flattened order. */
+  const emptyIndexOf = useMemo(() => {
+    const out = new Map<string, number>();
+    let at = uncategorizedChannels.length;
+    for (const g of channelCategories) {
+      if (g.channels.length === 0) out.set(g.key, at);
+      at += g.channels.length;
+    }
+    return out;
+  }, [uncategorizedChannels, channelCategories]);
 
   const [collapsedCategories, setCollapsedCategories] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -962,8 +996,19 @@ function ChannelsSection({
   }, []);
 
   const [categoryPrompt, setCategoryPrompt] = useState<
-    { channels: readonly Channel[]; initial: string } | null
+    { channels: readonly Channel[]; initial: string; categoryId?: string } | null
   >(null);
+
+  const submitCategoryName = (prompt: { channels: readonly Channel[]; categoryId?: string }, name: string) => {
+    if (!rankedControls.ranked) return void refileCategory(prompt.channels, name);
+    void nameCategory({ channelIds: prompt.channels.map((c) => c.idHex), categoryId: prompt.categoryId, name }).catch((e: unknown) =>
+      toast({
+        title: t({ id: "rankedCategory.saveFailed", defaultMessage: "Couldn't save the category" }),
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      }),
+    );
+  };
 
   const refileCategory = useCallback(
     async (members: readonly Channel[], category: string | undefined) => {
@@ -1015,11 +1060,18 @@ function ChannelsSection({
     const root = channelScrollRef.current;
     if (!root) return [];
     const out: ChannelDropSlot[] = [];
+    let rows = 0;
     for (const el of root.querySelectorAll<HTMLElement>("[data-ch-slot]")) {
       const index = Number(el.dataset.chIndex);
       if (!Number.isInteger(index)) continue;
       const category = el.dataset.chCategory || undefined;
       const rect = el.getBoundingClientRect();
+      // An empty Category is one slot, at its place in the list.
+      if (el.dataset.chEmpty !== undefined) {
+        out.push({ index, category, y: rect.top + rect.height / 2 });
+        continue;
+      }
+      rows++;
       out.push({ index, category, y: rect.top });
       out.push({ index: index + 1, category, y: rect.bottom });
     }
@@ -1027,7 +1079,7 @@ function ChannelsSection({
     if (zone) {
       const rect = zone.getBoundingClientRect();
       out.push({
-        index: out.length / 2,
+        index: rows,
         category: undefined,
         y: rect.top + rect.height / 2,
         newCategory: true,
@@ -1044,13 +1096,9 @@ function ChannelsSection({
         setCategoryPrompt({ channels: [source], initial: "" });
         return;
       }
-      const before = renderedChannels.map((c) => ({
-        idHex: c.idHex,
-        position: c.position,
-        category: c.category,
-      }));
+      const before = arrangedBefore(renderedChannels, Boolean(rankedNames));
       const plan = planChannelDrop(before, sourceIdHex, drop.index, drop.category);
-      const changes = arrangementChanges(before, plan);
+      const changes = dropChanges(before, plan, sourceIdHex, Boolean(rankedNames));
       if (changes.length === 0) return;
       setPendingArrangement(pendingFromPlan(plan));
       void arrangeChannels(changes).catch((e: unknown) => {
@@ -1063,7 +1111,7 @@ function ChannelsSection({
         });
       });
     },
-    [renderedChannels, arrangeChannels],
+    [renderedChannels, arrangeChannels, rankedNames],
   );
 
   const channelDrag = useChannelDrag({
@@ -1085,7 +1133,7 @@ function ChannelsSection({
         key={ch.idHex}
         data-ch-slot
         data-ch-index={index}
-        data-ch-category={ch.category ?? ""}
+        data-ch-category={(rankedNames ? ch.categoryId : ch.category) ?? ""}
         onPointerDown={channelDrag.onPointerDown(ch.idHex)}
         // Otherwise Chrome claims a touch drag as a pan and cancels it (usePressDrag.ts).
         className={cn("relative", canManage && "touch-none")}
@@ -1105,6 +1153,8 @@ function ChannelsSection({
             onSetCategory={(category) => setChannelCategory({ channelIdHex: ch.idHex, category })}
             onSetView={canManage ? (view) => setChannelView({ channelIdHex: ch.idHex, view }) : undefined}
             onNewCategory={() => setCategoryPrompt({ channels: [ch], initial: "" })}
+            onPermissions={rankedControls.openChannelPermissions ? () => rankedControls.openChannelPermissions?.(ch) : undefined}
+            ranked={rankedControls.ranked}
             onDelete={
               canManage && channels.length > 1
                 ? async () => {
@@ -1169,18 +1219,22 @@ function ChannelsSection({
                 highlight={
                   channelDrag.dragging &&
                   !channelDrag.target?.newCategory &&
-                  channelDrag.target?.category === group.name
+                  channelDrag.target?.category === (rankedNames ? group.key : group.name)
                 }
                 onRename={
                   canManage
-                    ? () => setCategoryPrompt({ channels: group.channels, initial: group.name })
+                    ? () => setCategoryPrompt({ channels: group.channels, initial: group.name, ...(rankedControls.ranked ? { categoryId: group.key } : {}) })
                     : undefined
                 }
                 onUngroup={
                   canManage ? () => void refileCategory(group.channels, undefined) : undefined
                 }
+                {...rankedControls.actionsFor(group.key, group.name)}
               />
               {!collapsed && group.channels.map(renderChannelRow)}
+              {group.channels.length === 0 && canManage && channelDrag.dragging && (
+                <div data-ch-slot data-ch-empty data-ch-index={emptyIndexOf.get(group.key) ?? 0} data-ch-category={group.key} className="h-6" />
+              )}
             </div>
           );
         })}
@@ -1266,8 +1320,120 @@ function ChannelsSection({
         initial={categoryPrompt?.initial ?? ""}
         count={categoryPrompt?.channels.length ?? 0}
         onOpenChange={(next) => !next && setCategoryPrompt(null)}
-        onSubmit={(name) => categoryPrompt && void refileCategory(categoryPrompt.channels, name)}
+        onSubmit={(name) => categoryPrompt && submitCategoryName(categoryPrompt, name)}
+        ranked={rankedControls.ranked}
       />
+      {rankedControls.ranked && (canManage || rankedControls.openCategoryPermissions) && (
+        <RankedCategoryList
+          controls={rankedControls}
+          canManage={canManage}
+          onCreate={() => setCategoryPrompt({ channels: [], initial: "" })}
+          onRename={(idHex, name) => setCategoryPrompt({ channels: [], initial: name, categoryId: idHex })}
+        />
+      )}
+      {rankedControls.dialog}
+    </div>
+  );
+}
+
+/** Every vsk-13 Category, empty ones included (CORD-03 §4), with its actions. */
+function RankedCategoryList({
+  controls,
+  canManage,
+  onCreate,
+  onRename,
+}: {
+  controls: ReturnType<typeof useRankedCategoryControls>;
+  canManage: boolean;
+  onCreate: () => void;
+  onRename: (idHex: string, name: string) => void;
+}) {
+  const intl = useIntl();
+  return (
+    <div className="space-y-1.5 pt-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <FormattedMessage id="communitySettingsView.categories.title" defaultMessage="Categories" />
+        </span>
+        {canManage && (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="size-6 touch:size-11 shrink-0 text-muted-foreground"
+            aria-label={intl.formatMessage({ id: "communitySettingsView.categories.add", defaultMessage: "Add category" })}
+            onClick={onCreate}
+          >
+            <Plus className="size-3.5" />
+          </Button>
+        )}
+      </div>
+      <div className="space-y-0.5 rounded-lg bg-secondary/40 p-1">
+        {controls.categories.length === 0 ? (
+          <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+            <FormattedMessage id="communitySettingsView.categories.empty" defaultMessage="No categories yet." />
+          </p>
+        ) : (
+          controls.categories.map((c) => {
+            const name = c.name || c.idHex.slice(0, 8);
+            const a = controls.actionsFor(c.idHex, name);
+            return (
+              <div key={c.idHex} className="flex items-center gap-1.5 rounded-md px-2 hover:bg-secondary/70">
+                <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate py-1.5 text-sm">{name}</span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="size-7 shrink-0 text-muted-foreground touch:size-11"
+                      aria-label={intl.formatMessage({ id: "communitySettingsView.category.actions", defaultMessage: "Actions for {name}" }, { name })}
+                    >
+                      <MoreVertical className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    {canManage && (
+                      <DropdownMenuItem onSelect={() => onRename(c.idHex, c.name)}>
+                        <Pencil className="size-3.5" />
+                        <FormattedMessage id="channelCategoryHeading.rename" defaultMessage="Rename category" />
+                      </DropdownMenuItem>
+                    )}
+                    {a.onMoveUp && (
+                      <DropdownMenuItem onSelect={a.onMoveUp}>
+                        <ArrowUp className="size-3.5" />
+                        <FormattedMessage id="channelCategoryHeading.moveUp" defaultMessage="Move up" />
+                      </DropdownMenuItem>
+                    )}
+                    {a.onMoveDown && (
+                      <DropdownMenuItem onSelect={a.onMoveDown}>
+                        <ArrowDown className="size-3.5" />
+                        <FormattedMessage id="channelCategoryHeading.moveDown" defaultMessage="Move down" />
+                      </DropdownMenuItem>
+                    )}
+                    {a.onPermissions && (
+                      <DropdownMenuItem onSelect={a.onPermissions}>
+                        <KeyRound className="size-3.5" />
+                        <FormattedMessage id="channelPermissions.title" defaultMessage="Permissions" />
+                      </DropdownMenuItem>
+                    )}
+                    {a.onDelete && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={a.onDelete} className="text-destructive focus:text-destructive">
+                          <Trash2 className="size-3.5" />
+                          <FormattedMessage id="channelCategoryHeading.delete" defaultMessage="Delete category" />
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }
@@ -1281,6 +1447,8 @@ function ChannelRow({
   onSetCategory,
   onSetView,
   onNewCategory,
+  onPermissions,
+  ranked = false,
   onDelete,
   accessRoles,
   onPrivatise,
@@ -1296,6 +1464,10 @@ function ChannelRow({
   /** Flip what the channel opens to — forum feed or chat (CORD-03 §2 `view`). */
   onSetView?: (view: ChannelView) => Promise<void>;
   onNewCategory: () => void;
+  /** The vsk-13 permissions dialog (CORD-04 §8); undefined without MANAGE_ROLES or on the legacy Roster. */
+  onPermissions?: () => void;
+  /** On the vsk-13 Roster access is the Channel's permissions (CORD-04 §8), not a scoped Role. */
+  ranked?: boolean;
   onDelete?: () => void;
   /** The Roles scoped to this channel — who may read it (CORD-03/04 §2). */
   accessRoles?: Array<{ id: string; name: string }>;
@@ -1367,7 +1539,8 @@ function ChannelRow({
     setEditing(false);
   };
 
-  const isForum = channel.view === "forum";
+  const currentView = channel.view ?? "chat";
+  const ViewIcon = CHANNEL_TYPES.find((c) => c.view === currentView)?.icon ?? Hash;
   const showAccessButton = canManage && Boolean(onPrivatise || (channel.isPrivate && onRotateKey));
   const row = (
     <div className="px-1">
@@ -1433,37 +1606,32 @@ function ChannelRow({
                   <FormattedMessage id="communitySettingsView.channel.rename" defaultMessage="Rename" />
                 </DropdownMenuItem>
                 {onSetView && (
-                  // Same channel id: history stays valid either way.
-                  <DropdownMenuItem
-                    disabled={busy}
-                    onSelect={() =>
-                      void run(async () => {
-                        await onSetView(isForum ? "chat" : "forum");
-                        toast({
-                          title: isForum
-                            ? t({ id: "communitySettingsView.channel.opensAsChat", defaultMessage: "Opens as chat now" })
-                            : t({ id: "communitySettingsView.channel.opensAsForum", defaultMessage: "Opens as a forum now" }),
-                          description: isForum
-                            ? t(
-                              { id: "communitySettingsView.channel.opensAsChatDescription", defaultMessage: "#{name} shows the live timeline first." },
-                              { name: channel.name },
-                            )
-                            : t(
-                              {
-                                id: "communitySettingsView.channel.opensAsForumDescription",
-                                defaultMessage: "#{name} lists titled posts first; live chat stays a tap away.",
-                              },
-                              { name: channel.name },
-                            ),
-                        });
-                      }, t({ id: "communitySettingsView.channel.setViewFailed", defaultMessage: "Couldn't change how the channel opens" }))
-                    }
-                  >
-                    {isForum ? <Hash className="size-3.5" /> : <MessageSquareText className="size-3.5" />}
-                    {isForum
-                      ? <FormattedMessage id="communitySettingsView.channel.openAsChat" defaultMessage="Open as chat" />
-                      : <FormattedMessage id="communitySettingsView.channel.openAsForum" defaultMessage="Open as forum" />}
-                  </DropdownMenuItem>
+                  // Same channel id: history stays valid whatever it opens as.
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="gap-2">
+                      <ViewIcon className="size-3.5" />
+                      <FormattedMessage id="communitySettingsView.channel.type" defaultMessage="Type" />
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-44">
+                      {CHANNEL_TYPES.map(({ view, icon: Icon, label }) => (
+                        <DropdownMenuItem
+                          key={view}
+                          disabled={busy || view === currentView}
+                          onSelect={() =>
+                            void run(async () => {
+                              await onSetView(view);
+                              toast({
+                                title: t({ id: "communitySettingsView.channel.typeChanged", defaultMessage: "#{name} is now a {type, select, voice {voice} forum {forum} other {text}} channel" }, { name: channel.name, type: view }),
+                              });
+                            }, t({ id: "communitySettingsView.channel.setViewFailed", defaultMessage: "Couldn't change how the channel opens" }))
+                          }
+                        >
+                          <Icon className="size-3.5" />
+                          {intl.formatMessage(label)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                 )}
                 {showAccessButton && (
                   <DropdownMenuItem onSelect={() => setAccessOpen((v) => !v)}>
@@ -1471,6 +1639,12 @@ function ChannelRow({
                     {channel.isPrivate
                       ? <FormattedMessage id="communitySettingsView.channel.access" defaultMessage="Channel access" />
                       : <FormattedMessage id="communitySettingsView.channel.makePrivateMenu" defaultMessage="Make private…" />}
+                  </DropdownMenuItem>
+                )}
+                {onPermissions && (
+                  <DropdownMenuItem onSelect={onPermissions}>
+                    <KeyRound className="size-3.5" />
+                    <FormattedMessage id="channelPermissions.title" defaultMessage="Permissions" />
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSub>
@@ -1531,7 +1705,22 @@ function ChannelRow({
 
     {accessOpen && (
       <div className="mb-1 ml-5 mt-1 space-y-1.5 rounded-lg bg-secondary/40 p-2.5">
-        {channel.isPrivate ? (
+        {channel.isPrivate && ranked ? (
+          <>
+            <p className="text-xs text-muted-foreground">
+              <FormattedMessage
+                id="communitySettingsView.access.rankedPrivate"
+                defaultMessage="Who can read this channel is set by its permissions: allow View channel for a role or a member. Keys follow the change."
+              />
+            </p>
+            {onPermissions && (
+              <Button type="button" size="sm" variant="secondary" className="clip-corner-lg" onClick={onPermissions}>
+                <KeyRound className="size-3.5 mr-1.5" />
+                <FormattedMessage id="channelPermissions.title" defaultMessage="Permissions" />
+              </Button>
+            )}
+          </>
+        ) : channel.isPrivate ? (
           <>
             {/* CORD-03/04 §2: access is edited by granting channel-scoped Roles, not here. */}
             <p className="text-xs text-muted-foreground">
@@ -1607,7 +1796,7 @@ function ChannelRow({
             <p className="text-xs text-muted-foreground">
               <FormattedMessage id="communitySettingsView.access.public" defaultMessage="Readable by every member. A public channel's key comes from the community root." />
             </p>
-            {onPrivatise && (
+            {onPrivatise && !ranked && (
               <Input
                 value={roleDraft}
                 onChange={(e) => setRoleDraft(e.target.value)}
@@ -1668,7 +1857,14 @@ function ChannelRow({
                 defaultMessage: "Mint a fresh key for exactly the members entitled today. Anyone else loses access from here on.",
               })}
               onClick={() => {
-                if (!confirm(t(
+                if (!confirm(ranked ? t(
+                  {
+                    id: "communitySettingsView.access.confirmRotateRanked",
+                    defaultMessage:
+                      "Rotate #{name}'s key?\n\nIt gets a fresh key delivered only to members its permissions let in right now. Anyone else, including someone who kept a key from an earlier setting, loses access to what's said next.",
+                  },
+                  { name: channel.name },
+                ) : t(
                   {
                     id: "communitySettingsView.access.confirmRotate",
                     defaultMessage:

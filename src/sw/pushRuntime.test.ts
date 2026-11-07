@@ -245,6 +245,30 @@ describe("openConcord", () => {
     expect(prepared?.drop).toBe(true);
   });
 
+  it("judges what's dated ahead by the relays' clock the page synced (CORD-03 §3)", async () => {
+    const prepared = await preparePush({
+      scope: "c2",
+      event: streamWrap(chatRumor({ created_at: now() + 3600 })),
+    }, {
+      policy: "generic",
+      self: getPublicKey(generateSecretKey()),
+      knownPeers: [],
+      concord: [{ ...stream, clockOffsetMs: 3_600_000 }],
+    });
+    expect(prepared?.drop).not.toBe(true);
+  });
+
+  it("names a Community sender by the Nickname they go by there (CORD-04 §10)", async () => {
+    const event = streamWrap(chatRumor({ created_at: now() }));
+    const prepared = await preparePush({ scope: "c2", event }, {
+      policy: "generic",
+      self: getPublicKey(generateSecretKey()),
+      knownPeers: [],
+      concord: [{ ...stream, nicknames: { [authorPk]: "Captain" } }],
+    });
+    expect(JSON.stringify(prepared)).toContain("Captain");
+  });
+
   it("announces a message within the future grace window", async () => {
     const prepared = await preparePush({
       scope: "c2",
@@ -797,6 +821,11 @@ describe("preparePush — showing nothing on purpose", () => {
     );
     expect(authorized?.drop).not.toBe(true);
     expect(authorized?.roomKey).toBe(`c2:${CHANNEL}`);
+    const anyoneConfig: SwPushConfig = {
+      ...config,
+      concord: config.concord?.map((stream) => ({ ...stream, mentionEveryoneAnyone: true })),
+    };
+    expect((await preparePush({ scope: "c2", event: massMention as never }, anyoneConfig))?.drop, "@everyone may mention everyone").not.toBe(true);
   });
 
   it("drops a banned member's Concord message but still stores it", async () => {
@@ -847,6 +876,29 @@ describe("preparePush — showing nothing on purpose", () => {
     // still has to be there for that surface.
     const rows = await queryChannelRumors(COMMUNITY, CHANNEL, { limit: 10 });
     expect(rows.map((r) => r.content)).toContain("message from a banned member");
+  });
+
+  it("rings only the owner's and managers' posts at a restricted Channel's read address (CORD-03 §1 Held posts)", async () => {
+    const CHANNEL = "5a".repeat(32);
+    const COMMUNITY = "7a".repeat(32);
+    const streamSk = generateSecretKey();
+    const streamPk = getPublicKey(streamSk);
+    const convKey = getConversationKey(streamSk, streamPk);
+    const wrapFrom = (authorSk: Uint8Array, kind: number, content: string) => {
+      const rumor = { pubkey: getPublicKey(authorSk), kind, content, tags: [["channel", CHANNEL], ["epoch", "1"]], created_at: now() };
+      const withId = { ...rumor, id: getEventHash(rumor as Parameters<typeof getEventHash>[0]) };
+      const sealed = finalizeEvent({ kind: 20013, content: nip44Encrypt(JSON.stringify(withId), convKey), tags: [], created_at: rumor.created_at }, authorSk);
+      return finalizeEvent({ kind: 1059, content: nip44Encrypt(JSON.stringify(sealed), convKey), tags: [["p", getPublicKey(generateSecretKey())]], created_at: now() }, streamSk);
+    };
+    const [stranger, manager] = [generateSecretKey(), generateSecretKey()];
+    const config = {
+      policy: "generic" as const,
+      self: getPublicKey(generateSecretKey()),
+      knownPeers: [],
+      concord: [{ pk: streamPk, convKey: bytesToHex(convKey), epoch: "1", communityId: COMMUNITY, channelId: CHANNEL, postAuthors: [getPublicKey(manager)] }],
+    };
+    expect((await preparePush({ scope: "c2", event: wrapFrom(stranger, 9, "spam") as never }, config))?.drop).toBe(true);
+    expect((await preparePush({ scope: "c2", event: wrapFrom(manager, 9, "news") as never }, config))?.drop).not.toBe(true);
   });
 
   it("drops a Concord message sent before this membership began", async () => {

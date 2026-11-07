@@ -2,7 +2,7 @@
  * Concord Rekeys & Refoundings — CORD-06.
  *
  * A rotation mints a fresh key at the next epoch and delivers per-recipient
- * blobs (kind 3303, ≤120 per event, chunked) at an address derived from the
+ * blobs (kind 3303, ≤80 per event or 60 for a base rotation, chunked) at an address derived from the
  * PRIOR secret; a removed member finding no blob across ALL chunks knows they're out.
  *
  * Blob plaintext is fixed-width per form (CORD-06 §1), NIP-44 under the
@@ -15,6 +15,8 @@
  * base64 inside the plaintext (unpinned by the spec — flagged as feedback).
  */
 
+import { hadRepeatedKeys, parseStrictValue } from "@/concord/lib/strictJson";
+import { uniqueTag } from "@/concord/lib/strictJson";
 import { bytesToHex, channelRekeyGroupKey, controlSignerGroupKey, epochKeyCommitment, random32, recipientLocator } from "@/concord/lib/derive";
 import { KIND_REKEY, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import { citationFromTags, citationToTag, isTagDecimal, type AuthorityCitation } from "@/concord/lib/edition";
@@ -22,18 +24,20 @@ import { buildRumor, type OpenedEvent } from "@/concord/lib/stream";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { readFolded, writeFolded } from "@/lib/foldedCache";
 
-/** Per-recipient blobs per rekey event (CORD-06 §1). */
-export const REKEY_BLOBS_PER_EVENT = 120;
+/** Per-recipient blobs per Channel rekey event (CORD-06 §1). */
+export const REKEY_BLOBS_PER_EVENT = 80;
+
+/** Per-recipient blobs per base rekey event, whose blobs are wider (CORD-06 §1). */
+export const REKEY_BASE_BLOBS_PER_EVENT = 60;
 
 /**
- * Byte ceiling on one rekey rumor's JSON, alongside the 120-blob count cap.
- * Base blobs are wider, and 120 of them pushed the wrap's NIP-44 plaintext past
- * 65,535 bytes. 40,960 is the top of the NIP-44 padding bucket that still wraps
- * (76,965-byte event); one byte more and the wrap refuses. Capacity: 126 blobs
- * at 72 bytes (count cap still binds), 99 at 104, 90 at 136. Finer chunking is
- * always wire-legal (see {@link parseRekey}).
+ * Byte ceiling on one rekey rumor's JSON, alongside the count caps. 28,672 is
+ * the top of the NIP-44 padding bucket whose seal and wrap still serialize
+ * under the 64 KB relay event limit (CORD-02 Appendix B), about 55 KB, so the
+ * count caps bind for every real blob width. Finer chunking is always
+ * wire-legal (see {@link parseRekey}).
  */
-export const REKEY_RUMOR_MAX_BYTES = 40_960;
+export const REKEY_RUMOR_MAX_BYTES = 28_672;
 
 /**
  * How many channel epochs past the held one to watch. Watching only `held + 1`
@@ -196,6 +200,7 @@ export function buildRekeyRumors(
     buildRumor({ kind: KIND_REKEY, content: "", tags: tagsFor(widest, widest), pubkey: rotatorPubkey, ms }),
   ));
   const budget = REKEY_RUMOR_MAX_BYTES - envelope;
+  const perEvent = rotation.scope.kind === "root" ? REKEY_BASE_BLOBS_PER_EVENT : REKEY_BLOBS_PER_EVENT;
 
   const chunks: RekeyBlob[][] = [];
   let current: RekeyBlob[] = [];
@@ -203,7 +208,7 @@ export function buildRekeyRumors(
   for (const blob of blobs) {
     const cost = escapedJsonLen(blob);
     // `+ 1` for the comma. A lone over-budget blob is kept (blobs are indivisible).
-    if (current.length > 0 && (current.length >= REKEY_BLOBS_PER_EVENT || used + 1 + cost > budget)) {
+    if (current.length > 0 && (current.length >= perEvent || used + 1 + cost > budget)) {
       chunks.push(current);
       current = [];
       used = 2;
@@ -249,73 +254,83 @@ export interface ParsedRekey {
   blobs: RekeyBlob[];
   /** ms of the rumor (ordering / correlation aid). */
   ms: number;
+  /** A Severing Refounding's mark (CORD-06 §3), base scope only. */
+  severed: boolean;
   /** The CORD-04 §5 citation the rotator acts under (absent when the owner acts). */
   authority?: AuthorityCitation;
 }
 
-/** Parse an opened rekey stream event into its rotation fields. */
+/** The most blobs a reader takes in one 3303 (CORD-06 §1): above the send caps, so a spec-limit chunk still parses. */
+export const MAX_REKEY_BLOBS_RECEIVED = 120;
+
+export { uniqueTag };
+
+/** A 3303's blob array, read as serde reads `Vec<RekeyBlob>`, or undefined. */
+export function parseRekeyBlobs(content: string): RekeyBlob[] | undefined {
+  // As serde reads a `Vec<RekeyBlob>`: a lone surrogate, or a field given twice, refuses it.
+  const parsed = parseStrictValue(content);
+  if (!Array.isArray(parsed) || parsed.length > MAX_REKEY_BLOBS_RECEIVED) return undefined;
+  const ok = parsed.every((b) => b && typeof b === "object" && !Array.isArray(b) && !hadRepeatedKeys(b) && typeof b.locator === "string" && typeof b.wrapped === "string");
+  return ok ? (parsed as RekeyBlob[]).map((b) => ({ locator: b.locator, wrapped: b.wrapped })) : undefined;
+}
+
+/** Parse an opened rekey stream event into its rotation fields (Vector's `parse_rekey_chunk`). */
 export function parseRekey(opened: OpenedEvent): ParsedRekey {
   if (opened.kind !== KIND_REKEY) throw new Error("not a rekey rumor");
   // Checked while the seal form is known; stored rumors passed this at ingest (see parseEdition).
   if (opened.sealKind !== undefined && opened.sealKind !== KIND_SEAL_ENCRYPTED) {
     throw new Error("rekey seals must be encrypted (CORD-02 §5)");
   }
-  const get = (name: string) => opened.tags.find((t) => t[0] === name);
-  const scope = get("scope")?.[1];
-  const newEpoch = get("newepoch")?.[1];
-  const prevEpoch = get("prevepoch")?.[1];
-  const prevCommit = get("prevcommit")?.[1];
-  const chunk = get("chunk");
+  const scope = uniqueTag(opened.tags, "scope");
+  const newEpoch = uniqueTag(opened.tags, "newepoch");
+  const prevEpoch = uniqueTag(opened.tags, "prevepoch");
+  const prevCommit = uniqueTag(opened.tags, "prevcommit");
+  const sever = uniqueTag(opened.tags, "sever");
+  const chunks = opened.tags.filter((t) => t.length >= 3 && t[0] === "chunk");
   if (!scope || !/^[0-9a-f]{64}$/i.test(scope)) throw new Error("bad scope tag");
-  if (!isTagDecimal(newEpoch)) throw new Error("bad newepoch tag");
-  if (!isTagDecimal(prevEpoch)) throw new Error("bad prevepoch tag");
+  if (!isTagDecimal(newEpoch ?? undefined)) throw new Error("bad newepoch tag");
+  if (!isTagDecimal(prevEpoch ?? undefined)) throw new Error("bad prevepoch tag");
+  if (BigInt(newEpoch!) <= BigInt(prevEpoch!)) throw new Error("newepoch must exceed prevepoch");
   if (!prevCommit || !/^[0-9a-f]{64}$/i.test(prevCommit)) throw new Error("bad prevcommit tag");
   // Strict decimals, not `Number()` ("1e2", "0x2", " 2 " would be accepted).
-  if (chunk && (!isTagDecimal(chunk[1]) || !isTagDecimal(chunk[2]))) throw new Error("bad chunk tag");
-  const chunkIndex = chunk ? Number(chunk[1]) : 1;
-  const chunkCount = chunk ? Number(chunk[2]) : 1;
-  if (chunkIndex < 1 || chunkCount < 1 || chunkIndex > chunkCount) {
+  if (chunks.length !== 1 || !isTagDecimal(chunks[0][1]) || !isTagDecimal(chunks[0][2])) throw new Error("bad chunk tag");
+  const chunkIndex = Number(chunks[0][1]);
+  const chunkCount = Number(chunks[0][2]);
+  if (chunkIndex < 1 || chunkCount < 1 || chunkIndex > chunkCount || chunkCount > 0xffffffff) {
     throw new Error("bad chunk tag");
   }
-  let blobs: RekeyBlob[];
-  try {
-    const parsed = JSON.parse(opened.content) as RekeyBlob[];
-    blobs = Array.isArray(parsed)
-      ? parsed.filter((b) => b && typeof b.locator === "string" && typeof b.wrapped === "string")
-      : [];
-  } catch {
-    throw new Error("bad rekey content");
-  }
+  // CORD-06 §3: present means exactly "1"; any other value, or twice, is malformed.
+  if (sever === null || (sever !== undefined && sever !== "1")) throw new Error("bad sever tag");
+  const blobs = parseRekeyBlobs(opened.content);
+  if (!blobs) throw new Error("bad rekey content");
   return {
     rotator: opened.author,
     scopeIdHex: scope.toLowerCase(),
-    newEpoch: BigInt(newEpoch),
-    prevEpoch: BigInt(prevEpoch),
+    newEpoch: BigInt(newEpoch!),
+    prevEpoch: BigInt(prevEpoch!),
     prevCommit: prevCommit.toLowerCase(),
     chunkIndex,
     chunkCount,
     blobs,
     ms: opened.ms,
+    severed: sever === "1",
     authority: citationFromTags(opened.tags),
   };
 }
 
-/**
- * Group parsed rekey chunks into complete rotations. Chunks correlate by
- * (rotator, scope, newepoch, prevcommit) so two Rotators concurrently rekeying
- * the same epoch never merge into one set (CORD-06 §2). A rotation is COMPLETE
- * only when all `n` chunks are held — a missing chunk is never a removal.
- */
 export interface RekeyRotationSet {
   rotator: string;
   scopeIdHex: string;
   newEpoch: bigint;
   prevEpoch: bigint;
   prevCommit: string;
+  /** The largest `n` any chunk declares: an extension raises it (CORD-06 §1). */
   chunkCount: number;
-  /** chunkIndex → chunk. */
-  chunks: Map<number, ParsedRekey>;
+  /** chunkIndex → every chunk claiming it; their blobs union. */
+  chunks: Map<number, ParsedRekey[]>;
   complete: boolean;
+  /** Any chunk marked it a Severing Refounding (CORD-06 §3), so an unmarked chunk can't launder the mark away. */
+  severed: boolean;
   /**
    * Authority citation from the first chunk. All chunks must carry identical
    * authority (CORD-06 §2); a disagreeing chunk means distrust the set.
@@ -340,14 +355,23 @@ export function groupRotations(parsed: ParsedRekey[]): RekeyRotationSet[] {
           chunkCount: p.chunkCount,
           chunks: new Map(),
           complete: false,
+          severed: false,
           authority: p.authority,
         }),
       );
     }
-    if (p.chunkCount === set.chunkCount) set.chunks.set(p.chunkIndex, p);
+    // Extensions declare a larger total; a second chunk at a held index unions its
+    // blobs, since dropping one would read its recipients as removed (Vector `collect_rotations`).
+    set.chunkCount = Math.max(set.chunkCount, p.chunkCount);
+    const at = set.chunks.get(p.chunkIndex);
+    if (at) at.push(p);
+    else set.chunks.set(p.chunkIndex, [p]);
+    if (p.severed && p.scopeIdHex === ZERO32_HEX) set.severed = true;
   }
   for (const set of byKey.values()) {
-    set.complete = set.chunks.size >= set.chunkCount;
+    let complete = set.chunkCount >= 1;
+    for (let i = 1; i <= set.chunkCount && complete; i++) complete = set.chunks.has(i);
+    set.complete = complete;
   }
   return [...byKey.values()];
 }
@@ -370,21 +394,24 @@ export function checkContinuity(set: { prevEpoch: bigint; prevCommit: string }, 
 
 /** Find my blob across a complete rotation's chunks by my locator. */
 export function findBlob(set: RekeyRotationSet, locatorHex: string): RekeyBlob | undefined {
-  for (const chunk of set.chunks.values()) {
-    const hit = chunk.blobs.find((b) => b.locator === locatorHex);
-    if (hit) return hit;
+  for (const list of set.chunks.values()) {
+    for (const chunk of list) {
+      const hit = chunk.blobs.find((b) => b.locator === locatorHex);
+      if (hit) return hit;
+    }
   }
   return undefined;
 }
 
 /**
- * When this rotation published (newest chunk ms). A rotation predating a
+ * When this rotation was sent: its earliest chunk's time (Vector's `at_ms`), so a
+ * later extension can't date it past a member's join. A rotation predating a
  * member's join isn't an exclusion.
  */
 export function rotationPublishedAtMs(set: RekeyRotationSet): number {
-  let newest = 0;
-  for (const chunk of set.chunks.values()) if (chunk.ms > newest) newest = chunk.ms;
-  return newest;
+  let earliest = Infinity;
+  for (const list of set.chunks.values()) for (const chunk of list) if (chunk.ms < earliest) earliest = chunk.ms;
+  return Number.isFinite(earliest) ? earliest : 0;
 }
 
 /**

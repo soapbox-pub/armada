@@ -12,6 +12,7 @@ import {
   buildRoleEdition,
   buildSignalsEdition,
   foldControlState,
+  storedControlOf,
   isCurrentFoldedControl,
   type FoldedChannel,
   type FoldedControl,
@@ -404,12 +405,9 @@ describe("control plane fold (CORD-04)", () => {
     expect(badgeOf(folded.roster, alice.pubkey), "and so does the grant it made").toBe("moderator");
   });
 
-  it("drops an UNCITED role or grant from a non-owner (CORD-04 §5)", async () => {
-    // Roles and Grants are authority actions like any other, so the delegation
-    // chain itself carries the sync floor. Without it a client whose roster is
-    // one sweep stale honors a promotion issued by an admin already stripped of
-    // MANAGE_ROLES — the fold would ask only "does this author resolve as
-    // authorized RIGHT NOW", which is precisely the stale-roster question.
+  it("seats an UNCITED role or grant from a non-owner that passes the rank gates (CORD-04 §5, Vector `judge`)", async () => {
+    // A citation is a sync floor, not the verdict: an uncited edition declared no
+    // floor to wait for, and the rank gates judge it all the same.
     const { owner, communityId, control } = await makeCommunity();
     const admin = signer();
     const alice = signer();
@@ -437,7 +435,7 @@ describe("control plane fold (CORD-04)", () => {
             control,
             admin,
           ),
-          // UNCITED, same author, same authority — dropped on the citation alone.
+          // UNCITED, same author, same authority — seated on the rank gates alone.
           await sealEdition(buildRoleEdition(uncitedRole, { actorPubkey: admin.pubkey, version: 1n }), control, admin),
           await sealEdition(
             buildGrantEdition(communityId, { member: bob.pubkey, roleIds: [mrole.roleId] }, { actorPubkey: admin.pubkey, version: 1n }),
@@ -452,11 +450,11 @@ describe("control plane fold (CORD-04)", () => {
     );
 
     expect(badgeOf(folded.roster, alice.pubkey), "the cited grant lands").toBe("moderator");
-    expect(badgeOf(folded.roster, bob.pubkey), "the uncited grant is dropped").toBeUndefined();
+    expect(badgeOf(folded.roster, bob.pubkey), "the uncited grant lands too").toBe("moderator");
     expect(
       folded.roster.roles.some((r) => r.roleId === uncitedRole.roleId),
-      "and the uncited role never reaches the roster",
-    ).toBe(false);
+      "and so does the uncited role",
+    ).toBe(true);
   });
 
   it("a moderator (no MANAGE_ROLES) cannot grant roles", async () => {
@@ -927,7 +925,8 @@ describe("control plane fold (CORD-04)", () => {
     expect(folded.banned.has(admin.pubkey)).toBe(true);
     // The banned admin's metadata edition is dropped on the re-fold.
     expect(folded.metadata?.name).toBeUndefined();
-    expect(isAdmin(folded.roster, admin.pubkey)).toBe(true); // still roled (owner didn't strip), but silenced
+    // A Grant to a banned member confers nothing, unstripped or not (Vector `select_authorized`).
+    expect(isAdmin(folded.roster, admin.pubkey)).toBe(false);
   });
 
   it("refuses a control edition carried in an ENCRYPTED seal (CORD-02 §5)", async () => {
@@ -1079,8 +1078,8 @@ describe("control plane fold (CORD-04)", () => {
     const folded = foldControlState(openControlWraps(wraps, [control]), communityId, owner.pubkey);
     expect(folded.banned.has(admin.pubkey)).toBe(false);
     expect(folded.banned.has(outsider.pubkey)).toBe(true); // honored in part
-    // Nor may the entry backdate-suppress them from the member list.
-    expect(folded.bannedAt.has(admin.pubkey)).toBe(false);
+    // Ban history counts every name an admissible edition carries, the owner aside (Vector `banned_at`).
+    expect(folded.bannedAt.has(admin.pubkey)).toBe(true);
   });
 
   it("a moderator cannot ban a peer moderator (equal does not act on equal)", async () => {
@@ -1125,11 +1124,14 @@ describe("control plane fold (CORD-04)", () => {
       ),
     );
 
-    const folded = foldControlState(openControlWraps(wraps, [control]), communityId, owner.pubkey);
+    const opened = openControlWraps(wraps, [control]);
+    // A reader that held them banned refuses their edition (CORD-04 §4, Vector `persisted_banned`).
+    const held = foldControlState(opened.filter((e) => e.version === 1n || e.vsk !== "4"), communityId, owner.pubkey);
+    const folded = foldControlState(opened, communityId, owner.pubkey, undefined, undefined, storedControlOf(held));
     expect(folded.banned.has(mod.pubkey)).toBe(true);
   });
 
-  it("a moderator's list does not lift a ban the owner issued on someone above them", async () => {
+  it("a moderator's list lifts a ban the owner issued on someone above them: removals aren't rank-checked (CORD-04 §2)", async () => {
     const { owner, communityId, control, admin, mod, modGrant, wraps } = await staffedCommunity();
     const outsider = signer();
     const v1 = await sealEdition(
@@ -1153,8 +1155,8 @@ describe("control plane fold (CORD-04)", () => {
     );
 
     const folded = foldControlState(openControlWraps(wraps, [control]), communityId, owner.pubkey);
-    expect(folded.banned.has(admin.pubkey)).toBe(true); // carried: outside the mod's reach
-    expect(folded.banned.has(outsider.pubkey)).toBe(true); // their own entry stands
+    expect(folded.banned.has(admin.pubkey)).toBe(false); // the head's list alone stands
+    expect(folded.banned.has(outsider.pubkey)).toBe(true);
   });
 
   it("the owner still lifts any ban, and a moderator lifts one they issued", async () => {

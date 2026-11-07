@@ -1,4 +1,5 @@
 import { CI_EVENT_KINDS } from "@/lib/ci";
+import type { HeldRoleMention } from "@/concord/lib/roleMentions";
 import { isGitAnnouncementDiscoveryRelay, normalizeRelayUrl } from "@/lib/platform";
 import { BUZZ_WIRE_KINDS } from "@/buzz/kinds";
 import { MAX_WRAP_BACKDATE_SECS } from "@/lib/nip17/protocol";
@@ -96,6 +97,16 @@ export interface WireInputs {
     communityIdHex: string;
     /** Community-level banned authors (CORD-04), carried per channel; suppresses notifications. */
     banned?: Set<string>;
+    /** The Roles the viewer holds, and who may ping any Role (CORD-04 §8). */
+    roleMentions?: HeldRoleMention[];
+    roleMentionAuthors?: Set<string>;
+    /** Authors whose posts readers collapse here (CORD-04 §8): no SEND in this open Channel, or a running Timeout. */
+    sendDenied?: Set<string>;
+    /** In a restricted Channel, the only authors whose posts ring (CORD-03 §1). */
+    postAuthors?: Set<string>;
+    timeouts?: { pk: string; fromSecs: number; until: number }[];
+    /** The Nicknames members go by in the Community (CORD-04 §10). */
+    nicknames?: Record<string, string>;
   }>;
   /**
    * Concord CONTROL planes, subscribed so new control editions (channels,
@@ -147,6 +158,12 @@ export interface WireSpec {
   concordCommunityByChannel: Map<string, string>;
   /** Concord community id hex → its folded set of banned authors, for notification suppression. */
   concordBannedByCommunity: Map<string, Set<string>>;
+  /** Concord community id hex → the Nicknames its members go by (CORD-04 §10). */
+  concordNicknamesByCommunity: Map<string, Record<string, string>>;
+  /** Concord channel id hex → whose posts there ring nobody (CORD-04 §8). */
+  concordSilenceByChannel: Map<string, { sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[] }>;
+  /** Concord community id hex → the Roles the viewer holds and who may ping any Role. */
+  concordRoleMentionsByCommunity: Map<string, { held: HeldRoleMention[]; authors: Set<string> }>;
   /** Concord CONTROL stream address (wrap author) → its community, for decrypt + fold wake. */
   concordCtlByPk: Map<string, { idHex: string; groups: StreamKeyView[]; refounded: boolean }>;
   /** Concord GUESTBOOK stream address (wrap author) → its community, for decrypt + membership wake. */
@@ -214,8 +231,14 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
   const concordByPk = new Map<string, Channel>();
   const concordCommunityByChannel = new Map<string, string>();
   const concordBannedByCommunity = new Map<string, Set<string>>();
+  const concordRoleMentionsByCommunity = new Map<string, { held: HeldRoleMention[]; authors: Set<string> }>();
+  const concordNicknamesByCommunity = new Map<string, Record<string, string>>();
+  const concordSilenceByChannel = new Map<string, { sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[] }>();
   const pksByRelay = new Map<string, Set<string>>();
-  for (const { relays, channel, communityIdHex, banned } of inputs.concord) {
+  for (const { relays, channel, communityIdHex, banned, roleMentions, roleMentionAuthors, sendDenied, postAuthors, timeouts, nicknames } of inputs.concord) {
+    if (nicknames && Object.keys(nicknames).length > 0) concordNicknamesByCommunity.set(communityIdHex, nicknames);
+    if (sendDenied?.size || postAuthors || timeouts?.length) concordSilenceByChannel.set(channel.idHex, { sendDenied, postAuthors, timeouts });
+    if (roleMentions?.length) concordRoleMentionsByCommunity.set(communityIdHex, { held: roleMentions, authors: roleMentionAuthors ?? new Set() });
     for (const s of channel.streams) concordByPk.set(s.group.pk, channel);
     concordCommunityByChannel.set(channel.idHex, communityIdHex);
     if (banned && banned.size > 0) concordBannedByCommunity.set(communityIdHex, banned);
@@ -339,5 +362,5 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
     .map(([relay, filters]) => ({ relay, filters }))
     .sort((a, b) => (a.relay < b.relay ? -1 : 1));
 
-  return { subs, concordByPk, concordCommunityByChannel, concordBannedByCommunity, concordCtlByPk, concordGbByPk, gitByRepository, gitRootById, gitRootAuthorById, sig: JSON.stringify(subs) };
+  return { subs, concordByPk, concordCommunityByChannel, concordBannedByCommunity, concordRoleMentionsByCommunity, concordSilenceByChannel, concordNicknamesByCommunity, concordCtlByPk, concordGbByPk, gitByRepository, gitRootById, gitRootAuthorById, sig: JSON.stringify(subs) };
 }

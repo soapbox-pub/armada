@@ -53,6 +53,12 @@ export async function scrubTimelineSnapshotsByAuthor(author: string): Promise<vo
   }));
 }
 
+/** Empty every viewer's snapshot of `channelIdHex` (a deleted Channel, CORD-03 §2). */
+export async function dropChannelSnapshots(channelIdHex: string): Promise<void> {
+  const keys = await listFoldedKeys(SNAP_PREFIX).catch(() => []);
+  await Promise.all(keys.filter((k) => k.endsWith(`:${channelIdHex}`)).map((k) => writeFolded(k, [] as OpenedChat[])));
+}
+
 const prewarmed = new Set<string>();
 /** Channels whose cache currently holds a snapshot seed no store read has replaced yet. */
 const seeded = new Set<string>();

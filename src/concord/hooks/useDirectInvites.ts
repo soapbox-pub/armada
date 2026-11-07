@@ -1,6 +1,7 @@
 import { useNostr } from "@nostrify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
+import { catchUpIsManual, catchUpVerdictsVersion, subscribeCatchUpVerdicts } from "@/concord/lib/catchUpVerdicts";
 
 import { assertNotBanned, assertNotBlocked, assertNotDissolved, bundleToEntry } from "@/concord/hooks/useCommunityActions";
 import { useCommunityList, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
@@ -198,7 +199,8 @@ export function dedupeParkedInvites(invites: ParkedInvite[]): ParkedInvite[] {
   const byKey = new Map<string, ParkedInvite>();
   for (const inv of invites) {
     const key = inv.catchUp
-      ? `${inv.communityId}|${(inv.bundle.channels ?? []).map((c) => c.id.toLowerCase()).sort().join(",")}`
+      ? // Per sender too: a newer copy from anyone must not bury the genuine vend.
+        `${inv.communityId}|${inv.sender}|${(inv.bundle.channels ?? []).map((c) => c.id.toLowerCase()).sort().join(",")}`
       : inv.communityId;
     const existing = byKey.get(key);
     if (
@@ -341,8 +343,10 @@ export interface InviteInboxItem {
 }
 
 export interface InviteInbox {
-  /** Invites from known senders, plus every catch-up. */
+  /** Invites from known senders, plus every catch-up waiting on a manual Accept. */
   items: InviteInboxItem[];
+  /** Every parked catch-up, listed or not, for the adopter to judge. */
+  catchUps: ParkedInvite[];
   /** Invites from senders the viewer doesn't know: listed, never badged or toasted. */
   requests: InviteInboxItem[];
   /** How many of `items` haven't been seen yet (drives the rail badge / toast). */
@@ -351,27 +355,33 @@ export interface InviteInbox {
 
 /**
  * Sort parked invites into the inbox and the request tier, newest first, by the
- * DM request rule. Muted senders' invites are dropped. A catch-up is always in
- * `items`: it is for a community already joined.
+ * DM request rule. Muted senders' invites are dropped. A catch-up is in `items`
+ * only once `manual` judges it a manual Accept: it is for a community already
+ * joined, and one adopted without a click is no invite to the member.
  */
 export function splitInviteInbox(
   invites: readonly ParkedInvite[],
   lastRead: number,
   isKnown: (pubkey: string) => boolean,
   muted: ReadonlySet<string>,
+  manual: (wrapId: string) => boolean = () => true,
 ): InviteInbox {
   const items: InviteInboxItem[] = [];
+  const catchUps: ParkedInvite[] = [];
   const requests: InviteInboxItem[] = [];
   const sorted = [...invites].sort((a, b) => b.receivedAt - a.receivedAt);
   for (const invite of sorted) {
     const item = { invite, unread: invite.receivedAt > lastRead };
-    if (invite.catchUp) items.push(item);
+    if (invite.catchUp) {
+      catchUps.push(invite);
+      if (manual(invite.wrapId)) items.push(item);
+    }
     else if (muted.has(invite.sender)) continue;
     else if (isKnown(invite.sender)) items.push(item);
     else requests.push(item);
   }
   const unreadCount = items.reduce((n, it) => n + (it.unread ? 1 : 0), 0);
-  return { items, requests, unreadCount };
+  return { items, requests, unreadCount, catchUps };
 }
 
 /**
@@ -384,15 +394,20 @@ export function useInviteInbox(): InviteInbox {
   const { getLastRead } = useReadState();
   const { isKnown, mutedPeers } = useKnownDmPeers();
   const isBlocked = useIsBlocked();
+  const verdicts = useSyncExternalStore(subscribeCatchUpVerdicts, catchUpVerdictsVersion);
 
   return useMemo(
-    () => splitInviteInbox(
-      (invites ?? []).filter((invite) => !isBlocked(invite.bundle.community_id)),
-      getLastRead(concordInviteReadKey()),
-      (pubkey) => isKnown(pubkey, false),
-      new Set(mutedPeers),
-    ),
-    [invites, getLastRead, isKnown, mutedPeers, isBlocked],
+    () => {
+      void verdicts;
+      return splitInviteInbox(
+        (invites ?? []).filter((invite) => !isBlocked(invite.bundle.community_id)),
+        getLastRead(concordInviteReadKey()),
+        (pubkey) => isKnown(pubkey, false),
+        new Set(mutedPeers),
+        catchUpIsManual,
+      );
+    },
+    [invites, getLastRead, isKnown, mutedPeers, isBlocked, verdicts],
   );
 }
 

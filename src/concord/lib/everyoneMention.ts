@@ -1,5 +1,5 @@
 import {
-  isAuthorizedIn,
+  isAuthorized,
   Permissions,
   type CommunityRoles,
 } from "@/concord/lib/roles";
@@ -7,7 +7,7 @@ import {
 /**
  * Concord reserves MENTION_EVERYONE as a permission bit but defines no Chat Plane
  * tag, so clients use the literal lowercase `@everyone` token (interop with
- * existing clients), authorized against the channel's role fold. Never matches
+ * existing clients), authorized server-wide as Vector's `is_authorized` is. Never matches
  * inside a word/email or a longer handle like `@everyone_else`.
  */
 export const EVERYONE_MENTION_PATTERN = /(^|[^\p{L}\p{N}_@])@everyone(?![\p{L}\p{N}_])/u;
@@ -16,20 +16,23 @@ export function hasEveryoneMention(content: string): boolean {
   return EVERYONE_MENTION_PATTERN.test(content);
 }
 
-/** Whether `author` may issue a mass mention in this exact channel. */
+/**
+ * Whether `author` may issue a mass mention: the owner, or MENTION_EVERYONE among
+ * `@everyone`'s bits and every Role held. The bit is not overwritable, so it holds
+ * in every channel (`channelIdHex` is kept for callers that judge per channel).
+ */
 export function canMentionEveryone(
   roles: CommunityRoles,
   ownerHex: string | undefined,
   author: string,
-  channelIdHex: string,
+  _channelIdHex?: string,
 ): boolean {
-  return isAuthorizedIn(
-    roles,
-    author,
-    ownerHex,
-    channelIdHex,
-    Permissions.MENTION_EVERYONE,
-  );
+  return isAuthorized(roles, author, ownerHex, Permissions.MENTION_EVERYONE);
+}
+
+/** Whether `@everyone` itself holds MENTION_EVERYONE, so any member's mass mention counts. */
+export function everyoneMayMention(roles: CommunityRoles): boolean {
+  return roles.everyone !== undefined && (roles.everyone & Permissions.MENTION_EVERYONE) !== 0n;
 }
 
 /** A literal mass mention whose author is authorized in its channel. */

@@ -1,9 +1,13 @@
+import { isRootKeyed } from "@/concord/lib/directInvite";
 import { useNostr } from "@nostrify/react";
+import { clockNowMs } from "@/lib/relayClock";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { removeCommunityLocally, useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
-import { useControlFold, citationFor, invalidateControl, markDissolvedLocally, probeCommunityDissolved, publishEdition } from "@/concord/hooks/useControlPlane";
+import { useControlFold, citationFor, foldStoredControl, invalidateControl, markDissolvedLocally, probeCommunityDissolved, publishEdition, withControlWrite } from "@/concord/hooks/useControlPlane";
+import type { FoldedControl } from "@/concord/lib/control";
+import { publishActivation } from "@/concord/hooks/useRankedRoles";
 import { useGuestbookPublisher } from "@/concord/hooks/useGuestbook";
 import { attemptGuestbookJoin, forgetGuestbookJoin, queueGuestbookJoin } from "@/concord/lib/pendingGuestbookJoin";
 import { useAppContext } from "@/hooks/useAppContext";
@@ -15,17 +19,23 @@ import { RESCUE_RELAYS } from "@/lib/platform";
 import { verifyEventOnce } from "@/lib/verifyCache";
 import { preferPortableRelays, unusableRelaysReason } from "@/lib/relayUsability";
 import { channelKeysToWire, isLive, nextChannelEpoch, toJoinMaterial, rehydrateCommunity, type CommunityListEntry, type JoinMaterial } from "@/concord/lib/communityList";
-import { mintCommunity } from "@/concord/lib/community";
+import { channelsView, mintCommunity, visibleChannels } from "@/concord/lib/community";
+import { openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
+import { rekeyOrder } from "@/concord/lib/rankKey";
+import { planCreateCategory, planRenameCategory, planSync } from "@/concord/lib/rankedWrites";
+import { maySwapOverwrites } from "@/concord/lib/roster";
+import { publishChannelRotation } from "@/concord/lib/channelRotation";
 import { DEFAULT_MESSAGE_EXPIRATION_SECS } from "@/concord/lib/disappearing";
-import { accessRolePosition, isAuthorized, MAX_ROLES_PER_COMMUNITY, Permissions } from "@/concord/lib/roles";
+import { accessRolePosition, channelPermissions, isAuthorized, MAX_ROLES_PER_COMMUNITY, Permissions } from "@/concord/lib/roles";
 import { channelEpochFloor, channelRekeyAddressWindow } from "@/concord/lib/rekey";
 import {
+  buildChannelContentEdition,
   buildChannelEdition,
   buildMetadataEdition,
   buildRoleEdition,
   sealDissolved,
 } from "@/concord/lib/control";
-import { bytesToHex, hex32, random32 } from "@/concord/lib/derive";
+import { bytesToHex, epochKeyCommitment, hex32, random32 } from "@/concord/lib/derive";
 import {
   encodeFragment,
   InviteError,
@@ -397,7 +407,9 @@ export function bundleToEntry(bundle: InviteBundle, opts?: { inviteRef?: string 
       ? { control_pk: bundle.control_pk.toLowerCase() }
       : {}),
     channels: Array.isArray(bundle.channels)
-      ? bundle.channels.map((ch) => ({ id: ch.id, key: ch.key, epoch: ch.epoch, name: ch.name }))
+      ? bundle.channels
+          .filter((ch) => !isRootKeyed(ch, bundle))
+          .map((ch) => ({ id: ch.id, key: ch.key, epoch: ch.epoch, name: ch.name }))
       : [],
     relays: capRelays(bundle.relays),
     name: bundle.name,
@@ -517,9 +529,22 @@ export function useCommunityActions() {
         ),
       );
 
+      // On the vsk-13 Roster from the start (CORD-04 §2, Vector `create_community_on_roles_v2`);
+      // a switch that can't land leaves it legacy, for the owner to move later.
+      let ranked = false;
+      for (let attempt = 0; attempt < 2 && !ranked; attempt++) {
+        try {
+          const stored = await foldStoredControl(community);
+          if (!stored.rankedRoster) await publishActivation(nostr, community, user, stored);
+          ranked = true;
+        } catch (e) {
+          logSync("control", `${community.idHex.slice(0, 8)}: the new community's switch to ranked roles failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
       // Private channel key goes into the vault BEFORE its edition publishes, or a
-      // lost list write orphans the only copy of the key.
-      const privateStarter: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "private" };
+      // lost list write orphans the only copy of the key. On the vsk-13 Roster it is born at epoch 1 (CORD-03 §2).
+      const privateStarter: PrivateChannelKey = { id: random32(), key: random32(), epoch: ranked ? 1n : 0n, name: "private" };
       community.privateChannels = [privateStarter];
 
       // Record membership FIRST (the vault), then announce presence.
@@ -529,39 +554,61 @@ export function useCommunityActions() {
         entry: { community_id: community.idHex, seed: jm, current: jm, added_at: Date.now() },
       });
 
-      // Role then channel (createChannel ordering). Best-effort past here: genesis
+      // Ranked: key then sealed channel; legacy: role then channel (createChannel ordering). Best-effort past here: genesis
       // landed, so failing would strand a working community and invite a duplicate;
       // roll the key back and ship #general alone.
       try {
-        // The owner's rank needs no fold (community_id commitment), so this can't throw for the creator.
-        const position = accessRolePosition(undefined, user.pubkey, community.owner);
-        if (position === undefined) throw new Error("No resolvable rank for the access role.");
-        await publishEdition(
-          nostr,
-          community,
-          user.signer,
-          buildRoleEdition(
-            {
-              roleId: bytesToHex(random32()),
-              name: "private",
-              position,
-              permissions: 0n,
-              scope: { kind: "channel", channelId: bytesToHex(privateStarter.id) },
-              color: 0,
-            },
-            { actorPubkey: user.pubkey, version: 1n },
-          ),
-        );
-        await publishEdition(
-          nostr,
-          community,
-          user.signer,
-          buildChannelEdition(
-            privateStarter.id,
-            { name: "private", private: true },
-            { actorPubkey: user.pubkey, version: 1n },
-          ),
-        );
+        if (ranked) {
+          // Its key as a Channel rotation to the owner, then the sealed first edition; closed to everyone but the owner.
+          await publishChannelRotation(nostr, community, user, {
+            channelId: privateStarter.id,
+            epoch: 1n,
+            key: privateStarter.key,
+            prevEpoch: 0n,
+            prevCommit: bytesToHex(epochKeyCommitment(0n, community.root)),
+            recipients: [community.owner],
+          });
+          await publishEdition(
+            nostr,
+            community,
+            user.signer,
+            buildChannelContentEdition(
+              privateStarter.id,
+              sealChannelMetadata({ name: "private", private: true }, privateStarter.key, privateStarter.id, 1n, undefined, { creator: user.pubkey }),
+              { actorPubkey: user.pubkey, version: 1n },
+            ),
+          );
+        } else {
+          // The owner's rank needs no fold (community_id commitment), so this can't throw for the creator.
+          const position = accessRolePosition(undefined, user.pubkey, community.owner);
+          if (position === undefined) throw new Error("No resolvable rank for the access role.");
+          await publishEdition(
+            nostr,
+            community,
+            user.signer,
+            buildRoleEdition(
+              {
+                roleId: bytesToHex(random32()),
+                name: "private",
+                position,
+                permissions: 0n,
+                scope: { kind: "channel", channelId: bytesToHex(privateStarter.id) },
+                color: 0,
+              },
+              { actorPubkey: user.pubkey, version: 1n },
+            ),
+          );
+          await publishEdition(
+            nostr,
+            community,
+            user.signer,
+            buildChannelEdition(
+              privateStarter.id,
+              { name: "private", private: true },
+              { actorPubkey: user.pubkey, version: 1n },
+            ),
+          );
+        }
       } catch {
         community.privateChannels = [];
         await updateList({
@@ -771,6 +818,122 @@ export function useCommunityManagement(community: Community | undefined) {
   const entry = useCommunityEntry(community?.idHex);
   const queryClient = useQueryClient();
   const removeRailKey = useRemoveRailKey();
+  const ranked = folded?.rankedRoster === true;
+
+  /**
+   * Publish a Channel's next edition from its details as this member reads them
+   * (CORD-03 §2): a sealed head is opened with the held key, edited, and sealed
+   * again naming its predecessor; one this member can't open is refused, since a
+   * writer MUST NOT seal what it couldn't read. A deletion of a sealed head carries
+   * its seal verbatim, so it takes only the bit. `publicise` writes the plain form.
+   */
+  const writeChannel = async (
+    channelIdHex: string,
+    edit: (meta: ChannelMetadata) => ChannelMetadata,
+    opts: { deleted?: boolean; publicise?: boolean; createdAtSecs?: number } = {},
+  ) => {
+    if (!community) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
+    const c = community;
+    // One write at a time, from the store's fold: the rendered one lags this device's last write.
+    await withControlWrite(c.idHex, async () => {
+      const now: FoldedControl | undefined = await foldStoredControl(c).catch(() => folded);
+      if (!user || !community) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
+      requireChannelManager();
+      const def = now?.channels.get(channelIdHex);
+      const head = now?.heads.get(channelIdHex);
+      const common = {
+        actorPubkey: user.pubkey,
+        version: head ? head.version + 1n : 1n,
+        prevHash: head?.hash,
+        ...(opts.createdAtSecs !== undefined ? { createdAtSecs: opts.createdAtSecs } : {}),
+        authority: citationFor(community, now, user.pubkey),
+      };
+      let rumor;
+      if (def?.sealed && opts.deleted) {
+        // The head's own object with `deleted` added, so fields this client doesn't know ride along (Vector `sealed_tombstone`).
+        let raw: Record<string, unknown> | undefined;
+        try {
+          const parsed: unknown = JSON.parse(now?.headEditions.get(channelIdHex)?.content ?? "");
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) raw = parsed as Record<string, unknown>;
+        } catch {
+          // rebuilt below
+        }
+        const content = JSON.stringify({ ...(raw ?? { private: true, epoch: def.sealed.epoch.toString(), sealed: def.sealed.sealed }), deleted: true });
+        rumor = buildChannelContentEdition(hex32(channelIdHex), content, common);
+      } else if (def?.sealed) {
+        const held = community.privateChannels.find((c) => bytesToHex(c.id) === channelIdHex);
+        const opened = held ? openChannelSeal(def.sealed, held) : undefined;
+        if (!held || !opened) {
+          throw new Error(t({ id: "useCommunityActions.sealedUnreadable", defaultMessage: "You can't read this private channel's details, so you can't change them." }));
+        }
+        const meta = edit(opened.metadata);
+        rumor = opts.publicise
+          ? buildChannelEdition(hex32(channelIdHex), { ...meta, private: false }, common)
+          : buildChannelContentEdition(
+              hex32(channelIdHex),
+              sealChannelMetadata(meta, held.key, held.id, held.epoch, head ? bytesToHex(head.hash) : undefined, {
+                ...(opened.creator ? { creator: opened.creator } : {}),
+                ...(opened.publicUntil !== undefined ? { publicUntil: opened.publicUntil } : {}),
+              }),
+              common,
+            );
+      } else {
+        const meta = edit(def?.metadata ?? { name: "deleted", private: false });
+        const next = opts.deleted ? { ...meta, deleted: true } : opts.publicise ? { ...meta, private: false } : meta;
+        // On Roles v2 a Private Channel's details are always sealed (CORD-03 §2, Vector `channel_edition_content`).
+        if (now?.rankedRoster && next.private && !opts.deleted) {
+          const held = community.privateChannels.find((c) => bytesToHex(c.id) === channelIdHex);
+          if (!held) throw new Error(t({ id: "useCommunityActions.privateKeyMissing", defaultMessage: "You don't hold this private channel's key, so you can't change it." }));
+          rumor = buildChannelContentEdition(
+            hex32(channelIdHex),
+            sealChannelMetadata(next, held.key, held.id, held.epoch, head ? bytesToHex(head.hash) : undefined),
+            common,
+          );
+        } else {
+          rumor = buildChannelEdition(hex32(channelIdHex), next, common);
+        }
+      }
+      await publishEdition(nostr, community, user.signer, rumor);
+    });
+  };
+
+  /** Refuse before publishing what every reader drops, which would wedge this member's later edits (Vector `ensure_channel_manager`). */
+  const requireChannelManager = () => {
+    if (!user || !community) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
+    const ownerHex = folded?.ownerHex ?? community.owner;
+    if (user.pubkey === ownerHex) return;
+    if (folded?.banned.has(user.pubkey)) throw new Error(t({ id: "rankedWrites.banned", defaultMessage: "You are banned from this community." }));
+    if (!folded || !isAuthorized(folded.roster, user.pubkey, ownerHex, Permissions.MANAGE_CHANNELS)) {
+      throw new Error(t({ id: "useCommunityActions.noManageChannelsPermission", defaultMessage: "You don't have permission to manage channels." }));
+    }
+  };
+
+  /** A Channel's details as this member reads them: a sealed head opened with the held key. */
+  const readableChannelMetadata = (channelIdHex: string): ChannelMetadata => {
+    const def = folded?.channels.get(channelIdHex);
+    if (!def) throw new Error(t({ id: "useCommunityActions.channelNotFound", defaultMessage: "Channel not found." }));
+    if (!def.sealed) return def.metadata;
+    const held = community?.privateChannels.find((c) => bytesToHex(c.id) === channelIdHex);
+    const opened = held ? openChannelSeal(def.sealed, held) : undefined;
+    if (!opened) throw new Error(t({ id: "useCommunityActions.sealedUnreadable", defaultMessage: "You can't read this private channel's details, so you can't change them." }));
+    return opened.metadata;
+  };
+
+  /** A Category named by id or name (CORD-03 §4); a ranked Channel files under the id. */
+  const categoryIdFor = (category: string | undefined): string | undefined => {
+    if (!category) return undefined;
+    const cats = [...(folded?.categories?.values() ?? [])].filter((c) => !c.deleted);
+    return (cats.find((c) => c.idHex === category.toLowerCase()) ?? cats.find((c) => c.name === category.trim()))?.idHex;
+  };
+
+  /** Members a Private Channel lets in once private, its creator counted (CORD-03 §2, CORD-04 §8). */
+  const privateAudience = (channelIdHex: string, creator: string): string[] => {
+    if (!folded || !community) return [];
+    const roster = { ...folded.roster, creators: { ...folded.roster.creators, [channelIdHex]: creator } };
+    const candidates = new Set([folded.ownerHex, creator, ...roster.grants.map((g) => g.member)]);
+    for (const o of roster.overwrites ?? []) if (o.target.kind === "member") candidates.add(o.target.id);
+    return [...candidates].filter((pk) => (channelPermissions(roster, folded.ownerHex, pk, channelIdHex, true) & Permissions.VIEW_CHANNEL) !== 0n);
+  };
 
   const leave = useMutation<void, Error, void>({
     // Local-only; `navigator.onLine` is unreliable in the Android WebView.
@@ -871,18 +1034,30 @@ export function useCommunityManagement(community: Community | undefined) {
   const createChannel = useMutation<
     { channelIdHex: string; minted?: PrivateChannelKey },
     Error,
-    { name: string; repository?: { address: string; relayHints: string[] }; isPrivate?: boolean; accessRoleName?: string; view?: ChannelView }
+    { name: string; repository?: { address: string; relayHints: string[] }; isPrivate?: boolean; accessRoleName?: string; view?: ChannelView; category?: string }
   >({
-    mutationFn: async ({ name, repository, isPrivate, accessRoleName, view }) => {
+    mutationFn: async ({ name, repository, isPrivate, accessRoleName, view, category }) => {
       if (!user || !community) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
       const trimmed = name.trim();
       if (!trimmed) throw new Error(t({ id: "useCommunityActions.channelNameRequired", defaultMessage: "Channel name is required." }));
+      requireChannelManager();
       const channelId = random32();
       // In the FIRST edition: attachRepository resolves from the fold, which won't
       // have the new channel yet.
       let metadata: ChannelMetadata = { name: trimmed, private: Boolean(isPrivate) };
-      // Same: a forum opens as one from the start.
+      // Same: a forum or voice channel opens as one from the start.
       if (view) metadata = withChannelView(metadata, view);
+      // Inside a vsk-13 Category (CORD-03 §4); a keyless Channel sorts last in it (Vector `create_channel_in`).
+      const cat = ranked && category ? folded?.categories?.get(category.toLowerCase()) : undefined;
+      if (category && ranked && (!cat || cat.deleted)) throw new Error(t({ id: "rankedWrites.noSuchCategory", defaultMessage: "No such category." }));
+      if (cat) {
+        metadata = { ...metadata, category: cat.idHex };
+        // Unsynced, a public Channel in a Category with its own rules would sit open to everyone.
+        const ownerHex = folded!.ownerHex;
+        if (!isPrivate && (folded!.roster.overwrites ?? []).some((o) => o.scope === cat.idHex) && !maySwapOverwrites(folded!.roster, ownerHex, user.pubkey, [cat.idHex], () => 0n)) {
+          throw new Error(t({ id: "useCommunityActions.categoryRulesNeedRoles", defaultMessage: "This category sets its own permissions, so a channel in it needs the Manage roles permission over them." }));
+        }
+      }
       if (repository) {
         const address = parseGitRepositoryAddress(repository.address);
         if (!address) throw new Error(t({ id: "useCommunityActions.repositoryAddressInvalid", defaultMessage: "Repository address must be a canonical 30617 coordinate." }));
@@ -897,7 +1072,8 @@ export function useCommunityManagement(community: Community | undefined) {
       let minted: PrivateChannelKey | undefined;
       const priorChannels = community.privateChannels;
       if (isPrivate) {
-        minted = { id: channelId, key: random32(), epoch: 0n, name: trimmed };
+        // On the vsk-13 Roster a Private Channel is born at channel epoch 1 (CORD-03 §2).
+        minted = { id: channelId, key: random32(), epoch: ranked ? 1n : 0n, name: trimmed };
         await updateList({
           type: "refresh-channels",
           communityId: community.idHex,
@@ -906,25 +1082,42 @@ export function useCommunityManagement(community: Community | undefined) {
       }
 
       try {
-        // Role BEFORE the channel edition: an orphan role is inert, while an
-        // access-less live channel invites a duplicate retry.
-        if (isPrivate) await mintChannelRole(channelId, accessRoleName?.trim() || trimmed);
-        await publishEdition(
-          nostr,
-          community,
-          user.signer,
-          buildChannelEdition(
+        const common = { actorPubkey: user.pubkey, version: 1n, authority: citationFor(community, folded, user.pubkey) };
+        if (minted && ranked) {
+          // Its key first, as a Channel rotation to its creator and the owner committing
+          // to (0, community_root), then the sealed first edition naming its creator.
+          await publishChannelRotation(nostr, community, user, {
             channelId,
-            metadata,
-            { actorPubkey: user.pubkey, version: 1n, authority: citationFor(community, folded, user.pubkey) },
-          ),
-        );
+            epoch: 1n,
+            key: minted.key,
+            prevEpoch: 0n,
+            prevCommit: bytesToHex(epochKeyCommitment(0n, community.root)),
+            recipients: [community.owner],
+            authority: common.authority,
+          });
+          await publishEdition(nostr, community, user.signer, buildChannelContentEdition(channelId, sealChannelMetadata(metadata, minted.key, channelId, 1n, undefined, { creator: user.pubkey }), common));
+        } else {
+          // Role BEFORE the channel edition: an orphan role is inert, while an
+          // access-less live channel invites a duplicate retry.
+          if (isPrivate) await mintChannelRole(channelId, accessRoleName?.trim() || trimmed);
+          await publishEdition(nostr, community, user.signer, buildChannelEdition(channelId, metadata, common));
+        }
       } catch (e) {
         if (minted) {
           // Best-effort: remove the unannounced key so it doesn't ghost in the sidebar.
           await updateList({ type: "refresh-channels", communityId: community.idHex, channels: channelKeysToWire(priorChannels) }).catch(() => undefined);
         }
         throw e;
+      }
+      // A public Channel made inside a Category takes its rules; a private one keeps its own.
+      if (cat && !isPrivate) {
+        const c = community;
+        const u = user;
+        await withControlWrite(c.idHex, async () => {
+          const now = await foldStoredControl(c);
+          const held = new Set(c.privateChannels.map((k) => bytesToHex(k.id)));
+          await publishEdition(nostr, c, u.signer, planSync(now, c.id, u.pubkey, held, bytesToHex(channelId), cat.idHex, citationFor(c, now, u.pubkey)));
+        }).catch((e: unknown) => logSync("control", `new channel keeps its own rules: ${e instanceof Error ? e.message : String(e)}`));
       }
       invalidateControl(queryClient, community.idHex);
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
@@ -937,45 +1130,33 @@ export function useCommunityManagement(community: Community | undefined) {
       if (!user || !community) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
       const trimmed = name.trim();
       if (!trimmed) throw new Error(t({ id: "useCommunityActions.channelNameRequired", defaultMessage: "Channel name is required." }));
-      const def = folded?.channels.get(channelIdHex);
-      const head = folded?.heads.get(channelIdHex);
-      await publishEdition(
-        nostr,
-        community,
-        user.signer,
-        buildChannelEdition(
-          hex32(channelIdHex),
-          // Round-trip untouched metadata (CORD-02 §6).
-          { ...(def?.metadata ?? { private: false }), name: trimmed },
-          {
-            actorPubkey: user.pubkey,
-            version: head ? head.version + 1n : 1n,
-            prevHash: head?.hash,
-            authority: citationFor(community, folded, user.pubkey),
-          },
-        ),
-      );
+      // Round-trip untouched metadata (CORD-02 §6).
+      await writeChannel(channelIdHex, (meta) => ({ ...meta, name: trimmed }));
       invalidateControl(queryClient, community.idHex);
     },
   });
 
   /**
-   * Convert Public → Private (CORD-03 §2): mint a key at the next channel
-   * epoch (stored before the edition), flip the flag, and mint the scoped
-   * Role. Protects the future only: prior history stays readable to all
-   * members. `minted` is returned for vending.
+   * Convert Public → Private on ranked roles (CORD-03 §2): mint a key at the next
+   * channel epoch (stored before the edition), deliver it, and seal the details.
+   * Protects the future only: prior history stays readable to all members.
    */
   const privatiseChannel = useMutation<
-    { minted?: PrivateChannelKey; roleId?: string },
+    { minted?: PrivateChannelKey },
     Error,
-    { channelIdHex: string; accessRoleName?: string }
+    { channelIdHex: string }
   >({
-    mutationFn: async ({ channelIdHex, accessRoleName }) => {
+    mutationFn: ({ channelIdHex }) => withControlWrite(community?.idHex ?? "", async () => {
       if (!user || !community) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
-      const def = folded?.channels.get(channelIdHex);
+      // From the store's fold: the rendered one lags this device's last write (a rename just made).
+      const now = await foldStoredControl(community).catch(() => folded);
+      const def = now?.channels.get(channelIdHex);
       if (!def) throw new Error(t({ id: "useCommunityActions.channelNotInFold", defaultMessage: "Channel not found in the control fold yet; try again shortly." }));
       if (def.isPrivate) throw new Error(t({ id: "useCommunityActions.alreadyPrivate", defaultMessage: "This channel is already private." }));
-      const head = folded?.heads.get(channelIdHex);
+      requireChannelManager();
+      // A plain edition never makes a Channel private for Vector's readers: that takes the sealed form (CORD-03 §2).
+      if (!ranked) throw new Error(t({ id: "useCommunityActions.privatiseNeedsRanked", defaultMessage: "Making a channel private needs the community on ranked roles. Switch to ranked roles first." }));
+      const head = now?.heads.get(channelIdHex);
 
       // CORD-03 §2: mint at the NEXT channel_epoch (never reset, or two keys share
       // an epoch). The floor is read off the wire (CORD-06 §2 addresses are
@@ -1017,34 +1198,37 @@ export function useCommunityManagement(community: Community | undefined) {
         channels: channelKeysToWire([...priorChannels, minted]),
       });
 
-      let roleId: string | undefined;
       try {
-        // Role first, flag second (createChannel ordering).
-        roleId = await mintChannelRole(channelId, accessRoleName?.trim() || def.name);
+        // A key rotation at epoch n committing to (n − 1, community_root), to everyone
+        // the Channel lets in once private, then its first sealed edition naming the
+        // converter as creator and when it went private (CORD-03 §2).
+        await publishChannelRotation(nostr, community, user, {
+          channelId,
+          epoch: minted.epoch,
+          key: minted.key,
+          prevEpoch: minted.epoch - 1n,
+          prevCommit: bytesToHex(epochKeyCommitment(minted.epoch - 1n, community.root)),
+          recipients: privateAudience(channelIdHex, user.pubkey),
+          authority: citationFor(community, now, user.pubkey),
+        });
         await publishEdition(
           nostr,
           community,
           user.signer,
-          buildChannelEdition(
+          buildChannelContentEdition(
             channelId,
-            // Round-trip untouched metadata (CORD-02 §6).
-            { ...def.metadata, private: true },
-            {
-              actorPubkey: user.pubkey,
-              version: head ? head.version + 1n : 1n,
-              prevHash: head?.hash,
-              authority: citationFor(community, folded, user.pubkey),
-            },
+            sealChannelMetadata(def.metadata, minted.key, channelId, minted.epoch, head ? bytesToHex(head.hash) : undefined, { creator: user.pubkey, publicUntil: clockNowMs() }),
+            { actorPubkey: user.pubkey, version: head ? head.version + 1n : 1n, prevHash: head?.hash, authority: citationFor(community, now, user.pubkey) },
           ),
         );
+        invalidateControl(queryClient, community.idHex);
+        queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
+        return { minted };
       } catch (e) {
         await updateList({ type: "refresh-channels", communityId: community.idHex, channels: channelKeysToWire(priorChannels) }).catch(() => undefined);
         throw e;
       }
-      invalidateControl(queryClient, community.idHex);
-      queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
-      return { minted, roleId };
-    },
+    }),
   });
 
   /**
@@ -1063,23 +1247,8 @@ export function useCommunityManagement(community: Community | undefined) {
       if (!isAuthorized(folded?.roster ?? { roles: [], grants: [] }, user.pubkey, ownerHex, Permissions.MANAGE_CHANNELS)) {
         throw new Error(t({ id: "useCommunityActions.makePublicNeedsPermission", defaultMessage: "Making a channel public needs the Manage-channels permission." }));
       }
-      const head = folded?.heads.get(channelIdHex);
-      await publishEdition(
-        nostr,
-        community,
-        user.signer,
-        buildChannelEdition(
-          hex32(channelIdHex),
-          // Round-trip untouched metadata (CORD-02 §6).
-          { ...def.metadata, private: false },
-          {
-            actorPubkey: user.pubkey,
-            version: head ? head.version + 1n : 1n,
-            prevHash: head?.hash,
-            authority: citationFor(community, folded, user.pubkey),
-          },
-        ),
-      );
+      // The plain form, from the details as read (CORD-03 §2).
+      await writeChannel(channelIdHex, (meta) => meta, { publicise: true });
       invalidateControl(queryClient, community.idHex);
     },
   });
@@ -1099,37 +1268,97 @@ export function useCommunityManagement(community: Community | undefined) {
   );
 
   /**
+   * A drag on the vsk-13 Roster (CORD-03 §2, §4): each moved Channel files under its
+   * Category's id and takes a rank key between its new neighbours, a neighbour with
+   * no key or out of order keyed first. `position` is the index within its group.
+   */
+  const arrangeRanked = async (changes: Array<{ idHex: string; position: number; category: string | undefined; keepCategory?: boolean }>) => {
+    if (!community) return;
+    const view = channelsView(community, folded);
+    const groupOf = new Map(view.map((c) => [c.idHex, c.categoryId]));
+    const moved = new Map(changes.map((c) => [c.idHex, c]));
+    for (const c of changes) if (!c.keepCategory) groupOf.set(c.idHex, categoryIdFor(c.category));
+    const groups = new Map<string | undefined, Array<{ id: string; key?: string }>>();
+    for (const c of view) {
+      if (moved.has(c.idHex)) continue;
+      const g = groupOf.get(c.idHex);
+      groups.set(g, [...(groups.get(g) ?? []), { id: c.idHex, key: c.positionKey }]);
+    }
+    for (const c of [...changes].sort((a, b) => a.position - b.position)) {
+      const g = groupOf.get(c.idHex);
+      const list = groups.get(g) ?? [];
+      list.splice(Math.min(Math.max(0, c.position), list.length), 0, { id: c.idHex, key: view.find((v) => v.idHex === c.idHex)?.positionKey });
+      groups.set(g, list);
+    }
+    // Only the groups a Channel lands in are keyed: the rest keep their order (Vector `move_channel`).
+    const landed = new Set(changes.map((c) => groupOf.get(c.idHex)));
+    for (const [g, list] of groups) {
+      if (!landed.has(g)) continue;
+      const keys = rekeyOrder(list, new Set(changes.map((c) => c.idHex)));
+      for (const item of list) {
+        const key = keys.get(item.id);
+        const refile = moved.has(item.id) && !moved.get(item.id)!.keepCategory && view.find((v) => v.idHex === item.id)?.categoryId !== g;
+        if (key === undefined && !refile) continue;
+        await writeChannel(item.id, (meta) => {
+          const { category: _category, ...rest } = meta;
+          const next: ChannelMetadata = moved.has(item.id) && !moved.get(item.id)!.keepCategory ? (g ? { ...rest, category: g } : rest) : meta;
+          return key !== undefined ? { ...next, position: key } : next;
+        });
+      }
+    }
+  };
+
+  /**
    * One Channel edition per changed position. The first reorder in a
    * never-ordered community stamps every channel. Partial failures stay coherent.
    */
   const publishPositions = useCallback(
     async (moves: Array<{ idHex: string; position: number }>) => {
       if (!user || !community) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
-      for (const { idHex, position } of moves) {
-        const def = folded?.channels.get(idHex);
-        if (!def) continue;
-        const head = folded?.heads.get(idHex);
-        await publishEdition(
-          nostr,
-          community,
-          user.signer,
-          buildChannelEdition(
-            hex32(idHex),
-            // Round-trip untouched metadata (CORD-02 §6).
-            withChannelPosition(def.metadata, position),
-            {
-              actorPubkey: user.pubkey,
-              version: head ? head.version + 1n : 1n,
-              prevHash: head?.hash,
-              authority: citationFor(community, folded, user.pubkey),
-            },
-          ),
-        );
+      if (ranked) {
+        await arrangeRanked(moves.map((m) => ({ ...m, category: undefined, keepCategory: true })));
+      } else {
+        for (const { idHex, position } of moves) {
+          if (!folded?.channels.get(idHex)) continue;
+          // Round-trip untouched metadata (CORD-02 §6).
+          await writeChannel(idHex, (meta) => withChannelPosition(meta, position));
+        }
       }
       invalidateControl(queryClient, community.idHex);
     },
     [user, community, folded, nostr, queryClient],
   );
+
+  /**
+   * A drag's positions index the sidebar as the viewer sees it, the whole list across
+   * Categories; on the vsk-13 Roster each moved Channel takes its index within the
+   * group it lands in, counted among every Channel there, hidden ones included.
+   */
+  const withinGroups = (changes: Array<{ idHex: string; position: number; category: string | undefined }>) => {
+    if (!community) return changes;
+    const view = channelsView(community, folded);
+    const groupOf = new Map<string, string | undefined>(view.map((c) => [c.idHex, c.categoryId]));
+    for (const c of changes) groupOf.set(c.idHex, categoryIdFor(c.category));
+    const moved = new Set(changes.map((c) => c.idHex));
+    // The sidebar's order after the drop, as the viewer sees it.
+    const shown = visibleChannels(view, folded, user?.pubkey).map((c) => c.idHex).filter((id) => !moved.has(id));
+    for (const c of [...changes].sort((a, b) => a.position - b.position)) shown.splice(Math.min(Math.max(0, c.position), shown.length), 0, c.idHex);
+    const at = new Map<string, number>();
+    const groups = new Set(changes.map((c) => groupOf.get(c.idHex)));
+    for (const g of groups) {
+      // A Channel the viewer can't see keeps its place after the one it followed.
+      const all = view.filter((c) => groupOf.get(c.idHex) === g && !moved.has(c.idHex)).map((c) => c.idHex);
+      const visible = new Set(shown);
+      const order = shown.filter((id) => groupOf.get(id) === g);
+      for (let i = 0; i < all.length; i++) {
+        if (visible.has(all[i])) continue;
+        const prev = all.slice(0, i).reverse().find((id) => order.includes(id));
+        order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, all[i]);
+      }
+      order.forEach((id, i) => at.set(id, i));
+    }
+    return changes.map((c) => ({ ...c, position: at.get(c.idHex) ?? c.position }));
+  };
 
   /** Apply a drag's arrangement: ONE edition per channel carrying both position and category. */
   const arrangeChannels = useMutation<
@@ -1143,33 +1372,40 @@ export function useCommunityManagement(community: Community | undefined) {
       if (!isAuthorized(folded?.roster ?? { roles: [], grants: [] }, user.pubkey, ownerHex, Permissions.MANAGE_CHANNELS)) {
         throw new Error(t({ id: "useCommunityActions.rearrangeNeedsPermission", defaultMessage: "Rearranging channels needs the Manage-channels permission." }));
       }
-      for (const { idHex, position, category } of changes) {
-        const def = folded?.channels.get(idHex);
-        if (!def) continue;
-        const head = folded?.heads.get(idHex);
-        await publishEdition(
-          nostr,
-          community,
-          user.signer,
-          buildChannelEdition(
-            hex32(idHex),
-            // Round-trip untouched metadata (CORD-02 §6).
-            withChannelPosition(withChannelCategory(def.metadata, category), position),
-            {
-              actorPubkey: user.pubkey,
-              version: head ? head.version + 1n : 1n,
-              prevHash: head?.hash,
-              authority: citationFor(community, folded, user.pubkey),
-            },
-          ),
-        );
+      if (ranked) {
+        await arrangeRanked(withinGroups(changes));
+      } else {
+        for (const { idHex, position, category } of changes) {
+          if (!folded?.channels.get(idHex)) continue;
+          // Round-trip untouched metadata (CORD-02 §6).
+          await writeChannel(idHex, (meta) => withChannelPosition(withChannelCategory(meta, category), position));
+        }
       }
       invalidateControl(queryClient, community.idHex);
     },
   });
 
+  /** On the vsk-13 Roster a Channel moves among its own Category's, as the sidebar lists them. */
+  const groupOrder = (channelIdHex: string): string[] | undefined => {
+    if (!community) return undefined;
+    const view = channelsView(community, folded);
+    const group = view.find((c) => c.idHex === channelIdHex)?.categoryId;
+    if (!view.some((c) => c.idHex === channelIdHex)) return undefined;
+    return view.filter((c) => c.categoryId === group).map((c) => c.idHex);
+  };
+  const moveRanked = async (channelIdHex: string, to: (from: number, length: number) => number) => {
+    const order = groupOrder(channelIdHex);
+    const from = order?.indexOf(channelIdHex) ?? -1;
+    if (!order || from === -1) throw new Error(t({ id: "useCommunityActions.channelNotInFold", defaultMessage: "Channel not found in the control fold yet; try again shortly." }));
+    const index = to(from, order.length);
+    if (index === from || index < 0 || index >= order.length) return;
+    await arrangeRanked([{ idHex: channelIdHex, position: index, category: undefined, keepCategory: true }]);
+    if (community) invalidateControl(queryClient, community.idHex);
+  };
+
   const moveChannel = useMutation<void, Error, { channelIdHex: string; direction: -1 | 1 }>({
     mutationFn: async ({ channelIdHex, direction }) => {
+      if (ranked) return moveRanked(channelIdHex, (from) => from + direction);
       const ordered = orderedForMove();
       const from = ordered.findIndex((c) => c.idHex === channelIdHex);
       if (from === -1) throw new Error(t({ id: "useCommunityActions.channelNotInFold", defaultMessage: "Channel not found in the control fold yet; try again shortly." }));
@@ -1182,6 +1418,7 @@ export function useCommunityManagement(community: Community | undefined) {
   /** Move a channel to an ABSOLUTE slot (drag drop index). */
   const reorderChannel = useMutation<void, Error, { channelIdHex: string; toIndex: number }>({
     mutationFn: async ({ channelIdHex, toIndex }) => {
+      if (ranked) return moveRanked(channelIdHex, (_from, length) => Math.max(0, Math.min(toIndex, length - 1)));
       const ordered = orderedForMove();
       const from = ordered.findIndex((c) => c.idHex === channelIdHex);
       if (from === -1) throw new Error(t({ id: "useCommunityActions.channelNotInFold", defaultMessage: "Channel not found in the control fold yet; try again shortly." }));
@@ -1208,23 +1445,45 @@ export function useCommunityManagement(community: Community | undefined) {
       if (!isAuthorized(folded?.roster ?? { roles: [], grants: [] }, user.pubkey, ownerHex, Permissions.MANAGE_CHANNELS)) {
         throw new Error(t({ id: "useCommunityActions.fileNeedsPermission", defaultMessage: "Filing a channel needs the Manage-channels permission." }));
       }
-      const head = folded?.heads.get(channelIdHex);
-      await publishEdition(
-        nostr,
-        community,
-        user.signer,
-        buildChannelEdition(
-          hex32(channelIdHex),
-          // Round-trip untouched metadata (CORD-02 §6).
-          withChannelCategory(def.metadata, trimmed),
-          {
-            actorPubkey: user.pubkey,
-            version: head ? head.version + 1n : 1n,
-            prevHash: head?.hash,
-            authority: citationFor(community, folded, user.pubkey),
-          },
-        ),
-      );
+      // A ranked Channel files under a Category's id (CORD-03 §4); Armada's name otherwise.
+      const catId = ranked ? categoryIdFor(trimmed) : undefined;
+      if (ranked && trimmed && !catId) {
+        throw new Error(t({ id: "useCommunityActions.noSuchCategory", defaultMessage: "There's no category by that name." }));
+      }
+      await writeChannel(channelIdHex, (meta) => {
+        if (!ranked) return withChannelCategory(meta, trimmed);
+        const { category: _category, ...rest } = meta;
+        return catId ? { ...rest, category: catId } : rest;
+      });
+      invalidateControl(queryClient, community.idHex);
+    },
+  });
+
+  /**
+   * Name a category for `channelIds`: on the vsk-13 Roster a new Category entity
+   * (CORD-03 §4) the Channels file under, or a rename of `categoryId` in place;
+   * otherwise every Channel re-filed under the name.
+   */
+  const nameCategory = useMutation<void, Error, { channelIds: readonly string[]; categoryId?: string; name: string }>({
+    mutationFn: async ({ channelIds, categoryId, name }) => {
+      if (!user || !community) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
+      if (!ranked || !folded) {
+        for (const channelIdHex of channelIds) await setChannelCategory.mutateAsync({ channelIdHex, category: name });
+        return;
+      }
+      const authority = citationFor(community, folded, user.pubkey);
+      if (categoryId) {
+        await publishEdition(nostr, community, user.signer, planRenameCategory(folded, community.id, user.pubkey, categoryId, name, authority));
+      } else {
+        const { idHex, rumor } = planCreateCategory(folded, community.id, user.pubkey, name, authority);
+        await publishEdition(nostr, community, user.signer, rumor);
+        for (const channelIdHex of channelIds) {
+          await writeChannel(channelIdHex, (meta) => {
+            const { category: _category, ...rest } = meta;
+            return { ...rest, category: idHex };
+          });
+        }
+      }
       invalidateControl(queryClient, community.idHex);
     },
   });
@@ -1240,23 +1499,8 @@ export function useCommunityManagement(community: Community | undefined) {
       if (!isAuthorized(folded?.roster ?? { roles: [], grants: [] }, user.pubkey, ownerHex, Permissions.MANAGE_CHANNELS)) {
         throw new Error(t({ id: "useCommunityActions.changeViewNeedsPermission", defaultMessage: "Changing how a channel opens needs the Manage-channels permission." }));
       }
-      const head = folded?.heads.get(channelIdHex);
-      await publishEdition(
-        nostr,
-        community,
-        user.signer,
-        buildChannelEdition(
-          hex32(channelIdHex),
-          // Round-trip untouched metadata (CORD-02 §6).
-          withChannelView(def.metadata, view),
-          {
-            actorPubkey: user.pubkey,
-            version: head ? head.version + 1n : 1n,
-            prevHash: head?.hash,
-            authority: citationFor(community, folded, user.pubkey),
-          },
-        ),
-      );
+      // Round-trip untouched metadata (CORD-02 §6).
+      await writeChannel(channelIdHex, (meta) => withChannelView(meta, view));
       invalidateControl(queryClient, community.idHex);
     },
   });
@@ -1264,23 +1508,7 @@ export function useCommunityManagement(community: Community | undefined) {
   const deleteChannel = useMutation<void, Error, { channelIdHex: string }>({
     mutationFn: async ({ channelIdHex }) => {
       if (!user || !community) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
-      const def = folded?.channels.get(channelIdHex);
-      const head = folded?.heads.get(channelIdHex);
-      await publishEdition(
-        nostr,
-        community,
-        user.signer,
-        buildChannelEdition(
-          hex32(channelIdHex),
-          { ...(def?.metadata ?? { name: "deleted", private: false }), deleted: true },
-          {
-            actorPubkey: user.pubkey,
-            version: head ? head.version + 1n : 1n,
-            prevHash: head?.hash,
-            authority: citationFor(community, folded, user.pubkey),
-          },
-        ),
-      );
+      await writeChannel(channelIdHex, (meta) => meta, { deleted: true });
       invalidateControl(queryClient, community.idHex);
     },
   });
@@ -1293,25 +1521,15 @@ export function useCommunityManagement(community: Community | undefined) {
       }
       const address = parseGitRepositoryAddress(rawAddress);
       if (!address) throw new Error(t({ id: "useCommunityActions.repositoryAddressInvalid", defaultMessage: "Repository address must be a canonical 30617 coordinate." }));
-      const def = folded?.channels.get(channelIdHex);
-      if (!def) throw new Error(t({ id: "useCommunityActions.channelNotFound", defaultMessage: "Channel not found." }));
-      const head = folded?.heads.get(channelIdHex);
+      const current = readableChannelMetadata(channelIdHex);
       const createdAtSecs = Math.floor(Date.now() / 1000);
-      const attachments = channelGitRepositoryAttachments(def.metadata);
       // Preserve the original active interval (and its hints) on repeat requests.
+      const attachments = channelGitRepositoryAttachments(current);
       if (attachments.some((attachment) => attachment.address.coordinate === address.coordinate && attachment.detachedAt === undefined)) return;
-      const next = attachGitRepository(attachments, address, relayHints, createdAtSecs);
-      await publishEdition(
-        nostr,
-        community,
-        user.signer,
-        buildChannelEdition(hex32(channelIdHex), withChannelGitRepositoryAttachments(def.metadata, next), {
-          actorPubkey: user.pubkey,
-          version: head ? head.version + 1n : 1n,
-          prevHash: head?.hash,
-          createdAtSecs,
-          authority: citationFor(community, folded, user.pubkey),
-        }),
+      await writeChannel(
+        channelIdHex,
+        (meta) => withChannelGitRepositoryAttachments(meta, attachGitRepository(channelGitRepositoryAttachments(meta), address, relayHints, createdAtSecs)),
+        { createdAtSecs },
       );
       invalidateControl(queryClient, community.idHex);
     },
@@ -1325,25 +1543,12 @@ export function useCommunityManagement(community: Community | undefined) {
       }
       const address = parseGitRepositoryAddress(rawAddress);
       if (!address) throw new Error(t({ id: "useCommunityActions.repositoryAddressInvalid", defaultMessage: "Repository address must be a canonical 30617 coordinate." }));
-      const def = folded?.channels.get(channelIdHex);
-      if (!def) throw new Error(t({ id: "useCommunityActions.channelNotFound", defaultMessage: "Channel not found." }));
-      const head = folded?.heads.get(channelIdHex);
+      readableChannelMetadata(channelIdHex);
       const createdAtSecs = Math.floor(Date.now() / 1000);
-      await publishEdition(
-        nostr,
-        community,
-        user.signer,
-        buildChannelEdition(
-          hex32(channelIdHex),
-          withChannelGitRepositoryAttachments(def.metadata, detachGitRepository(channelGitRepositoryAttachments(def.metadata), address, createdAtSecs)),
-          {
-            actorPubkey: user.pubkey,
-            version: head ? head.version + 1n : 1n,
-            prevHash: head?.hash,
-            createdAtSecs,
-            authority: citationFor(community, folded, user.pubkey),
-          },
-        ),
+      await writeChannel(
+        channelIdHex,
+        (meta) => withChannelGitRepositoryAttachments(meta, detachGitRepository(channelGitRepositoryAttachments(meta), address, createdAtSecs)),
+        { createdAtSecs },
       );
       invalidateControl(queryClient, community.idHex);
     },
@@ -1359,6 +1564,7 @@ export function useCommunityManagement(community: Community | undefined) {
     renameChannel: renameChannel.mutateAsync,
     setChannelCategory: setChannelCategory.mutateAsync,
     isFiling: setChannelCategory.isPending,
+    nameCategory: nameCategory.mutateAsync,
     setChannelView: setChannelView.mutateAsync,
     isSettingView: setChannelView.isPending,
     moveChannel: moveChannel.mutateAsync,
@@ -1417,15 +1623,8 @@ export function useStrandedRecovery(
       await updateList({ type: "add", entry: fresh });
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
 
-      // The stranded Join went to the superseded Guestbook; announce on the new one.
-      const rehydrated = rehydrateCommunity(fresh);
-      if (rehydrated) {
-        const attribution = bundle.creator_npub
-          ? { creator: bundle.creator_npub, label: bundle.label }
-          : undefined;
-        queueGuestbookJoin({ viewer: user.pubkey, communityIdHex: rehydrated.idHex, ms: Date.now(), attribution });
-        void attemptGuestbookJoin(nostr, rehydrated, user.signer, user.pubkey);
-      }
+      // A Join on the new epoch is restored once its Guestbook is read and holds no state
+      // of ours, dated by the plane (`useRestoreJoin`, CORD-02 §5): a snapshot may already seed us.
       return true;
     } catch {
       // A revoked link can never heal this; only a fresh invite can.

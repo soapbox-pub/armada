@@ -34,6 +34,11 @@ const h = vi.hoisted(() => ({
   fold: { roster: { roles: [], grants: [] }, ownerHex: "", banned: new Set<string>(), heads: new Map(), signals: new Map() },
 }));
 
+// The Guestbook (Timeouts, the writer judge's history) isn't under test here.
+vi.mock("@/concord/hooks/useGuestbook", async (orig) => ({
+  ...(await orig<typeof import("@/concord/hooks/useGuestbook")>()),
+  useGuestbook: () => ({ data: [], timeouts: new Map(), nicknames: new Map(), coalesced: new Map(), history: undefined }),
+}));
 vi.mock("@nostrify/react", () => ({
   useNostr: () => ({ nostr: { relay: () => ({ query: async () => [] }) } }),
 }));

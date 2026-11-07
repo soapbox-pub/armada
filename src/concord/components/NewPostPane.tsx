@@ -16,6 +16,7 @@ export function NewPostPane({
   groupId,
   mentionPubkeys,
   canMentionEveryone,
+  mentionRoles,
   conversationRelays,
   canSend,
   disappearingTimer,
@@ -27,6 +28,7 @@ export function NewPostPane({
   groupId: string;
   mentionPubkeys?: string[];
   canMentionEveryone?: boolean;
+  mentionRoles?: readonly { id: string; name: string }[];
   conversationRelays?: string[];
   canSend?: () => string | null;
   /** See ChatComposer's. */
@@ -134,6 +136,7 @@ export function NewPostPane({
                 submitLabel={intl.formatMessage({ id: "newPostPane.submit", defaultMessage: "Post" })}
                 mentionPubkeys={mentionPubkeys}
                 canMentionEveryone={canMentionEveryone}
+                mentionRoles={mentionRoles}
                 conversationRelays={conversationRelays}
                 placeholder={intl.formatMessage({ id: "newPostPane.bodyPlaceholder", defaultMessage: "Write your post" })}
                 draftScope={`post:${groupId}`}

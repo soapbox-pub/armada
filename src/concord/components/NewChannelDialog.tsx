@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, FolderGit2, Hash, Loader2, Lock, MessageSquareText } from "lucide-react";
+import { ArrowLeft, ChevronDown, Folder, FolderGit2, Hash, Loader2, Lock, MessageSquareText, Volume2 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { OwnerAvatar, OwnerSlashRepo, RepositoryPicker, type PickedRepository } from "@/components/projects/RepositoryPicker";
@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChromeDialogContent, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import { common, defineMessage, FormattedMessage, t, useIntl, type MessageDescriptor } from "@/i18n";
@@ -16,13 +17,19 @@ import type { ChannelView } from "@/concord/lib/types";
 /** What a new channel opens to (CORD-03 §2 `view`); changeable later. */
 const VIEW_OPTIONS: ReadonlyArray<{ view: ChannelView; label: MessageDescriptor; icon: typeof Hash }> = [
   { view: "chat", label: defineMessage({ id: "newChannelDialog.viewText", defaultMessage: "Text" }), icon: Hash },
+  { view: "voice", label: defineMessage({ id: "newChannelDialog.viewVoice", defaultMessage: "Voice" }), icon: Volume2 },
   { view: "forum", label: defineMessage({ id: "newChannelDialog.viewForum", defaultMessage: "Forum" }), icon: MessageSquareText },
 ];
+
+/** The value the category picker holds for "no Category". */
+const NO_CATEGORY = "none";
 
 export interface NewTextChannelOptions {
   isPrivate?: boolean;
   accessRoleName?: string;
   view?: ChannelView;
+  /** The vsk-13 Category it's made in, by id (CORD-03 §4). */
+  category?: string;
 }
 
 export type WizardRepository = PickedRepository;
@@ -39,8 +46,14 @@ function StepGlyph({ children }: { children: ReactNode }) {
 }
 
 /** Create a text/forum channel, or a repository channel tied to a NIP-34 repo. */
-export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onCreateText, onCreateRepository }: {
+export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onCreateText, onCreateRepository, ranked = false, categories = [], initialCategory }: {
   open: boolean;
+  /** On the vsk-13 Roster the Channel's permissions decide who reads it: no access role is asked for. */
+  ranked?: boolean;
+  /** The vsk-13 Categories it may be made in, in sidebar order. */
+  categories?: ReadonlyArray<{ idHex: string; name: string }>;
+  /** The Category it was opened from. */
+  initialCategory?: string;
   onOpenChange: (open: boolean) => void;
   connectedCoordinates: ReadonlySet<string>;
   onCreateText: (name: string, opts?: NewTextChannelOptions) => Promise<unknown>;
@@ -52,8 +65,10 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
   const [selected, setSelected] = useState<PickedRepository | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isPrivate, setIsPrivate] = useState(true);
+  // On ranked roles a Channel starts public and its permissions narrow who sees it (CORD-04 §8).
+  const [isPrivate, setIsPrivate] = useState(!ranked);
   const [view, setView] = useState<ChannelView>("chat");
+  const [category, setCategory] = useState<string>(initialCategory ?? NO_CATEGORY);
   const [accessOpen, setAccessOpen] = useState(false);
   // Display only; the binding is the role's scope (CORD-04 §2).
   const [roleName, setRoleName] = useState("");
@@ -65,11 +80,12 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
     setSelected(null);
     setCreating(false);
     setError(null);
-    setIsPrivate(true);
+    setIsPrivate(!ranked);
     setView("chat");
+    setCategory(initialCategory ?? NO_CATEGORY);
     setAccessOpen(false);
     setRoleName("");
-  }, [open]);
+  }, [open, ranked, initialCategory]);
 
   const choose = useCallback((repository: PickedRepository) => {
     setSelected(repository);
@@ -93,8 +109,9 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
       } else {
         // `chat` rides as an ABSENT field.
         const opts: NewTextChannelOptions = {
-          ...(isPrivate ? { isPrivate: true, accessRoleName: roleName.trim() || undefined } : {}),
-          ...(view === "forum" ? { view } : {}),
+          ...(isPrivate ? { isPrivate: true, ...(ranked ? {} : { accessRoleName: roleName.trim() || undefined }) } : {}),
+          ...(view !== "chat" ? { view } : {}),
+          ...(ranked && category !== NO_CATEGORY ? { category } : {}),
         };
         await onCreateText(channelName, Object.keys(opts).length > 0 ? opts : undefined);
         // A newborn private channel's access role has no holders; point at granting it.
@@ -129,7 +146,7 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
     } finally {
       setCreating(false);
     }
-  }, [name, creating, step, selected, isPrivate, view, roleName, onCreateRepository, onCreateText, onOpenChange]);
+  }, [name, creating, step, selected, isPrivate, view, category, roleName, ranked, onCreateRepository, onCreateText, onOpenChange]);
 
   const back = step === "repo"
     ? () => setStep("text")
@@ -241,6 +258,27 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
                 })}
               </div>
 
+              {ranked && categories.length > 0 && (
+                <Select value={category} onValueChange={setCategory} disabled={creating}>
+                  <SelectTrigger aria-label={intl.formatMessage({ id: "newChannelDialog.category", defaultMessage: "Category" })}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_CATEGORY}>
+                      <FormattedMessage id="newChannelDialog.noCategory" defaultMessage="No category" />
+                    </SelectItem>
+                    {categories.map((c) => (
+                      <SelectItem key={c.idHex} value={c.idHex}>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Folder className="size-3.5 text-muted-foreground" />
+                          {c.name || c.idHex.slice(0, 8)}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
               <Collapsible open={accessOpen} onOpenChange={setAccessOpen} className="rounded-lg bg-secondary/50">
                 <CollapsibleTrigger asChild>
                   <button
@@ -276,14 +314,29 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
                         <FormattedMessage id="newChannelDialog.privateChannel" defaultMessage="Private channel" />
                       </span>
                       <span className="block text-xs text-muted-foreground">
-                        <FormattedMessage
-                          id="newChannelDialog.privateChannelDescription"
-                          defaultMessage="Its own key, and a role that decides who can read it."
-                        />
+                        {ranked ? (
+                          <FormattedMessage
+                            id="newChannelDialog.privateChannelDescriptionRanked"
+                            defaultMessage="Its own key, and its permissions decide who can read it."
+                          />
+                        ) : (
+                          <FormattedMessage
+                            id="newChannelDialog.privateChannelDescription"
+                            defaultMessage="Its own key, and a role that decides who can read it."
+                          />
+                        )}
                       </span>
                     </span>
                   </label>
-                  {isPrivate && (
+                  {ranked && (
+                    <p className="text-xs text-muted-foreground">
+                      <FormattedMessage
+                        id="newChannelDialog.rankedPermissionsHint"
+                        defaultMessage="To hide a channel or limit who can post, open Permissions from its menu once it's created. That works on public channels too."
+                      />
+                    </p>
+                  )}
+                  {isPrivate && !ranked && (
                     <div className="space-y-1">
                       <Input
                         value={roleName}

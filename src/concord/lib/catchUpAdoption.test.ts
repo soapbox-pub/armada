@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { judgeCatchUp, type CatchUpFold } from "./catchUpAdoption";
+import { judgeCatchUp, judgeCatchUpChannels, MAX_VEND_EPOCH_LEAD, type CatchUpFold } from "./catchUpAdoption";
 import type { HeldMembership } from "./directInvite";
 import { Permissions, type CommunityRoles, type Role } from "./roles";
 
@@ -41,10 +41,15 @@ const peerRole: Role = {
   color: 0,
 };
 
-function fold(over: { banned?: Set<string>; roster?: Partial<CommunityRoles> } = {}): CatchUpFold {
+const priv = (isPrivate = true, deleted = false) => ({ isPrivate, deleted });
+
+function fold(
+  over: { banned?: Set<string>; roster?: Partial<CommunityRoles>; channels?: CatchUpFold["channels"] } = {},
+): CatchUpFold {
   return {
     ownerHex: OWNER,
     banned: over.banned ?? new Set(),
+    channels: over.channels ?? new Map([[CH, priv()], [OTHER_CH, priv()]]),
     roster: {
       roles: over.roster?.roles ?? [accessRole(CH), staffRole, peerRole],
       grants: over.roster?.grants ?? [
@@ -70,7 +75,7 @@ const bundle = (channels: Array<{ id: string; epoch?: number }>) => ({
   root_epoch: 0,
   community_root: ROOT,
   control_pk: CPK,
-  channels: channels.map((c) => ({ id: c.id, epoch: c.epoch ?? 0, key: "1".repeat(64), name: "ch" })),
+  channels: channels.map((c) => ({ id: c.id, epoch: c.epoch ?? 0, key: "3".repeat(64), name: "ch" })),
 });
 
 describe("judgeCatchUp", () => {
@@ -89,11 +94,49 @@ describe("judgeCatchUp", () => {
     expect(judgeCatchUp(undefined, ME, ADMIN, bundle([{ id: CH }]), held())).toBe("no-fold");
   });
 
-  it("leaves a key from a non-staff keyholder to the manual Accept", () => {
-    // Legitimate under CORD-05 §6 ("any keyholder can whisper keys"), but a
-    // plain member must not be able to plant a key unasked: a wrong key at the
-    // channel's current epoch would shadow the right one.
-    expect(judgeCatchUp(fold(), ME, PEER, bundle([{ id: CH }]), held())).toBe("sender-not-staff");
+  it("adopts from a vendor entitled to the channel, as Vector's judge does", () => {
+    // An entitled vendor holds the real key: a wrong one costs isolation, never confidentiality.
+    expect(judgeCatchUp(fold(), ME, PEER, bundle([{ id: CH }]), held())).toBe("adopt");
+  });
+
+  it("leaves a key from a vendor neither managing nor entitled to the channel to the manual Accept", () => {
+    const f = fold({ roster: { grants: [{ member: ME, roleIds: [`access-${CH.slice(0, 4)}`] }, { member: PEER, roleIds: ["peer"] }] } });
+    expect(judgeCatchUp(f, ME, PEER, bundle([{ id: CH }]), held())).toBe("sender-unauthorized");
+  });
+
+  it("leaves a key from a staff member who neither manages channels nor may read this one", () => {
+    const pinner: Role = { ...staffRole, roleId: "pin", permissions: Permissions.PIN_MESSAGES };
+    const f = fold({
+      roster: {
+        roles: [accessRole(CH), pinner],
+        grants: [{ member: ME, roleIds: [`access-${CH.slice(0, 4)}`] }, { member: ADMIN, roleIds: ["pin"] }],
+      },
+    });
+    expect(judgeCatchUp(f, ME, ADMIN, bundle([{ id: CH }]), held())).toBe("sender-unauthorized");
+  });
+
+  it("refuses a vendor the fold has banned", () => {
+    expect(judgeCatchUp(fold({ banned: new Set([ADMIN]) }), ME, ADMIN, bundle([{ id: CH }]), held())).toBe("sender-banned");
+  });
+
+  it("waits for a channel the fold doesn't hold yet, even when the owner is the recipient", () => {
+    // A vend may deliver a key, never define a channel.
+    const f = fold({ channels: new Map() });
+    expect(judgeCatchUp(f, ME, ADMIN, bundle([{ id: CH }]), held())).toBe("no-fold");
+    expect(judgeCatchUp(f, OWNER, ADMIN, bundle([{ id: CH }]), held())).toBe("no-fold");
+    expect(judgeCatchUp(fold({ channels: new Map([[CH, priv(true, true)]]) }), OWNER, ADMIN, bundle([{ id: CH }]), held())).toBe("no-fold");
+  });
+
+  it("ignores a channel the fold says is public, adopting the rest", () => {
+    const f = fold({ channels: new Map([[CH, priv()], [OTHER_CH, priv(false)]]) });
+    const j = judgeCatchUpChannels(f, ME, ADMIN, bundle([{ id: CH }, { id: OTHER_CH }]), held());
+    expect(j).toEqual({ verdict: "adopt", adopt: [CH] });
+    expect(judgeCatchUp(f, OWNER, ADMIN, bundle([{ id: OTHER_CH }]), held())).toBe("nothing-new");
+  });
+
+  it("refuses an epoch implausibly far past the one held", () => {
+    expect(judgeCatchUp(fold(), ME, ADMIN, bundle([{ id: CH, epoch: MAX_VEND_EPOCH_LEAD + 1 }]), held())).toBe("implausible-epoch");
+    expect(judgeCatchUp(fold(), ME, ADMIN, bundle([{ id: CH, epoch: MAX_VEND_EPOCH_LEAD }]), held())).toBe("adopt");
   });
 
   it("refuses when the recipient holds no role scoped to the channel", () => {
@@ -101,9 +144,10 @@ describe("judgeCatchUp", () => {
     expect(judgeCatchUp(f, ME, ADMIN, bundle([{ id: CH }]), held())).toBe("not-entitled");
   });
 
-  it("refuses a bundle that mixes an owed key with one the member is not entitled to", () => {
+  it("adopts the owed key from a bundle that also carries one the member is not entitled to", () => {
     const f = fold({ roster: { roles: [accessRole(CH), accessRole(OTHER_CH), staffRole] } });
-    expect(judgeCatchUp(f, ME, ADMIN, bundle([{ id: CH }, { id: OTHER_CH }]), held())).toBe("not-entitled");
+    expect(judgeCatchUpChannels(f, ME, ADMIN, bundle([{ id: CH }, { id: OTHER_CH }]), held())).toEqual({ verdict: "adopt", adopt: [CH] });
+    expect(judgeCatchUp(f, ME, ADMIN, bundle([{ id: OTHER_CH }]), held())).toBe("not-entitled");
   });
 
   it("ignores a channel the member already holds when judging entitlement", () => {

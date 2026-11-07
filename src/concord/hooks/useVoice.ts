@@ -1,9 +1,11 @@
 import { useNostr } from "@nostrify/react";
+import { clockNowMs } from "@/lib/relayClock";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { KIND_SEAL_ENCRYPTED, KIND_VOICE_PRESENCE } from "@/concord/lib/kinds";
+import { KIND_SEAL_ENCRYPTED, KIND_VOICE_DIRECTIVE, KIND_VOICE_PRESENCE } from "@/concord/lib/kinds";
+import { canActOnMember } from "@/concord/lib/roles";
 import { subscribeEphemeral } from "@/concord/lib/ephemeralSub";
 import {
   buildRumor,
@@ -13,20 +15,33 @@ import {
   sealRumor,
   wrapSeal,
 } from "@/concord/lib/stream";
-import { useControlFold } from "@/concord/hooks/useControlPlane";
+import { citationFor, useControlFold } from "@/concord/hooks/useControlPlane";
+import { mayConnect } from "@/concord/lib/callGate";
+import { citationToTag } from "@/concord/lib/edition";
 import {
+  applyDirective,
   communityAvBrokers,
+  directiveInWindow,
+  directivePermission,
+  directiveTags,
   fetchAvTokenFromAny,
   foldVoicePresence,
+  greetDelayMs,
   heartbeatDelayMs,
+  isNewcomer,
+  notePresence,
+  parseDirective,
   parsePresence,
   parseReaction,
   presenceTags,
+  prunePresence,
   probeAvBroker,
   reactionTag,
   rendezvousCandidates,
   VOICE_STALE_MS,
   type AvToken,
+  type VoiceDirective,
+  type VoiceDirectiveVerb,
   type VoicePresenceEntry,
   type VoicePresenceFold,
   type VoiceReactionEntry,
@@ -39,7 +54,7 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import { t } from "@/i18n";
 
 /** The stable empty fold (so idle rows keep constant props). */
-const EMPTY_FOLD: VoicePresenceFold = { present: [], claims: new Map() };
+const EMPTY_FOLD: VoicePresenceFold = { present: [], claims: new Map(), otherTransport: [] };
 
 function sameClaims(left: Map<string, string[]>, right: Map<string, string[]>): boolean {
   if (left.size !== right.size) return false;
@@ -58,6 +73,39 @@ function sameClaims(left: Map<string, string[]>, right: Map<string, string[]>): 
  * heartbeat with tiles "Unverified". Pruned at recompute time.
  */
 const sharedLatest = new Map<string, Map<string, VoicePresenceEntry>>();
+
+/** Drop the decrypted presence this session learned, and the directives this account stood behind. */
+export function clearVoicePresenceMemory(): void {
+  sharedLatest.clear();
+  standingDirectives.clear();
+}
+
+/** Per channel wrap address, who answers a newcomer's presence (see `useVoiceHeartbeat`). */
+const newcomerListeners = new Map<string, Set<(author: string) => void>>();
+
+function onNewcomer(currentPk: string, listener: (author: string) => void): () => void {
+  let set = newcomerListeners.get(currentPk);
+  if (!set) newcomerListeners.set(currentPk, (set = new Set()));
+  set.add(listener);
+  return () => {
+    set.delete(listener);
+    if (set.size === 0) newcomerListeners.delete(currentPk);
+  };
+}
+
+/** Per channel wrap address, who acts on an authorized directive (the call obeying its own). */
+const directiveListeners = new Map<string, Set<(d: VoiceDirective) => void>>();
+
+/** Hear the authorized, in-window voice directives at one Channel's address (CORD-07 §7). */
+export function onVoiceDirective(currentPk: string, listener: (d: VoiceDirective) => void): () => void {
+  let set = directiveListeners.get(currentPk);
+  if (!set) directiveListeners.set(currentPk, (set = new Set()));
+  set.add(listener);
+  return () => {
+    set.delete(listener);
+    if (set.size === 0) directiveListeners.delete(currentPk);
+  };
+}
 
 function latestFor(currentPk: string): Map<string, VoicePresenceEntry> {
   let map = sharedLatest.get(currentPk);
@@ -80,6 +128,11 @@ export function useVoicePresence(
   const { nostr } = useNostr();
   const [fold, setFold] = useState<VoicePresenceFold>(EMPTY_FOLD);
   const latest = useRef(new Map<string, VoicePresenceEntry>());
+  const { data: folded } = useControlFold(community);
+  const bannedRef = useRef(folded?.banned);
+  bannedRef.current = folded?.banned;
+  const foldedRef = useRef(folded);
+  foldedRef.current = folded;
 
   const channelIdHex = channel?.idHex ?? null;
   const currentPk = channel?.current.group.pk;
@@ -96,12 +149,16 @@ export function useVoicePresence(
     const epoch = channel.current.epoch;
 
     const recompute = () => {
-      const now = Date.now();
-      // Prune long-stale entries; anything they could out-rank is even older.
-      for (const [author, entry] of latest.current) {
-        if (now - entry.ms > VOICE_STALE_MS) latest.current.delete(author);
-      }
-      const next = foldVoicePresence([...latest.current.values()], now);
+      const now = clockNowMs();
+      prunePresence(latest.current, now);
+      // A banned author's presence doesn't count (Vector `author_is_banned_here`), nor
+      // one the Channel doesn't let connect (Vector `may_connect`).
+      const banned = bannedRef.current;
+      const control = foldedRef.current;
+      const next = foldVoicePresence(
+        [...latest.current.values()].filter((e) => !banned?.has(e.author) && mayConnect(control, channelIdHex, channel.isPrivate, e.author)),
+        now,
+      );
       setFold((prev) => {
         if (
           prev.present.length === next.present.length &&
@@ -113,10 +170,20 @@ export function useVoicePresence(
               p.hand === next.present[i].hand &&
               p.recording === next.present[i].recording &&
               p.noRecord === next.present[i].noRecord &&
+              p.muted === next.present[i].muted &&
+              p.deafened === next.present[i].deafened &&
+              p.screen === next.present[i].screen &&
+              p.camera === next.present[i].camera &&
+              p.serverMuted === next.present[i].serverMuted &&
+              p.serverDeafened === next.present[i].serverDeafened &&
               p.screenShareIdentities.join("\0") ===
                 next.present[i].screenShareIdentities.join("\0"),
           ) &&
-          sameClaims(prev.claims, next.claims)
+          sameClaims(prev.claims, next.claims) &&
+          prev.otherTransport.length === next.otherTransport.length &&
+          prev.otherTransport.every(
+            (p, i) => p.author === next.otherTransport[i].author && p.transport === next.otherTransport[i].transport,
+          )
         ) {
           return prev;
         }
@@ -127,17 +194,32 @@ export function useVoicePresence(
     const apply = (event: NostrEvent) => {
       try {
         const opened = openWrap(event, group);
+        if (opened.sealKind !== KIND_SEAL_ENCRYPTED) return;
+        if (opened.kind === KIND_VOICE_DIRECTIVE) {
+          checkChannelBinding(opened, channelIdHex, epoch);
+          const d = parseDirective(opened);
+          const control = foldedRef.current;
+          // Judged on arrival by the Roster as it stands, server-wide, never waiting on its `vac` (CORD-07 §7).
+          if (!d || !control || control.banned.has(d.author)) return;
+          if (!canActOnMember(control.roster, d.author, control.ownerHex, d.target, directivePermission(d.verb))) return;
+          const now = clockNowMs();
+          if (!directiveInWindow(latest.current.get(d.target), d.ms, now)) return;
+          const changed = applyDirective(latest.current, d, now);
+          if (changed) recompute();
+          // A mute or deafen that lost to a newer one changes nobody's call (Vector `yield_voice_directive`).
+          if (!changed && d.verb !== "move" && d.verb !== "disconnect") return;
+          for (const listener of directiveListeners.get(currentPk) ?? []) listener(d);
+          return;
+        }
         if (opened.kind !== KIND_VOICE_PRESENCE) return;
         checkChannelBinding(opened, channelIdHex, epoch);
         const entry = parsePresence(opened);
         if (!entry) return;
-        // Reject far-future stamps so a forged date can't squat "latest".
-        if (entry.ms > Date.now() + 60_000) return;
-        const prev = latest.current.get(entry.author);
-        if (!prev || entry.ms > prev.ms || (entry.ms === prev.ms && entry.rumorId < prev.rumorId)) {
-          latest.current.set(entry.author, entry);
-        }
+        const now = clockNowMs();
+        const newcomer = isNewcomer(latest.current.get(entry.author), entry, now);
+        if (!notePresence(latest.current, entry, now)) return;
         recompute();
+        if (newcomer) for (const listener of newcomerListeners.get(currentPk) ?? []) listener(entry.author);
       } catch {
         // not ours / malformed
       }
@@ -161,6 +243,103 @@ export function useVoicePresence(
   return fold;
 }
 
+/** Per (Channel address, target), the mutes and deafens this device stands behind (CORD-07 §7). */
+const standingDirectives = new Map<string, Set<VoiceDirectiveVerb>>();
+/** Per Channel address, the mounted moderation hooks; the first re-asserts, so a rejoin sends once. */
+const reasserters = new Map<string, symbol[]>();
+
+/**
+ * A moderator's voice directives in one Channel's call (CORD-07 §7): `send` signs one
+ * when this member holds its bit server-wide and strictly outranks the target. Mutes
+ * and deafens this device sent are re-asserted whenever their target rejoins, dated
+ * when sent, until a newer lift from anyone ends them.
+ */
+export function useVoiceModeration(community: Community | undefined, channel: Channel | undefined) {
+  const { nostr } = useNostr();
+  const { user } = useCurrentUser();
+  const { data: folded } = useControlFold(community);
+  const currentPk = channel?.current.group.pk;
+
+  const may = useCallback(
+    (target: string, verb: VoiceDirectiveVerb) =>
+      Boolean(user && folded && !folded.banned.has(user.pubkey) && canActOnMember(folded.roster, user.pubkey, folded.ownerHex, target, directivePermission(verb))),
+    [user, folded],
+  );
+
+  const publish = useCallback(
+    async (target: string, verb: VoiceDirectiveVerb, to?: string) => {
+      if (!user || !community || !channel || !currentPk) return false;
+      const citation = citationFor(community, folded, user.pubkey);
+      const rumor = buildRumor({
+        kind: KIND_VOICE_DIRECTIVE,
+        content: "",
+        tags: [
+          ...channelBindingTags(channel.idHex, channel.current.epoch),
+          ...directiveTags(target, verb, to),
+          ...(citation ? [citationToTag(citation)] : []),
+        ],
+        pubkey: user.pubkey,
+        ms: clockNowMs(),
+      });
+      const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, user.signer);
+      const wrap = await wrapSeal(seal, channel.current.group, { ephemeral: true });
+      const results = await Promise.allSettled(
+        community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(6000) })),
+      );
+      return results.some((r) => r.status === "fulfilled");
+    },
+    [nostr, user, community, channel, currentPk, folded],
+  );
+  const publishRef = useRef(publish);
+  publishRef.current = publish;
+
+  const send = useCallback(
+    async (target: string, verb: VoiceDirectiveVerb, to?: string) => {
+      if (!currentPk || !may(target, verb)) return false;
+      const sent = await publish(target, verb, to);
+      if (!sent) return false;
+      const key = `${currentPk}|${target}`;
+      const set = standingDirectives.get(key) ?? new Set<VoiceDirectiveVerb>();
+      if (verb === "mute" || verb === "deafen") set.add(verb);
+      else if (verb === "unmute") set.delete("mute");
+      else if (verb === "undeafen") set.delete("deafen");
+      else set.clear();
+      if (set.size > 0) standingDirectives.set(key, set);
+      else standingDirectives.delete(key);
+      return true;
+    },
+    [currentPk, may, publish],
+  );
+
+  useEffect(() => {
+    if (!currentPk) return;
+    const me = Symbol(currentPk);
+    reasserters.set(currentPk, [...(reasserters.get(currentPk) ?? []), me]);
+    // Back in the call: re-send what this device stands behind.
+    const stopRejoins = onNewcomer(currentPk, (author) => {
+      if (reasserters.get(currentPk)?.[0] !== me) return;
+      for (const verb of standingDirectives.get(`${currentPk}|${author}`) ?? []) {
+        void publishRef.current(author, verb).catch(() => undefined);
+      }
+    });
+    // A newer lift from anyone ends what this device stood behind.
+    const stopLifts = onVoiceDirective(currentPk, (d) => {
+      const set = standingDirectives.get(`${currentPk}|${d.target}`);
+      if (d.verb === "unmute") set?.delete("mute");
+      if (d.verb === "undeafen") set?.delete("deafen");
+    });
+    return () => {
+      stopRejoins();
+      stopLifts();
+      const rest = (reasserters.get(currentPk) ?? []).filter((h) => h !== me);
+      if (rest.length > 0) reasserters.set(currentPk, rest);
+      else reasserters.delete(currentPk);
+    };
+  }, [currentPk]);
+
+  return { may, send };
+}
+
 /**
  * Announce own call presence (§4): `joined` (SFU identity + broker hint) now and
  * every 30s while `identity` is set, best-effort `left` on teardown.
@@ -176,6 +355,8 @@ export function useVoiceHeartbeat(
   handRaised = false,
   additionalIdentities: readonly string[] = [],
   noRecord = false,
+  /** What the call shows of this member (CORD-07 §4), re-sent the moment it changes. */
+  media: { muted: boolean; screen: boolean; camera: boolean } = { muted: false, screen: false, camera: false },
 ): {
   sendReaction: (emoji: string) => void;
   announceAdditionalIdentities: (identities: readonly string[]) => Promise<void>;
@@ -192,6 +373,9 @@ export function useVoiceHeartbeat(
   noRecordRef.current = noRecord;
   // Set only through `announceRecording`, whose caller must see the delivery.
   const recordingRef = useRef(false);
+  const mediaRef = useRef(media);
+  mediaRef.current = media;
+  const mediaKey = `${media.muted}|${media.screen}|${media.camera}`;
   const additionalIdentitiesRef = useRef(additionalIdentities);
   additionalIdentitiesRef.current = additionalIdentities;
   const additionalIdentitiesKey = additionalIdentities.join("\0");
@@ -214,11 +398,12 @@ export function useVoiceHeartbeat(
             recording: recordingRef.current,
             noRecord: noRecordRef.current,
             additionalIdentities: additionalIdentitiesRef.current,
+            ...mediaRef.current,
           }),
           ...(reaction ? [reactionTag(reaction.emoji, reaction.nonce)] : []),
         ],
         pubkey: user.pubkey,
-        ms: Date.now(),
+        ms: clockNowMs(),
       });
       const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, user.signer);
       const wrap = await wrapSeal(seal, channel.current.group, { ephemeral: true });
@@ -242,8 +427,19 @@ export function useVoiceHeartbeat(
       }, heartbeatDelayMs());
     };
     schedule();
+    // Answer a newcomer within a couple of seconds, jittered, one answer in flight (CORD-07 §4).
+    let greet: ReturnType<typeof setTimeout> | undefined;
+    const stopGreeting = onNewcomer(channel.current.group.pk, (author) => {
+      if (author === user.pubkey || greet !== undefined) return;
+      greet = setTimeout(() => {
+        greet = undefined;
+        void publish("joined", identity, broker).catch(() => undefined);
+      }, greetDelayMs());
+    });
     return () => {
       clearTimeout(timer);
+      clearTimeout(greet);
+      stopGreeting();
       void publish("left").catch(() => undefined);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -259,7 +455,7 @@ export function useVoiceHeartbeat(
     }
     void publish("joined", identity, broker).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handRaised, noRecord, identity, broker]);
+  }, [handRaised, noRecord, mediaKey, identity, broker]);
 
   // Separate from the main heartbeat effect, whose teardown would emit a `left`.
   const identitiesMounted = useRef(false);

@@ -1,5 +1,6 @@
 import type { NostrMetadata } from "@nostrify/nostrify";
 
+import { useCommunityNickname } from "@/contexts/CommunityNicknamesContext";
 import { useServerScope } from "@/contexts/ServerScopeContext";
 import { useServerProfile } from "@/hooks/useServerProfile";
 import { useIsUserBanned } from "@/lib/blocklistStore";
@@ -14,8 +15,8 @@ export interface ScopedIdentity {
 }
 
 /**
- * Per-server nickname/color/label under a {@link ServerScopeProvider}, else the global kind-0
- * name. Queried only from the scoped relay, so they never leak to other servers.
+ * A Concord Community's Nickname (CORD-04 §10), else the per-server nickname/color/label
+ * under a {@link ServerScopeProvider}, else the global kind-0 name. Queried only from the scoped relay, so they never leak to other servers.
  */
 export function useScopedIdentity(
   pubkey: string | undefined,
@@ -23,10 +24,11 @@ export function useScopedIdentity(
 ): ScopedIdentity {
   const relayUrl = useServerScope();
   const { data: profile } = useServerProfile(relayUrl, pubkey);
+  const communityNickname = useCommunityNickname(pubkey);
   const banned = useIsUserBanned()(pubkey);
   if (banned) return { displayName: bannedName() };
   return {
-    displayName: profile?.nickname?.trim() || getDisplayName(metadata, pubkey),
+    displayName: communityNickname || profile?.nickname?.trim() || getDisplayName(metadata, pubkey),
     color: profile?.color,
     label: profile?.label?.trim() || undefined,
   };

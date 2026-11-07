@@ -2,7 +2,7 @@ import { useNostr } from "@nostrify/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { citationFor, invalidateControl, publishEdition, useControlFold } from "@/concord/hooks/useControlPlane";
+import { citationFor, foldStoredControl, invalidateControl, publishEdition, useControlFold, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { activePause, buildSignalsEdition, type ActivePause } from "@/concord/lib/control";
 import { bytesToHex, signalLocator } from "@/concord/lib/derive";
@@ -102,18 +102,24 @@ export function useCommunityPause(community: Community | undefined): {
     if (!folded || !isAuthorized(folded.roster, user.pubkey, folded.ownerHex, Permissions.MANAGE_CHANNELS)) {
       throw new Error(t({ id: "usePause.noPermission", defaultMessage: "You don't have permission to pause this community." }));
     }
-    const head = folded.heads.get(bytesToHex(signalLocator(community.id, SIGNAL_PAUSE)));
-    await publishEdition(
-      nostr,
-      community,
-      user.signer,
-      buildSignalsEdition(community.id, SIGNAL_PAUSE, content, {
-        actorPubkey: user.pubkey,
-        version: head ? head.version + 1n : 1n,
-        prevHash: head?.hash,
-        authority: citationFor(community, folded, user.pubkey),
-      }),
-    );
+    const c = community;
+    const u = user;
+    // One write at a time, from the store's fold: the rendered one lags this device's last write.
+    await withControlWrite(c.idHex, async () => {
+      const now = await foldStoredControl(c).catch(() => folded);
+      const head = now.heads.get(bytesToHex(signalLocator(c.id, SIGNAL_PAUSE)));
+      await publishEdition(
+        nostr,
+        c,
+        u.signer,
+        buildSignalsEdition(c.id, SIGNAL_PAUSE, content, {
+          actorPubkey: u.pubkey,
+          version: head ? head.version + 1n : 1n,
+          prevHash: head?.hash,
+          authority: citationFor(c, now, u.pubkey),
+        }),
+      );
+    });
     invalidateControl(queryClient, community.idHex);
   };
 

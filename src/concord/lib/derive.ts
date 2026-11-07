@@ -34,6 +34,19 @@ const LABEL_INVITE_LINKS = "concord/invite-links";
 const LABEL_PINS = "concord/pins";
 const LABEL_SIGNAL = "concord/signal";
 const LABEL_INVITE_KEY = "concord/invite-key";
+const LABEL_CHANNEL_ACCESS = "concord/channel-access";
+const LABEL_CHANNEL_WRITER = "concord/channel-writer";
+const LABEL_EVERYONE = "concord/everyone";
+const LABEL_TENURE = "concord/tenure";
+const LABEL_ACL = "concord/acl";
+const LABEL_SYNC = "concord/sync";
+const LABEL_WRITERS = "concord/writers";
+const LABEL_EDITION_BINDING = "concord/edition-binding";
+const LABEL_WRAP_OWNER = "concord/wrap-owner";
+// A.7: plain SHA-256 scopes, outside the hkdf shape.
+const LABEL_WRITER_SCOPE = "concord/writer-scope";
+const LABEL_CERTIFIER_SCOPE = "concord/certifier-scope";
+const LABEL_HISTORY_SCOPE = "concord/history-scope";
 
 /** The community_id commitment prefix (A.4) — plain SHA-256, NOT the hkdf shape. */
 const LABEL_COMMUNITY = "concord/community";
@@ -391,6 +404,118 @@ export function pinsLocator(communityId: Uint8Array, channelId: Uint8Array): Uin
 export function banlistLocator(communityId: Uint8Array): Uint8Array {
   assert32("communityId", communityId);
   return hkdf32(communityId, buildInfo(LABEL_BANLIST, ZERO32));
+}
+
+/** The `@everyone` Role's coordinate (CORD-04 §2); an owner edition here moves a Community to vsk 13. */
+export function everyoneLocator(communityId: Uint8Array): Uint8Array {
+  assert32("communityId", communityId);
+  return hkdf32(communityId, buildInfo(LABEL_EVERYONE, ZERO32));
+}
+
+/** What a marked edition names in `eb` to bind itself to its Community (CORD-04 §1). */
+export function editionBinding(communityId: Uint8Array): Uint8Array {
+  assert32("communityId", communityId);
+  return hkdf32(communityId, buildInfo(LABEL_EDITION_BINDING, ZERO32));
+}
+
+function sha256Concat(...parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return sha256(out);
+}
+
+/** A member's Tenure from one sealer (CORD-04 §9): id `SHA-256(member ‖ sealer)`. */
+export function tenureLocator(communityId: Uint8Array, memberXonly: Uint8Array, sealerXonly: Uint8Array): Uint8Array {
+  assert32("communityId", communityId);
+  assert32("memberXonly", memberXonly);
+  assert32("sealerXonly", sealerXonly);
+  return hkdf32(communityId, buildInfo(LABEL_TENURE, sha256Concat(memberXonly, sealerXonly)));
+}
+
+/** An overwrite target's kind: what its coordinate hashes with its id (CORD-04 §8). */
+export type OverwriteTargetKind = "everyone" | "role" | "member";
+
+/**
+ * The 32 bytes a target contributes to its overwrite's coordinate,
+ * `SHA-256(utf8(kind) ‖ target)`, `target` being the `@everyone` coordinate for
+ * `everyone`, so a Role and a member sharing 32 bytes never share an overwrite.
+ */
+export function overwriteTargetBytes(communityId: Uint8Array, kind: OverwriteTargetKind, id?: Uint8Array): Uint8Array {
+  const target = kind === "everyone" ? everyoneLocator(communityId) : id;
+  if (!target) throw new Error(`overwrite target ${kind} needs an id`);
+  assert32("target", target);
+  return sha256Concat(ASCII.encode(kind), target);
+}
+
+/** One overwrite's coordinate (CORD-04 §8): id `SHA-256(scope ‖ targetBytes)`. */
+export function aclLocator(communityId: Uint8Array, scope: Uint8Array, targetBytes: Uint8Array): Uint8Array {
+  assert32("communityId", communityId);
+  assert32("scope", scope);
+  assert32("targetBytes", targetBytes);
+  return hkdf32(communityId, buildInfo(LABEL_ACL, sha256Concat(scope, targetBytes)));
+}
+
+/** A Channel's sync coordinate (CORD-04 §8). */
+export function syncLocator(communityId: Uint8Array, channelId: Uint8Array): Uint8Array {
+  assert32("communityId", communityId);
+  assert32("channelId", channelId);
+  return hkdf32(communityId, buildInfo(LABEL_SYNC, channelId));
+}
+
+/** A restricted Channel's Writers ledger coordinate (CORD-03 §1). */
+export function writersLocator(communityId: Uint8Array, channelId: Uint8Array): Uint8Array {
+  assert32("communityId", communityId);
+  assert32("channelId", channelId);
+  return hkdf32(communityId, buildInfo(LABEL_WRITERS, channelId));
+}
+
+/** A restricted Channel's writer scope, `sha256("concord/writer-scope" ‖ channel_id)` (A.7). */
+export function writerScope(channelId: Uint8Array): Uint8Array {
+  assert32("channelId", channelId);
+  return sha256Concat(ASCII.encode(LABEL_WRITER_SCOPE), channelId);
+}
+
+/** A restricted Channel's certifier scope (A.7). */
+export function certifierScope(channelId: Uint8Array): Uint8Array {
+  assert32("channelId", channelId);
+  return sha256Concat(ASCII.encode(LABEL_CERTIFIER_SCOPE), channelId);
+}
+
+/** A Channel's read-only history scope (A.7, CORD-03 §5). */
+export function historyScope(channelId: Uint8Array): Uint8Array {
+  assert32("channelId", channelId);
+  return sha256Concat(ASCII.encode(LABEL_HISTORY_SCOPE), channelId);
+}
+
+/** A restricted Channel's writer address and wrap signer for a writer epoch (CORD-03 §1). */
+export function channelWriterGroupKey(writerSecret: Uint8Array, channelId: Uint8Array, writerEpoch: number | bigint): GroupKey {
+  assert32("writerSecret", writerSecret);
+  assert32("channelId", channelId);
+  return groupKeyCached(LABEL_CHANNEL_WRITER, writerSecret, channelId, toEpoch(writerEpoch));
+}
+
+/** A Channel's access plane for a root epoch, where keys are delivered (CORD-03 §5). */
+export function channelAccessGroupKey(communityRoot: Uint8Array, channelId: Uint8Array, rootEpoch: number | bigint): GroupKey {
+  assert32("communityRoot", communityRoot);
+  assert32("channelId", channelId);
+  return groupKeyCached(LABEL_CHANNEL_ACCESS, communityRoot, channelId, toEpoch(rootEpoch));
+}
+
+/**
+ * The `p` key of an author's own wrap at `address` (CORD-01 §Deletions):
+ * `group_key(author_secret, "concord/wrap-owner", SHA-256(address ‖ rumor_id))`,
+ * so any of the author's clients can delete it, and nobody else can tie it to them.
+ * Not memoized: the secret is an account key.
+ */
+export function wrapOwnerKey(authorSecret: Uint8Array, addressHex: string, rumorId: Uint8Array): { sk: Uint8Array; pk: string } {
+  assert32("authorSecret", authorSecret);
+  assert32("rumorId", rumorId);
+  const sk = hkdfToSecretKey(authorSecret, buildInfo(LABEL_WRAP_OWNER, sha256Concat(hex32(addressHex), rumorId)));
+  return { sk, pk: bytesToHex(schnorr.getPublicKey(sk)) };
 }
 
 /** A creator's invite-link Registry coordinate (CORD-05 §5). */

@@ -195,7 +195,10 @@ export type OpenedWireEvent = OpenedEvent & {
  * Mirrored by native notification services (`FUTURE_HOLD_MS` in
  * `NotificationRelayService.java`, `Concord.futureHoldSecs` in `Concord.swift`).
  */
-export const FUTURE_HOLD_MS = 2_000;
+export const FUTURE_HOLD_MS = 5_000;
+
+/** A message dated further ahead than this isn't held, but met again as its date nears (CORD-03 §3). */
+export const FUTURE_HORIZON_MS = 3_600_000;
 
 /**
  * Reconstruct the ms timestamp. Missing tag = 0; out-of-range/non-integer throws

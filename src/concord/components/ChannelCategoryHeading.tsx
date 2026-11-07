@@ -1,9 +1,10 @@
-import { ChevronDown, FolderMinus, Pencil } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, FolderMinus, KeyRound, Pencil, Trash2 } from "lucide-react";
 
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { FormattedMessage, useIntl } from "@/i18n";
@@ -15,9 +16,14 @@ interface ChannelCategoryHeading2Props {
   onToggle: () => void;
   /** Dot on the heading so collapsing never hides unread. */
   hasUnread?: boolean;
-  /** Re-file every channel under a new name (categories have no id). Undefined without MANAGE_CHANNELS. */
+  /** Rename the category. Undefined without MANAGE_CHANNELS. */
   onRename?: () => void;
   onUngroup?: () => void;
+  /** A vsk-13 Category's own actions (CORD-03 §4, CORD-04 §8); absent on the legacy Roster. */
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  onPermissions?: () => void;
+  onDelete?: () => void;
   /** A drag is aimed inside this category. */
   highlight?: boolean;
   children?: React.ReactNode;
@@ -30,6 +36,10 @@ export function ChannelCategoryHeading({
   hasUnread,
   onRename,
   onUngroup,
+  onMoveUp,
+  onMoveDown,
+  onPermissions,
+  onDelete,
   highlight,
   children,
 }: ChannelCategoryHeading2Props) {
@@ -57,7 +67,7 @@ export function ChannelCategoryHeading({
     </button>
   );
 
-  if (!onRename && !onUngroup) return heading;
+  if (!onRename && !onUngroup && !onPermissions && !onDelete) return heading;
   return (
     <ContextMenu>
       {/* Radix handles both right-click and press-and-hold. */}
@@ -74,6 +84,33 @@ export function ChannelCategoryHeading({
             <FolderMinus className="size-4" />
             <FormattedMessage id="channelCategoryHeading.ungroup" defaultMessage="Ungroup channels" />
           </ContextMenuItem>
+        )}
+        {onMoveUp && (
+          <ContextMenuItem onSelect={onMoveUp}>
+            <ArrowUp className="size-4" />
+            <FormattedMessage id="channelCategoryHeading.moveUp" defaultMessage="Move up" />
+          </ContextMenuItem>
+        )}
+        {onMoveDown && (
+          <ContextMenuItem onSelect={onMoveDown}>
+            <ArrowDown className="size-4" />
+            <FormattedMessage id="channelCategoryHeading.moveDown" defaultMessage="Move down" />
+          </ContextMenuItem>
+        )}
+        {onPermissions && (
+          <ContextMenuItem onSelect={onPermissions}>
+            <KeyRound className="size-4" />
+            <FormattedMessage id="channelPermissions.title" defaultMessage="Permissions" />
+          </ContextMenuItem>
+        )}
+        {onDelete && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive">
+              <Trash2 className="size-4" />
+              <FormattedMessage id="channelCategoryHeading.delete" defaultMessage="Delete category" />
+            </ContextMenuItem>
+          </>
         )}
       </ContextMenuContent>
     </ContextMenu>

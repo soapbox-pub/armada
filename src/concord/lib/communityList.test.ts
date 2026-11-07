@@ -16,6 +16,8 @@ import {
   removeFromList,
   removedCommunityIds,
   replayedAddStanding,
+  reviseSnapshots,
+  unionChannelKeys,
   toJoinMaterial,
   type CommunityListEntry,
   type JoinMaterial,
@@ -511,5 +513,109 @@ describe("replayedAddStanding (a pending join settled after its click)", () => {
   it("is still to be written when only an older add is held", () => {
     expect(replayedAddStanding(addToList(EMPTY_COMMUNITY_LIST, entryOf(jm, 4000)), clicked)).toBeUndefined();
     expect(replayedAddStanding(EMPTY_COMMUNITY_LIST, clicked)).toBeUndefined();
+  });
+});
+
+describe("snapshot revisions (CORD-02 §8)", () => {
+  const listOf = (seed: JoinMaterial, current: JoinMaterial) =>
+    addToList(EMPTY_COMMUNITY_LIST, { community_id: current.community_id, seed, current, added_at: 1000 });
+
+  it("at an epoch tie the higher rev wins, even when it sorts later", () => {
+    const base = makeJoinMaterial({ root_epoch: 5 });
+    const old = { ...base, name: "aaa", rev: 1 };
+    const fresh = { ...base, name: "zzz", rev: 2 };
+    for (const [a, b] of [[old, fresh], [fresh, old]]) {
+      const merged = mergeCommunityLists(listOf(a, a), listOf(b, b));
+      expect(merged.entries[0].current.name).toBe("zzz");
+      expect(merged.entries[0].seed.name, "an equal-epoch seed follows the same revision").toBe("zzz");
+    }
+  });
+
+  it("the epoch outranks the revision", () => {
+    const base = makeJoinMaterial();
+    const low = { ...base, root_epoch: 2, rev: 9 };
+    const high = { ...base, root_epoch: 6, community_root: bytesToHex(random32()) };
+    const merged = mergeCommunityLists(listOf(low, low), listOf(high, high));
+    expect(merged.entries[0].current.root_epoch).toBe(6);
+    expect(merged.entries[0].seed.root_epoch).toBe(2);
+  });
+
+  it("a revision past the safe integer range counts as zero", () => {
+    const base = makeJoinMaterial({ root_epoch: 5 });
+    const honest = { ...base, name: "zzz", rev: 1 };
+    const wild = { ...base, name: "aaa", rev: 2 ** 60 };
+    expect(mergeCommunityLists(listOf(honest, honest), listOf(wild, wild)).entries[0].current.name).toBe("zzz");
+  });
+
+  it("a write revises a changed snapshot one past what it read, and keeps an unchanged one", () => {
+    const base = makeJoinMaterial({ root_epoch: 3, rev: 4 });
+    const read = listOf(base, base);
+    const renamed = refreshRelays(read, base.community_id, ["wss://new.example"]);
+    const revised = reviseSnapshots(read, renamed);
+    expect(revised.entries[0].current.rev).toBe(5);
+    expect(revised.entries[0].seed, "a seed at the current epoch follows it").toBe(revised.entries[0].current);
+    expect(reviseSnapshots(read, read).entries[0].current.rev).toBe(4);
+  });
+
+  it("an unrevised list stays byte-identical: 0 is never written", () => {
+    const base = makeJoinMaterial({ root_epoch: 3 });
+    const read = listOf(base, base);
+    const revised = reviseSnapshots(read, read);
+    expect("rev" in revised.entries[0].current).toBe(false);
+  });
+
+  /**
+   * Vector's `rebuild_snapshot`, transcribed: the device's own snapshot wins its names,
+   * keys go by epoch, a same-epoch copy fills in only the fields ours lacks, and the
+   * revision moves one past the read copy only when the content changed.
+   */
+  function vectorRebuild(ours: JoinMaterial, theirs: JoinMaterial): JoinMaterial {
+    const out = structuredClone(ours);
+    for (const t of theirs.channels) {
+      const c = out.channels.find((x) => x.id === t.id);
+      if (!c) {
+        out.channels.push(structuredClone(t));
+        continue;
+      }
+      if (t.epoch > c.epoch) Object.assign(c, { epoch: t.epoch, key: t.key });
+      if (t.epoch === c.epoch) for (const [k, v] of Object.entries(t)) if (!(k in c)) (c as Record<string, unknown>)[k] = v;
+    }
+    out.channels.sort((x, y) => (x.id < y.id ? -1 : 1));
+    const bare = (j: JoinMaterial) => canonicalJson({ ...j, rev: 0, channels: [...j.channels].sort((x, y) => (x.id < y.id ? -1 : 1)) });
+    const read = theirs.rev ?? 0;
+    return { ...out, rev: bare(out) === bare(theirs) ? read : read + 1 };
+  }
+
+  it("settles with Vector when both hold the same Channel key under different names", () => {
+    const base = makeJoinMaterial({ root_epoch: 0 });
+    const key = { id: "aa".repeat(32), key: "11".repeat(32), epoch: 1 };
+    const vectorHeld = { ...base, channels: [{ ...key, name: "general" }] };
+    let wire: JoinMaterial = { ...vectorHeld, rev: 3 };
+    let armada = listOf({ ...base, channels: [{ ...key, name: "" }], rev: 2 }, { ...base, channels: [{ ...key, name: "" }], rev: 2 });
+    const writes: string[] = [];
+    for (let round = 0; round < 4; round++) {
+      // Armada's sync: its copy unioned with the wire, revised against the wire.
+      armada = reviseSnapshots(listOf(wire, wire), mergeCommunityLists(armada, listOf(wire, wire)));
+      const ours = armada.entries[0].current;
+      if (canonicalJson(ours) !== canonicalJson(wire)) {
+        writes.push(`armada@${round}`);
+        wire = ours;
+      }
+      const theirs = vectorRebuild(vectorHeld, wire);
+      if (canonicalJson(theirs) !== canonicalJson(wire)) {
+        writes.push(`vector@${round}`);
+        wire = theirs;
+      }
+    }
+    expect(writes.filter((w) => !w.endsWith("@0")), "nobody writes past the first round").toEqual([]);
+    expect(wire.channels[0].name).toBe("general");
+  });
+
+  it("orders channels by raw id bytes", () => {
+    const chans = unionChannelKeys(
+      [{ id: "b0".repeat(32), key: "11".repeat(32), epoch: 1, name: "b" }],
+      [{ id: "0a".repeat(32), key: "22".repeat(32), epoch: 1, name: "a" }],
+    );
+    expect(chans.map((c) => c.id.slice(0, 2))).toEqual(["0a", "b0"]);
   });
 });

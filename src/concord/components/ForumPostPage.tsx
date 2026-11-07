@@ -197,6 +197,7 @@ export function ForumPostPage({
       onCancel={opts.inline ? () => setReplyingTo(undefined) : () => setCommentOpen(false)}
       mentionPubkeys={mentionPubkeys}
       canMentionEveryone={transport.canMentionEveryone}
+      mentionRoles={transport.mentionRoles}
       conversationRelays={conversationRelays}
       placeholder={opts.inline
         ? intl.formatMessage({ id: "forumPostPage.writeReply", defaultMessage: "Write a reply" })

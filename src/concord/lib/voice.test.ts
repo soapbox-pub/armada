@@ -11,7 +11,14 @@ import {
   communityAvBrokers,
   fetchAvToken,
   fetchAvTokenFromAny,
+  applyDirective,
+  directiveInWindow,
   foldVoicePresence,
+  parseDirective,
+  greetDelayMs,
+  isNewcomer,
+  notePresence,
+  prunePresence,
   heartbeatDelayMs,
   KIND_HTTP_AUTH,
   isVerifiedScreenShareIdentity,
@@ -25,6 +32,7 @@ import {
   signAvGrant,
   verifiedAuthorOf,
   VOICE_HEARTBEAT_MS,
+  VOICE_BEHIND_MS,
   VOICE_STALE_MS,
   type VoicePresenceEntry,
 } from "@/concord/lib/voice";
@@ -196,6 +204,25 @@ function openedPresence(overrides: Partial<OpenedEvent>): OpenedEvent {
   };
 }
 
+describe("presence flags (CORD-07 §4, Vector `chat.rs`)", () => {
+  it("writes the bare one-element muted tag and the video tags, only while joined", () => {
+    const tags = presenceTags("joined", "id-1", undefined, { muted: true, screen: true, camera: true });
+    expect(tags).toContainEqual(["muted"]);
+    expect(tags).toContainEqual(["video", "screen"]);
+    expect(tags).toContainEqual(["video", "camera"]);
+    expect(presenceTags("left", undefined, undefined, { muted: true })).toEqual([]);
+  });
+
+  it("reads the flags by name, and deafened as muted too", () => {
+    const deaf = parsePresence(openedPresence({ tags: [["identity", "id-1"], ["deafened"]] }));
+    expect(deaf).toMatchObject({ muted: true, deafened: true });
+    const showing = parsePresence(openedPresence({ tags: [["identity", "id-1"], ["video", "screen"]] }));
+    expect(showing).toMatchObject({ screen: true });
+    expect(showing?.camera).toBeUndefined();
+    expect(parsePresence(openedPresence({ content: "left", tags: [["muted"]] }))?.muted).toBeUndefined();
+  });
+});
+
 describe("parsePresence (§4)", () => {
   it("parses a joined with identity + canonicalized broker", () => {
     const p = parsePresence(openedPresence({}));
@@ -262,6 +289,33 @@ describe("parsePresence (§4)", () => {
     expect(p?.identity).toBe("id-1");
     expect(p?.identities).toEqual(["id-1", "hevc-1", "hevc-2", "hevc-3"]);
     expect(p?.screenShareIdentities).toEqual(["hevc-1"]);
+  });
+
+  it("keeps a peer-to-peer joined that names no identity (CORD-07 §4 Transports)", () => {
+    const endpoint = "c".repeat(64);
+    const p = parsePresence(openedPresence({
+      tags: [["transport", "iroh"], ["endpoint", endpoint], ["relay", "https://relay.example/"]],
+    }));
+    expect(p?.status).toBe("joined");
+    expect(p?.transport).toBe("iroh");
+    expect(p?.identity).toBeUndefined();
+  });
+
+  it("drops an iroh joined whose endpoint isn't 64 hex digits", () => {
+    expect(parsePresence(openedPresence({ tags: [["transport", "iroh"]] }))).toBeNull();
+    expect(parsePresence(openedPresence({ tags: [["transport", "iroh"], ["endpoint", "xyz"]] }))).toBeNull();
+  });
+
+  it("drops a joined whose transport has no value, or an iroh one repeating its relay (Vector `chat.rs`)", () => {
+    const endpoint = "c".repeat(64);
+    expect(parsePresence(openedPresence({ tags: [["identity", "id-1"], ["transport"]] }))).toBeNull();
+    expect(parsePresence(openedPresence({
+      tags: [["transport", "iroh"], ["endpoint", endpoint], ["relay", "https://a.example/"], ["relay", "https://b.example/"]],
+    }))).toBeNull();
+  });
+
+  it("keeps a joined on a transport it has never heard of", () => {
+    expect(parsePresence(openedPresence({ tags: [["transport", "future"]] }))?.transport).toBe("future");
   });
 });
 
@@ -335,6 +389,55 @@ describe("foldVoicePresence (§4)", () => {
     expect(fold.present).toHaveLength(0);
   });
 
+  it("times staleness from arrival, so a member whose clock lags stays while heartbeats arrive (Vector)", () => {
+    const latest = new Map<string, VoicePresenceEntry>();
+    // Their clock runs 80 s behind; each beat arrives already 80 s old by its own date.
+    expect(notePresence(latest, entry({ ms: now - 80_000 }), now)).toBe(true);
+    expect(foldVoicePresence([...latest.values()], now + 30_000).present).toHaveLength(1);
+    expect(foldVoicePresence([...latest.values()], now + VOICE_STALE_MS).present).toHaveLength(0);
+  });
+
+  it("drops a presence dated over a minute ahead or five minutes behind", () => {
+    const latest = new Map<string, VoicePresenceEntry>();
+    expect(notePresence(latest, entry({ ms: now + 60_001 }), now)).toBe(false);
+    expect(notePresence(latest, entry({ ms: now - 300_001 }), now)).toBe(false);
+    expect(notePresence(latest, entry({ ms: now - 299_000 }), now)).toBe(true);
+  });
+
+  it("a presence dated no later than the held one changes nothing, at an equal ms too", () => {
+    const latest = new Map<string, VoicePresenceEntry>();
+    notePresence(latest, entry({ ms: now - 1000, rumorId: "b" }), now);
+    expect(notePresence(latest, entry({ status: "left", identity: undefined, ms: now - 1000, rumorId: "a" }), now)).toBe(false);
+    expect(latest.get("a".repeat(64))?.status).toBe("joined");
+  });
+
+  it("keeps an aged-out presence until any replay of it would be dated too far behind (Vector `note`)", () => {
+    const latest = new Map<string, VoicePresenceEntry>();
+    const joined = entry({ ms: now - 1000, rumorId: "j" });
+    notePresence(latest, joined, now);
+    notePresence(latest, entry({ status: "left", identity: undefined, ms: now, rumorId: "l" }), now);
+    // Two minutes on, the left is no longer live, but a re-wrapped copy of the old joined still is in bounds.
+    const later = now + 120_000;
+    prunePresence(latest, later);
+    expect(notePresence(latest, joined, later)).toBe(false);
+    expect(foldVoicePresence([...latest.values()], later).present).toHaveLength(0);
+    // Past the five-minute bound the held entry goes, since the bound refuses its replay on its own.
+    const gone = now + VOICE_BEHIND_MS + 1;
+    prunePresence(latest, gone);
+    expect(latest.size).toBe(0);
+    expect(notePresence(latest, joined, gone)).toBe(false);
+  });
+
+  it("answers a joined from an author not held as present, or on a new identity (CORD-07 §4)", () => {
+    const held = { ...entry({}), heardAt: now - 1000 };
+    expect(isNewcomer(undefined, entry({}), now)).toBe(true);
+    expect(isNewcomer(held, entry({ ms: now }), now)).toBe(false);
+    expect(isNewcomer(held, entry({ ms: now, identity: "id-2" }), now)).toBe(true);
+    expect(isNewcomer({ ...held, heardAt: now - VOICE_STALE_MS }, entry({ ms: now }), now)).toBe(true);
+    expect(isNewcomer(undefined, entry({ status: "left", identity: undefined }), now)).toBe(false);
+    expect(greetDelayMs(() => 0.999)).toBeLessThan(1500);
+  });
+
   it("a stale joined (three missed heartbeats) counts as absent", () => {
     const fold = foldVoicePresence([entry({ ms: now - VOICE_STALE_MS - 1 })], now);
     expect(fold.present).toHaveLength(0);
@@ -364,6 +467,17 @@ describe("foldVoicePresence (§4)", () => {
     expect(isVerifiedScreenShareIdentity(fold, "hevc-1")).toBe(true);
     expect(isVerifiedScreenShareIdentity(fold, "id-1")).toBe(false);
     expect(fold.present).toHaveLength(1);
+  });
+
+  it("lists a member on another transport apart, claiming no identity", () => {
+    const fold = foldVoicePresence(
+      [entry({}), entry({ author: "b".repeat(64), identity: undefined, broker: undefined, transport: "iroh", rumorId: "r2" })],
+      now,
+    );
+    expect(fold.present.map((p) => p.author)).toEqual(["a".repeat(64)]);
+    expect(fold.otherTransport).toEqual([{ author: "b".repeat(64), transport: "iroh", ms: now - 1000 }]);
+    expect([...fold.claims.keys()]).toEqual(["id-1"]);
+    expect(foldVoicePresence([entry({ transport: "iroh", ms: now - VOICE_STALE_MS - 1 })], now).otherTransport).toEqual([]);
   });
 });
 
@@ -461,5 +575,64 @@ describe("communityAvBrokers (CORD-02 §6)", () => {
     expect(communityAvBrokers({ name: "c", relays: [], av_brokers: many })).toHaveLength(
       MAX_COMMUNITY_AV_BROKERS,
     );
+  });
+});
+
+describe("moderator directives (CORD-07 §7, Vector `apply_directive`)", () => {
+  const now = 10_000_000;
+  const target = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+  const joined = (o: Partial<VoicePresenceEntry> = {}): VoicePresenceEntry => ({
+    author: target, status: "joined", identity: "id-b", ms: now - 1000, rumorId: "r", ...o,
+  });
+  const inCall = () => {
+    const latest = new Map<string, VoicePresenceEntry>();
+    notePresence(latest, joined(), now - 1000);
+    return latest;
+  };
+  const d = (verb: string, ms = now, extra: string[][] = []) =>
+    parseDirective({ author: "a".repeat(64), ms, tags: [["p", target], ["do", verb], ...extra] })!;
+
+  it("parses the six verbs and drops a repeated p, do or to, or a move without to", () => {
+    expect(d("mute").verb).toBe("mute");
+    expect(parseDirective({ author: "a", ms: now, tags: [["p", target], ["p", target], ["do", "mute"]] })).toBeUndefined();
+    expect(parseDirective({ author: "a", ms: now, tags: [["p", target], ["do", "mute"], ["do", "unmute"]] })).toBeUndefined();
+    expect(parseDirective({ author: "a", ms: now, tags: [["p", target], ["do", "move"]] })).toBeUndefined();
+    expect(parseDirective({ author: "a", ms: now, tags: [["p", target], ["do", "shout"]] })).toBeUndefined();
+    expect(d("move", now, [["to", "c".repeat(64)]]).to).toBe("c".repeat(64));
+  });
+
+  it("drops a directive whose target names no point on the curve (Vector `PublicKey::from_hex`)", () => {
+    expect(parseDirective({ author: "a", ms: now, tags: [["p", "ff".repeat(32)], ["do", "mute"]] })).toBeUndefined();
+  });
+
+  it("mutes for the stay; the newest of each pair decides, a tie keeping them muted", () => {
+    const latest = inCall();
+    expect(applyDirective(latest, d("mute", now - 500), now)).toBe(true);
+    expect(latest.get(target)?.serverMuted).toBe(true);
+    // An older unmute arriving late changes nothing; one at the same ms keeps them muted.
+    expect(applyDirective(latest, d("unmute", now - 600), now)).toBe(false);
+    expect(applyDirective(latest, d("unmute", now - 500), now)).toBe(false);
+    expect(latest.get(target)?.serverMuted).toBe(true);
+    expect(applyDirective(latest, d("unmute", now - 400), now)).toBe(true);
+    expect(latest.get(target)?.serverMuted).toBe(false);
+  });
+
+  it("lasts while the stay does: the next heartbeat keeps it, leaving and rejoining clears it", () => {
+    const latest = inCall();
+    applyDirective(latest, d("deafen", now - 500), now);
+    notePresence(latest, joined({ ms: now }), now);
+    expect(latest.get(target)?.serverDeafened).toBe(true);
+    notePresence(latest, joined({ status: "left", identity: undefined, ms: now + 1 }), now + 1);
+    notePresence(latest, joined({ ms: now + 2 }), now + 2);
+    expect(latest.get(target)?.serverDeafened).toBeFalsy();
+  });
+
+  it("ignores one replayed from before the stay, or outside the presence clock bounds", () => {
+    const latest = inCall();
+    const stay = latest.get(target);
+    expect(directiveInWindow(stay, now - 1000 - 10_001, now)).toBe(false);
+    expect(directiveInWindow(stay, now - 1000 - 10_000, now)).toBe(true);
+    expect(directiveInWindow(stay, now + 60_001, now)).toBe(false);
+    expect(directiveInWindow(undefined, now, now)).toBe(false);
   });
 });

@@ -50,6 +50,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("@nostrify/react", () => ({ useNostr: () => ({ nostr: h.pool }) }));
+vi.mock("@/hooks/useAccountSecret", () => ({ useAccountSecret: () => undefined }));
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: h.user }) }));
 vi.mock("@/concord/hooks/useControlPlane", () => ({
   useControlFold: () => ({ data: undefined }),

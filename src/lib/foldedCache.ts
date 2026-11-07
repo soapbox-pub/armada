@@ -240,6 +240,18 @@ export async function writeFolded(key: string, value: unknown, encoded?: string)
   }
 }
 
+/** Forget a folded value, on disk and in this session (best-effort). */
+export async function deleteFolded(key: string): Promise<void> {
+  knownEncoding.delete(key);
+  sharedDecoded.delete(key);
+  sharedMissing.delete(key);
+  try {
+    await getArmadaDB().kv.delete(foldedKey(key));
+  } catch {
+    // Best-effort cache.
+  }
+}
+
 /** Test seam: forget this session's in-memory state. */
 export function __resetFoldedForTests(): void {
   knownEncoding.clear();

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canMentionEveryone,
+  everyoneMayMention,
   everyoneMentionAuthors,
   hasEveryoneMention,
   isEveryoneMention,
@@ -41,18 +42,25 @@ describe("Concord @everyone", () => {
     expect(hasEveryoneMention("@Everyone")).toBe(false);
   });
 
-  it("honors the owner and channel-scoped MENTION_EVERYONE grants", () => {
+  it("honors the owner and any Role holding MENTION_EVERYONE, server-wide (Vector `is_authorized`)", () => {
     expect(canMentionEveryone(roles, OWNER, OWNER, OTHER_CHANNEL)).toBe(true);
     expect(canMentionEveryone(roles, OWNER, MOD, CHANNEL)).toBe(true);
-    expect(canMentionEveryone(roles, OWNER, MOD, OTHER_CHANNEL)).toBe(false);
+    expect(canMentionEveryone(roles, OWNER, MOD, OTHER_CHANNEL)).toBe(true);
     expect(canMentionEveryone(roles, OWNER, MEMBER, CHANNEL)).toBe(false);
-    expect(isEveryoneMention("hi @everyone", roles, OWNER, MOD, CHANNEL)).toBe(true);
-    expect(isEveryoneMention("hi @everyone", roles, OWNER, MOD, OTHER_CHANNEL)).toBe(false);
+    expect(isEveryoneMention("hi @everyone", roles, OWNER, MOD, OTHER_CHANNEL)).toBe(true);
   });
 
-  it("lists only authors authorized in at least one requested channel", () => {
+  it("honors @everyone's own MENTION_EVERYONE on the vsk-13 Roster, for a member holding no Role", () => {
+    const open: CommunityRoles = { ...roles, everyone: Permissions.MENTION_EVERYONE };
+    expect(canMentionEveryone(open, OWNER, MEMBER, CHANNEL)).toBe(true);
+    expect(canMentionEveryone(open, OWNER, "f".repeat(64), CHANNEL)).toBe(true);
+    expect(everyoneMayMention(open)).toBe(true);
+    expect(everyoneMayMention(roles)).toBe(false);
+  });
+
+  it("lists the authors authorized to mention everyone", () => {
     expect(everyoneMentionAuthors(roles, OWNER, [CHANNEL])).toEqual([OWNER, MOD]);
-    expect(everyoneMentionAuthors(roles, OWNER, [OTHER_CHANNEL])).toEqual([OWNER]);
+    expect(everyoneMentionAuthors(roles, OWNER, [OTHER_CHANNEL])).toEqual([OWNER, MOD]);
   });
 
 });

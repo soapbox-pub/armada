@@ -1,3 +1,8 @@
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { clockNowMs } from "@/lib/relayClock";
+import { queryPlane, withGuestbookStreams } from "@/concord/lib/rumorStore";
+import { communityNicknames, runningTimeouts } from "@/concord/lib/channelJudges";
+import { currentGuestbookGroup } from "@/concord/lib/guestbook";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
@@ -53,6 +58,7 @@ export function useConcordSubsState(): ConcordSubsState {
   const communityList = useCommunityList();
   const { data } = communityList;
   const queryClient = useQueryClient();
+  const viewer = useCurrentUser().user?.pubkey;
 
   // Keyed on membership identity + epoch, so unrelated list churn is free. A
   // blocked community gets no subscription, and no native notifications.
@@ -102,7 +108,7 @@ export function useConcordSubsState(): ConcordSubsState {
   const membershipUsable = data !== undefined && !data.decryptFailed;
 
   const query = useQuery<{ subs: ConcordSub[]; foldsReady: boolean }>({
-    queryKey: ["concord", "notif-subs", listSig],
+    queryKey: ["concord", "notif-subs", listSig, viewer ?? null],
     enabled: membershipUsable && entries.length > 0,
     staleTime: 30_000,
     // Fold snapshots update out-of-band; re-read to pick up new channels.
@@ -125,7 +131,17 @@ export function useConcordSubsState(): ConcordSubsState {
         // may be hours stale). The control plane stays subscribed so the lift lands;
         // the missed window is caught up via the same IOU WireSync uses.
         if (await readLivePause(community, Math.floor(Date.now() / 1000))) continue;
-        const built = buildConcordSubs(community, folded, entry.added_at);
+        // Silence and names are extras: a failure to read them costs those, never the subs.
+        let timeouts: ReturnType<typeof runningTimeouts> = [];
+        let nicknames: Record<string, string> = {};
+        try {
+          const guestbook = await withGuestbookStreams(community, await queryPlane(community.idHex, "guestbook"));
+          timeouts = runningTimeouts(guestbook, folded, community.id, clockNowMs());
+          nicknames = communityNicknames(guestbook, folded, community.id, currentGuestbookGroup(community).pk, clockNowMs());
+        } catch {
+          // keep none
+        }
+        const built = buildConcordSubs(community, folded, entry.added_at, viewer, timeouts, nicknames);
         subs.push(...built.subs);
         // NIP-42, scoped per relay: the native service bridges AUTH challenges to the
         // WebView, which signs a kind-22242 per stream key (see useNativeNotifications).

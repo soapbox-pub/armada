@@ -1,5 +1,9 @@
 import { clearImageDims } from "@/components/chat/imageDims";
+import { clearAccessDutyMemory } from "@/concord/hooks/useAccessDuty";
+import { clearWriterDutyMemory } from "@/concord/hooks/writerDutyRun";
+import { clearRefusedBlobs } from "@/concord/lib/blobOnce";
 import { clearThumbs } from "@/lib/imageThumb";
+import { resetClockOffset } from "@/lib/relayClock";
 import { clearRevealedMedia } from "@/components/chat/revealedMedia";
 import { clearTokenCache } from "@/components/chat/tokenCache";
 import { clearRenderedPlaintext } from "@/hooks/dmRenderCache";
@@ -19,12 +23,15 @@ import { clearDeferredFoldMemory } from "@/concord/hooks/useDeferredFold";
 import { clearIconThumbMemory } from "@/concord/lib/iconThumbs";
 import { clearSightingsMemory } from "@/concord/lib/mediaTrust";
 import { clearOutgoingMemory } from "@/concord/lib/outgoing";
+import { clearChannelSealMemo } from "@/concord/lib/channelSeal";
 import { clearOutgoingVerifyMemory } from "@/concord/lib/outgoingVerify";
 import { clearPendingGuestbookJoinMemory } from "@/concord/lib/pendingGuestbookJoin";
 import { clearPendingJoins } from "@/concord/lib/pendingJoins";
 import { clearRumorStoreMemory } from "@/concord/lib/rumorStore";
 import { clearCommunityListMemory } from "@/concord/hooks/useCommunityList";
 import { clearControlPlaneMemory } from "@/concord/hooks/useControlPlane";
+import { clearGuestbookSessionMemory } from "@/concord/hooks/useGuestbook";
+import { clearVoicePresenceMemory } from "@/concord/hooks/useVoice";
 import { clearTimelineSnapshotMemory } from "@/concord/hooks/timelineSnapshot";
 import { clearChannelSyncContexts } from "@/concord/lib/channelSync";
 import { clearChatDecodeMemo } from "@/concord/lib/chat";
@@ -152,6 +159,11 @@ function clearSessionMemos(): void {
   clearChatDecodeMemo();
   clearControlMemos();
   clearControlPlaneMemory();
+  clearGuestbookSessionMemory();
+  clearVoicePresenceMemory();
+  clearRefusedBlobs();
+  clearWriterDutyMemory();
+  clearAccessDutyMemory();
   clearCommunityListMemory();
   clearTimelineSnapshotMemory();
   clearDm17ThreadSnapshotMemory();
@@ -203,6 +215,7 @@ export async function purgeClientStorage(): Promise<void> {
   clearPendingJoins();
   clearSightingsMemory();
   clearOutgoingMemory();
+  clearChannelSealMemo();
   clearOutgoingVerifyMemory();
   clearPendingGuestbookJoinMemory();
   clearRevealedMedia();
@@ -213,6 +226,7 @@ export async function purgeClientStorage(): Promise<void> {
   closeDmEphemeralSubs();
   // KV-backed caches hold in-memory copies that would otherwise leak into the next account.
   resetKvCaches();
+  resetClockOffset();
   // Android share-sheet suggestions would keep naming the old account's rooms.
   // Not awaited: a rate-limitable system call nothing else depends on.
   void clearShareShortcuts();
@@ -239,6 +253,7 @@ export async function purgeClientStorage(): Promise<void> {
   clearPendingJoins();
   clearSightingsMemory();
   clearOutgoingMemory();
+  clearChannelSealMemo();
   clearOutgoingVerifyMemory();
   clearPendingGuestbookJoinMemory();
   clearRevealedMedia();

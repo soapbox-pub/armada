@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
+import { useVoiceModerationActions } from "@/contexts/VoiceModerationContext";
 import { useUserModeration } from "@/hooks/useUserModeration";
 import { UserModerationMenuSection } from "@/components/chat/ModerationMenuSection";
 import { toast } from "@/hooks/useToast";
@@ -96,6 +97,8 @@ function useVoiceMenuItems(
 ) {
   // Only VERIFIED pubkeys: acting on an unclaimed identity would hit someone else.
   const moderation = useUserModeration(verified ? pubkey : undefined);
+  const voiceActions = useVoiceModerationActions(verified ? pubkey : undefined);
+  const actions = voiceActions.length > 0 ? [...voiceActions, ...moderation.actions] : moderation.actions;
   const [userVolume, setUserVolume] = useUserVolume(pubkey);
   const [screenShareVolume, setScreenShareVolume] = useScreenShareVolume(pubkey);
   const volume = volumeTarget === "screenShare" ? screenShareVolume : userVolume;
@@ -172,10 +175,10 @@ function useVoiceMenuItems(
           <Copy className="size-4" />
           <FormattedMessage id="voiceUserContextMenu.copyNpub" defaultMessage="Copy npub" />
         </Item>
-        {moderation.actions.length > 0 && (
+        {actions.length > 0 && (
           <>
             <Separator />
-            <UserModerationMenuSection parts={{ Item, Sub, SubTrigger, SubContent }} actions={moderation.actions} />
+            <UserModerationMenuSection parts={{ Item, Sub, SubTrigger, SubContent }} actions={actions} />
           </>
         )}
       </>

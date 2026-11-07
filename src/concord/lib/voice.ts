@@ -11,11 +11,14 @@
  * the broker comes from config (`rendezvousCandidates`).
  */
 
+import { isPubkey } from "@/concord/lib/guestbook";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { finalizeEvent } from "nostr-tools/pure";
 
 import { bytesToHex, hexToBytes, random32, type GroupKey } from "@/concord/lib/derive";
 import { KIND_VOICE_PRESENCE } from "@/concord/lib/kinds";
+import { Permissions } from "@/concord/lib/roles";
+import { uniqueTag } from "@/concord/lib/strictJson";
 import type { OpenedEvent } from "@/concord/lib/stream";
 import { MAX_COMMUNITY_AV_BROKERS, type CommunityMetadata } from "@/concord/lib/types";
 import { t } from "@/i18n/intl";
@@ -27,6 +30,9 @@ export const KIND_HTTP_AUTH = 27235;
 export const VOICE_HEARTBEAT_MS = 30_000;
 /** A `joined` older than 90s (three missed heartbeats) counts as absent (§4). */
 export const VOICE_STALE_MS = 90_000;
+/** A presence dated further ahead of, or behind, the receiver's clock is dropped (CORD-07 §4). */
+export const VOICE_AHEAD_MS = 60_000;
+export const VOICE_BEHIND_MS = 5 * 60_000;
 
 /**
  * Delay until the next heartbeat: 80–100% of §4's 30s. Jittered to avoid
@@ -201,6 +207,21 @@ export async function fetchAvTokenFromAny(origins: string[], voice: GroupKey): P
 /** One member's latest presence, as opened from the Channel's stream. */
 export interface VoicePresenceEntry {
   author: string;
+  /** When this receiver heard it; staleness runs from here, not the sender's date (CORD-07 §4). */
+  heardAt?: number;
+  /** When this stay in the call began, by its `joined`'s date and by when this receiver first heard it. */
+  sinceMs?: number;
+  sinceHeard?: number;
+  /** What its author says the call shows (CORD-07 §4): their own mute and deafen, a shared screen, a camera. */
+  muted?: boolean;
+  deafened?: boolean;
+  screen?: boolean;
+  camera?: boolean;
+  /** A moderator's mute or deafen for this stay, and when the directive deciding each was sent (CORD-07 §7). */
+  serverMuted?: boolean;
+  serverDeafened?: boolean;
+  mutedAt?: number;
+  deafenedAt?: number;
   status: "joined" | "left";
   /** The broker-assigned SFU identity (joined only). */
   identity?: string;
@@ -226,6 +247,12 @@ export interface VoicePresenceEntry {
    * presence lacks it, so an unknown member is never recorded either.
    */
   noRecord?: boolean;
+  /**
+   * A transport other than the brokered call (CORD-07 §4 Transports), e.g.
+   * `"iroh"`; absent for a brokered `joined`. Such a member is in the call on a
+   * transport Armada doesn't speak, never dropped.
+   */
+  transport?: string;
   /** Millisecond ordering basis (CORD-02 §4). */
   ms: number;
   /** The rumor id — the equal-ms tiebreak. */
@@ -245,6 +272,10 @@ export function presenceTags(
     recording?: boolean;
     noRecord?: boolean;
     additionalIdentities?: readonly string[];
+    /** What the call shows of its author (CORD-07 §4): mic off, screen or camera on. */
+    muted?: boolean;
+    screen?: boolean;
+    camera?: boolean;
   },
 ): string[][] {
   const tags: string[][] = [];
@@ -262,6 +293,10 @@ export function presenceTags(
   if (status === "joined" && opts?.hand) tags.push(["hand", "1"]);
   if (status === "joined" && opts?.recording) tags.push(["recording", "1"]);
   if (status === "joined" && opts?.noRecord) tags.push(["norecord", "1"]);
+  // The bare one-element form, as Vector writes and reads it.
+  if (status === "joined" && opts?.muted) tags.push(["muted"]);
+  if (status === "joined" && opts?.screen) tags.push(["video", "screen"]);
+  if (status === "joined" && opts?.camera) tags.push(["video", "camera"]);
   return tags;
 }
 
@@ -335,13 +370,19 @@ export function parsePresence(opened: OpenedEvent): VoicePresenceEntry | null {
   )].filter((candidate) => candidate !== identities[0]);
   const rawBroker = opened.tags.find((t) => t[0] === "broker")?.[1];
   const identity = status === "joined" ? identities[0] : undefined;
-  if (status === "joined" && !identity) return null;
+  const transport = status === "joined" ? otherTransport(opened.tags) : undefined;
+  if (transport === null) return null;
+  if (status === "joined" && !identity && !transport) return null;
   const broker =
     status === "joined" && typeof rawBroker === "string" && rawBroker.length <= 512
       ? canonicalOrigin(rawBroker) ?? undefined
       : undefined;
   const flag = (name: string) =>
     status === "joined" && opened.tags.some((t) => t[0] === name && t[1] === "1");
+  // CORD-07 §4 flags are read by name alone; deafened implies muted.
+  const bare = (name: string) => status === "joined" && opened.tags.some((t) => t[0] === name);
+  const video = (what: string) => status === "joined" && opened.tags.some((t) => t[0] === "video" && t[1] === what);
+  const deafened = bare("deafened");
   return {
     author: opened.author,
     status,
@@ -352,14 +393,48 @@ export function parsePresence(opened: OpenedEvent): VoicePresenceEntry | null {
     hand: flag("hand"),
     recording: flag("recording"),
     noRecord: flag("norecord"),
+    ...(bare("muted") || deafened ? { muted: true } : {}),
+    ...(deafened ? { deafened: true } : {}),
+    ...(video("screen") ? { screen: true } : {}),
+    ...(video("camera") ? { camera: true } : {}),
+    ...(transport ? { transport } : {}),
     ms: opened.ms,
     rumorId: opened.rumorId,
   };
 }
 
+/**
+ * The `transport` a `joined` names, when it isn't the brokered call: undefined
+ * for brokered presence, null for a malformed one (a repeated `transport`, or an
+ * iroh `joined` whose endpoint isn't one 64-hex-digit tag, CORD-07 §4). A name
+ * past 32 characters is kept, cut for display: presence is never dropped for a
+ * transport the reader doesn't speak.
+ */
+function otherTransport(tags: string[][]): string | undefined | null {
+  // A `transport` with no value is malformed, not absent (Vector `value_of`).
+  if (tags.some((t) => t[0] === "transport" && t.length < 2)) return null;
+  const transport = uniqueTag(tags, "transport");
+  if (transport === null) return null;
+  if (typeof transport !== "string" || transport.length === 0) return undefined;
+  if (transport === "iroh") {
+    const endpoint = uniqueTag(tags, "endpoint");
+    if (typeof endpoint !== "string" || !/^[0-9a-f]{64}$/i.test(endpoint)) return null;
+    if (uniqueTag(tags, "relay") === null) return null;
+  }
+  return [...transport].slice(0, 32).join("");
+}
+
 /** A verified-present participant: one fresh `joined` per author. */
 export interface VoicePresent {
   author: string;
+  /** A moderator's mute or deafen on this stay (CORD-07 §7); deafened implies muted. */
+  serverMuted?: boolean;
+  serverDeafened?: boolean;
+  /** Their own presence flags (CORD-07 §4). */
+  muted?: boolean;
+  deafened?: boolean;
+  screen?: boolean;
+  camera?: boolean;
   identity: string;
   broker?: string;
   /** Signed auxiliary identities owned by this member's screen-share publisher. */
@@ -382,11 +457,157 @@ export interface VoicePresenceFold {
    * ONE author claims its identity (§4).
    */
   claims: Map<string, string[]>;
+  /**
+   * Fresh `joined` authors on a transport Armada doesn't speak (CORD-07 §4):
+   * in the call, but in a group we can't hear. Never in `present` or `claims`.
+   */
+  otherTransport: VoiceOtherTransport[];
+}
+
+/** A member in the call on another transport. */
+export interface VoiceOtherTransport {
+  author: string;
+  transport: string;
+  ms: number;
+}
+
+/**
+ * Note a presence as it arrives (CORD-07 §4, Vector `note`): dropped when dated
+ * over a minute ahead or five minutes behind, and one dated no later than the
+ * held presence for its author changes nothing. Returns whether it was taken.
+ */
+export function notePresence(latest: Map<string, VoicePresenceEntry>, entry: VoicePresenceEntry, nowMs: number): boolean {
+  if (entry.ms > nowMs + VOICE_AHEAD_MS || entry.ms < nowMs - VOICE_BEHIND_MS) return false;
+  const prev = latest.get(entry.author);
+  if (prev && prev.ms >= entry.ms) return false;
+  // A stay, and the moderation on it, lasts while `joined`s keep arriving; leaving or arriving anew clears it.
+  const stays = entry.status === "joined" && prev?.status === "joined" && presenceLive(prev, nowMs);
+  latest.set(entry.author, {
+    ...entry,
+    heardAt: nowMs,
+    sinceMs: stays ? prev.sinceMs ?? prev.ms : entry.ms,
+    sinceHeard: stays ? prev.sinceHeard ?? prev.heardAt ?? nowMs : nowMs,
+    ...(stays
+      ? { serverMuted: prev.serverMuted, serverDeafened: prev.serverDeafened, mutedAt: prev.mutedAt, deafenedAt: prev.deafenedAt }
+      : {}),
+  });
+  return true;
+}
+
+/**
+ * Forget the presences no replay can outdate any more: aged out, and dated past the
+ * five-minute bound, so {@link notePresence} refuses a re-wrapped copy on its own.
+ * An entry merely aged out stays, its `ms` holding back a replay of the stay it ended.
+ */
+export function prunePresence(latest: Map<string, VoicePresenceEntry>, nowMs: number): void {
+  for (const [author, entry] of latest) {
+    if (!presenceLive(entry, nowMs) && entry.ms < nowMs - VOICE_BEHIND_MS) latest.delete(author);
+  }
+}
+
+export type VoiceDirectiveVerb = "mute" | "unmute" | "deafen" | "undeafen" | "move" | "disconnect";
+const DIRECTIVE_VERBS: readonly VoiceDirectiveVerb[] = ["mute", "unmute", "deafen", "undeafen", "move", "disconnect"];
+
+/** A moderator's voice directive (CORD-07 §7). */
+export interface VoiceDirective {
+  author: string;
+  target: string;
+  verb: VoiceDirectiveVerb;
+  /** The voice Channel a `move` sends its target to. */
+  to?: string;
+  ms: number;
+}
+
+/** The bit a directive's signer holds over its target, server-wide (CORD-07 §7). */
+export function directivePermission(verb: VoiceDirectiveVerb): bigint {
+  if (verb === "mute" || verb === "unmute") return Permissions.MUTE_MEMBERS;
+  if (verb === "deafen" || verb === "undeafen") return Permissions.DEAFEN_MEMBERS;
+  return Permissions.MOVE_MEMBERS;
+}
+
+/** A kind-23314 rumor's directive; undefined when `p`, `do` or `to` repeats, or a move has no `to` (Vector). */
+export function parseDirective(opened: Pick<OpenedEvent, "author" | "tags" | "ms">): VoiceDirective | undefined {
+  const target = uniqueTag(opened.tags, "p");
+  const verb = uniqueTag(opened.tags, "do");
+  const to = uniqueTag(opened.tags, "to");
+  if (typeof target !== "string" || !isPubkey(target.toLowerCase()) || to === null) return undefined;
+  if (typeof verb !== "string" || !(DIRECTIVE_VERBS as readonly string[]).includes(verb)) return undefined;
+  if (to !== undefined && !/^[0-9a-f]{64}$/i.test(to)) return undefined;
+  if (verb === "move" && to === undefined) return undefined;
+  return {
+    author: opened.author,
+    target: target.toLowerCase(),
+    verb: verb as VoiceDirectiveVerb,
+    ...(to !== undefined ? { to: to.toLowerCase() } : {}),
+    ms: opened.ms,
+  };
+}
+
+/** A directive's tags beside the Channel binding: `p`, `do`, a move's `to`. */
+export function directiveTags(target: string, verb: VoiceDirectiveVerb, to?: string): string[][] {
+  return [["p", target], ["do", verb], ...(to ? [["to", to]] : [])];
+}
+
+/** How far before its target's current stay began a directive may be dated: a re-assertion follows the `joined`. */
+export const DIRECTIVE_STAY_SKEW_MS = 10_000;
+
+/**
+ * Whether a directive sent at `atMs` may act on its target's current stay (CORD-07 §7):
+ * inside the presence clock bounds, the target in the call, and dated no more than 10 s
+ * before the earlier of the stay's own date and when this receiver heard it begin.
+ */
+export function directiveInWindow(target: VoicePresenceEntry | undefined, atMs: number, nowMs: number): boolean {
+  if (atMs > nowMs + VOICE_AHEAD_MS || atMs < nowMs - VOICE_BEHIND_MS) return false;
+  if (!target || target.status !== "joined" || !presenceLive(target, nowMs)) return false;
+  const since = Math.min(target.sinceMs ?? target.ms, target.sinceHeard ?? target.heardAt ?? target.ms);
+  return atMs + DIRECTIVE_STAY_SKEW_MS >= since;
+}
+
+/**
+ * Apply a mute or deafen sent at `atMs` to its target's stay: per pair the newest
+ * decides, a same-ms tie keeping them muted or deafened. Returns whether it changed.
+ */
+export function applyDirective(latest: Map<string, VoicePresenceEntry>, d: VoiceDirective, nowMs: number): boolean {
+  const e = latest.get(d.target);
+  if (!directiveInWindow(e, d.ms, nowMs) || !e) return false;
+  const newer = (setAt: number | undefined, on: boolean) => d.ms > (setAt ?? -1) || (d.ms === setAt && on);
+  if (d.verb === "mute" || d.verb === "unmute") {
+    const on = d.verb === "mute";
+    if (!newer(e.mutedAt, on)) return false;
+    latest.set(d.target, { ...e, serverMuted: on, mutedAt: d.ms });
+    return Boolean(e.serverMuted) !== on;
+  }
+  if (d.verb === "deafen" || d.verb === "undeafen") {
+    const on = d.verb === "deafen";
+    if (!newer(e.deafenedAt, on)) return false;
+    latest.set(d.target, { ...e, serverDeafened: on, deafenedAt: d.ms });
+    return Boolean(e.serverDeafened) !== on;
+  }
+  return false;
+}
+
+/**
+ * Whether `entry` is a `joined` from an author not held as present, or now on a new
+ * identity — the presence a member in the call answers (CORD-07 §4).
+ */
+export function isNewcomer(prev: VoicePresenceEntry | undefined, entry: VoicePresenceEntry, nowMs: number): boolean {
+  if (entry.status !== "joined") return false;
+  return !prev || prev.status !== "joined" || !presenceLive(prev, nowMs) || prev.identity !== entry.identity;
+}
+
+/** How long a member in the call waits to answer a newcomer: 0–1.5 s (Vector `greet`). */
+export function greetDelayMs(random = Math.random): number {
+  return Math.floor(random() * 1500);
+}
+
+/** Whether a presence is still live: heard within the staleness window. */
+export function presenceLive(e: VoicePresenceEntry, nowMs: number): boolean {
+  return nowMs - (e.heardAt ?? e.ms) < VOICE_STALE_MS;
 }
 
 /**
  * Fold raw presence entries: per author the latest wins (ms basis, rumor-id
- * tiebreak), then a `joined` older than the staleness window counts as absent.
+ * tiebreak), then a `joined` not heard within the staleness window counts as absent.
  */
 export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number): VoicePresenceFold {
   const latest = new Map<string, VoicePresenceEntry>();
@@ -398,9 +619,15 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
   }
   const present: VoicePresent[] = [];
   const claims = new Map<string, string[]>();
+  const otherTransport: VoiceOtherTransport[] = [];
   for (const e of latest.values()) {
-    if (e.status !== "joined" || !e.identity) continue;
-    if (nowMs - e.ms > VOICE_STALE_MS) continue;
+    if (e.status !== "joined") continue;
+    if (!presenceLive(e, nowMs)) continue;
+    if (e.transport) {
+      otherTransport.push({ author: e.author, transport: e.transport, ms: e.ms });
+      continue;
+    }
+    if (!e.identity) continue;
     present.push({
       author: e.author,
       identity: e.identity,
@@ -409,6 +636,12 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
       hand: e.hand ?? false,
       recording: e.recording ?? false,
       noRecord: e.noRecord ?? false,
+      ...(e.muted ? { muted: true } : {}),
+      ...(e.deafened ? { deafened: true } : {}),
+      ...(e.screen ? { screen: true } : {}),
+      ...(e.camera ? { camera: true } : {}),
+      ...(e.serverMuted ? { serverMuted: true } : {}),
+      ...(e.serverDeafened ? { serverDeafened: true } : {}),
       ms: e.ms,
     });
     for (const identity of e.identities?.length ? e.identities : [e.identity]) {
@@ -418,7 +651,8 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
     }
   }
   present.sort((a, b) => a.ms - b.ms || (a.author < b.author ? -1 : 1));
-  return { present, claims };
+  otherTransport.sort((a, b) => a.ms - b.ms || (a.author < b.author ? -1 : 1));
+  return { present, claims, otherTransport };
 }
 
 /** The author behind an SFU identity, or undefined if unclaimed or contested. */

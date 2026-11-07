@@ -41,7 +41,7 @@ vi.mock("@/concord/hooks/useVoice", async (importOriginal) => {
     },
     useVoicePresence: (community?: Community, channel?: Channel) => {
       spies.useVoicePresence(community, channel);
-      return { present: [], claims: [] };
+      return { present: [], claims: [], otherTransport: [] };
     },
   };
 });
@@ -67,7 +67,13 @@ vi.mock("@/hooks/useNotifLevels", async (importOriginal) => {
   };
 });
 
+vi.mock("@/concord/hooks/useVoiceActions", async (orig) => ({ ...(await orig<typeof import("@/concord/hooks/useVoiceActions")>()), useVoiceActionsFor: () => undefined }));
+vi.mock("@nostrify/react", async (orig) => ({ ...(await orig<typeof import("@nostrify/react")>()), useNostr: () => ({ nostr: {} }) }));
+
 import { ChannelRow } from "@/concord/pages/ConcordPage";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>;
 
 const community = { idHex: "c0ffee", relays: [], name: "Test" } as unknown as Community;
 
@@ -94,6 +100,7 @@ function renderSidebar(n: number, onJoinVoice = () => {}) {
         />
       ))}
     </>,
+    { wrapper },
   );
 }
 

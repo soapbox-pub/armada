@@ -17,12 +17,14 @@ import { useWireScopes } from "@/wire/useWireScopes";
 import { concordMentionReadKey, useReadState } from "@/hooks/useReadState";
 import { useControlFold } from "@/concord/hooks/useControlPlane";
 import {
+  everyoneMayMention,
   everyoneMentionAuthors,
   isEveryoneMention,
 } from "@/concord/lib/everyoneMention";
 import { useCommunityEntry } from "@/concord/hooks/useCommunityList";
 import { sentDuringMembership } from "@/concord/lib/membershipFloor";
-import { emptyRoles } from "@/concord/lib/roles";
+import { heldRoleMentions, rolePings } from "@/concord/lib/roleMentions";
+import { emptyRoles, isAuthorized, Permissions } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 
 /** How many newest cached mentions to surface. */
@@ -71,19 +73,24 @@ export function useConcordMentions(community: Community | undefined, channels: C
     () => everyoneMentionAuthors(roles, ownerHex, channelIds),
     [roles, ownerHex, channelIds],
   );
-  const everyoneAuthorSig = everyoneAuthors.join(",");
+  const everyoneAnyone = everyoneMayMention(roles);
+  const everyoneAuthorSig = everyoneAnyone ? "*" : everyoneAuthors.join(",");
+  const heldRoles = useMemo(() => (pubkey ? heldRoleMentions(roles, pubkey) : []), [roles, pubkey]);
+  const roleSig = heldRoles.map((r) => `${r.id}:${r.name}:${r.anyone}`).join(",");
   const joinedAtMs = useCommunityEntry(communityIdHex)?.added_at;
 
   const { mutedPubkeys } = useMutedPubkeys();
 
   const { data: allMentions = NO_MENTIONS, isLoading } = useQuery<ChatMsg[]>({
     ...STORE_READ,
-    queryKey: ["concord-mentions", communityIdHex ?? null, pubkey, channelSig, everyoneAuthorSig, joinedAtMs ?? null],
+    queryKey: ["concord-mentions", communityIdHex ?? null, pubkey, channelSig, everyoneAuthorSig, roleSig, joinedAtMs ?? null],
     queryFn: async ({ signal }) => {
       const rumors = await queryMentionRumors(communityIdHex!, channelIds, pubkey!, {
         limit: MENTION_LIMIT,
         signal,
         everyoneAuthors,
+        everyoneAnyone,
+        roleIds: heldRoles.map((r) => r.id),
       });
       // The index returns direct mentions plus candidates from authorized role
       // holders; re-check the literal and exact channel scope (the author union spans channels).
@@ -92,6 +99,7 @@ export function useConcordMentions(community: Community | undefined, channels: C
           if (r.author === pubkey) return false;
           if (!sentDuringMembership(r.ms, joinedAtMs)) return false;
           if (r.tags.some(([name, value]) => name === "p" && value === pubkey)) return true;
+          if (rolePings(r.content, r.tags, heldRoles, isAuthorized(roles, r.author, ownerHex, Permissions.MENTION_EVERYONE))) return true;
           return isEveryoneMention(r.content, roles, ownerHex, r.author, r.channelIdHex);
         })
         .sort((a, b) => b.ms - a.ms)

@@ -80,16 +80,23 @@ export function pendingFromPlan(plan: readonly ArrangedChannel[]): PendingArrang
 /**
  * Channels as they'll read once a pending arrangement lands, sorted by
  * `channelsView`'s comparator. An overlay: unnamed channels pass through.
+ * On the vsk-13 Roster (`categoryName` given) a plan names Categories by id
+ * (CORD-03 §4), and the overlay files the Channel under it by that id.
  */
-export function applyArrangement<T extends ArrangedChannel & { name: string }>(
+export function applyArrangement<T extends ArrangedChannel & { name: string; categoryId?: string }>(
   channels: readonly T[],
   pending: PendingArrangement | null,
+  categoryName?: (idHex: string) => string | undefined,
 ): readonly T[] {
   if (!pending) return channels;
   return channels
     .map((c) => {
       const planned = pending.get(c.idHex);
-      return planned ? { ...c, position: planned.position, category: planned.category } : c;
+      if (!planned) return c;
+      if (!categoryName) return { ...c, position: planned.position, category: planned.category };
+      const { category: _c, categoryId: _id, ...rest } = c;
+      const name = planned.category ? categoryName(planned.category) : undefined;
+      return { ...rest, position: planned.position, ...(planned.category && name !== undefined ? { category: name, categoryId: planned.category } : {}) } as T;
     })
     .sort(compareChannelOrder);
 }
@@ -99,9 +106,15 @@ export function applyArrangement<T extends ArrangedChannel & { name: string }>(
  * (or it would mask later changes by others).
  */
 export function arrangementSettled(
-  channels: readonly ArrangedChannel[],
+  channels: ReadonlyArray<ArrangedChannel & { categoryId?: string }>,
   pending: PendingArrangement,
+  ranked = false,
 ): boolean {
+  // A vsk-13 Channel carries a rank key, not an index: its place is where the fold sorts it.
+  if (ranked) return channels.every((c, i) => {
+    const planned = pending.get(c.idHex);
+    return !planned || (i === planned.position && (c.categoryId ?? undefined) === planned.category);
+  });
   return channels.every((c) => {
     const planned = pending.get(c.idHex);
     return (
@@ -118,4 +131,39 @@ export function sameCategory(a: string | undefined, b: string | undefined): bool
   const ka = a?.trim() ? categoryKey(a) : "";
   const kb = b?.trim() ? categoryKey(b) : "";
   return ka === kb;
+}
+
+/**
+ * The sidebar as a drop plans against it. On the vsk-13 Roster a Channel is placed by
+ * its index and filed under its Category's id (CORD-03 §2, §4), names being no identity.
+ */
+export function arrangedBefore(
+  rendered: ReadonlyArray<{ idHex: string; position?: number; category?: string; categoryId?: string }>,
+  ranked: boolean,
+): ArrangedChannel[] {
+  return rendered.map((c, index) => ({
+    idHex: c.idHex,
+    position: ranked ? index : c.position,
+    category: ranked ? c.categoryId : c.category,
+  }));
+}
+
+/**
+ * What a drop publishes. On the vsk-13 Roster it is the dropped Channel alone, as
+ * Vector's `move_channel` writes it, its neighbours keeping their keys; otherwise
+ * every Channel whose place changed.
+ */
+export function dropChanges(
+  before: readonly ArrangedChannel[],
+  plan: readonly ArrangedChannel[],
+  idHex: string,
+  ranked: boolean,
+): ArrangementChange[] {
+  if (!ranked) return arrangementChanges(before, plan);
+  const at = plan.findIndex((c) => c.idHex === idHex);
+  const was = before.findIndex((c) => c.idHex === idHex);
+  if (at < 0 || was < 0) return [];
+  const category = plan[at].category || undefined;
+  if (at === was && (before[was].category || undefined) === category) return [];
+  return [{ idHex, position: at, category }];
 }

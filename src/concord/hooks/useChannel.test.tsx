@@ -64,6 +64,11 @@ const h = vi.hoisted(() => ({
   dissolved: null as number | null,
 }));
 
+// The Guestbook (Timeouts, the writer judge's history) isn't under test here.
+vi.mock("@/concord/hooks/useGuestbook", async (orig) => ({
+  ...(await orig<typeof import("@/concord/hooks/useGuestbook")>()),
+  useGuestbook: () => ({ data: [], timeouts: new Map(), nicknames: new Map(), coalesced: new Map(), history: undefined }),
+}));
 vi.mock("@nostrify/react", () => ({
   useNostr: () => ({ nostr: h.pool }),
 }));

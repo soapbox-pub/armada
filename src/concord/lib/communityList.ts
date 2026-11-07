@@ -52,6 +52,8 @@ export interface JoinMaterial {
   held_roots?: Array<{ epoch: number; key: string; retired_at?: number; refounder?: string; control_pk?: string }>;
   /** Armada extension: the npub whose Refounding minted `root_epoch`. */
   refounder?: string;
+  /** The snapshot's revision within its epoch (CORD-02 §8); absent means 0, and 0 is never written. */
+  rev?: number;
   [k: string]: unknown;
 }
 
@@ -141,16 +143,90 @@ function sortKeys(value: unknown): unknown {
   return value;
 }
 
-/** Higher epoch wins; tie → lexicographically lowest canonical bytes (CORD-02 §8). */
-function freshest(a: JoinMaterial, b: JoinMaterial): JoinMaterial {
-  if (a.root_epoch !== b.root_epoch) return a.root_epoch > b.root_epoch ? a : b;
+/**
+ * A snapshot's revision as merges read it (CORD-02 §8): absent, malformed or
+ * past 2^53 − 1 reads as 0.
+ */
+export function snapshotRev(jm: JoinMaterial): number {
+  const rev = jm.rev;
+  return typeof rev === "number" && Number.isSafeInteger(rev) && rev > 0 ? rev : 0;
+}
+
+/** Within one epoch: the higher revision, then the lowest canonical bytes (CORD-02 §8). */
+function latestRevision(a: JoinMaterial, b: JoinMaterial): JoinMaterial {
+  const ra = snapshotRev(a);
+  const rb = snapshotRev(b);
+  if (ra !== rb) return ra > rb ? a : b;
   return canonicalJson(a) <= canonicalJson(b) ? a : b;
 }
 
-/** Lower epoch wins; tie → lowest canonical bytes. */
+/** Higher epoch wins; within one, {@link latestRevision}. */
+function freshest(a: JoinMaterial, b: JoinMaterial): JoinMaterial {
+  if (a.root_epoch !== b.root_epoch) return a.root_epoch > b.root_epoch ? a : b;
+  return latestRevision(a, b);
+}
+
+/** Lower epoch wins; within one, {@link latestRevision}. */
 function earliest(a: JoinMaterial, b: JoinMaterial): JoinMaterial {
   if (a.root_epoch !== b.root_epoch) return a.root_epoch < b.root_epoch ? a : b;
-  return canonicalJson(a) <= canonicalJson(b) ? a : b;
+  return latestRevision(a, b);
+}
+
+/** The snapshot with its revision removed and channels in raw-id order, for change detection. */
+function unrevised(jm: JoinMaterial): string {
+  const { rev: _rev, ...rest } = jm;
+  return canonicalJson({ ...rest, channels: sortChannelsById(heldChannelKeys(jm.channels)) });
+}
+
+function sortChannelsById<T extends { id: string }>(channels: T[]): T[] {
+  return [...channels].sort((p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
+}
+
+/**
+ * Stamp each entry's `current` with its revision against the copy the write
+ * read (CORD-02 §8): one past it when the content changed, the read one when
+ * not. An entry the wire doesn't hold keeps what it carries. A seed at the
+ * current epoch follows current, as every reader's merge settles it.
+ */
+export function reviseSnapshots(read: CommunityList, next: CommunityList): CommunityList {
+  const readById = new Map(read.entries.map((e) => [e.community_id, e]));
+  const entries = next.entries.map((e) => {
+    const theirs = readById.get(e.community_id)?.current;
+    let current = rebuildSnapshot(e, theirs);
+    if (theirs) {
+      const rev = unrevised(current) === unrevised(theirs) ? snapshotRev(theirs) : snapshotRev(theirs) + 1;
+      current = withRev(current, rev);
+    }
+    const seed = e.seed && e.seed.root_epoch === current.root_epoch ? current : e.seed;
+    return current === e.current && seed === e.seed ? e : { ...e, current, seed };
+  });
+  return { ...next, entries };
+}
+
+/**
+ * This device's snapshot merged with the same epoch's copy it read, so a newer
+ * revision never carries a smaller view (CORD-02 §8, Vector `rebuild_snapshot`):
+ * every Channel key, the staff key and unknown fields the read copy holds are
+ * kept, minus the keys a rotation cut. Channels in raw-id order. Across a
+ * Refounding the read copy is another snapshot and nothing is merged.
+ */
+function rebuildSnapshot(e: CommunityListEntry, theirs: JoinMaterial | undefined): JoinMaterial {
+  const ours = e.current;
+  if (!theirs || theirs.root_epoch !== ours.root_epoch) {
+    const channels = sortChannelsById(heldChannelKeys(ours.channels));
+    return channels.every((c, i) => c === heldChannelKeys(ours.channels)[i]) ? ours : { ...ours, channels };
+  }
+  const merged: JoinMaterial = { ...ours };
+  for (const [k, v] of Object.entries(theirs)) if (!(k in merged) && k !== "rev") merged[k] = v;
+  if (ours.control_root === undefined && ours.control_pk === theirs.control_pk && theirs.control_root !== undefined) merged.control_root = theirs.control_root;
+  merged.channels = applyChannelCuts(unionChannelKeys(ours.channels, theirs.channels), e.channel_cuts);
+  return unrevised(merged) === unrevised(ours) && JSON.stringify(merged.channels) === JSON.stringify(heldChannelKeys(ours.channels)) ? ours : merged;
+}
+
+function withRev(jm: JoinMaterial, rev: number): JoinMaterial {
+  if (snapshotRev(jm) === rev && (rev > 0 || jm.rev === undefined)) return jm;
+  const { rev: _rev, ...rest } = jm;
+  return rev > 0 ? { ...rest, rev } : rest;
 }
 
 /**
@@ -159,6 +235,7 @@ function earliest(a: JoinMaterial, b: JoinMaterial): JoinMaterial {
  * Either side may be absent (see {@link heldChannelKeys}).
  */
 export function unionChannelKeys(
+  /** Listed first: its copy of a key both hold keeps its fields. */
   a: JoinMaterial["channels"] | undefined,
   b: JoinMaterial["channels"] | undefined,
 ): JoinMaterial["channels"] {
@@ -179,12 +256,20 @@ export function unionChannelKeys(
       byId.set(ch.id, withPriorKey(winner, loser));
       continue;
     }
+    // One key in two copies: the first-listed copy (the fresher snapshot's) keeps its
+    // fields and gains only those it lacks, as Vector's `rebuild_snapshot` does. A
+    // tie-break here would let a stale name outvote a newer revision every write.
+    if (ch.key === prev.key) {
+      byId.set(ch.id, attachPriors({ ...ch, ...prev }, [...(prev.priors ?? []), ...(ch.priors ?? [])]));
+      continue;
+    }
     // Racing rotations at one epoch: deterministic winner, but the loser is kept as
     // a prior (CORD-06) so its branch stays readable.
     if (canonicalJson(ch) < canonicalJson(prev)) byId.set(ch.id, withPriorKey(ch, prev));
     else byId.set(ch.id, withPriorKey(prev, ch));
   }
-  return [...byId.values()].sort((p, q) => p.id.localeCompare(q.id));
+  // Raw-id order (CORD-02 §8): for lowercase hex, code-unit order is byte order.
+  return sortChannelsById([...byId.values()]);
 }
 
 type ChannelKeyEntry = JoinMaterial["channels"][number];
@@ -249,10 +334,13 @@ export function applyChannelCuts(
 
 function mergeEntry(x: CommunityListEntry, y: CommunityListEntry): CommunityListEntry {
   const channelCuts = mergeChannelCuts(x.channel_cuts, y.channel_cuts);
+  const fresh = freshest(x.current, y.current);
+  const stale = fresh === x.current ? y.current : x.current;
   const current = {
-    ...freshest(x.current, y.current),
-    // Union first, then floor, so stale bundles can't restore cut keys.
-    channels: applyChannelCuts(unionChannelKeys(x.current.channels, y.current.channels), channelCuts),
+    ...fresh,
+    // Union first, then floor, so stale bundles can't restore cut keys. The fresher
+    // snapshot is listed first, so its copy of a shared key keeps its fields.
+    channels: applyChannelCuts(unionChannelKeys(fresh.channels, stale.channels), channelCuts),
   };
   // Higher exclusion wins, but only bites while beyond `current`'s epoch; holding
   // that epoch's root is re-inclusion.

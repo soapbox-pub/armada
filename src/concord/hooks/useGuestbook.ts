@@ -1,28 +1,49 @@
+import type { AuthorityCitation } from "@/concord/lib/edition";
 import { useNostr } from "@nostrify/react";
 import { QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { useControlFold, useDissolved } from "@/concord/hooks/useControlPlane";
+import { citationFor, useControlFold, useDissolved } from "@/concord/hooks/useControlPlane";
+import { KIND_NICKNAME, KIND_TIMEOUT } from "@/concord/lib/kinds";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import {
+  banDeparturesOwed,
   buildJoinRumor,
   buildKickRumor,
+  buildNicknameRumor,
+  buildTimeoutRumor,
+  cleanNickname,
+  nextGuestbookMs,
+  nicknameToCarry,
+  TIMEOUT_MAX_SECS,
+  timeoutRunning,
   buildLeaveRumor,
   coalesceGuestbook,
+  foldNicknames,
+  foldTimeouts,
   completeMemberlist,
   currentGuestbookGroup,
   openGuestbookOpened,
   sealGuestbook,
+  liveRefound,
   snapshotAuthorities,
+  snapshotEpochs,
+  guestbookHistory,
+  joinToRestore,
   type CoalescedMember,
+  type FoldedTimeout,
+  type GuestbookHistory,
 } from "@/concord/lib/guestbook";
 import { mergeOpened, openPlaneWraps, sweepGuestbook } from "@/concord/lib/planeSync";
-import { queryPlane, writeOpened } from "@/concord/lib/rumorStore";
+import { heldPostAfter, queryPlane, withGuestbookStreams, writeOpened } from "@/concord/lib/rumorStore";
+import { clockNowMs } from "@/lib/relayClock";
 import type { OpenedEvent } from "@/concord/lib/stream";
 import { citationSatisfied } from "@/concord/lib/control";
-import { canActOnMember, Permissions } from "@/concord/lib/roles";
+import { canActOnMember, mayName, Permissions } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 import { queueSignedEvent, recordQueuedPublishAttempt } from "@/lib/publishOutbox";
+import { attemptGuestbookJoin, getPendingGuestbookJoin, queueGuestbookJoin } from "@/concord/lib/pendingGuestbookJoin";
+import { logSync } from "@/lib/syncLog";
 import { emitWireScopes, onWireScopes } from "@/wire/bus";
 import { t } from "@/i18n";
 
@@ -86,6 +107,185 @@ function releaseGuestbookWake(registry: Map<string, GuestbookWakeEntry>, key: st
   }
 }
 
+/** The live Guestbook planes a sweep read up to now this session (CORD-02 §5's "read the whole plane"). */
+const walkedPlanes = new Set<string>();
+const walkedListeners = new Set<() => void>();
+
+function guestbookPlaneKey(community: Community): string {
+  return `${community.idHex}@${community.rootEpoch}`;
+}
+
+function markGuestbookWalked(key: string): void {
+  if (walkedPlanes.has(key)) return;
+  walkedPlanes.add(key);
+  for (const l of walkedListeners) l();
+}
+
+/** Whether this session read a Community's live Guestbook up to now (Vector `guestbook_walked_this_session`). */
+export function guestbookWalked(community: Community): boolean {
+  return walkedPlanes.has(guestbookPlaneKey(community));
+}
+
+function useGuestbookWalked(community: Community | undefined): boolean {
+  return useSyncExternalStore(
+    (l) => {
+      walkedListeners.add(l);
+      return () => walkedListeners.delete(l);
+    },
+    () => Boolean(community && walkedPlanes.has(guestbookPlaneKey(community))),
+  );
+}
+
+/** Planes this session already restored a Join on: once a session per plane (Vector `JoinAnnounced`). */
+const restoredPlanes = new Set<string>();
+
+/**
+ * Restore this member's lost Join (CORD-02 §5): once the live Guestbook was read
+ * up to now and holds no state of theirs, queue a Join dated by the plane, re-sent
+ * as the same signed event until a relay holds it.
+ */
+export function useRestoreJoin(community: Community | undefined): void {
+  const { nostr } = useNostr();
+  const { user } = useCurrentUser();
+  const { data, coalesceOpts } = useGuestbook(community);
+  const walked = useGuestbookWalked(community);
+  useEffect(() => {
+    if (!community || !user || !walked || !data || !coalesceOpts) return;
+    const key = guestbookPlaneKey(community);
+    if (restoredPlanes.has(key) || getPendingGuestbookJoin(user.pubkey, community.idHex)) return;
+    const ms = joinToRestore(data, coalesceOpts, user.pubkey, community.owner);
+    if (ms === undefined) return;
+    restoredPlanes.add(key);
+    logSync("guestbook", `${community.idHex.slice(0, 8)}: no Join of ours stands on this plane; restoring it`);
+    queueGuestbookJoin({ viewer: user.pubkey, communityIdHex: community.idHex, ms });
+    void attemptGuestbookJoin(nostr, community, user.signer, user.pubkey);
+  }, [community, user, walked, data, coalesceOpts, nostr]);
+}
+
+/** Planes this session already healed lifted Bans' departures on (Vector `BanDeparturesHealed`). */
+const healedPlanes = new Set<string>();
+/** Planes this session already carried this member's own Nickname onto. */
+const carriedPlanes = new Set<string>();
+
+/** Forget what this session read and wrote on the Guestbook, so the next account starts fresh (Vector's session scope). */
+export function clearGuestbookSessionMemory(): void {
+  walkedPlanes.clear();
+  restoredPlanes.clear();
+  healedPlanes.clear();
+  carriedPlanes.clear();
+  for (const l of walkedListeners) l();
+}
+
+/**
+ * Once a session, the owner writes the departure of every Ban lifted before an unban
+ * wrote its own: a member whose Ban this device remembers, still standing on a pre-ban
+ * Join and silent since (Vector `heal_ban_departures`). Owner-only, so one signer writes
+ * it and each member gets one rumor. `observed` is each author's newest post, in ms.
+ */
+export function useHealBanDepartures(community: Community | undefined, observed: ReadonlyMap<string, number>): void {
+  const { user } = useCurrentUser();
+  const { data: folded } = useControlFold(community);
+  const { data, coalesced } = useGuestbook(community);
+  const walked = useGuestbookWalked(community);
+  const publish = useGuestbookPublisher(community);
+  const publishRef = useRef(publish.mutateAsync);
+  publishRef.current = publish.mutateAsync;
+  useEffect(() => {
+    if (!community || !user || !folded || !walked || !data || user.pubkey !== community.owner) return;
+    const key = guestbookPlaneKey(community);
+    if (healedPlanes.has(key)) return;
+    healedPlanes.add(key);
+    void (async () => {
+      const owed = await banDeparturesOwed(folded, coalesced, observed, (pk, afterMs) => heldPostAfter(community.idHex, pk, afterMs));
+      for (const { pk, ms } of owed) await publishRef.current({ type: "kick", target: pk, ms }).catch(() => undefined);
+    })();
+  }, [community, user, folded, walked, data, coalesced, observed]);
+}
+
+/**
+ * Once a session per Guestbook plane, re-issue the Nickname this member went by when the
+ * live epoch lacks it (CORD-04 §10, Vector `carry_my_nickname`): a Refounding carries only
+ * the Nicknames moderators gave, and each member carries their own.
+ */
+export function useCarryMyNickname(community: Community | undefined): void {
+  const { user } = useCurrentUser();
+  const { data: folded } = useControlFold(community);
+  const { data, timeouts } = useGuestbook(community);
+  const walked = useGuestbookWalked(community);
+  const publish = useGuestbookPublisher(community);
+  const publishRef = useRef(publish.mutateAsync);
+  publishRef.current = publish.mutateAsync;
+  useEffect(() => {
+    if (!community || !user || !folded || !walked || !data) return;
+    const key = guestbookPlaneKey(community);
+    if (carriedPlanes.has(key)) return;
+    carriedPlanes.add(key);
+    const carry = nicknameToCarry(data, {
+      me: user.pubkey,
+      livePk: currentGuestbookGroup(community).pk,
+      nowMs: clockNowMs(),
+      banned: folded.banned,
+      timeouts,
+      mayName: (actor, target, citation) =>
+        mayName(folded.roster, actor, folded.ownerHex, target) && (actor === target || citationSatisfied(folded, community.id, actor, citation)),
+    });
+    if (carry) void publishRef.current({ type: "nickname", target: user.pubkey, nick: carry.nick, ms: carry.ms }).catch(() => carriedPlanes.delete(key));
+  }, [community, user, folded, walked, data, timeouts]);
+}
+
+/**
+ * Timing members out and naming them (CORD-04 §8, §10, Vector `timeout_member`, `set_nickname`):
+ * who this member may act on, and the writes, each dated just after what it replaces.
+ */
+export function useMemberStanding(community: Community | undefined) {
+  const { user } = useCurrentUser();
+  const { data: folded } = useControlFold(community);
+  const { data, timeouts, nicknames } = useGuestbook(community);
+  const publish = useGuestbookPublisher(community);
+  const me = user?.pubkey;
+  const counts = useCallback(
+    (permission: "timeout" | "nickname", target: string) => (actor: string, citation: AuthorityCitation | undefined) => {
+      if (!folded || !community) return false;
+      const may = permission === "timeout"
+        ? canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.MODERATE_MEMBERS)
+        : mayName(folded.roster, actor, folded.ownerHex, target);
+      return may && (actor === target || citationSatisfied(folded, community.id, actor, citation));
+    },
+    [folded, community],
+  );
+  const mayTimeout = useCallback(
+    (target: string) => Boolean(me && folded && target !== me && canActOnMember(folded.roster, me, folded.ownerHex, target, Permissions.MODERATE_MEMBERS)),
+    [me, folded],
+  );
+  // A member sits out their own Nickname while timed out (CORD-04 §10).
+  const mayNickname = useCallback(
+    (target: string) => Boolean(me && folded && mayName(folded.roster, me, folded.ownerHex, target) && !(target === me && timeoutRunning(timeouts.get(me), clockNowMs()))),
+    [me, folded, timeouts],
+  );
+  const timeout = useCallback(
+    async (target: string, seconds: number) => {
+      if (!community || !folded || !me) throw new Error(t({ id: "useGuestbook.notReady", defaultMessage: "Not ready." }));
+      const nowMs = clockNowMs();
+      const ms = nextGuestbookMs(data ?? [], KIND_TIMEOUT, target, counts("timeout", target), nowMs);
+      // A lift's `until` is past for every reader, however its date runs ahead.
+      const until = seconds <= 0 ? 0 : Math.floor(nowMs / 1000) + Math.min(seconds, TIMEOUT_MAX_SECS);
+      await publish.mutateAsync({ type: "timeout", target, until, ms, authority: citationFor(community, folded, me) });
+    },
+    [community, folded, me, data, counts, publish],
+  );
+  const setNickname = useCallback(
+    async (target: string, nick: string) => {
+      if (!community || !folded || !me) throw new Error(t({ id: "useGuestbook.notReady", defaultMessage: "Not ready." }));
+      const clean = cleanNickname(nick);
+      if (clean === undefined) throw new Error(t({ id: "useGuestbook.nicknameInvalid", defaultMessage: "A nickname is at most 32 characters, with no line breaks." }));
+      const ms = nextGuestbookMs(data ?? [], KIND_NICKNAME, target, counts("nickname", target), clockNowMs());
+      await publish.mutateAsync({ type: "nickname", target, nick: clean, ms, ...(target !== me ? { authority: citationFor(community, folded, me) } : {}) });
+    },
+    [community, folded, me, data, counts, publish],
+  );
+  return useMemo(() => ({ timeouts, nicknames, mayTimeout, mayNickname, timeout, setNickname }), [timeouts, nicknames, mayTimeout, mayNickname, timeout, setNickname]);
+}
+
 export function useGuestbook(community: Community | undefined) {
   const { nostr } = useNostr();
   const queryClient = useQueryClient();
@@ -106,9 +306,11 @@ export function useGuestbook(community: Community | undefined) {
       // Return the STORE read; the network sweep runs in the background and merges
       // via onFresh. Awaiting it stranded reads (incl. useSelfRemove's refetch)
       // behind relay round-trips of up to ~30s.
-      const stored = await queryPlane(community!.idHex, "guestbook");
+      const stored = await withGuestbookStreams(community!, await queryPlane(community!.idHex, "guestbook"));
       const merged = mergeOpened(queryClient.getQueryData<OpenedEvent[]>(queryKey) ?? [], stored);
+      const walked = guestbookPlaneKey(community!);
       void sweepGuestbook(nostr, community!, {
+        onReached: () => markGuestbookWalked(walked),
         onFresh: (fresh) => {
           if (fresh.length === 0) return;
           queryClient.setQueryData<OpenedEvent[]>(queryKey, (old) => mergeOpened(old ?? [], fresh));
@@ -127,32 +329,81 @@ export function useGuestbook(community: Community | undefined) {
     return acquireGuestbookWake(queryClient, idHex, queryKey);
   }, [idHex, queryKey, queryClient]);
 
-  const coalesced = useMemo(() => {
-    if (!community || !query.data) return new Map<string, CoalescedMember>();
+  const { coalesced, history, refound, opts: coalesceOpts } = useMemo(() => {
+    if (!community || !query.data) return { coalesced: new Map<string, CoalescedMember>(), history: undefined, refound: undefined, opts: undefined };
     const opened = openGuestbookOpened(query.data);
     // A snapshot is honored only from the npub whose Refounding minted its epoch
-    // (CORD-02 §5). The sweep spans every held epoch, so authority is the set of
-    // recorded refounders; an epoch with none accepts no snapshot (no owner fallback).
+    // (CORD-02 §5): judged per epoch where its address is known, else against the set
+    // of recorded refounders; an epoch with none accepts no snapshot (no owner fallback).
     const authorities = snapshotAuthorities(community);
-    return coalesceGuestbook(opened, {
-      nowMs: Date.now(),
+    const epochs = snapshotEpochs(community);
+    const opts: Parameters<typeof coalesceGuestbook>[1] = {
+      nowMs: clockNowMs(),
       canKick: (actor, target, citation, atMs) =>
         Boolean(
           // Death wins every race (CORD-02 §9) — an ORDERING rule: only a kick published
           // AFTER the tombstone is refused, or dissolving would un-kick everyone.
           !(dissolvedAtMs != null && atMs > dissolvedAtMs) &&
             folded &&
-            canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.KICK) &&
+            // A lifted Ban writes its departure as a Kick from a BAN holder (CORD-04 §6).
+            (canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.KICK) ||
+              canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.BAN)) &&
             // …and the CORD-04 §5 sync floor, so a kick from an admin whose
             // demotion we haven't read yet parks instead of landing.
             citationSatisfied(folded, community.id, actor, citation),
         ),
       snapshotAuthorities: authorities,
+      snapshotAuthorityOf: epochs.authorityOf,
+      live: epochs.live,
       banned: folded?.banned,
-    });
+    };
+    return {
+      coalesced: coalesceGuestbook(opened, opts),
+      history: guestbookHistory(opened, opts) as GuestbookHistory,
+      refound: liveRefound(opened, opts),
+      opts,
+    };
   }, [community, query.data, folded, dissolvedAtMs]);
 
-  return { ...query, coalesced };
+  // Timeouts and Nicknames (CORD-04 §8, §10), judged against the Roster as it stands, and
+  // again as each running Timeout ends.
+  const [timeoutEdge, setTimeoutEdge] = useState(0);
+  const timeouts = useMemo(() => {
+    void timeoutEdge;
+    if (!community || !query.data || !folded) return new Map<string, FoldedTimeout>();
+    return foldTimeouts(query.data, {
+      nowMs: clockNowMs(),
+      ownerHex: folded.ownerHex,
+      banned: folded.banned,
+      mayTimeout: (actor, target, citation) =>
+        canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.MODERATE_MEMBERS) &&
+        citationSatisfied(folded, community.id, actor, citation),
+    });
+  }, [community, query.data, folded, timeoutEdge]);
+  useEffect(() => {
+    const now = clockNowMs();
+    let next = Infinity;
+    for (const t of timeouts.values()) if (t.until * 1000 > now) next = Math.min(next, t.until * 1000);
+    if (next === Infinity) return;
+    const timer = setTimeout(() => setTimeoutEdge((n) => n + 1), Math.min(next - now + 50, 2 ** 31 - 1));
+    return () => clearTimeout(timer);
+  }, [timeouts]);
+  const nicknames = useMemo(() => {
+    // On a legacy Roster every member still names themselves (CORD-04 §10).
+    if (!community || !query.data || !folded) return new Map<string, string>();
+    // Only the live epoch's count: one seen at an older address, or at none recorded, doesn't (Vector `nicknames_on`).
+    const live = currentGuestbookGroup(community).pk;
+    return foldNicknames(query.data.filter((e) => e.streamPk === live), {
+      nowMs: clockNowMs(),
+      banned: folded.banned,
+      timeouts,
+      mayName: (actor, target, citation) =>
+        mayName(folded.roster, actor, folded.ownerHex, target) &&
+        (actor === target || citationSatisfied(folded, community.id, actor, citation)),
+    });
+  }, [community, query.data, folded, timeouts]);
+
+  return { ...query, coalesced, history, refound, coalesceOpts, timeouts, nicknames };
 }
 
 /**
@@ -163,11 +414,11 @@ export function useMembers(
   community: Community | undefined,
   observed: Map<string, number>,
 ): { members: Set<string>; coalesced: Map<string, CoalescedMember> } {
-  const { coalesced } = useGuestbook(community);
+  const { coalesced, refound } = useGuestbook(community);
   const { data: folded } = useControlFold(community);
   const members = useMemo(
-    () => completeMemberlist(coalesced, observed, folded?.banned ?? new Set(), folded?.bannedAt),
-    [coalesced, observed, folded],
+    () => completeMemberlist(coalesced, observed, folded?.banned ?? new Set(), folded?.bannedAt, refound),
+    [coalesced, observed, folded, refound],
   );
   return { members, coalesced };
 }
@@ -186,22 +437,31 @@ export function useGuestbookPublisher(community: Community | undefined) {
       action:
         | { type: "join"; attribution?: { creator: string; label?: string } }
         | { type: "leave" }
-        | { type: "kick"; target: string; vac?: { eid: string; version: bigint; hash: string } },
+        /** `ms` dates a Ban's departure at the Ban (CORD-04 §6); now otherwise. */
+        | { type: "kick"; target: string; vac?: { eid: string; version: bigint; hash: string }; ms?: number }
+        /** A Nickname (CORD-04 §10), dated `ms`; another member's cites the Grant it acts under. */
+        | { type: "nickname"; target: string; nick: string; ms?: number; authority?: AuthorityCitation }
+        /** A Timeout (CORD-04 §8) running to `until` (unix seconds); a past one lifts. */
+        | { type: "timeout"; target: string; until: number; ms?: number; authority?: AuthorityCitation },
     ) => {
       if (!user || !community) throw new Error(t({ id: "useGuestbook.notReady", defaultMessage: "Not ready." }));
       // A dissolved community honors no new authority action (CORD-02 §9); a Leave
       // is self-signed housekeeping and stays allowed.
-      if (dissolvedNow != null && action.type === "kick") {
+      if (dissolvedNow != null && (action.type === "kick" || action.type === "timeout" || (action.type === "nickname" && action.target !== user.pubkey))) {
         throw new Error(t({ id: "useGuestbook.dissolved", defaultMessage: "This community has been dissolved; it accepts no new moderation." }));
       }
       const group = currentGuestbookGroup(community);
-      const ms = Date.now();
+      const ms = (action.type === "kick" || action.type === "nickname" || action.type === "timeout") && action.ms !== undefined ? action.ms : clockNowMs();
       const rumor =
         action.type === "join"
           ? buildJoinRumor(user.pubkey, ms, action.attribution)
           : action.type === "leave"
             ? buildLeaveRumor(user.pubkey, ms)
-            : buildKickRumor(user.pubkey, action.target, ms, action.vac);
+            : action.type === "nickname"
+              ? buildNicknameRumor(user.pubkey, action.target, action.nick, ms, action.authority)
+              : action.type === "timeout"
+                ? buildTimeoutRumor(user.pubkey, action.target, action.until, ms, action.authority)
+                : buildKickRumor(user.pubkey, action.target, ms, action.vac);
       const wrap = await sealGuestbook(rumor, group, user.signer);
       // The leaver has no screen left to retry from, so the signed wrap goes into
       // the publish outbox FIRST; relays that accept it are struck off and the rest

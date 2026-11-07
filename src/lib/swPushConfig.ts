@@ -38,6 +38,20 @@ export interface SwConcordStream {
   banned?: string[];
   /** Authors allowed to issue a literal @everyone in this channel. */
   mentionEveryoneAuthors?: string[];
+  /** Any author's literal @everyone counts. */
+  mentionEveryoneAnyone?: boolean;
+  /** The Roles the viewer holds and who may ping any Role (CORD-04 §8). */
+  roleMentions?: { id: string; name: string; anyone: boolean }[];
+  roleMentionAuthors?: string[];
+  /** The relays' clock minus this device's (CORD-03 §3). */
+  clockOffsetMs?: number;
+  /** Authors whose posts readers collapse (CORD-04 §8): no SEND here, or a Timeout by window. */
+  sendDenied?: string[];
+  /** In a restricted Channel, the only authors whose posts ring (CORD-03 §1); reactions aside. */
+  postAuthors?: string[];
+  timeouts?: { pk: string; fromSecs: number; until: number }[];
+  /** The Nicknames members go by in this Community (CORD-04 §10), by pubkey. */
+  nicknames?: Record<string, string>;
   /** Membership start (ms); anything sent earlier never notifies. */
   joinedAtMs?: number;
   /** Drop non-mention messages after decrypting this encrypted stream. */

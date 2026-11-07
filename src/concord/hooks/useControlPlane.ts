@@ -1,6 +1,7 @@
 import { useNostr } from "@nostrify/react";
+import { KvPrefixCache } from "@/lib/db/kvCache";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { useDeferredFold } from "@/concord/hooks/useDeferredFold";
 import {
   activePauseOf,
@@ -11,21 +12,28 @@ import {
   isCurrentFoldedControl,
   isDissolvedOpened,
   openControlEditions,
+  readControlFold,
   pauseHeadOf,
   sealEdition,
+  storedControlOf,
+  type StoredControl,
   type ActivePause,
   type EntityHead,
   type FoldedControl,
   type FoldedSignal,
 } from "@/concord/lib/control";
-import { channelsView } from "@/concord/lib/community";
-import { bytesToHex, dissolvedGroupKey, grantLocator, hex32 } from "@/concord/lib/derive";
-import type { AuthorityCitation } from "@/concord/lib/edition";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { requestDutyNow } from "@/concord/lib/dutyNow";
+import { historyViewsGeneration, subscribeHistoryViews } from "@/concord/lib/history";
+import { channelsView, visibleChannels } from "@/concord/lib/community";
+import { bytesToHex, dissolvedGroupKey, editionBinding, grantLocator, hex32 } from "@/concord/lib/derive";
+import { markEdition, type AuthorityCitation } from "@/concord/lib/edition";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { markControlPlaneStale, openPlaneWraps, mergeOpened, sweepControl } from "@/concord/lib/planeSync";
 import { queryPlane, readControlSnapshot, writeOpened } from "@/concord/lib/rumorStore";
 import { readFolded, writeFolded } from "@/lib/foldedCache";
 import { STORE_READ } from "@/lib/storeQuery";
+import { AUTHORITY_VSKS, rosterActivated } from "@/concord/lib/roster";
 import { openWrap, type OpenedEvent, type StreamSigner } from "@/concord/lib/stream";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type { Channel, Community } from "@/concord/lib/types";
@@ -203,6 +211,55 @@ function useControlSnapshot(community: Community | undefined, active: boolean) {
  * compacted snapshot.
  */
 const foldFloors = new Map<string, Map<string, EntityHead>>();
+/** What each community's last fold settled on, for a head the next one finds withheld (see `StoredControl`). */
+const foldStored = new Map<string, StoredControl>();
+/** The same, kept across restarts (Vector persists it): a withheld head or an aged-out Ban must not be forgotten. */
+const storedCache = new KvPrefixCache<string>({ prefix: "c2stored:" });
+void storedCache.ready().catch(() => undefined);
+
+function encodeStored(stored: StoredControl): string {
+  const rest: StoredControl = { ...stored, banned: [...(stored.banned ?? [])] };
+  delete rest.heldChannels;
+  return JSON.stringify(rest, (_k, v) => (typeof v === "bigint" ? { $big: v.toString() } : v));
+}
+
+function decodeStored(raw: string | undefined): StoredControl | undefined {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw, (_k, v) => (v && typeof v === "object" && typeof v.$big === "string" ? BigInt(v.$big) : v)) as StoredControl;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The stored state a community's next fold carries: this session's, else what the last run kept. */
+function storedFor(idHex: string): StoredControl | undefined {
+  const held = foldStored.get(idHex);
+  if (held) return held;
+  const kept = decodeStored(storedCache.get(idHex));
+  if (kept) foldStored.set(idHex, kept);
+  return kept;
+}
+
+/**
+ * Advance the floors past a fold: a head above its floor raises it, and one the
+ * fold stepped down to after refusing the held head lowers it (Vector `rebase`).
+ */
+function advanceFloors(community: Community, floorHeads: Map<string, EntityHead>, folded: FoldedControl): void {
+  const authority = (h: EntityHead | undefined) => h?.vsk !== undefined && AUTHORITY_VSKS.has(h.vsk);
+  for (const [eid, head] of folded.heads) {
+    const prior = floorHeads.get(eid);
+    // The Roster's floor keeps its row against another family's, and takes one (Vector `community_edition_heads`).
+    if (authority(prior) && !authority(head)) continue;
+    if (!prior || head.version > prior.version || head.rebased || (authority(head) && prior.vsk !== undefined && !authority(prior))) floorHeads.set(eid, head);
+  }
+  const stored = storedControlOf(folded, storedFor(community.idHex));
+  if (!stored) return;
+  foldStored.set(community.idHex, stored);
+  // Written only when it changed: on Android every KV write crosses the bridge.
+  const encoded = encodeStored(stored);
+  if (storedCache.get(community.idHex) !== encoded) storedCache.set(community.idHex, encoded);
+}
 
 /**
  * The floor map for the community's current epoch. Creating one drops the
@@ -224,6 +281,7 @@ function floorsFor(community: Community): Map<string, EntityHead> {
 /** Forget every floor map and cached live pause (decrypted control state). Logout. */
 export function clearControlPlaneMemory(): void {
   foldFloors.clear();
+  foldStored.clear();
   livePauseCache.clear();
 }
 
@@ -269,11 +327,11 @@ export function useControlFold(community: Community | undefined, active = true) 
       // After a Refounding, current-epoch editions fold by version-anchored bootstrap
       // (see headCandidates); never-rotated communities keep chain contiguity.
       const snapshotIds = refounded && snapIds ? new Set(snapIds) : undefined;
-      const folded = foldControlState(editions, community.id, community.owner, floorHeads, snapshotIds);
-      for (const [eid, head] of folded.heads) {
-        const prior = floorHeads.get(eid);
-        if (!prior || head.version > prior.version) floorHeads.set(eid, head);
-      }
+      const folded = foldControlState(editions, community.id, community.owner, floorHeads, snapshotIds, {
+        ...storedFor(community.idHex),
+        heldChannels: community.privateChannels,
+      });
+      advanceFloors(community, floorHeads, folded);
       foldByInputs.set(events, { idHex: community.idHex, rootEpoch: community.rootEpoch, snapIds, folded });
       // A floored entity the served editions can't account for means an edition below
       // the delta floor never arrived; drop floors so the next sweep re-asks in full.
@@ -347,21 +405,91 @@ export async function readLivePause(community: Community, nowSec: number): Promi
     community.owner,
     floorHeads,
     snapIds ? new Set(snapIds) : undefined,
+    { ...storedFor(community.idHex), heldChannels: community.privateChannels },
   );
-  for (const [eid, head] of folded.heads) {
-    const prior = floorHeads.get(eid);
-    if (!prior || head.version > prior.version) floorHeads.set(eid, head);
-  }
+  advanceFloors(community, floorHeads, folded);
 
   const head = pauseHeadOf(folded);
   livePauseCache.set(community.idHex, { rev, epoch: community.rootEpoch, head });
   return activePauseOf(head, nowSec);
 }
 
+const controlWrites = new Map<string, Promise<unknown>>();
+
+/**
+ * Run one Control write at a time per community, as Vector's `follow_lock` does. A
+ * writer plans on {@link foldStoredControl} inside it, which holds every edition this
+ * device published before it: the rendered fold lags its own publishes, and a write
+ * planned on it chains from a superseded head and forks against the one before.
+ */
+export function withControlWrite<T>(communityIdHex: string, run: () => Promise<T>): Promise<T> {
+  const prev = controlWrites.get(communityIdHex) ?? Promise.resolve();
+  const next = prev.catch(() => undefined).then(run);
+  const settled = next.catch(() => undefined);
+  controlWrites.set(communityIdHex, settled);
+  void settled.then(() => {
+    if (controlWrites.get(communityIdHex) === settled) controlWrites.delete(communityIdHex);
+  });
+  return next;
+}
+
+/** The Control Plane as this device stores it, folded; for a writer that knows the store holds it all. */
+export async function foldStoredControl(community: Community): Promise<FoldedControl> {
+  const refounded = community.rootEpoch > 0n;
+  const snapIds = refounded ? await readControlSnapshot(community.idHex, currentControlGroup(community).pk) : undefined;
+  return foldControlState(
+    openControlEditions(await queryPlane(community.idHex, "control")),
+    community.id,
+    community.owner,
+    floorsFor(community),
+    snapIds ? new Set(snapIds) : undefined,
+    { ...storedFor(community.idHex), heldChannels: community.privateChannels },
+  );
+}
+
+/**
+ * The Control Plane read whole from the relays again and folded (Vector `fetch_control_plane_whole`),
+ * for a reduction that must seal what it reduces (CORD-04 §9): undefined when fewer than a majority
+ * of relays answered to the end or the read was cut short.
+ * `served` is every edition read, and each decided head's predecessor.
+ */
+export async function readControlWhole(nostr: Parameters<typeof sweepControl>[0], community: Community): Promise<{ folded: FoldedControl; served: Set<string> } | undefined> {
+  let reached = 0;
+  let short = false;
+  try {
+    await sweepControl(nostr, community, { exhaustive: true, onReached: () => void reached++, onTruncated: () => void (short = true) });
+  } catch {
+    return undefined;
+  }
+  if (short || reached < Math.floor(community.relays.length / 2) + 1) return undefined;
+  const refounded = community.rootEpoch > 0n;
+  const snapIds = refounded ? await readControlSnapshot(community.idHex, currentControlGroup(community).pk) : undefined;
+  if (refounded && !snapIds) return undefined;
+  const editions = openControlEditions(await queryPlane(community.idHex, "control"));
+  const floorHeads = floorsFor(community);
+  const folded = foldControlState(editions, community.id, community.owner, floorHeads, snapIds ? new Set(snapIds) : undefined, {
+    ...storedFor(community.idHex),
+    heldChannels: community.privateChannels,
+  });
+  advanceFloors(community, floorHeads, folded);
+  const decided = new Set([...folded.headEditions.values()].map((e) => bytesToHex(e.rumorId)));
+  const served = new Set(editions.map((e) => bytesToHex(e.selfHash)));
+  for (const e of editions) if (decided.has(bytesToHex(e.rumorId)) && e.prevHash) served.add(bytesToHex(e.prevHash));
+  return { folded, served };
+}
+
 /** The channels the member can read, assembled from the fold + held keys. */
 export function useChannels(community: Community | undefined, active = true): Channel[] {
   const { data: folded } = useControlFold(community, active);
-  return useMemo(() => (community ? channelsView(community, folded) : []), [community, folded]);
+  const { user } = useCurrentUser();
+  const viewer = user?.pubkey;
+  // Read-only history epochs join a Channel's streams as they land (CORD-03 §5).
+  const history = useSyncExternalStore(subscribeHistoryViews, historyViewsGeneration);
+  return useMemo(
+    () => (community ? visibleChannels(channelsView(community, folded), folded, viewer) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [community, folded, viewer, history],
+  );
 }
 
 /** Persisted-forever marker for a community we have seen a valid tombstone for. */
@@ -670,15 +798,22 @@ export async function publishEdition(
   // once, for every edition kind. Local store only; fails OPEN on a store error
   // (matching Vector). Both the persisted marker (the dissolving owner's only
   // record) and the stored plane count.
+  let plane: OpenedEvent[] = [];
   try {
     if ((await dissolvedAt(community.idHex)) !== undefined) throw new DissolvedError();
-    const cached = await queryPlane(community.idHex, "control");
-    if (cached.some((o) => isDissolvedOpened(o, community.owner, community.id))) {
+    plane = await queryPlane(community.idHex, "control");
+    if (plane.some((o) => isDissolvedOpened(o, community.owner, community.id))) {
       throw new DissolvedError();
     }
   } catch (e) {
     if (e instanceof DissolvedError) throw new Error(t({ id: "useControlPlane.dissolved", defaultMessage: "This community has been dissolved; it accepts no changes." }));
   }
+  // On the vsk-13 Roster every edition is marked (CORD-04 §1), decided from the stored
+  // `@everyone` when no current fold is cached (Vector reads its persisted head).
+  const priorFold = await readControlFold(community.idHex);
+  const ranked = priorFold?.rankedRoster === true ||
+    rosterActivated(openControlEditions(plane), community.id, community.owner, new Map());
+  if (ranked) rumor = markEdition(rumor, editionBinding(community.id));
   // The WRITE key: on a split epoch it's the staff-held control_root (CORD-02 §2);
   // non-staff fail here with a readable error.
   const control = currentControlWriteGroup(community);
@@ -715,14 +850,18 @@ export async function publishEdition(
     );
   }
   // Write our own edition to the store now, so the publisher's fold sees it even
-  // if no relay echoes it back (or the `since` cursor skips it).
+  // if no relay echoes it back (or the `since` cursor skips it). Awaited: the
+  // caller refreshes its fold on return, and a read ahead of the commit misses it.
   try {
-    writeOpened(community.idHex, [openWrap(wrap, control)], "control", {
+    await writeOpened(community.idHex, [openWrap(wrap, control)], "control", {
       refounded: community.rootEpoch > 0n,
     });
   } catch {
     // best-effort — the relay echo remains the fallback
   }
+  // A change to who may read or post: whoever made it settles what it moved, now.
+  const vsk = rumor.tags.find((t) => t[0] === "vsk")?.[1];
+  if (vsk !== undefined && ["1", "3", "4", "13", "14", "16", "17"].includes(vsk)) requestDutyNow(community.idHex, priorFold);
 }
 
 /**

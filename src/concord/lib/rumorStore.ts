@@ -46,6 +46,8 @@ import { literalSearch } from "@/lib/db/ParsedFilter";
 import type { NRumorStore } from "@/lib/db/types";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type { OpenedChat } from "@/concord/lib/chat";
+import { currentGuestbookGroup, guestbookGroups } from "@/concord/lib/guestbook";
+import type { Community } from "@/concord/lib/types";
 import { confirmOutgoing } from "@/concord/lib/outgoing";
 
 /** The chat plane's channel binding (CORD-03 §3) — the tag chat reads index. */
@@ -135,6 +137,51 @@ export async function noteControlSnapshot(
   await Promise.all(
     [...byPk].map(async ([pk, ids]) => {
       const key = snapshotKey(communityIdHex, pk);
+      const merged = new Set((await kv.get<string[]>(key)) ?? []);
+      const before = merged.size;
+      for (const id of ids) merged.add(id);
+      if (merged.size !== before) await kv.set(key, [...merged]);
+    }),
+  );
+}
+
+// The Guestbook epoch a rumor arrived at, by the same arrangement: only the live
+// epoch's Nicknames count (CORD-04 §10), and nothing in the rumor says which it was.
+const guestbookStreamKey = (communityIdHex: string, pk: string) => `c2gbpk:${communityIdHex}:${pk}`;
+
+/** The rumor ids that arrived at Guestbook address `pk`, or undefined when none were recorded. */
+export async function readGuestbookStream(communityIdHex: string, pk: string): Promise<Set<string> | undefined> {
+  try {
+    const ids = await getArmadaDB().kv.get<string[]>(guestbookStreamKey(communityIdHex, pk));
+    return ids && ids.length > 0 ? new Set(ids) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Each stored Guestbook rumor tagged with the address it was recorded arriving at, where known. */
+export async function withGuestbookStreams(community: Community, stored: OpenedEvent[]): Promise<OpenedEvent[]> {
+  const live = currentGuestbookGroup(community).pk;
+  const seen = new Map<string, string>();
+  for (const g of guestbookGroups(community)) {
+    for (const id of (await readGuestbookStream(community.idHex, g.pk)) ?? []) if (!seen.has(id) || g.pk === live) seen.set(id, g.pk);
+  }
+  if (seen.size === 0) return stored;
+  return stored.map((e) => (e.streamPk === undefined && seen.has(e.rumorId) ? { ...e, streamPk: seen.get(e.rumorId) } : e));
+}
+
+async function noteGuestbookStreams(communityIdHex: string, opened: Array<{ streamPk?: string; rumorId: string }>): Promise<void> {
+  const byPk = new Map<string, string[]>();
+  for (const o of opened) {
+    if (!o.streamPk) continue;
+    const list = byPk.get(o.streamPk);
+    if (list) list.push(o.rumorId);
+    else byPk.set(o.streamPk, [o.rumorId]);
+  }
+  const kv = getArmadaDB().kv;
+  await Promise.all(
+    [...byPk].map(async ([pk, ids]) => {
+      const key = guestbookStreamKey(communityIdHex, pk);
       const merged = new Set((await kv.get<string[]>(key)) ?? []);
       const before = merged.size;
       for (const id of ids) merged.add(id);
@@ -270,6 +317,22 @@ export async function queryChannelRumors(
     { signal: opts.signal },
   );
   return notExpired(events).map((ev) => storedToOpenedChat(ev, channelIdHex));
+}
+
+/** Whether this device holds a post `author` sent in any Channel after `afterMs` (Vector `community_member_activity`). */
+export async function heldPostAfter(communityIdHex: string, author: string, afterMs: number): Promise<boolean> {
+  const events = await rumorStore(communityIdHex).query([
+    { kinds: CHAT_ROW_KINDS, authors: [author], since: Math.floor(afterMs / 1000), limit: 20 },
+  ]);
+  return notExpired(events).some((ev) => ev.tags.some((t) => t[0] === "channel") && resolveMs(ev.created_at, ev.tags) > afterMs);
+}
+
+/** Whether this device holds a post `author` sent at a Channel's writer address since `sinceMs` (Vector `posts_since_by`). */
+export async function heldWriterPostSince(communityIdHex: string, channelIdHex: string, author: string, sinceMs: number): Promise<boolean> {
+  const events = await rumorStore(communityIdHex).query([
+    { kinds: CHAT_ROW_KINDS, "#channel": [channelIdHex], authors: [author], since: Math.floor(sinceMs / 1000), limit: 50 },
+  ]);
+  return events.some((ev) => resolveMs(ev.created_at, ev.tags) >= sinceMs && ev.tags.some((t) => t[0] === "wepoch"));
 }
 
 /**
@@ -603,7 +666,7 @@ export async function queryMentionRumors(
   communityIdHex: string,
   channelIdsHex: string[],
   pubkey: string,
-  opts: { limit: number; signal?: AbortSignal; everyoneAuthors?: string[] },
+  opts: { limit: number; signal?: AbortSignal; everyoneAuthors?: string[]; everyoneAnyone?: boolean; roleIds?: string[] },
 ): Promise<OpenedChat[]> {
   if (channelIdsHex.length === 0 || !pubkey) return [];
   const filters: Array<{
@@ -611,14 +674,20 @@ export async function queryMentionRumors(
     "#channel": string[];
     limit: number;
     "#p"?: string[];
+    "#role"?: string[];
     authors?: string[];
+    search?: string;
   }> = [{
     kinds: [9, 1111],
     "#p": [pubkey],
     "#channel": channelIdsHex,
     limit: opts.limit,
   }];
-  if (opts.everyoneAuthors && opts.everyoneAuthors.length > 0) {
+  if (opts.everyoneAnyone) {
+    // Any member's mass mention counts: matched by word, the literal re-checked by the caller.
+    const search = literalSearch("everyone");
+    if (search) filters.push({ kinds: [9, 1111], "#channel": channelIdsHex, search, limit: Math.max(opts.limit * 5, 1_000) });
+  } else if (opts.everyoneAuthors && opts.everyoneAuthors.length > 0) {
     filters.push({
       kinds: [9, 1111],
       authors: opts.everyoneAuthors,
@@ -627,6 +696,10 @@ export async function queryMentionRumors(
       // Notification Center (direct `#p` mentions stay depth-exact).
       limit: Math.max(opts.limit * 5, 1_000),
     });
+  }
+  // Candidates naming a Role the reader holds; the caller judges whether they ping (CORD-04 §8).
+  if (opts.roleIds && opts.roleIds.length > 0) {
+    filters.push({ kinds: [9, 1111], "#role": opts.roleIds, "#channel": channelIdsHex, limit: opts.limit });
   }
   const events = await rumorStore(communityIdHex).query(filters, { signal: opts.signal });
   const unique = new Map(notExpired(events).map((event) => [event.id, event]));
@@ -845,6 +918,7 @@ function writeStored(
   if (plane === "control" && snapshot) {
     writes.push(noteControlSnapshot(communityIdHex, opened));
   }
+  if (plane === "guestbook") writes.push(noteGuestbookStreams(communityIdHex, opened).catch(() => undefined));
   // Again once settled: a read issued during the write memoized the rows before it.
   return Promise.all(writes)
     .then(() => true)

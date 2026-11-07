@@ -1,5 +1,5 @@
 import { nip19 } from "nostr-tools";
-import { UsersRound } from "lucide-react";
+import { AtSign, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BotPill } from "@/components/BotPill";
@@ -25,6 +25,14 @@ interface MentionAutocompleteProps {
   allowEveryone?: boolean;
   /** Where an already-inserted `@Name` mention begins: not a query. */
   isMentionStart?: (pos: number) => boolean;
+  /** Concord Roles this author may ping (CORD-04 §8); picking one inserts `@Name`. */
+  roles?: readonly MentionRole[];
+  onPickRole?: (roleId: string) => void;
+}
+
+export interface MentionRole {
+  id: string;
+  name: string;
 }
 
 /** `@query` profile autocomplete at the caret; inserts `nostr:npub1...` (NIP-27). */
@@ -35,6 +43,8 @@ export function MentionAutocomplete({
   restrictToPubkeys,
   allowEveryone = false,
   isMentionStart,
+  roles,
+  onPickRole,
 }: MentionAutocompleteProps) {
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionStart, setMentionStart] = useState(-1);
@@ -57,7 +67,10 @@ export function MentionAutocomplete({
   const profiles = restricted ? memberProfiles : searchProfiles;
   const showEveryone = allowEveryone
     && "everyone".startsWith(mentionQuery.trim().toLowerCase());
-  const itemCount = (profiles?.length ?? 0) + (showEveryone ? 1 : 0);
+  const query = mentionQuery.trim().toLowerCase();
+  const roleMatches = (roles ?? []).filter((r) => r.name !== "" && r.name.toLowerCase().startsWith(query)).slice(0, 8);
+  const profileCount = profiles?.length ?? 0;
+  const itemCount = profileCount + roleMatches.length + (showEveryone ? 1 : 0);
 
   const detectMention = useCallback((text?: string, cursorPos?: number) => {
     const textarea = textareaRef.current;
@@ -164,6 +177,15 @@ export function MentionAutocomplete({
     setMentionStart(-1);
   }, [mentionStart, mentionQuery, textareaRef, onInsertMention]);
 
+  const selectRole = useCallback((role: MentionRole) => {
+    const cursor = textareaRef.current?.selectionStart ?? mentionStart + mentionQuery.length + 1;
+    onInsertMention({ start: mentionStart, end: cursor, replacement: `@${role.name} ` });
+    onPickRole?.(role.id);
+    setIsOpen(false);
+    setMentionQuery("");
+    setMentionStart(-1);
+  }, [mentionStart, mentionQuery, textareaRef, onInsertMention, onPickRole]);
+
   useEffect(() => {
     if (!isOpen || itemCount === 0) return;
 
@@ -184,7 +206,8 @@ export function MentionAutocomplete({
         case "Tab":
           e.preventDefault();
           e.stopImmediatePropagation();
-          if (profiles && selectedIndex < profiles.length) selectProfile(profiles[selectedIndex]);
+          if (profiles && selectedIndex < profileCount) selectProfile(profiles[selectedIndex]);
+          else if (selectedIndex < profileCount + roleMatches.length) selectRole(roleMatches[selectedIndex - profileCount]);
           else if (showEveryone) selectEveryone();
           break;
         case "Escape":
@@ -196,7 +219,7 @@ export function MentionAutocomplete({
 
     textarea.addEventListener("keydown", handleKeyDown);
     return () => textarea.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, itemCount, profiles, selectedIndex, textareaRef, selectProfile, selectEveryone, showEveryone]);
+  }, [isOpen, itemCount, profiles, profileCount, roleMatches, selectedIndex, textareaRef, selectProfile, selectRole, selectEveryone, showEveryone]);
 
   useEffect(() => {
     if (selectedIndex >= 0 && listRef.current) {
@@ -225,9 +248,17 @@ export function MentionAutocomplete({
               onSelect={() => selectProfile(profile)}
             />
           ))}
+          {roleMatches.map((role, index) => (
+            <RoleMentionItem
+              key={role.id}
+              name={role.name}
+              isSelected={selectedIndex === profileCount + index}
+              onSelect={() => selectRole(role)}
+            />
+          ))}
           {showEveryone && (
             <EveryoneMentionItem
-              isSelected={selectedIndex === (profiles?.length ?? 0)}
+              isSelected={selectedIndex === profileCount + roleMatches.length}
               onSelect={selectEveryone}
             />
           )}
@@ -238,6 +269,41 @@ export function MentionAutocomplete({
 
   // Portal escapes overflow clipping.
   return renderPortal(dropdown, document.body);
+}
+
+function RoleMentionItem({
+  name,
+  isSelected,
+  onSelect,
+}: {
+  name: string;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      data-mention-item
+      data-highlighted={isSelected || undefined}
+      className={cn(
+        "relative w-full flex items-center gap-3 menu-row clip-corner px-2 py-1.5 text-left transition-colors cursor-pointer",
+        isSelected ? "bg-foreground/[0.08]" : "hover:bg-foreground/[0.05]",
+      )}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        onSelect();
+      }}
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
+        <AtSign className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold">@{name}</span>
+        <span className="block truncate text-xs text-muted-foreground">
+          <FormattedMessage id="mentionAutocomplete.roleDescription" defaultMessage="Notify everyone with this role" />
+        </span>
+      </span>
+    </button>
+  );
 }
 
 function EveryoneMentionItem({

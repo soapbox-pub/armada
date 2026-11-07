@@ -428,7 +428,7 @@ struct PushProcessor {
         // Concord.futureHoldSecs), but never announced. Announcing it now would
         // buzz for a message the reader can't yet see, and the OS would stamp
         // the notification "in 5m" from its future createdAt.
-        if opened.createdAt > now + Concord.futureHoldSecs { return dropped }
+        if opened.ms > now * 1000 + stream.clockOffsetMs + Concord.futureHoldSecs * 1000 { return dropped }
 
         // Our own message, sent from another device. The local send marks its
         // own event id, but nothing marks one made elsewhere — only the
@@ -448,6 +448,17 @@ struct PushProcessor {
         // be checked.
         if stream.banned.contains(opened.author) { return dropped }
 
+        // A post its readers collapse rings nobody (CORD-04 §8): no SEND in this open
+        // Channel, or inside a running Timeout's window.
+        if stream.sendDenied.contains(opened.author) { return dropped }
+        // At a restricted Channel's read address a post stands only from those who manage it (CORD-03 §1).
+        if let posters = stream.postAuthors, opened.kind != Concord.kindReaction, !posters.contains(opened.author) { return dropped }
+        if let t = stream.timeouts[opened.author],
+           t.until * 1000 > now * 1000 + stream.clockOffsetMs,
+           opened.ms >= t.from * 1000, opened.ms < t.until * 1000 {
+            return dropped
+        }
+
         // Sent before this membership began: stored above, never announced.
         if !Self.sentDuringMembership(createdAt: opened.createdAt, joinedAtMs: stream.joinedAtMs) {
             return dropped
@@ -456,15 +467,20 @@ struct PushProcessor {
         let directMention = opened.tags.contains {
             $0.count > 1 && $0[0] == "p" && $0[1] == config.selfPubkey
         }
-        let mention = directMention || (
-            stream.mentionEveryoneAuthors.contains(opened.author)
-            && Self.hasEveryoneMention(opened.content)
-        )
         let reaction = opened.kind == Concord.kindReaction
+        let mention = directMention || (
+            (stream.mentionEveryoneAnyone || stream.mentionEveryoneAuthors.contains(opened.author))
+            && Self.hasEveryoneMention(opened.content)
+        ) || (!reaction && RoleMentions.pings(
+            content: opened.content, tags: opened.tags, held: stream.roleMentions,
+            authorMentionsAny: stream.roleMentionAuthors.contains(opened.author)
+        ))
         // A reaction notifies only when it points at one of YOUR messages; the
         // `p` tag is on the encrypted rumor, so this is the first place it can
         // be read at all.
         if reaction && !mention { return dropped }
+        // One no row could render rings nobody, as the timeline drops it.
+        if reaction && !ReactionContent.renderable(opened.content) { return dropped }
 
         // "Mentions only": the gateway can't filter an encrypted wrap, so it
         // wakes us for every message on this channel; here — the first place the
@@ -477,7 +493,7 @@ struct PushProcessor {
             plane: .c2,
             kind: opened.kind,
             content: opened.content,
-            authorName: profile?.name ?? strings.anonymous,
+            authorName: stream.nicknames[opened.author] ?? profile?.name ?? strings.anonymous,
             roomTitle: store?.concordRoomTitle(
                 communityId: stream.communityId, channelId: stream.channelId, strings: strings
             ),

@@ -9,8 +9,9 @@ import { NAME_MAX_BYTES } from "@/concord/lib/types";
 import { common, FormattedMessage, useIntl } from "@/i18n";
 
 /**
- * Name a channel category (create or rename). Categories have no id — they're
- * the set of channels naming them — so rename re-files every member channel.
+ * Name a channel category (create or rename). On the legacy Roster a category is
+ * only the channels naming it, so rename re-files each one; on the vsk-13 Roster
+ * (`ranked`) it is an entity of its own (CORD-03 §4), renamed in place.
  */
 export function CategoryNameDialog({
   open,
@@ -18,12 +19,14 @@ export function CategoryNameDialog({
   count,
   onOpenChange,
   onSubmit,
+  ranked = false,
 }: {
   open: boolean;
   initial: string;
   count: number;
   onOpenChange: (open: boolean) => void;
   onSubmit: (name: string) => void;
+  ranked?: boolean;
 }) {
   const intl = useIntl();
   const [value, setValue] = useState(initial);
@@ -49,7 +52,11 @@ export function CategoryNameDialog({
               : <FormattedMessage id="categoryNameDialog.newHeading" defaultMessage="new category" />}
           </h2>
           <p className="text-sm text-muted-foreground">
-            {renaming
+            {ranked
+              ? renaming
+                ? <FormattedMessage id="categoryNameDialog.renameRanked" defaultMessage="Renames the category for everyone. Its channels and permissions stay as they are." />
+                : <FormattedMessage id="categoryNameDialog.newRanked" defaultMessage="A heading to group channels under in the sidebar, with permissions its channels can follow." />
+              : renaming
               ? count > 1
                 ? <FormattedMessage id="categoryNameDialog.renameMany" defaultMessage="Renames the category for all {count} channels in it." values={{ count }} />
                 : <FormattedMessage id="categoryNameDialog.renameOne" defaultMessage="A category is only ever the channels naming it, so renaming re-files the channel in it." />

@@ -32,10 +32,12 @@ import {
 import { encryptImageBlob } from "@/concord/lib/image";
 import { KIND_COMMENT, KIND_COMMUNITY_LIST_FRAG, KIND_REACTION } from "@/concord/lib/kinds";
 import { fragment, serializeFragList } from "@/concord/lib/listFrag";
-import { hexToColor } from "@/concord/lib/roles";
+import { EVERYONE_DEFAULT, hexToColor } from "@/concord/lib/roles";
 import { writeOpened, writeRumors } from "@/concord/lib/rumorStore";
 import { buildRumor, channelBindingTags, openWrap, sealRumor, wrapSeal } from "@/concord/lib/stream";
-import { channelGroupKey } from "@/concord/lib/derive";
+import { channelGroupKey, editionBinding, everyoneLocator } from "@/concord/lib/derive";
+import { buildEditionRumor } from "@/concord/lib/edition";
+import { everyoneToJSON, VSK_RANKED_ROLE } from "@/concord/lib/roster";
 import { KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import { queryChannelRumors, readStreamCursor } from "@/concord/lib/rumorStore";
 import { writeFolded } from "@/lib/foldedCache";
@@ -62,6 +64,8 @@ export interface ConcordSeedPayload {
    * the viewer can sign a seal here.
    */
   relayHistory?: { localNewest: number };
+  /** Switch the community to the vsk-13 Roster (CORD-04 §2), so the owner's background duties keep running. */
+  ranked?: boolean;
 }
 
 export interface ConcordSeedResult {
@@ -106,6 +110,19 @@ async function seed(p: ConcordSeedPayload): Promise<ConcordSeedResult> {
       buildChannelEdition(id, { name: i === 0 ? "general" : `channel-${i}`, private: false }, { actorPubkey: self, version: 1n }),
     ),
   ];
+  if (p.ranked) {
+    const legacy = channelIds.map((id) => bytesToHex(id)).sort();
+    genesis.push(
+      buildEditionRumor({
+        vsk: VSK_RANKED_ROLE,
+        entityId: everyoneLocator(community.id),
+        version: 1n,
+        content: everyoneToJSON(EVERYONE_DEFAULT, legacy),
+        actorPubkey: self,
+        binding: editionBinding(community.id),
+      }),
+    );
+  }
   const opened = await Promise.all(genesis.map(async (r) => openWrap(await sealEdition(r, control, signer), control)));
   await writeOpened(community.idHex, opened, "control", { refounded: false });
 

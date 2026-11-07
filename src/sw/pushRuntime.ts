@@ -11,10 +11,12 @@
  * Every step is best-effort; failure falls back to the gateway's static wake-up.
  */
 
+import { isRenderableReaction } from "@/concord/lib/reactionContent";
 import { getConversationKey, decrypt as nip44Decrypt } from "nostr-tools/nip44";
 import { verifyEvent } from "nostr-tools/pure";
 import { hexToBytes } from "@noble/hashes/utils.js";
 
+import { rolePings } from "@/concord/lib/roleMentions";
 import { checkChannelBinding, FUTURE_HOLD_MS, openWrap } from "@/concord/lib/stream";
 import {
   KIND_COMMENT,
@@ -294,10 +296,13 @@ async function present(
   profileRelays: string[],
   /** Show the sender's avatar; false = the room icon or the app's. */
   showAvatar = true,
+  /** The name the sender goes by in this Community (CORD-04 §10), over their profile's. */
+  nickname?: string,
 ): Promise<PreparedPush> {
   const mentioned = mentionPubkeys(msg.content).slice(0, MAX_MENTION_LOOKUPS);
   const profiles = await profilesFor([...new Set([author, ...mentioned])], profileRelays, policy);
-  const { name = getDisplayName(undefined), avatar } = profiles.get(author) ?? {};
+  const { name: profileName = getDisplayName(undefined), avatar } = profiles.get(author) ?? {};
+  const name = nickname || profileName;
   // An unnamed mention keeps its raw token: "@Anonymous" would name nobody.
   const mentionNames = new Map<string, string>();
   for (const pk of mentioned) {
@@ -467,7 +472,7 @@ async function prepareConcord(
   await writeRumors(stream.communityId, [opened]).catch(() => undefined);
 
   // Future-dated messages are held by the timeline (FUTURE_HOLD_MS); don't announce yet.
-  if (opened.ms > Date.now() + FUTURE_HOLD_MS) return DROP;
+  if (opened.ms > Date.now() + (stream.clockOffsetMs ?? 0) + FUTURE_HOLD_MS) return DROP;
 
   // Own message from another device (only the decrypted author reveals it).
   if (cfg?.self && opened.author === cfg.self) return DROP;
@@ -477,6 +482,13 @@ async function prepareConcord(
 
   // Banned (CORD-04): stored, never announced.
   if (stream.banned?.includes(opened.author)) return DROP;
+
+  // A post its readers collapse rings nobody (CORD-04 §8): no SEND here, or inside a running Timeout.
+  if (stream.sendDenied?.includes(opened.author)) return DROP;
+  // At a restricted Channel's read address a post stands only from those who manage it (CORD-03 §1).
+  if (stream.postAuthors && opened.kind !== KIND_REACTION && !stream.postAuthors.includes(opened.author)) return DROP;
+  const nowMs = Date.now() + (stream.clockOffsetMs ?? 0);
+  if (stream.timeouts?.some((t) => t.pk === opened.author && t.until * 1000 > nowMs && opened.ms >= t.fromSecs * 1000 && opened.ms < t.until * 1000)) return DROP;
 
   // Sent before this membership began: the viewer wasn't there.
   if (!sentDuringMembership(opened.ms, stream.joinedAtMs)) return DROP;
@@ -489,13 +501,16 @@ async function prepareConcord(
   const mention = Boolean(cfg?.self) && (
     opened.tags.some(([n, v]) => n === "p" && v === cfg?.self)
     || (
-      stream.mentionEveryoneAuthors?.includes(opened.author)
+      (stream.mentionEveryoneAnyone === true || stream.mentionEveryoneAuthors?.includes(opened.author))
       && hasEveryoneMention(opened.content)
     )
+    || (opened.kind !== KIND_REACTION
+      && rolePings(opened.content, opened.tags, stream.roleMentions ?? [], stream.roleMentionAuthors?.includes(opened.author) ?? false))
   );
   const reaction = opened.kind === KIND_REACTION;
-  // Reactions only notify when pointing at YOUR message (`p` on the encrypted rumor).
-  if (reaction && !mention) return DROP;
+  // Reactions only notify when pointing at YOUR message (`p` on the encrypted rumor), and
+  // never one no row could render (Vector `is_renderable_reaction`).
+  if (reaction && (!mention || !isRenderableReaction(opened.content))) return DROP;
 
   // Mentions-only can only be enforced here, after decryption.
   if (stream.mentionOnly && !mention) return DROP;
@@ -532,6 +547,7 @@ async function prepareConcord(
     policy,
     profileRelaysFor(cfg, relays),
     communityAvatarShown(opened.author, cfg),
+    stream.nicknames?.[opened.author],
   );
 }
 

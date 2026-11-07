@@ -60,6 +60,28 @@ export function editionHash(
   return sha256(editionPreimage(entityId, version, prevHash, content));
 }
 
+const EDITION_SIGNER_LABEL = new TextEncoder().encode("concord/edition-signer");
+
+/**
+ * A MARKED edition's hash (CORD-04 §1): `SHA-256(signing_bytes ‖
+ * utf8("concord/edition-signer") ‖ signer[32])`, the label raw, so a copy
+ * re-signed under another key is another edition.
+ */
+export function markedEditionHash(
+  entityId: Uint8Array,
+  version: bigint,
+  prevHash: Uint8Array | undefined,
+  content: Uint8Array,
+  signer: Uint8Array,
+): Uint8Array {
+  const pre = editionPreimage(entityId, version, prevHash, content);
+  const out = new Uint8Array(pre.length + EDITION_SIGNER_LABEL.length + 32);
+  out.set(pre, 0);
+  out.set(EDITION_SIGNER_LABEL, pre.length);
+  out.set(signer, pre.length + EDITION_SIGNER_LABEL.length);
+  return sha256(out);
+}
+
 /** One fetched edition of an entity, reduced to what the fold needs. */
 export interface Edition {
   version: bigint;
@@ -76,6 +98,10 @@ export interface FoldResult {
   head: number | null;
   /** A higher version exists but doesn't link contiguously — fail closed + refetch. */
   gap: boolean;
+  /** The walk started from what the reader holds (or the genesis): its prefix is verified. */
+  anchored?: boolean;
+  /** Every edition the walk reached, the verified prefix. */
+  reached?: number[];
 }
 
 function cmpBytes(a: Uint8Array, b: Uint8Array): number {
@@ -96,7 +122,13 @@ export function bytesEq(a: Uint8Array | undefined, b: Uint8Array | undefined): b
  * `floor` is the highest version already accepted (0n = none), `floorHash`
  * that held edition's selfHash.
  */
-export function fold(editions: Edition[], floor: bigint, floorHash?: Uint8Array): FoldResult {
+export function fold(
+  editions: Edition[],
+  floor: bigint,
+  floorHash?: Uint8Array,
+  /** A same-version sibling of the held head that anchors too (Vector `fold_linked`'s `admit_rival`). */
+  admitRival?: (index: number) => boolean,
+): FoldResult {
   // Keep EVERY sibling per version, not a single winner: `tiebreakId` is
   // publisher-chosen, so a junk edition sorting lower would otherwise fail the
   // floor anchor and pin the entity forever. The `prevHash` link decides.
@@ -113,36 +145,88 @@ export function fold(editions: Edition[], floor: bigint, floorHash?: Uint8Array)
   }
   const versions = [...byVersion.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   if (versions.length === 0) return { head: null, gap: false };
+  if (floor > 0n && floorHash !== undefined) return foldFromFloor(editions, byVersion, versions, floor, floorHash, admitRival);
 
   // Anchor on a sibling that links to what we hold, preferring the tiebreak winner.
   const base = byVersion.get(versions[0])!;
   let anchorIdx: number | undefined;
+  let anchors: number[] | undefined;
   if (floor === 0n) {
     if (versions[0] === 1n) anchorIdx = base.find((i) => editions[i].prevHash === undefined);
   } else if (floorHash !== undefined && versions[0] === floor) {
-    anchorIdx = base.find((i) => bytesEq(floorHash, editions[i].selfHash));
+    anchors = base.filter((i) => bytesEq(floorHash, editions[i].selfHash) || (admitRival?.(i) ?? false));
+    anchorIdx = anchors[0];
   } else if (floorHash !== undefined && versions[0] === floor + 1n) {
     anchorIdx = base.find((i) => bytesEq(editions[i].prevHash, floorHash));
   }
   let gap = anchorIdx === undefined;
 
-  // Walk choosing at each step the sibling that links to the one just accepted.
-  let headIdx = anchorIdx ?? base[0];
+  // Walk up through EVERY sibling that links to one already reached (CORD-02 §2): a
+  // branch the chain went on to extend is followed, never stranded behind a sibling
+  // that won the tiebreak and went nowhere. The head is the highest version reached.
+  let reached = anchors && anchors.length > 0 ? anchors : [anchorIdx ?? base[0]];
+  const reachedAll = [...reached];
   for (let k = 0; k + 1 < versions.length; k++) {
     if (versions[k + 1] !== versions[k] + 1n) {
       gap = true;
       break;
     }
-    const next = byVersion
-      .get(versions[k + 1])!
-      .find((i) => bytesEq(editions[i].prevHash, editions[headIdx].selfHash));
-    if (next === undefined) {
+    const held = new Set(reached.map((i) => bytesToHexKey(editions[i].selfHash)));
+    const next = byVersion.get(versions[k + 1])!.filter((i) => editions[i].prevHash !== undefined && held.has(bytesToHexKey(editions[i].prevHash!)));
+    if (next.length === 0) {
       gap = true;
       break;
     }
-    headIdx = next;
+    reached = next;
+    reachedAll.push(...next);
   }
-  return { head: headIdx, gap };
+  // Siblings stay in tiebreak order, so the first reached is the winner at that version.
+  return { head: reached[0], gap, anchored: anchorIdx !== undefined, reached: reachedAll };
+}
+
+/**
+ * The walk from a held head (Vector `fold_linked`): the anchor is the held edition and the
+ * rivals admitted beside it, and the version above links to the held hash whether or not it is
+ * served; every edition linking to one reached is reached, and the head is the highest reached.
+ */
+function foldFromFloor(
+  editions: Edition[],
+  byVersion: Map<bigint, number[]>,
+  versions: bigint[],
+  floor: bigint,
+  floorHash: Uint8Array,
+  admitRival?: (index: number) => boolean,
+): FoldResult {
+  const heldServed = (byVersion.get(floor) ?? []).some((i) => bytesEq(editions[i].selfHash, floorHash));
+  const reachedAt = new Map<bigint, Set<string>>();
+  const reached: number[] = [];
+  for (const v of versions) {
+    for (const i of byVersion.get(v)!) {
+      const e = editions[i];
+      const linked =
+        v === floor
+          ? bytesEq(e.selfHash, floorHash) || heldServed || (admitRival?.(i) ?? false)
+          : (v === floor + 1n && bytesEq(e.prevHash, floorHash)) ||
+            (e.prevHash !== undefined && (reachedAt.get(v - 1n)?.has(bytesToHexKey(e.prevHash)) ?? false));
+      if (!linked) continue;
+      reached.push(i);
+      let set = reachedAt.get(v);
+      if (!set) reachedAt.set(v, (set = new Set()));
+      set.add(bytesToHexKey(e.selfHash));
+    }
+  }
+  if (reached.length === 0) return { head: null, gap: true, anchored: false };
+  // Siblings sit in tiebreak order within a version, so the first reached at the top wins.
+  let head = reached[0];
+  for (const i of reached) if (editions[i].version > editions[head].version) head = i;
+  const gap = versions[versions.length - 1] > editions[head].version;
+  return { head, gap, anchored: true, reached };
+}
+
+function bytesToHexKey(b: Uint8Array): string {
+  let out = "";
+  for (const x of b) out += x.toString(16).padStart(2, "0");
+  return out;
 }
 
 /**

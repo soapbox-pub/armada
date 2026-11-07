@@ -5,6 +5,7 @@ import {
   categoryNames,
   channelCategory,
   groupChannelsByCategory,
+  withRankedCategories,
   mutedGroupIds,
   withChannelCategory,
 } from "@/concord/lib/channelCategory";
@@ -187,5 +188,14 @@ describe("mutedGroupIds", () => {
   it("leaves fewer alone, and a fully muted community alone", () => {
     expect(mutedGroupIds(channels, (id) => "ab".includes(id)).size).toBe(0);
     expect(mutedGroupIds(channels, () => true).size).toBe(0);
+  });
+});
+
+describe("withRankedCategories (CORD-03 §4, Vector `sidebar`)", () => {
+  it("lists every Category in its order, an empty one where it is allowed", () => {
+    const groups = [{ key: "b", name: "B", channels: [{ name: "x" }] }];
+    const order = [{ idHex: "a", name: "A" }, { idHex: "b", name: "B" }, { idHex: "c", name: "" }];
+    expect(withRankedCategories(groups, order, () => true).map((g) => [g.key, g.channels.length])).toEqual([["a", 0], ["b", 1], ["c", 0]]);
+    expect(withRankedCategories(groups, order, (id) => id === "c").map((g) => g.key)).toEqual(["b", "c"]);
   });
 });

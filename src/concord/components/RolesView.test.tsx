@@ -20,6 +20,10 @@ const roles = vi.hoisted(() => ({
   saveRole: vi.fn(async () => "role"),
   rekeyChannel: vi.fn(async () => {}),
   roster: undefined as unknown as CommunityRoles,
+  ranked: false,
+  activate: vi.fn(async () => [] as string[]),
+  deleteRole: vi.fn(async () => {}),
+  moveRole: vi.fn(async () => {}),
 }));
 
 vi.mock("@/concord/hooks/useRoles", () => ({
@@ -27,6 +31,7 @@ vi.mock("@/concord/hooks/useRoles", () => ({
     folded: {
       ownerHex: OWNER,
       roster: roles.roster,
+      ...(roles.ranked ? { rankedRoster: true } : {}),
       banned: new Set<string>(),
       channels: new Map([[SECRET, { channelIdHex: SECRET, name: "secret", isPrivate: true, deleted: false }]]),
     },
@@ -35,6 +40,20 @@ vi.mock("@/concord/hooks/useRoles", () => ({
     setMemberRoles: roles.setMemberRoles,
     isSettingRoles: false,
     newRoleId: () => "new",
+  }),
+}));
+vi.mock("@/concord/hooks/useRankedRoles", () => ({
+  useRankedRoles: () => ({
+    folded: { ownerHex: OWNER, roster: roles.roster, rankedRoster: true, banned: new Set<string>(), channels: new Map(), heads: new Map(), headEditions: new Map() },
+    activate: roles.activate,
+    isActivating: false,
+    deleteRole: roles.deleteRole,
+    moveRole: roles.moveRole,
+    reorderRoles: roles.moveRole,
+    createRole: vi.fn(),
+    editRole: vi.fn(),
+    setEveryone: vi.fn(),
+    isSaving: false,
   }),
 }));
 vi.mock("@/concord/hooks/useRekey", () => ({
@@ -136,5 +155,38 @@ describe("RoleEditor scope picker", () => {
     setup(role({ scope: { kind: "channel", channelId: LIVE } }));
     expect(screen.getByRole("combobox")).toHaveTextContent("general");
     expect(screen.queryByText("A deleted channel")).not.toBeInTheDocument();
+  });
+});
+
+describe("RolesView on the vsk-13 Roster", () => {
+  const ranked = (): CommunityRoles => ({
+    roles: [
+      { roleId: AUDIT, name: "Auditors", position: 2, rank: "b", permissions: 0n, scope: { kind: "server" }, color: 0 },
+      { roleId: TESTER, name: "Testers", position: 1, rank: "a", permissions: 0n, scope: { kind: "server" }, color: 0 },
+    ],
+    grants: [{ member: CUT, roleIds: [TESTER] }],
+    everyone: 0n,
+  });
+
+  it("lists the Roles in rank order above @everyone, and deletes one after asking", async () => {
+    roles.ranked = true;
+    roles.roster = ranked();
+    render(<RolesView community={{ owner: OWNER, privateChannels: [] } as unknown as Community} />);
+    const names = screen.getAllByText(/^(Testers|Auditors|@everyone)$/).map((e) => e.textContent);
+    expect(names).toEqual(["Testers", "Auditors", "@everyone"]);
+    fireEvent.click(screen.getByText("Testers"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete role" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete role" }));
+    await waitFor(() => expect(roles.deleteRole).toHaveBeenCalledWith({ roleId: TESTER }));
+  });
+
+  it("offers the owner of a legacy community the switch, and asks before making it", async () => {
+    roles.ranked = false;
+    roles.roster = { roles: [], grants: [] };
+    render(<RolesView community={{ owner: OWNER, privateChannels: [] } as unknown as Community} />);
+    fireEvent.click(screen.getByRole("button", { name: "Switch to ranked roles" }));
+    expect(roles.activate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Switch now" }));
+    await waitFor(() => expect(roles.activate).toHaveBeenCalled());
   });
 });

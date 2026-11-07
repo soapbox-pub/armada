@@ -59,6 +59,8 @@ import { ToastAction } from "@/components/ui/toast";
 import { dmCallKeys } from "@/lib/dmCall";
 import { useCallSync } from "@/concord/hooks/useCallSync";
 import { useControlFold } from "@/concord/hooks/useControlPlane";
+import { useGuestbook } from "@/concord/hooks/useGuestbook";
+import { callGain, callGateFor, callPriority, setCallGate, setPrioritySpeaking, subscribeCallGate } from "@/concord/lib/callGate";
 import { decryptNotificationIcon } from "@/concord/lib/image";
 import { useBlossomServers } from "@/hooks/useBlossomServers";
 import { useMediaPolicy, useMediaSrc } from "@/hooks/useMediaPolicy";
@@ -68,13 +70,18 @@ import { useMicToggle } from "@/hooks/useMicToggle";
 import { fetchNotificationIcon } from "@/lib/notificationIcon";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
 import {
+  onVoiceDirective,
   ownAvServers,
+  resolveVoiceBroker,
   useCommunityAvBrokers,
   useAvToken,
   useVoiceHeartbeat,
   useVoicePresence,
   useVoiceReactions,
 } from "@/concord/hooks/useVoice";
+import { channelsView } from "@/concord/lib/community";
+import { useVoiceActionsFor } from "@/concord/hooks/useVoiceActions";
+import { VoiceModerationContext } from "@/contexts/VoiceModerationContext";
 import { CallSignalsContext, type CallRecordingSignals, type CallSignals } from "@/contexts/CallSignalsContext";
 import { CallRecorderProvider, RecordingNotices } from "@/components/chat/CallRecorder";
 import { getNoRecord, setNoRecord, subscribeNoRecord } from "@/lib/callRecording/prefs";
@@ -127,6 +134,7 @@ import {
 import { nip19 } from "nostr-tools";
 
 import { common, FormattedMessage, t } from "@/i18n";
+import { clockNowMs } from "@/lib/relayClock";
 
 /** Reports live speakers (as pubkeys) to call context. Unverified identities are skipped. */
 function SpeakingReporter() {
@@ -263,6 +271,28 @@ function RosterReporter() {
   return null;
 }
 
+/** Reports whether a remote member holding PRIORITY_SPEAKER is talking, which ducks the rest (CORD-07 §7). */
+function PriorityDuckWatcher() {
+  const room = useRoomContext();
+  const resolveIdentity = useVoiceIdentity();
+  const resolveRef = useRef(resolveIdentity);
+  resolveRef.current = resolveIdentity;
+  useEffect(() => {
+    const judge = () => {
+      setPrioritySpeaking(room.activeSpeakers.some((p) => !p.isLocal && p.identity && callPriority(resolveRef.current(p.identity).pubkey)));
+    };
+    judge();
+    room.on(RoomEvent.ActiveSpeakersChanged, judge);
+    const offGate = subscribeCallGate(judge);
+    return () => {
+      room.off(RoomEvent.ActiveSpeakersChanged, judge);
+      offGate();
+      setPrioritySpeaking(false);
+    };
+  }, [room]);
+  return null;
+}
+
 /** Keeps remote mic/screen-share gains in sync with stored volumes while the stage is closed. */
 function PlaybackVolumeApplier() {
   const resolveIdentity = useVoiceIdentity();
@@ -278,12 +308,19 @@ function PlaybackVolumeApplier() {
         ) continue;
         const { pubkey } = resolveIdentity(p.identity);
         const remote = p as RemoteParticipant;
-        remote.setVolume(getUserVolume(pubkey), Track.Source.Microphone);
-        remote.setVolume(getScreenShareVolume(pubkey), Track.Source.ScreenShareAudio);
+        // A member the call doesn't let speak is not heard, and a priority speaker ducks the rest (CORD-04 §8, CORD-07 §7).
+        const gain = callGain(pubkey);
+        remote.setVolume(gain * getUserVolume(pubkey), Track.Source.Microphone);
+        remote.setVolume(gain * getScreenShareVolume(pubkey), Track.Source.ScreenShareAudio);
       }
     };
     apply();
-    return subscribeUserVolumes(apply);
+    const offVolumes = subscribeUserVolumes(apply);
+    const offGate = subscribeCallGate(apply);
+    return () => {
+      offVolumes();
+      offGate();
+    };
   }, [participants, resolveIdentity]);
 
   return null;
@@ -783,6 +820,7 @@ function VoiceRoomShell({
       <CallNotificationMic />
       <RosterReporter />
       <PlaybackVolumeApplier />
+      <PriorityDuckWatcher />
       <DetectedSpeakersProvider>
       <SpeakingReporter />
       <CallRecorderProvider>
@@ -1041,6 +1079,33 @@ function ConcordVoiceRoom({
   }, [registerFocusActiveCall, goToChannel]);
 
   const { data: folded } = useControlFold(community, false);
+  // Receivers enforce SPEAK and VIDEO, and a Timeout silences and hides (CORD-04 §8).
+  const { timeouts } = useGuestbook(community);
+  // …and a moderator's mute or deafen (CORD-07 §7).
+  const present = fold.present;
+  const me = user?.pubkey;
+  // What this member may send: without SPEAK or VIDEO, or under a Timeout, its own tracks stop (Vector).
+  const e2eeRoomRef = useRef<Room | null>(null);
+  useEffect(() => {
+    const gate = () => {
+      const next = callGateFor(folded, channel.idHex, channel.isPrivate, timeouts, present, me, clockNowMs());
+      setCallGate(next);
+      if (!me) return;
+      const own = next(me);
+      const lp = e2eeRoomRef.current?.localParticipant;
+      if (!lp) return;
+      if (!own.speak && lp.isMicrophoneEnabled) void lp.setMicrophoneEnabled(false).catch(() => undefined);
+      if (!own.video && lp.isCameraEnabled) void lp.setCameraEnabled(false).catch(() => undefined);
+      if (!own.video && lp.isScreenShareEnabled) void lp.setScreenShareEnabled(false).catch(() => undefined);
+    };
+    gate();
+    // A Timeout lapses on its own: judge again as time passes.
+    const timer = setInterval(gate, 15_000);
+    return () => {
+      clearInterval(timer);
+      setCallGate(undefined);
+    };
+  }, [folded, timeouts, present, me, channel.idHex, channel.isPrivate]);
   const iconPointer = folded?.metadata?.icon;
   const blossomServers = useBlossomServers();
   const mediaPolicy = useMediaPolicy();
@@ -1058,6 +1123,8 @@ function ConcordVoiceRoom({
   // nominated one, so others aren't steered to an unreachable origin.
   const [hevcIdentities, setHevcIdentities] = useState<string[]>([]);
   const noRecord = useSyncExternalStore(subscribeNoRecord, getNoRecord);
+  // What the call shows of this member, carried on its presence (CORD-07 §4); set below off the room.
+  const [localMedia, setLocalMedia] = useState({ muted: false, screen: false, camera: false });
   const { sendReaction, announceAdditionalIdentities, announceRecording } = useVoiceHeartbeat(
     community,
     channel,
@@ -1066,6 +1133,7 @@ function ConcordVoiceRoom({
     handRaised,
     hevcIdentities,
     noRecord,
+    localMedia,
   );
   const reactions = useVoiceReactions(community, channel);
 
@@ -1133,6 +1201,48 @@ function ConcordVoiceRoom({
     const keyProvider = new SenderKeyProvider();
     return { keyProvider, ...buildE2eeRoom(keyProvider) };
   }, []);
+  e2eeRoomRef.current = e2ee.room;
+
+  // A moderator's directive to this member, which an honest client obeys (CORD-07 §7).
+  const obey = useRef({ folded, communityBrokers, onLeave, joinConcordCall, ctx });
+  obey.current = { folded, communityBrokers, onLeave, joinConcordCall, ctx };
+  // A moderator's directives against a participant (CORD-07 §7), for the call's tile menus.
+  const voiceActionsFor = useVoiceActionsFor(community, channel, present);
+
+  const channelPk = channel.current.group.pk;
+  useEffect(() => {
+    if (!me) return;
+    return onVoiceDirective(channelPk, (d) => {
+      if (d.target !== me) return;
+      const o = obey.current;
+      if (d.verb === "mute" || d.verb === "deafen") {
+        void e2ee.room?.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
+        toast({
+          title: d.verb === "mute"
+            ? t({ id: "persistentVoiceRoom.directive.muted", defaultMessage: "A moderator muted you" })
+            : t({ id: "persistentVoiceRoom.directive.deafened", defaultMessage: "A moderator deafened you" }),
+        });
+        return;
+      }
+      if (d.verb === "disconnect") {
+        toast({ title: t({ id: "persistentVoiceRoom.directive.disconnected", defaultMessage: "A moderator disconnected you from the call" }) });
+        o.onLeave();
+        return;
+      }
+      if (d.verb !== "move") return;
+      const to = channelsView(o.ctx.community, o.folded).find((c) => c.idHex === d.to && c.view === "voice");
+      void (async () => {
+        const broker = to?.voice.room.pk ? await resolveVoiceBroker(to.voice.room.pk, o.communityBrokers) : null;
+        if (!to || !broker) {
+          toast({ title: t({ id: "persistentVoiceRoom.directive.disconnected", defaultMessage: "A moderator disconnected you from the call" }) });
+          o.onLeave();
+          return;
+        }
+        toast({ title: t({ id: "persistentVoiceRoom.directive.moved", defaultMessage: "A moderator moved you to #{channel}" }, { channel: to.name }) });
+        o.joinConcordCall({ community: o.ctx.community, channel: to, broker });
+      })();
+    });
+  }, [me, channelPk, e2ee.room]);
 
   // Verified identities get keys derived from the media root; unverified ones
   // get a random key so their tracks never decode (§7). `applied` keeps writes idempotent.
@@ -1204,6 +1314,22 @@ function ConcordVoiceRoom({
     state: "idle",
     active: false,
   });
+  const hevcActive = hevcStatus.active;
+  useEffect(() => {
+    const room = e2ee.room;
+    if (!room) return;
+    const lp = room.localParticipant;
+    const read = () => {
+      const next = { muted: !lp.isMicrophoneEnabled, screen: lp.isScreenShareEnabled || hevcActive, camera: lp.isCameraEnabled };
+      setLocalMedia((prev) => (prev.muted === next.muted && prev.screen === next.screen && prev.camera === next.camera ? prev : next));
+    };
+    read();
+    const events = [ParticipantEvent.TrackMuted, ParticipantEvent.TrackUnmuted, ParticipantEvent.LocalTrackPublished, ParticipantEvent.LocalTrackUnpublished] as const;
+    for (const e of events) lp.on(e, read);
+    return () => {
+      for (const e of events) lp.off(e, read);
+    };
+  }, [e2ee.room, hevcActive]);
   const [hevcPreview, setHevcPreview] = useState<{
     track: MediaStreamTrack;
     identity: string;
@@ -1660,6 +1786,28 @@ function ConcordVoiceRoom({
     });
   }, [strandedFrom, elsewhereOrigin, communityBrokers, ctx, joinConcordCall]);
 
+  // CORD-07 §4: a member on a transport we don't speak is in the call, just not one we can hear.
+  const warnedOtherTransport = useRef(false);
+  const otherTransportCount = fold.otherTransport.length;
+  useEffect(() => {
+    if (warnedOtherTransport.current || !tokenData || otherTransportCount === 0) return;
+    warnedOtherTransport.current = true;
+    toast({
+      title: t(
+        {
+          id: "persistentVoiceRoom.otherTransport.title",
+          defaultMessage:
+            "{count, plural, one {# member is} other {# members are}} in this call peer to peer",
+        },
+        { count: otherTransportCount },
+      ),
+      description: t({
+        id: "persistentVoiceRoom.otherTransport.description",
+        defaultMessage: "Armada can't join peer-to-peer calls yet, so you won't hear each other.",
+      }),
+    });
+  }, [tokenData, otherTransportCount]);
+
   // Others render as members only under a sole fresh presence claim (§4).
   const resolveIdentity = useCallback<VoiceIdentityResolver>(
     (identity) => {
@@ -1720,17 +1868,19 @@ function ConcordVoiceRoom({
   return (
     <VoiceIdentityContext.Provider value={resolveIdentity}>
       <CallSignalsContext.Provider value={signals}>
-        <VoiceRoomShell
-          serverUrl={tokenData.url}
-          token={tokenData.token}
-          options={{}}
-          room={room}
-          onDisconnected={handleDisconnected}
-          placeBar={placeBar}
-          placeStage={placeStage}
-          stageOpen={stageOpen}
-          label={label}
-        />
+        <VoiceModerationContext.Provider value={voiceActionsFor}>
+          <VoiceRoomShell
+            serverUrl={tokenData.url}
+            token={tokenData.token}
+            options={{}}
+            room={room}
+            onDisconnected={handleDisconnected}
+            placeBar={placeBar}
+            placeStage={placeStage}
+            stageOpen={stageOpen}
+            label={label}
+          />
+        </VoiceModerationContext.Provider>
       </CallSignalsContext.Provider>
     </VoiceIdentityContext.Provider>
   );

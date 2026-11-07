@@ -499,6 +499,32 @@ describe("sweepRelayScopes — one REQ per relay, per-scope filters", () => {
     expect(g.map((e) => e.rumorId)).toContain(gb.rumor.id);
   });
 
+  it("reports a Guestbook read up to now only on a page short of the limit (CORD-02 §5's whole plane)", async () => {
+    const owner = signer();
+    const community = communityOf(69, owner.pubkey);
+    const guestbook = guestbookGroupKey(community.root, community.id, 0);
+    const now = Math.floor(Date.now() / 1000);
+    const relay = new FakeRelay();
+    relay.events = [(await wrapAt(guestbook, owner, "ab".repeat(32), now - 100)).wrap];
+    const nostr = poolOf({ [RELAY_A]: relay });
+    let reached = 0;
+    await sweepGuestbook(nostr, community, { onReached: () => reached++ });
+    expect(reached).toBe(1);
+
+    _configureSweepPagingForTests({ pageLimit: 2 });
+    try {
+      const full = communityOf(70, owner.pubkey);
+      const gb = guestbookGroupKey(full.root, full.id, 0);
+      const r2 = new FakeRelay();
+      r2.events = [(await wrapAt(gb, owner, "cd".repeat(32), now - 50)).wrap, (await wrapAt(gb, owner, "ef".repeat(32), now - 40)).wrap];
+      let fullReached = 0;
+      await sweepGuestbook(poolOf({ [RELAY_A]: r2 }), full, { onReached: () => fullReached++ });
+      expect(fullReached, "a full page may have more behind it").toBe(0);
+    } finally {
+      _configureSweepPagingForTests({ pageLimit: 500 });
+    }
+  });
+
   it("sequential guestbook sweeps advance the per-relay cursor (the second asks `since`)", async () => {
     const owner = signer();
     const community = communityOf(68, owner.pubkey);

@@ -7,6 +7,7 @@
 import {
   bytesToHex,
   channelGroupKey,
+  type GroupKey,
   communityIdOf,
   controlSignerGroupKey,
   hex32,
@@ -17,8 +18,13 @@ import {
 import { channelCategory } from "@/concord/lib/channelCategory";
 import { channelPosition, compareChannelOrder } from "@/concord/lib/channelOrder";
 import { channelView } from "@/concord/lib/channelView";
+import { openChannelSeal } from "@/concord/lib/channelSeal";
 import type { FoldedControl } from "@/concord/lib/control";
-import { capRelays, type Channel, type Community, type VoiceKeys } from "@/concord/lib/types";
+import { isRankKey } from "@/concord/lib/rankKey";
+import { channelPermissions, Permissions } from "@/concord/lib/roles";
+import { capRelays, type Channel, type ChannelMetadata, type Community, type VoiceKeys, type WriterWindow } from "@/concord/lib/types";
+import { heldHistoryViews, historyGroup } from "@/concord/lib/history";
+import { writerWindows, type Ledger } from "@/concord/lib/writers";
 
 /**
  * Mint a new community: a random `owner_salt` commits the owner into the
@@ -57,6 +63,13 @@ export function mintCommunity(name: string, ownerPubkeyHex: string, relays: stri
   };
 }
 
+/** The deleted Channels whose streams this member holds, for clearing what it kept of them (CORD-03 §2). */
+export function deletedChannels(community: Community, folded: FoldedControl | undefined): Channel[] {
+  const dead = [...(folded?.channels.values() ?? [])].filter((d) => d.deleted);
+  if (!folded || dead.length === 0) return [];
+  return channelsView(community, { ...folded, channels: new Map(dead.map((d) => [d.channelIdHex, { ...d, deleted: false }])) });
+}
+
 /**
  * The channels the member can read, from the Control fold + held keys:
  *
@@ -77,6 +90,24 @@ export function channelsView(community: Community, folded: FoldedControl | undef
     room: voiceGroupKey(secret, id, epoch),
     mediaKey: voiceMediaKey(secret, id, epoch),
   });
+
+  const ranked = folded?.rankedRoster === true;
+  /** Where a Channel files and sorts: the vsk-13 Category and rank key (CORD-03 §2, §4), else Armada's conventions. */
+  const placement = (meta: ChannelMetadata) => {
+    const cat = typeof meta.category === "string" ? folded?.categories?.get(meta.category) : undefined;
+    const live = cat && !cat.deleted ? cat : undefined;
+    // A legacy Roster files under Vector's Category id when it names one, else Armada's conventions.
+    if (!ranked) {
+      return live
+        ? { category: live.name || live.idHex.slice(0, 8), categoryId: live.idHex, position: channelPosition(meta) }
+        : { category: channelCategory(meta), position: channelPosition(meta) };
+    }
+    return {
+      ...(live ? { category: live.name || live.idHex.slice(0, 8), categoryId: live.idHex } : {}),
+      ...(isRankKey(meta.position) ? { positionKey: meta.position } : {}),
+      ...(typeof meta.topic === "string" ? { topic: meta.topic } : {}),
+    };
+  };
 
   for (const def of folded?.channels.values() ?? []) {
     // Mark tombstones seen too, so the held-key fallback can't resurrect a deleted
@@ -106,41 +137,56 @@ export function channelsView(community: Community, folded: FoldedControl | undef
 
     if (!def.isPrivate) {
       let voiceMemo: VoiceKeys | undefined;
+      const ledger = folded?.writers?.get(def.channelIdHex);
       out.push({
         id,
         idHex: def.channelIdHex,
         name: def.name,
         isPrivate: false,
-        category: channelCategory(def.metadata),
-        position: channelPosition(def.metadata),
+        ...placement(def.metadata),
         view: channelView(def.metadata),
         get voice() {
           return (voiceMemo ??= voiceKeys(community.root, id, community.rootEpoch));
         },
         // Writes go to the root stream; private-era streams stay readable.
-        streams: [...rootStreams, ...channelStreams],
+        streams: [...rootStreams, ...channelStreams, ...writerStreams(ledger, rootStreams)],
         current: rootStreams[0],
       });
       continue;
     }
 
     if (!held) continue; // no key → cannot read; omit rather than tease
+    // A sealed head opens with the Channel's key (CORD-03 §2); one that won't keeps the join-time name.
+    const opened = def.sealed ? openChannelSeal(def.sealed, held) : undefined;
+    const meta = def.sealed ? opened?.metadata : def.metadata;
+    // A converted Channel's public era reads at the root planes, dated before it went
+    // private (`public_until`, unix ms; CORD-03 §2).
+    const publicEra = opened?.publicUntil !== undefined
+      ? rootStreams.map((r) => ({ ...r, retiredAt: Math.min(r.retiredAt ?? Infinity, Math.floor(opened.publicUntil! / 1000)) }))
+      : [];
     let voiceMemo: VoiceKeys | undefined;
     out.push({
       id,
       idHex: def.channelIdHex,
-      name: def.name,
+      name: meta?.name || held.name || def.channelIdHex.slice(0, 8),
       isPrivate: true,
-      category: channelCategory(def.metadata),
-      position: channelPosition(def.metadata),
-      view: channelView(def.metadata),
+      ...(meta ? placement(meta) : {}),
+      view: meta ? channelView(meta) : "chat",
+      ...(opened?.publicUntil !== undefined ? { publicUntil: opened.publicUntil } : {}),
       get voice() {
         return (voiceMemo ??= voiceKeys(held.key, id, held.epoch));
       },
-      // A Private Channel reads ONLY its channel-key streams (current + priors). The
-      // shared root stream is world-readable to members, so showing it here would
-      // present public content as private; publicising re-folds it via the public branch.
-      streams: channelStreams,
+      // A Private Channel reads its channel-key streams (current + priors), the epochs it
+      // was handed read-only (CORD-03 §5), and the root stream only for its public era,
+      // cut at `public_until`.
+      streams: [
+        ...channelStreams,
+        ...heldHistoryViews(community.idHex, def.channelIdHex)
+          .filter((h) => !channelStreams.some((s) => s.epoch === h.epoch))
+          .map((h) => ({ epoch: h.epoch, group: historyGroup(h.view) })),
+        ...publicEra,
+        ...writerStreams(folded?.writers?.get(def.channelIdHex), channelStreams),
+      ],
       current: channelStreams[0],
     });
   }
@@ -170,6 +216,78 @@ export function channelsView(community: Community, folded: FoldedControl | undef
     });
   }
 
-  out.sort(compareChannelOrder);
+  out.sort(ranked ? compareRankedPlacement(folded) : compareChannelOrder);
   return out;
 }
+
+const UNKEYED = "\u{10FFFF}";
+
+/**
+ * A restricted Channel's writer addresses as read-only streams (CORD-03 §1): each
+ * window's address, encrypted to the Channel's read key, under every read key the
+ * member holds, since a writer epoch can outlive a rekey; the wrap signature is the write gate.
+ */
+function writerStreams(ledger: Ledger | undefined, reads: Channel["streams"]): Channel["streams"] {
+  if (!ledger || reads.length === 0) return [];
+  return writerWindows(ledger).flatMap((w) => {
+    const window: WriterWindow = {
+      epoch: BigInt(w.epoch),
+      from: w.from,
+      ...(w.to !== undefined ? { to: w.to } : {}),
+      ...(w.certifier ? { certifier: w.certifier } : {}),
+    };
+    return reads.map((read) => ({
+      epoch: read.epoch,
+      group: { pk: w.pk, get convKey() { return read.group.convKey; }, restricted: true },
+      writer: window,
+      ...(read.retiredAt !== undefined ? { retiredAt: read.retiredAt } : {}),
+    }));
+  });
+}
+
+/**
+ * vsk-13 sidebar order (CORD-03 §2, §4): uncategorized Channels first, then each
+ * Category by its rank key, name and id; within a group by rank key, name and id,
+ * an entry without a key after every keyed one.
+ */
+function compareRankedPlacement(folded: FoldedControl | undefined) {
+  const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  // Names compare as UTF-8 bytes, which is code point order, not UTF-16's.
+  const cmpName = (a: string, b: string) => {
+    const x = [...a];
+    const y = [...b];
+    for (let i = 0; i < Math.min(x.length, y.length); i++) {
+      const d = x[i].codePointAt(0)! - y[i].codePointAt(0)!;
+      if (d !== 0) return d < 0 ? -1 : 1;
+    }
+    return x.length - y.length;
+  };
+  return (a: Channel, b: Channel): number => {
+    if (a.categoryId !== b.categoryId) {
+      if (!a.categoryId) return -1;
+      if (!b.categoryId) return 1;
+      const ca = folded?.categories?.get(a.categoryId);
+      const cb = folded?.categories?.get(b.categoryId);
+      return cmp(ca?.position ?? UNKEYED, cb?.position ?? UNKEYED) || cmpName(ca?.name ?? "", cb?.name ?? "") || cmp(a.categoryId, b.categoryId);
+    }
+    return cmp(a.positionKey ?? UNKEYED, b.positionKey ?? UNKEYED) || cmpName(a.name, b.name) || cmp(a.idHex, b.idHex);
+  };
+}
+
+/**
+ * The Channels `viewer` may see (CORD-04 §8): on the vsk-13 Roster an honest client
+ * hides one the viewer lacks VIEW_CHANNEL in. A legacy Roster hides nothing.
+ */
+export function visibleChannels(channels: Channel[], folded: FoldedControl | undefined, viewer: string | undefined): Channel[] {
+  if (!folded?.rankedRoster || !viewer) return channels;
+  const visible = channels.filter(
+    (c) => (channelPermissions(folded.roster, folded.ownerHex, viewer, c.idHex, c.isPrivate) & Permissions.VIEW_CHANNEL) !== 0n,
+  );
+  return visible.length === channels.length ? channels : visible;
+}
+
+/** A Channel's streams this member can sign for: what NIP-42 auth registers. Writer addresses (CORD-03 §1) hold no secret here. */
+export function signingStreams(channel: Channel): GroupKey[] {
+  return channel.streams.flatMap((s) => (s.group.sk !== undefined ? [s.group as GroupKey] : []));
+}
+

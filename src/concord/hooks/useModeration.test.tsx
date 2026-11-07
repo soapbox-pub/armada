@@ -53,6 +53,8 @@ vi.mock("@nostrify/react", () => ({ useNostr: () => ({ nostr: {} }) }));
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: h.user }) }));
 vi.mock("@/concord/hooks/useControlPlane", () => ({
   useControlFold: () => ({ data: h.folded }),
+  foldStoredControl: async () => h.folded,
+  withControlWrite: (_id: string, run: () => Promise<unknown>) => run(),
   citationFor: () => undefined,
   invalidateControl: () => undefined,
   publishEdition: async (_n: unknown, _c: unknown, _s: unknown, rumor: NostrRumor) => {
@@ -61,6 +63,7 @@ vi.mock("@/concord/hooks/useControlPlane", () => ({
   },
 }));
 vi.mock("@/concord/hooks/useGuestbook", () => ({
+  useGuestbook: () => ({ data: [], coalesced: new Map(), timeouts: new Map(), nicknames: new Map() }),
   useGuestbookPublisher: () => ({
     mutateAsync: async (input: { type: string; target: string }) => {
       if (h.kickErrorFor === input.target) throw new Error("relay refused the kick");
@@ -78,6 +81,7 @@ vi.mock("@/concord/hooks/useRekey", () => ({
   }),
   useChannelRekey: () => ({
     canRekeyChannel: h.canRekeyChannel,
+    canSeverChannel: h.canRekeyChannel,
     rekeyChannel: async (input: { channelIdHex: string; keepRecipients: string[]; removedTargets: string[] }) => {
       h.log.push({ op: "chrekey", channelIdHex: input.channelIdHex, keep: input.keepRecipients, removed: input.removedTargets });
     },

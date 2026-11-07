@@ -15,11 +15,12 @@ vi.mock("@/components/projects/RepositoryPicker", () => ({
 
 const NAME_PLACEHOLDER = "e.g. general, memes, dev-talk";
 
-function setup() {
+function setup(ranked = false) {
   const onCreateText = vi.fn(async () => {});
   render(
     <NewChannelDialog
       open
+      ranked={ranked}
       onOpenChange={vi.fn()}
       connectedCoordinates={new Set()}
       onCreateText={onCreateText}
@@ -67,6 +68,44 @@ describe("NewChannelDialog — privacy controls reach the create call", () => {
 
     await waitFor(() => expect(onCreateText).toHaveBeenCalled());
     expect(onCreateText).toHaveBeenCalledWith("secrets", { isPrivate: true });
+  });
+
+  it("creates a PUBLIC channel by default on ranked roles, whose permissions narrow it", async () => {
+    const { onCreateText } = setup(true);
+    expect(screen.getByRole("button", { name: /Access/ })).toHaveTextContent("Public");
+    typeName("verify");
+    submit();
+    await waitFor(() => expect(onCreateText).toHaveBeenCalled());
+    expect(onCreateText).toHaveBeenCalledWith("verify", undefined);
+  });
+
+  it("offers a voice channel, as Vector does", async () => {
+    const { onCreateText } = setup(true);
+    typeName("hangout");
+    fireEvent.click(screen.getByRole("radio", { name: /Voice/ }));
+    submit();
+    await waitFor(() => expect(onCreateText).toHaveBeenCalled());
+    expect(onCreateText).toHaveBeenCalledWith("hangout", { view: "voice" });
+  });
+
+  it("files the new channel under the Category it was opened from", async () => {
+    const onCreateText = vi.fn(async () => {});
+    render(
+      <NewChannelDialog
+        open
+        ranked
+        categories={[{ idHex: "ca".repeat(32), name: "Voice" }]}
+        initialCategory={"ca".repeat(32)}
+        onOpenChange={vi.fn()}
+        connectedCoordinates={new Set()}
+        onCreateText={onCreateText}
+        onCreateRepository={vi.fn(async () => {})}
+      />,
+    );
+    typeName("lounge");
+    submit();
+    await waitFor(() => expect(onCreateText).toHaveBeenCalled());
+    expect(onCreateText).toHaveBeenCalledWith("lounge", { category: "ca".repeat(32) });
   });
 
   it("creates a public channel when the box is unticked AFTER the name is typed", async () => {
@@ -156,5 +195,17 @@ describe("NewChannelDialog — the forum option reaches the create call", () => 
 
     await waitFor(() => expect(onCreateText).toHaveBeenCalled());
     expect(onCreateText).toHaveBeenCalledWith("help", { view: "forum" });
+  });
+});
+
+describe("NewChannelDialog — on the vsk-13 Roster (CORD-03 §2, CORD-04 §2)", () => {
+  it("asks for no access role, which stands for nothing there, and creates no role name", async () => {
+    const { onCreateText } = setup(true);
+    typeName("staff");
+    openAccess();
+    expect(screen.queryByRole("textbox", { name: "Access role name" })).not.toBeInTheDocument();
+    submit();
+    await waitFor(() => expect(onCreateText).toHaveBeenCalled());
+    expect(onCreateText).toHaveBeenCalledWith("staff", expect.not.objectContaining({ accessRoleName: expect.anything() }));
   });
 });

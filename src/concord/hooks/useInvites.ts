@@ -2,7 +2,7 @@ import { useNostr } from "@nostrify/react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
-import { useControlFold, citationFor, invalidateControl, publishEdition, useDissolved } from "@/concord/hooks/useControlPlane";
+import { useControlFold, citationFor, foldStoredControl, invalidateControl, publishEdition, useDissolved, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { useCommunity } from "@/concord/hooks/useCommunityList";
 import { resolveBundle } from "@/concord/hooks/useCommunityActions";
 import { useUnlistAnnouncements } from "@/concord/hooks/useDiscoverListings";
@@ -26,7 +26,11 @@ import {
   capBundleDescription,
   EMPTY_INVITE_LIST,
   InviteError,
+  inviteExpirySecs,
+  inviteTombstoneFor,
+  liveRegistrySigners,
   mergeInviteLists,
+  pruneExpiredInvites,
   mintLinkSigner,
   mintToken,
   parseInviteLink,
@@ -262,7 +266,7 @@ export function useInviteList() {
             try {
               const content = await user!.signer.nip44!.encrypt(
                 user!.pubkey,
-                JSON.stringify(merged),
+                JSON.stringify(pruneExpiredInvites(merged, Math.floor(Date.now() / 1000))),
               );
               const event = await user!.signer.signEvent({
                 kind: KIND_INVITE_LIST,
@@ -365,9 +369,9 @@ export async function updateInviteList(
       t({ id: "useInvites.listUnconfirmed", defaultMessage: "Couldn't confirm your creator invite list on an account-state relay; not saving to avoid overwriting it." }),
     );
   }
-  const next = mergeInviteLists(
-    mergeInviteLists(read.list, optimistic),
-    patch,
+  const next = pruneExpiredInvites(
+    mergeInviteLists(mergeInviteLists(read.list, optimistic), patch),
+    Math.floor(Date.now() / 1000),
   );
 
   const createdAt = Math.max(
@@ -498,39 +502,34 @@ export function useInviteActions(community: Community | undefined) {
     };
   };
 
-  /** Link-signer pubkeys of MY expired links for this community. */
-  const myExpiredSigners = (): Set<string> => {
-    const out = new Set<string>();
-    const now = Math.floor(Date.now() / 1000);
-    for (const e of inviteList.data?.entries ?? []) {
-      if (e.community_id !== community?.idHex || !e.expires_at || e.expires_at > now) continue;
-      const p = parseInviteLink(e.url);
-      if (p) out.add(p.linkSigner);
-    }
-    return out;
-  };
-
   /**
    * Publish my registry (vsk 8) with these live links, pruning expired ones so
    * they don't keep the community Public (CORD-05 §5).
    */
-  const publishRegistry = async (linkSigners: string[]) => {
+  const publishRegistry = async (change: (mine: Set<string>) => string[]) => {
     if (!user || !community) return;
-    const expired = myExpiredSigners();
-    const live = linkSigners.filter((s) => !expired.has(s));
-    const eid = bytesToHex(inviteLinksLocator(community.id, hex32(user.pubkey)));
-    const head = folded?.heads.get(eid);
-    await publishEdition(
-      nostr,
-      community,
-      user.signer,
-      buildRegistryEdition(community.id, user.pubkey, live, {
-        actorPubkey: user.pubkey,
-        version: head ? head.version + 1n : 1n,
-        prevHash: head?.hash,
-        authority: citationFor(community, folded, user.pubkey),
-      }),
-    ).catch(() => undefined);
+    const c = community;
+    const u = user;
+    // `change` applied to the registry this device stores now, one write at a time: the
+    // rendered fold lags its own last registry, and a stale one would delist a link.
+    await withControlWrite(c.idHex, async () => {
+      const now = await foldStoredControl(c).catch(() => folded);
+      const linkSigners = change(new Set(now?.registriesByCreator.get(u.pubkey) ?? []));
+      const live = liveRegistrySigners(linkSigners, inviteList.data?.entries, c.idHex, Math.floor(Date.now() / 1000));
+      const eid = bytesToHex(inviteLinksLocator(c.id, hex32(u.pubkey)));
+      const head = now?.heads.get(eid);
+      await publishEdition(
+        nostr,
+        c,
+        u.signer,
+        buildRegistryEdition(c.id, u.pubkey, live, {
+          actorPubkey: u.pubkey,
+          version: head ? head.version + 1n : 1n,
+          prevHash: head?.hash,
+          authority: citationFor(c, now, u.pubkey),
+        }),
+      );
+    }).catch(() => undefined);
     invalidateControl(queryClient, community.idHex);
   };
 
@@ -593,8 +592,6 @@ export function useInviteActions(community: Community | undefined) {
       const storedUrl = buildInviteUrl(linkStoreBase(), link.pk, token, community.relays);
       const url = shareableInviteUrl(shareOrigin(), storedUrl);
 
-      const mine = new Set(folded?.registriesByCreator.get(user.pubkey) ?? []);
-      mine.add(link.pk);
 
       // Best-effort: a failed announcement must not fail the mint.
       const announcement = listPublicly ? buildCommunityAnnouncement({ inviteUrl: url }) : null;
@@ -615,6 +612,7 @@ export function useInviteActions(community: Community | undefined) {
             ...(label ? { label } : {}),
             created_at: Math.floor(Date.now() / 1000),
             ...(expiresAtMs ? { expires_at: Math.floor(expiresAtMs / 1000) } : {}),
+            epoch: bundle.root_epoch,
           },
         ],
         tombstones: [],
@@ -628,7 +626,7 @@ export function useInviteActions(community: Community | undefined) {
       });
 
       // Neither gates the link working.
-      void publishRegistry([...mine]).catch(() => undefined);
+      void publishRegistry((mine) => [...mine, link.pk]).catch(() => undefined);
       if (announcement) void publishEvent(announcement).catch(() => undefined);
 
       return url;
@@ -652,12 +650,10 @@ export function useInviteActions(community: Community | undefined) {
 
       await updateInviteList({
         entries: [],
-        tombstones: [{ token: entry.token, community_id: community.idHex }],
+        tombstones: [inviteTombstoneFor(entry)],
       });
 
-      const mine = new Set(folded?.registriesByCreator.get(user.pubkey) ?? []);
-      mine.delete(parsed.linkSigner);
-      await publishRegistry([...mine]);
+      await publishRegistry((mine) => [...mine].filter((s) => s !== parsed.linkSigner));
     },
   });
 
@@ -700,7 +696,7 @@ export function useInviteActions(community: Community | undefined) {
       if (revoked.length > 0) {
         await updateInviteList({
           entries: [],
-          tombstones: revoked.map((e) => ({ token: e.token, community_id: community.idHex })),
+          tombstones: revoked.map(inviteTombstoneFor),
         });
       }
 
@@ -715,7 +711,7 @@ export function useInviteActions(community: Community | undefined) {
         kept.map((e) => parseInviteLink(e.url)?.linkSigner).filter((s): s is string => !!s),
       );
       const delisted = [...mine].filter((s) => !keptSigners.has(s)).length;
-      await publishRegistry([...mine].filter((s) => keptSigners.has(s)));
+      await publishRegistry((held) => [...held].filter((s) => keptSigners.has(s)));
 
       return { revoked: revoked.length, delisted, failed: kept.length, failedSignerSks };
     },
@@ -805,7 +801,8 @@ export function useInviteActions(community: Community | undefined) {
     let attempted = 0;
     await Promise.allSettled(
       myLinks.map(async (entry) => {
-        if (entry.expires_at && entry.expires_at <= now) return; // can't be joined; don't touch
+        const expiresAt = inviteExpirySecs(entry.expires_at);
+        if (expiresAt !== undefined && expiresAt <= now) return; // can't be joined; don't touch
         const parsed = parseInviteLink(entry.url);
         if (!parsed) return;
         // Unreachable → refresh anyway; revoked → never resurrect.

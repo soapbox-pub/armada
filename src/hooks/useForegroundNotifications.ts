@@ -1,4 +1,5 @@
 import { useNostr } from "@nostrify/react";
+import { clockNowMs } from "@/lib/relayClock";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -19,7 +20,7 @@ import { isForegroundNotifyReady } from "@/hooks/useForegroundNotificationSettin
 import { useCommunityList } from "@/concord/hooks/useCommunityList";
 import { decryptNotificationIcon } from "@/concord/lib/image";
 import { sentDuringMembership } from "@/concord/lib/membershipFloor";
-import { FUTURE_HOLD_MS } from "@/concord/lib/stream";
+import { FUTURE_HOLD_MS, FUTURE_HORIZON_MS } from "@/concord/lib/stream";
 import { isRoomActive } from "@/lib/activeRooms";
 import { isDesktop, requestDesktopAttention } from "@/lib/desktop";
 import { desktopNotificationTag } from "@/lib/desktopNotificationTag";
@@ -269,6 +270,18 @@ export function foregroundPushRoomKey(
     ? normalizeRelayUrl(candidate.relayUrl) ?? candidate.relayUrl
     : relayByGroup.get(candidate.groupId);
   return relay ? `h:${relay}|${candidate.groupId}` : candidate.roomKey;
+}
+
+/**
+ * Whether a candidate dated `createdAt` (seconds) is due: "now", the ms until it
+ * is (CORD-03 §3, released inside the tolerance as Vector's `early.rs` does), or
+ * "beyond" the horizon, past which it isn't held.
+ */
+export function futureHold(createdAt: number, nowMs: number): "now" | "beyond" | number {
+  const aheadMs = createdAt * 1000 - nowMs;
+  if (aheadMs <= FUTURE_HOLD_MS) return "now";
+  if (aheadMs > FUTURE_HORIZON_MS) return "beyond";
+  return aheadMs - FUTURE_HOLD_MS + 1;
 }
 
 export function useForegroundNotifications(): void {
@@ -714,7 +727,9 @@ export function useForegroundNotifications(): void {
     };
     refreshMineConversationKeys();
 
-    const unregister = registerNotifySink((candidates) => {
+    // Candidates dated ahead, re-judged once due as if they arrived then (CORD-03 §3).
+    const heldTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const onCandidates = (candidates: NotifyCandidate[]) => {
       const canShowOsNotification = isForegroundNotifyReady();
       const soundSettings = loadNotificationSoundSettings();
       let playedSound = false;
@@ -738,9 +753,17 @@ export function useForegroundNotifications(): void {
           suppress(initialRoomKey);
           continue;
         }
-        // Hold future-dated candidates like the timeline does (FUTURE_HOLD_MS); they re-arrive later.
-        if (cand.createdAt * 1000 > Date.now() + FUTURE_HOLD_MS) {
+        // Hold future-dated candidates like the timeline does (FUTURE_HOLD_MS), within the horizon.
+        const hold = futureHold(cand.createdAt, clockNowMs());
+        if (hold !== "now") {
           suppress(initialRoomKey);
+          const key = cand.eventId ?? cand.wrapId;
+          if (key && hold !== "beyond" && !heldTimers.has(key)) {
+            heldTimers.set(key, setTimeout(() => {
+              heldTimers.delete(key);
+              if (mounted) onCandidates([cand]);
+            }, hold));
+          }
           continue;
         }
         // Belt-and-braces: ingest normally drops self-authored events.
@@ -921,7 +944,7 @@ export function useForegroundNotifications(): void {
               kind: cand.kind,
               // `body` is truncated; `content` is the raw text the preview pipeline needs.
               content: cand.content ?? cand.body ?? "",
-              authorName: name,
+              authorName: cand.authorNickname || name,
               authorAvatar: avatar,
               roomTitle: room.title,
               roomImage: room.image,
@@ -994,10 +1017,12 @@ export function useForegroundNotifications(): void {
           }
         })();
       }
-    });
+    };
+    const unregister = registerNotifySink(onCandidates);
 
     return () => {
       mounted = false;
+      for (const t of heldTimers.values()) clearTimeout(t);
       unregister();
       removeTabAttentionHandlers();
       navigator.serviceWorker?.removeEventListener("message", answerPushPresentationQuery);

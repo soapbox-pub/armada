@@ -207,10 +207,7 @@ describe("CORD-03 §2 — Metadata", () => {
   });
 
   it.todo("O-19: converting Private→Public is possible (useCommunityActions.test.tsx publiciseChannel)");
-  // KNOWN GAP: `publiciseChannel` pre-checks the bit, `privatiseChannel` does
-  // not — it publishes an edition every verifier drops while reporting
-  // success, the same shape `grantRefusal` exists to prevent for Grants.
-  it.todo("O-19b: a conversion is a single AUTHORIZED action — privatiseChannel does not pre-check MANAGE_CHANNELS");
+  it.todo("O-19b: a conversion is a single AUTHORIZED action (useCommunityActions.test.tsx channel writes are a channel manager's)");
 
   it("O-20: after Private→Public the Channel derives from the root, priors still readable", () => {
     const key = random32();

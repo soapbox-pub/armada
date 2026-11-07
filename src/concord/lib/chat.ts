@@ -6,6 +6,7 @@
  * memoized per wrap id and time-sliced / partly off-thread.
  */
 
+import { clockNowMs } from "@/lib/relayClock";
 import { perfCount } from "@/lib/perf";
 import { inlineReplyQuoteId } from "@/lib/quoteReply";
 import { verifyEventsOnce } from "@/lib/verifyCache";
@@ -18,22 +19,33 @@ import type { NostrRumor } from "@/lib/nostrRumor";
 import { KIND_CALENDAR_DATE, KIND_CALENDAR_RSVP, KIND_CALENDAR_TIME, KIND_COMMENT, KIND_DELETE, KIND_EDIT, KIND_MESSAGE, KIND_ONCHAIN_ZAP, KIND_POLL, KIND_POLL_VOTE, KIND_REACTION, KIND_SEAL_ENCRYPTED, KIND_TIMER_NOTICE, KIND_ZAP } from "@/concord/lib/kinds";
 import { dmTimerSeconds, isExpired } from "@/lib/nip17/protocol";
 import { reactionContentKey } from "@/hooks/useReactions";
+import { isRenderableReaction } from "@/concord/lib/reactionContent";
 import type { RsvpVote } from "@/lib/calendar";
 import type { PollVote } from "@/lib/polls";
 import { verifyOnchainZapRumor, verifyZapRumor, type ZapEntry } from "@/lib/zaps";
 import { citationFromTags, type AuthorityCitation } from "@/concord/lib/edition";
 import { floodVerdict } from "@/concord/lib/floodCluster";
-import { checkChannelBinding, FUTURE_HOLD_MS, openWrapToSeal, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib/stream";
+import { checkChannelBinding, FUTURE_HOLD_MS, FUTURE_HORIZON_MS, openWrapToSeal, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib/stream";
 import type { Channel } from "@/concord/lib/types";
 
 /** An opened chat event with its verified channel/epoch coordinate. */
 export interface OpenedChat extends OpenedEvent {
   channelIdHex: string;
   epoch: bigint;
+  /** When the edit the timeline applied was made (ms); folded only, never stored. */
+  editedMs?: number;
 }
 
 // Lives in stream.ts (a leaf the service worker bundles); re-exported here.
 export { FUTURE_HOLD_MS };
+
+/** What a reader holds back when dated ahead: messages and thread replies (CORD-03 §3). */
+const HELD_KINDS: ReadonlySet<number> = new Set([KIND_MESSAGE, KIND_COMMENT]);
+
+/** Whether a reader holds this back for its time: a message dated past the tolerance, within the hour's horizon. */
+export function isHeldAhead(kind: number, ms: number, nowMs: number): boolean {
+  return HELD_KINDS.has(kind) && ms > nowMs + FUTURE_HOLD_MS && ms <= nowMs + FUTURE_HORIZON_MS;
+}
 
 /**
  * `wrapId|channelIdHex` → opened (null = remembered failure). Session-scoped; keyed
@@ -106,6 +118,8 @@ export function _chatDecodeMemoSizeForTests(): number {
 interface PendingChat {
   memoKey: string;
   epoch: bigint;
+  /** The writer epoch whose address served it (CORD-03 §1), on a restricted Channel. */
+  writerEpoch?: bigint;
   retiredAt?: number;
   seal: NostrEvent;
   finish: () => OpenedWireEvent;
@@ -127,21 +141,41 @@ function openChatToSeal(
   // a squatted id would hide the real wrap carrying it.
   if (!wrapIdIsHash(wrap)) return { done: null };
 
-  const stream = channel.streams.find((s) => s.group.pk === wrap.pubkey);
-  if (!stream) {
+  // A writer address reads under every read key held, one stream each (CORD-03 §1).
+  const streams = channel.streams.filter((s) => s.group.pk === wrap.pubkey);
+  if (streams.length === 0) {
     rememberDecode(memoKey, null);
     skippedNoKey.add(memoKey);
     return { done: null };
   }
-  try {
-    const { seal, finish } = openWrapToSeal(wrap, stream.group);
-    // Chat seals MUST be encrypted (CORD-02 §5), or the message is a standalone
-    // signed artifact any relay could display.
-    if (seal.kind !== KIND_SEAL_ENCRYPTED) throw new Error("chat seal must be encrypted");
-    return { pending: { memoKey, epoch: stream.epoch, retiredAt: stream.retiredAt, seal, finish } };
-  } catch {
-    rememberDecode(memoKey, null);
-    return { done: null };
+  for (const stream of streams) {
+    try {
+      const { seal, finish } = openWrapToSeal(wrap, stream.group);
+      // Chat seals MUST be encrypted (CORD-02 §5), or the message is a standalone
+      // signed artifact any relay could display.
+      if (seal.kind !== KIND_SEAL_ENCRYPTED) throw new Error("chat seal must be encrypted");
+      return { pending: { memoKey, epoch: stream.epoch, writerEpoch: stream.writer?.epoch, retiredAt: stream.retiredAt, seal, finish } };
+    } catch {
+      // not this read key
+    }
+  }
+  rememberDecode(memoKey, null);
+  return { done: null };
+}
+
+/**
+ * CORD-03 §3: a rumor a writer address served commits its `wepoch`, canonical and
+ * strict-equal; one at the read address carries none, and one carrying it twice
+ * or malformed is dropped wherever it arrives.
+ */
+function checkWriterBinding(tags: string[][], writerEpoch: bigint | undefined): void {
+  const found = tags.filter((t) => t[0] === "wepoch");
+  if (writerEpoch === undefined) {
+    if (found.length > 0) throw new Error("wepoch at the read address");
+    return;
+  }
+  if (found.length !== 1 || !/^(0|[1-9][0-9]*)$/.test(found[0][1] ?? "") || BigInt(found[0][1]) !== writerEpoch) {
+    throw new Error("wepoch does not match the writer address");
   }
 }
 
@@ -151,6 +185,7 @@ function finishChat(pending: PendingChat, channel: Channel, remember: boolean): 
   try {
     const ev = pending.finish();
     checkChannelBinding(ev, channel.idHex, pending.epoch);
+    checkWriterBinding(ev.tags, pending.writerEpoch);
     // A retired epoch's rotation time is a hard cutoff: key possession alone must
     // not let an ejected member keep writing into it.
     if (pending.retiredAt !== undefined && ev.createdAt > pending.retiredAt) {
@@ -386,11 +421,11 @@ export interface ChatModeration {
    */
   banned: Set<string>;
   /**
-   * Whether `deleter` may delete `author`'s message (MANAGE_MESSAGES). `citation` is
+   * Whether `deleter` may delete `author`'s message in its Channel (MANAGE_MESSAGES). `citation` is
    * the delete's `vac` (CORD-04 §5); a non-owner moderation delete without a
    * resolvable one PARKS. Self-deletes carry none.
    */
-  canDelete: (deleter: string, author: string, action?: { citation?: AuthorityCitation; ms: number }) => boolean;
+  canDelete: (deleter: string, author: string, action?: { citation?: AuthorityCitation; ms: number }, channelIdHex?: string) => boolean;
   /**
    * Whether `author` holds MANAGE_METADATA, gating display of timer notices
    * (CORD-08 §4). Optional so bare lib folds keep notices.
@@ -403,6 +438,12 @@ export interface ChatModeration {
   isStaff?: (author: string) => boolean;
   /** Whether an author holds MENTION_EVERYONE in a target channel. */
   canMentionEveryone?: (author: string, channelIdHex: string) => boolean;
+  /** The Roles `author` may ping (CORD-04 §8). */
+  mentionRolesFor?: (author: string) => { id: string; name: string }[];
+  /** Whether a message's Role mentions ping this reader (CORD-04 §8); the banned are dropped before. */
+  pingsByRole?: (author: string, content: string, tags: string[][]) => boolean;
+  /** Whether a post by `author` at this Channel's read address is held: restricted, and nobody vouches for them (CORD-03 §1). */
+  holdsPost?: (author: string, channelIdHex: string) => boolean;
 }
 
 /** A tallied reaction: reactors (pubkey→rumorId) plus the NIP-30 custom-emoji URL (if any). */
@@ -502,6 +543,17 @@ export function foldTimeline(
      * after it fold into the flood row (never dropped).
      */
     pauseSince?: number;
+    /**
+     * Reader-side collapses the vsk-13 Roster asks for (CORD-04 §8): a post inside
+     * its author's running Timeout, or one whose author can't send in an open
+     * Channel. Folded into the flood row, never dropped.
+     */
+    collapse?: (message: OpenedChat) => boolean;
+    /**
+     * Posts a restricted Channel's Writers ledger doesn't stand behind (CORD-03 §1):
+     * kept out of the history, and judged again on every fold.
+     */
+    hold?: (message: OpenedChat) => boolean;
   },
 ): FoldedTimeline {
   const byId = new Map<string, OpenedChat>();
@@ -521,7 +573,7 @@ export function foldTimeline(
   const zapCandidates: Array<{ target: string; hash: string; ms: number; entry: ZapEntry }> = [];
   const timerNotices: OpenedChat[] = [];
   // One clock per fold: a rumor expiring mid-loop must not split the batch.
-  const nowSecs = Math.floor(Date.now() / 1000);
+  const nowSecs = Math.floor(clockNowMs() / 1000);
 
   for (const ev of opened) {
     if (moderation?.banned.has(ev.author)) continue;
@@ -557,6 +609,8 @@ export function foldTimeline(
       continue;
     }
     if (ev.kind === KIND_EDIT) {
+      // An edit the Writers ledger doesn't stand behind is undone (CORD-03 §1 Take-backs).
+      if (opts?.hold?.(ev)) continue;
       const target = eTargetOf(ev);
       if (!target) continue;
       let list = edits.get(target);
@@ -566,10 +620,12 @@ export function foldTimeline(
     }
     if (ev.kind === KIND_REACTION) {
       const target = eTargetOf(ev);
-      if (!target || !ev.content) continue;
+      if (!target || !ev.content || !isRenderableReaction(ev.content)) continue;
       if (deletedReactionIds.has(ev.rumorId)) continue;
       const key = reactionContentKey(ev.content);
-      const url = ev.tags.find((t) => t[0] === "emoji")?.[2];
+      // NIP-30: only the tag naming this reaction's own `:shortcode:` is its image (Vector `parse_chat_rumor`).
+      const code = /^:(.+):$/.exec(ev.content)?.[1];
+      const url = code === undefined ? undefined : ev.tags.find((t) => t[0] === "emoji" && t[1] === code)?.[2];
       let byEmoji = reactions.get(target);
       if (!byEmoji) reactions.set(target, (byEmoji = new Map()));
       let entry = byEmoji.get(key);
@@ -675,7 +731,7 @@ export function foldTimeline(
     if (best) {
       const tags = msg.tags.filter(([name]) => name !== "edited");
       tags.push(["edited", String(Math.floor(best.ms / 1000))]);
-      byId.set(id, { ...msg, content: best.content, tags });
+      byId.set(id, { ...msg, content: best.content, tags, editedMs: best.ms });
     }
   }
 
@@ -686,7 +742,7 @@ export function foldTimeline(
     if (!deleters) continue;
     const deleted =
       deleters.has(msg.author) ||
-      (moderation && [...deleters].some(([d, act]) => moderation.canDelete(d, msg.author, act)));
+      (moderation && [...deleters].some(([d, act]) => moderation.canDelete(d, msg.author, act, msg.channelIdHex)));
     if (deleted) {
       byId.delete(id);
       removed.push(msg);
@@ -699,7 +755,7 @@ export function foldTimeline(
     if (!deleters) continue;
     const deleted =
       deleters.has(ev.author) ||
-      (moderation && [...deleters].some(([d, act]) => moderation.canDelete(d, ev.author, act)));
+      (moderation && [...deleters].some(([d, act]) => moderation.canDelete(d, ev.author, act, ev.channelIdHex)));
     if (deleted) calendarById.delete(id);
   }
 
@@ -735,8 +791,10 @@ export function foldTimeline(
   let nextRevealMs: number | undefined;
   const visible: OpenedChat[] = [];
   for (const ev of byId.values()) {
-    if (ev.ms > holdCeilingMs) {
-      if (nextRevealMs === undefined || ev.ms < nextRevealMs) nextRevealMs = ev.ms;
+    if (opts?.hold?.(ev)) continue;
+    if (HELD_KINDS.has(ev.kind) && ev.ms > holdCeilingMs) {
+      // Past the hour's horizon it isn't held: a later fold meets it as its date nears.
+      if (ev.ms <= holdCeilingMs - FUTURE_HOLD_MS + FUTURE_HORIZON_MS && (nextRevealMs === undefined || ev.ms < nextRevealMs)) nextRevealMs = ev.ms;
       continue;
     }
     visible.push(ev);
@@ -765,6 +823,10 @@ export function foldTimeline(
       paused.add(m.rumorId);
       quarantined.add(m.rumorId);
     }
+  }
+
+  if (opts?.collapse) {
+    for (const m of messages) if (m.author !== opts.self && opts.collapse(m)) quarantined.add(m.rumorId);
   }
 
   // Last, so the rules above see strict ms order: nudge inline replies after their parents.

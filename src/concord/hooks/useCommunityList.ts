@@ -1,4 +1,6 @@
 import { useNostr } from "@nostrify/react";
+import { forgetHistoryViews } from "@/concord/lib/history";
+import { forgetWriterKeys } from "@/concord/lib/writerKeys";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
@@ -21,6 +23,7 @@ import {
   refreshChannels,
   refreshCurrent,
   refreshRelays,
+  reviseSnapshots,
   rehydrateCommunity,
   removeFromList,
   replayedAddStanding,
@@ -916,9 +919,13 @@ export async function syncCommunityList(
   }
   const liveAndLocal = local ? mergeCommunityLists(local, set.list) : set.list;
   // Fold in leaves taken during the rescue round, or this write restores them on disk.
-  const merged = withLocalTombstones(
-    retired ? mergeCommunityLists(liveAndLocal, retired) : liveAndLocal,
-    queryClient.getQueryData<ListData>(queryKey)?.list,
+  // Revised against the wire (CORD-02 §8), so a union the reconcile publishes outranks the copy it read.
+  const merged = reviseSnapshots(
+    set.list,
+    withLocalTombstones(
+      retired ? mergeCommunityLists(liveAndLocal, retired) : liveAndLocal,
+      queryClient.getQueryData<ListData>(queryKey)?.list,
+    ),
   );
   const next: ListData = {
     event: set.newestEvent,
@@ -1197,7 +1204,8 @@ export async function updateCommunityList(
       return current;
     }
   }
-  const next = applyAction(current, action);
+  // Revisions count against what the wire holds (CORD-02 §8).
+  const next = reviseSnapshots(relayList, applyAction(current, action));
 
   const newest = await publishFragments(
     nostr,
@@ -1243,6 +1251,12 @@ export async function removeCommunityLocally(
   const next: ListData = { ...base, list: removeFromList(base.list, communityId, removedAt) };
   queryClient.setQueryData<ListData>(queryKey, next);
   await writeFolded(foldKeyOf(pubkey), { event: next.event, list: next.list } satisfies PersistedList);
+  await forgetChannelSecrets(communityId);
+}
+
+/** A member who leaves drops every writer and certifier secret it held there (CORD-03 §1), and its history views. */
+async function forgetChannelSecrets(communityIdHex: string): Promise<void> {
+  await Promise.all([forgetWriterKeys(communityIdHex), forgetHistoryViews(communityIdHex)]).catch(() => undefined);
 }
 
 export function useUpdateCommunityList() {
@@ -1277,7 +1291,10 @@ export function useUpdateCommunityList() {
     },
     onSuccess: (_next, action) => {
       // So a later rejoin doesn't reappear inside its old folder.
-      if (action.type === "remove") removeRailKey(`c2:${action.communityId}`);
+      if (action.type === "remove") {
+        removeRailKey(`c2:${action.communityId}`);
+        void forgetChannelSecrets(action.communityId);
+      }
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
     },
   });

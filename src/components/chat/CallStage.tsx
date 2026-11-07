@@ -27,7 +27,8 @@ import {
   Video,
 } from "lucide-react";
 import type { CSSProperties } from "react";
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { callGain, callGateVersion, callShows, subscribeCallGate } from "@/concord/lib/callGate";
 import { createPortal } from "react-dom";
 
 import { DisplayName } from "@/components/DisplayName";
@@ -393,13 +394,14 @@ function useTileDisplayName(participant: Participant): {
 function useApplyPlaybackVolumes(participant: Participant, pubkey: string) {
   const [userVolume] = useUserVolume(pubkey);
   const [screenShareVolume] = useScreenShareVolume(pubkey);
+  const gain = useSyncExternalStore(subscribeCallGate, () => callGain(pubkey));
   useEffect(() => {
     if (!participant.isLocal) {
       const remote = participant as RemoteParticipant;
-      remote.setVolume(userVolume, Track.Source.Microphone);
-      remote.setVolume(screenShareVolume, Track.Source.ScreenShareAudio);
+      remote.setVolume(gain * userVolume, Track.Source.Microphone);
+      remote.setVolume(gain * screenShareVolume, Track.Source.ScreenShareAudio);
     }
-  }, [participant, userVolume, screenShareVolume, pubkey]);
+  }, [participant, userVolume, screenShareVolume, pubkey, gain]);
 }
 
 /** Per-participant playback-volume menu on the tile nameplate; shares the right-click menus' store. */
@@ -1727,12 +1729,16 @@ export function CallStage({
       : null;
   const { watching } = useScreenShareWatch();
   // Others' screen shares are opt-in: unwatched ones offer an invite tile instead.
+  // A member the call doesn't let show video isn't shown (CORD-04 §8, CORD-07).
+  const gateVersion = useSyncExternalStore(subscribeCallGate, callGateVersion);
+  void gateVersion;
   const videoTracks = allVideoTracks.filter(
     (track) =>
-      track.source !== Track.Source.ScreenShare ||
+      (track.participant.isLocal || callShows(resolveIdentity(track.participant.identity).pubkey)) &&
+      (track.source !== Track.Source.ScreenShare ||
       (!(localHevcPreview && track.participant.identity === hevcScreenShare?.publisherIdentity) &&
         (track.participant.isLocal ||
-          watching.has(streamOwnerKey(track.participant.identity, resolveIdentity)))),
+          watching.has(streamOwnerKey(track.participant.identity, resolveIdentity))))),
   );
   // One per streamer; our own H.265 companion is previewed locally instead.
   const streamOwners = new Map<string, Participant>();

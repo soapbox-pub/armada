@@ -54,6 +54,8 @@ export interface NotifyCandidate {
   threadRoot?: string;
   /** Concord channel id hex; set only for `plane === "c2"`. */
   channelIdHex?: string;
+  /** The name the sender goes by in this Concord Community (CORD-04 §10), over their profile's. */
+  authorNickname?: string;
   /** DM conversation key (`plane === "dm"`); see `dmConvKey`. */
   peer?: string;
   /** Git activity details, when this is a repository event routed into a C2 channel. */

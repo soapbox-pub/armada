@@ -23,7 +23,7 @@ vi.mock("@/concord/lib/rumorStore", () => ({
   writeRumors: async () => undefined,
 }));
 vi.mock("@/concord/lib/streamAuth", () => ({ registerStreamKeys: () => undefined }));
-vi.mock("@/lib/foldedCache", () => ({ writeFolded: h.writeFolded }));
+vi.mock("@/lib/foldedCache", () => ({ readFolded: async () => undefined, writeFolded: h.writeFolded }));
 vi.mock("@/lib/syncActivity", () => ({
   beginSyncTask: () => ({ update: () => undefined, end: () => undefined }),
 }));

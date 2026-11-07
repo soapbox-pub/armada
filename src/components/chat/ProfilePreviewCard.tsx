@@ -1,3 +1,4 @@
+import { useCommunityNickname } from "@/contexts/CommunityNicknamesContext";
 import { AtSign, Check, Copy, Globe, MessageSquare, MoreHorizontal, Music, UserCog, UserMinus } from "lucide-react";
 import { Slot } from "@radix-ui/react-slot";
 import { useState, type MouseEvent } from "react";
@@ -102,6 +103,8 @@ function ProfilePreviewBody({
   // Hide an expired NIP-40 music status even if cached.
   const musicStatus = isStatusExpired(rawMusicStatus) ? undefined : rawMusicStatus;
   const displayName = getDisplayName(metadata, pubkey);
+  // A Community Nickname names them here, their profile name beside it (CORD-04 §10).
+  const nickname = useCommunityNickname(pubkey);
   const avatarShape = getAvatarShape(metadata);
   const ultra = readUltra(metadata);
   const frameStyle = useFrameCss(ultra?.frame);
@@ -220,11 +223,16 @@ function ProfilePreviewBody({
 
         <div className="flex items-center gap-1.5 min-w-0">
           <div className={cn("font-bold text-chat truncate", ultra?.name && ULTRA_NAME_CLASS)} style={nameStyleCss(ultra?.name)}>
-            <DisplayName pubkey={pubkey} name={displayName} tags={author.data?.event?.tags ?? NO_TAGS} />
+            <DisplayName pubkey={pubkey} name={nickname || displayName} tags={nickname ? NO_TAGS : author.data?.event?.tags ?? NO_TAGS} />
           </div>
           <BotPill metadata={metadata} />
           {ultra && <UltraPill force />}
         </div>
+        {nickname && (
+          <div className="text-xs text-muted-foreground truncate">
+            {author.data?.event ? <EmojifiedText tags={author.data.event.tags}>{displayName}</EmojifiedText> : displayName}
+          </div>
+        )}
         {pronouns && <div className="text-xs text-muted-foreground truncate">{pronouns}</div>}
 
         {/* Concord roles; the card shows every role, the member row only the highest. */}

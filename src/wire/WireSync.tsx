@@ -1,4 +1,12 @@
 import { App as CapacitorApp } from "@capacitor/app";
+import { communityNicknames, restrictedPostersIn, runningTimeouts, sendDeniedIn } from "@/concord/lib/channelJudges";
+import { currentGuestbookGroup } from "@/concord/lib/guestbook";
+import { queryPlane, withGuestbookStreams } from "@/concord/lib/rumorStore";
+import { CLOCK_RESYNC_MS, clockNowMs, syncClockWithRelays } from "@/lib/relayClock";
+import { drainWrapScrubs, purgeDeletedChannel, queuedWrapScrubs } from "@/concord/lib/channelPurge";
+import { useAccountSecret } from "@/hooks/useAccountSecret";
+import { deleteBlobs } from "@/lib/blossomDelete";
+import { heldRoleMentions, roleMentionAuthors, type HeldRoleMention } from "@/concord/lib/roleMentions";
 import { useNostr } from "@nostrify/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -10,9 +18,9 @@ import { useBootGateOpen } from "@/lib/bootGate";
 import { useJoinedCommunities } from "@/concord/hooks/useCommunityList";
 import { dissolvedAt, readLivePause } from "@/concord/hooks/useControlPlane";
 import { openChatBatch } from "@/concord/lib/chat";
-import { channelsView } from "@/concord/lib/community";
+import { channelsView, deletedChannels, signingStreams } from "@/concord/lib/community";
 import { concordScope, isScopeActivated, markScopeLive, nip29Scope, onActivation } from "@/wire/activation";
-import { readControlFold } from "@/concord/lib/control";
+import { readControlFold, type FoldedControl } from "@/concord/lib/control";
 import { channelGitRepositoryAttachments } from "@/concord/lib/types";
 import { heldChannelKeys, rehydrateCommunity, type CommunityListEntry } from "@/concord/lib/communityList";
 import { controlGroups } from "@/concord/lib/control";
@@ -56,7 +64,7 @@ import { buildWireSpec, stampRoundSince, type WireSpec } from "@/wire/spec";
 import type { GitRepositoryWireInput } from "@/wire/spec";
 
 import type { GroupKey, StreamKeyView } from "@/concord/lib/derive";
-import type { Channel } from "@/concord/lib/types";
+import type { Channel, Community } from "@/concord/lib/types";
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
 
@@ -187,13 +195,69 @@ function catchUpCommunity(
  * pulled on activation. The silenced qualifier is load-bearing: the wire is the
  * only live-notification path. Control planes are never deferred.
  */
-function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> }> {
+/** Deleted Channels this session already cleared, by community and channel id. */
+const purgedChannels = new Set<string>();
+
+/** Clear what this device holds of each deleted Channel (CORD-03 §2), then delete its own uploads and wraps there. */
+async function purgeDeletedChannels(
+  community: Community,
+  folded: FoldedControl | undefined,
+  ctx: { user: ReturnType<typeof useCurrentUser>["user"]; secret: Uint8Array | undefined; nostr: ReturnType<typeof useNostr>["nostr"] },
+): Promise<void> {
+  const { user, secret, nostr } = ctx;
+  if (!user) return;
+  let queued = false;
+  for (const channel of deletedChannels(community, folded)) {
+    const key = `${community.idHex}:${channel.idHex}`;
+    if (purgedChannels.has(key)) continue;
+    purgedChannels.add(key);
+    try {
+      const result = await purgeDeletedChannel(community, channel, user.pubkey, secret);
+      if (result.uploads.length > 0) void deleteBlobs(user.signer, result.uploads).catch(() => undefined);
+      queued ||= result.queued > 0;
+    } catch {
+      purgedChannels.delete(key);
+    }
+  }
+  if (queued || queuedWrapScrubs().length > 0) {
+    void drainWrapScrubs({
+      query: (url, filters, signal) => nostr.relay(url).query(filters, { signal }),
+      publish: (url, event, signal) => nostr.relay(url).event(event, { signal }),
+    }, secret);
+  }
+}
+
+function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; roleMentions?: HeldRoleMention[]; roleMentionAuthors?: Set<string>; sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[]; nicknames?: Record<string, string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> }> {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
+  const secret = useAccountSecret();
+  // Read in the query through refs: a deleted Channel is cleared off the fold it reads.
+  const purgeRef = useRef({ user, secret, nostr });
+  purgeRef.current = { user, secret, nostr };
   const { readState } = useReadState();
   const { isConcordChannelMuted } = useMutes();
   const { concordChannelLevel } = useNotifLevels();
   const entries = useJoinedCommunities();
+  // Keep the clock by the relays the account uses (CORD-03 §3): every relay the pool is
+  // connected to, as Vector asks its client's, now and again hourly.
+  const relaySig = useMemo(
+    () => [...new Set(entries.flatMap((e) => e.current.relays ?? []))].sort().join(" "),
+    [entries],
+  );
+  useEffect(() => {
+    const sample = () => {
+      const connected = [...(nostr as { relays?: ReadonlyMap<string, unknown> }).relays?.keys() ?? []];
+      const relays = connected.length > 0 ? connected : relaySig ? relaySig.split(" ") : [];
+      if (relays.length > 0) void syncClockWithRelays(relays);
+    };
+    // The pool connects as subscriptions open; a moment after mount it holds the account's relays.
+    const first = setTimeout(sample, 5_000);
+    const timer = setInterval(sample, CLOCK_RESYNC_MS);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [nostr, relaySig]);
   const listSig = useMemo(
     () =>
       entries
@@ -246,7 +310,7 @@ function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; c
     [queryClient],
   );
 
-  const query = useQuery<Array<{ relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> }>>({
+  const query = useQuery<Array<{ relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; roleMentions?: HeldRoleMention[]; roleMentionAuthors?: Set<string>; sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[]; nicknames?: Record<string, string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> }>>({
     queryKey: ["wire", "concord-channels", listSig, activationEpoch],
     enabled: entries.length > 0,
     staleTime: 30_000,
@@ -256,13 +320,14 @@ function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; c
     queryFn: async () => {
       // Deferral flags must be loaded, or a reload skips owed catch-ups.
       await deferredFlags.ready();
-      const out: Array<{ relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> }> = [];
+      const out: Array<{ relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; roleMentions?: HeldRoleMention[]; roleMentionAuthors?: Set<string>; sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[]; nicknames?: Record<string, string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> }> = [];
       for (const entry of entries) {
         const community = rehydrateCommunity(entry);
         if (!community || community.relays.length === 0) continue;
         // Dissolved (CORD-02 §9): no subscriptions; local and sticky.
         if ((await dissolvedAt(community.idHex)) !== undefined) continue;
         const folded = await readControlFold(community.idHex);
+        void purgeDeletedChannels(community, folded, purgeRef.current);
         const channels: Channel[] = [];
         for (const channel of channelsView(community, folded)) {
           if (channel.streams.length === 0) continue;
@@ -311,16 +376,36 @@ function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; c
         }
 
         const keys: GroupKey[] = [];
+        // The Roles this viewer holds, so a Role mention notifies (CORD-04 §8).
+        const roleMentions = folded && user ? heldRoleMentions(folded.roster, user.pubkey) : [];
+        const roleMentionAuthorSet = folded && roleMentions.length > 0 ? new Set(roleMentionAuthors(folded.roster, folded.ownerHex)) : undefined;
+        // Silence and names are extras: a failure to read them costs those, never the subs.
+        let timeouts: ReturnType<typeof runningTimeouts> = [];
+        let nicknames: Record<string, string> = {};
+        try {
+          const guestbook = await withGuestbookStreams(community, await queryPlane(community.idHex, "guestbook"));
+          timeouts = runningTimeouts(guestbook, folded, community.id, clockNowMs());
+          nicknames = communityNicknames(guestbook, folded, community.id, currentGuestbookGroup(community).pk, clockNowMs());
+        } catch {
+          // keep none
+        }
         for (const channel of channels) {
+          const denied = sendDeniedIn(folded, channel.idHex);
+          const posters = restrictedPostersIn(folded, channel.idHex);
           out.push({
             relays: community.relays,
             channel,
             communityIdHex: community.idHex,
             // Banned set (CORD-04) so ingest keeps banned members off the notifier.
             banned: folded?.banned ?? new Set<string>(),
+            ...(roleMentionAuthorSet ? { roleMentions, roleMentionAuthors: roleMentionAuthorSet } : {}),
+            ...(denied.length > 0 ? { sendDenied: new Set(denied) } : {}),
+            ...(posters ? { postAuthors: new Set(posters) } : {}),
+            ...(timeouts.length > 0 ? { timeouts } : {}),
+            ...(Object.keys(nicknames).length > 0 ? { nicknames } : {}),
             gitAttachments: channelGitRepositoryAttachments(folded?.channels.get(channel.idHex)?.metadata ?? { name: channel.name, private: channel.isPrivate }),
           });
-          keys.push(...channel.streams.map((s) => s.group));
+          keys.push(...signingStreams(channel));
         }
         // Per community, so a relay's NIP-42 challenge signs only keys it hosts (streamAuth.ts).
         registerStreamKeys(keys, community.relays);

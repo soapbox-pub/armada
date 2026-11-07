@@ -1,12 +1,17 @@
+import { clockNowMs } from "@/lib/relayClock";
 import { useNostr } from "@nostrify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 import { useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
-import { citationFor, useControlFold, useDissolved } from "@/concord/hooks/useControlPlane";
+import { citationFor, foldStoredControl, publishEdition, useControlFold, useDissolved, withControlWrite } from "@/concord/hooks/useControlPlane";
+import { resealedChannelContent } from "@/concord/lib/channelSeal";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { channelKeysToWire, heldChannelKeys, toJoinMaterial } from "@/concord/lib/communityList";
-import { currentControlGroup, foldControlState, openControlEditions } from "@/concord/lib/control";
+import { currentControlGroup, foldControlState, openControlEditions, storedControlOf, type FoldedControl } from "@/concord/lib/control";
+import type { AuthorityCitation, ParsedEdition } from "@/concord/lib/edition";
+import { VSK_SYNC } from "@/concord/lib/roster";
+import type { NostrRumor } from "@/lib/nostrRumor";
 import { sweepControl } from "@/concord/lib/planeSync";
 import { channelRekeyGroupKey, controlGroupKey, controlSignerGroupKey, guestbookGroupKey } from "@/concord/lib/derive";
 import {
@@ -16,7 +21,7 @@ import {
   hexToBytes,
   random32,
 } from "@/concord/lib/derive";
-import { buildSnapshotRumors, sealGuestbook } from "@/concord/lib/guestbook";
+import { buildNicknameRumor, buildSnapshotRumors, buildTimeoutRumor, currentGuestbookGroup, foldNicknameWinners, foldTimeouts, sealGuestbook, timeoutRunning, type FoldedTimeout } from "@/concord/lib/guestbook";
 import { KIND_SEAL_ENCRYPTED, KIND_WRAP } from "@/concord/lib/kinds";
 import {
   base64ToBytes,
@@ -40,12 +45,12 @@ import {
   type ParsedRekey,
   type RekeyBlob,
 } from "@/concord/lib/rekey";
-import { citationSatisfied } from "@/concord/lib/control";
+import { buildChannelContentEdition, citationSatisfied } from "@/concord/lib/control";
 import { isEntitled } from "@/concord/lib/channelAccess";
-import { hasPermission, isStaff, outranksMember, Permissions } from "@/concord/lib/roles";
+import { canActOnMember, hasPermission, isStaff, mayName, outranksMember, Permissions } from "@/concord/lib/roles";
 import { queryPlane, queryRekeyRounds, readControlSnapshot, readStoredSeal, readStreamCursor, updateStreamCursor, writeOpened } from "@/concord/lib/rumorStore";
 import { openWrap, rewrapSeal, sealRumor, wrapSeal, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib/stream";
-import { buildRefreshedBundleEvents, capBundleDescription, type InviteBundle } from "@/concord/lib/invite";
+import { buildRefreshedBundleEvents, buildRevocationEvent, capBundleDescription, inviteEntryEpoch, type InviteBundle } from "@/concord/lib/invite";
 import { fetchInviteList } from "@/concord/hooks/useInvites";
 import { toast } from "@/hooks/useToast";
 import type { CommunityMetadata, Community, HeldRoot, PrivateChannelKey } from "@/concord/lib/types";
@@ -68,10 +73,20 @@ export async function refreshInviteBundlesFor(
   // For a relay-list change: the refreshed bundle must also overwrite the copy on
   // the OLD relays, where existing links' hints point.
   publishRelays?: string[],
+  /** Refresh only links minted at this root epoch or later (a Severing Refounding's, CORD-06 §3). */
+  mintedFrom?: bigint,
 ): Promise<void> {
   if (!user.signer.nip44) return;
   const { list } = await fetchInviteList(nostr, user);
-  const live = list.entries.filter((e) => e.community_id === rotated.idHex);
+  const mine = list.entries.filter((e) => e.community_id === rotated.idHex);
+  const live = mine.filter((e) => mintedFrom === undefined || BigInt(inviteEntryEpoch(e)) >= mintedFrom);
+  // A Severing Refounding's condemned links are retired, not refreshed (CORD-06 §3).
+  const targets = publishRelays ?? rotated.relays;
+  for (const e of mine.filter((x) => !live.includes(x))) {
+    const tombstone = await buildRevocationEvent(hexToBytes(e.signer_sk)).catch(() => undefined);
+    if (!tombstone) continue;
+    await Promise.allSettled(targets.map((url) => nostr.relay(url).event(tombstone, { signal: AbortSignal.timeout(8000) })));
+  }
   if (live.length === 0) return;
 
   // A link carries NO Private Channel keys (CORD-05 §2, CORD-03 §1). Doubly so
@@ -94,12 +109,77 @@ export async function refreshInviteBundlesFor(
     creator_npub: user.pubkey,
   };
 
-  const targets = publishRelays ?? rotated.relays;
   for (const bundleEvent of await buildRefreshedBundleEvents(bundle, live)) {
     await Promise.allSettled(
       targets.map((url) => nostr.relay(url).event(bundleEvent, { signal: AbortSignal.timeout(8000) })),
     );
   }
+}
+
+/**
+ * What a Refounding's compaction re-wraps (CORD-06 §3): every folded head, and
+ * beside a Channel sync's head the predecessor naming the Category it left, which
+ * a reader needs to judge it (CORD-04 §8).
+ */
+export function compactionEditions(folded: FoldedControl, editions: ParsedEdition[]): ParsedEdition[] {
+  const out = [...folded.headEditions.values()];
+  const byHash = new Map(editions.map((e) => [bytesToHex(e.selfHash), e]));
+  for (const head of folded.headEditions.values()) {
+    if (head.vsk !== VSK_SYNC || !head.prevHash) continue;
+    const prev = byHash.get(bytesToHex(head.prevHash));
+    if (prev && !out.includes(prev)) out.push(prev);
+  }
+  return out;
+}
+
+/**
+ * The Guestbook rumors a Refounder re-issues into the new epoch (CORD-04 §8, §10):
+ * each running Timeout it could issue itself (dated at the original's whole second,
+ * `until` as capped), and each standing Nickname someone set for a member it
+ * re-keyed, when it could set that one itself (dated as first issued).
+ */
+export async function reissuedGuestbook(
+  community: Community,
+  folded: FoldedControl,
+  me: string,
+  recipients: string[],
+  authority: AuthorityCitation | undefined,
+  removed: readonly string[] = [],
+): Promise<NostrRumor[]> {
+  const opened = await queryPlane(community.idHex, "guestbook");
+  const nowMs = clockNowMs();
+  const timeouts = foldTimeouts(opened, {
+    nowMs,
+    ownerHex: folded.ownerHex,
+    banned: folded.banned,
+    mayTimeout: (actor, target, citation) =>
+      canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.MODERATE_MEMBERS) && citationSatisfied(folded, community.id, actor, citation),
+  });
+  const out: NostrRumor[] = [];
+  const gone = new Set(removed);
+  for (const [target, t] of timeouts) {
+    if (gone.has(target) || !timeoutRunning(t, nowMs) || !canActOnMember(folded.roster, me, folded.ownerHex, target, Permissions.MODERATE_MEMBERS)) continue;
+    out.push(buildTimeoutRumor(me, target, t.until, t.fromSecs * 1000, authority));
+  }
+  const rekeyed = new Set(recipients);
+  for (const n of standingNicknames(opened, folded, community, timeouts, nowMs)) {
+    if (n.author === n.target || !rekeyed.has(n.target) || !mayName(folded.roster, me, folded.ownerHex, n.target)) continue;
+    out.push(buildNicknameRumor(me, n.target, n.nick, n.ms, authority));
+  }
+  return out;
+}
+
+/** The Nickname rumor that decides each target on the live epoch, as the Guestbook's reader judges it (CORD-04 §10). */
+function standingNicknames(opened: OpenedEvent[], folded: FoldedControl, community: Community, timeouts: Map<string, FoldedTimeout>, nowMs: number) {
+  const live = currentGuestbookGroup(community).pk;
+  const names = foldNicknameWinners(opened.filter((e) => e.streamPk === live), {
+    nowMs,
+    banned: folded.banned,
+    timeouts,
+    mayName: (actor, target, citation) =>
+      mayName(folded.roster, actor, folded.ownerHex, target) && (actor === target || citationSatisfied(folded, community.id, actor, citation)),
+  });
+  return [...names].map(([target, n]) => ({ target, author: n.author, nick: n.nick, ms: n.ms }));
 }
 
 /**
@@ -240,7 +320,7 @@ export function useRekeyWatch(community: Community | undefined): { stranded: boo
       // pair (CORD-06 §1): pk in every 104/136-byte blob, secret only in staff's 136;
       // a legacy 72-byte blob carries neither.
       let adopted:
-        | { key: Uint8Array; rotator: string; publishedAtMs: number; controlPk?: string; controlRoot?: Uint8Array }
+        | { key: Uint8Array; rotator: string; publishedAtMs: number; controlPk?: string; controlRoot?: Uint8Array; severed: boolean }
         | undefined;
       let sawExcludingRotation = false;
       let sawStrandingRotation = false;
@@ -271,6 +351,7 @@ export function useRekeyWatch(community: Community | undefined): { stranded: boo
               key: wrapped.newRoot,
               rotator: set.rotator,
               publishedAtMs: rotationPublishedAtMs(set),
+              severed: set.severed,
               ...(wrapped.controlPk ? { controlPk: wrapped.controlPk } : {}),
               ...(wrapped.controlRoot ? { controlRoot: wrapped.controlRoot } : {}),
             };
@@ -316,8 +397,9 @@ export function useRekeyWatch(community: Community | undefined): { stranded: boo
           current: toJoinMaterial(rotated, { prior: entry?.current, relays: entry?.current.relays }),
         }).catch(() => handled.current.delete(key));
         queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
-        // Only I hold my links' signer_sk, so refresh them to the new epoch (CORD-05 §2).
-        refreshInviteBundlesFor(nostr, user, rotated, folded.metadata).catch(() => undefined);
+        // Only I hold my links' signer_sk, so refresh them to the new epoch (CORD-05 §2);
+        // a Severing Refounding's condemned links, minted before it, never are (CORD-06 §3).
+        refreshInviteBundlesFor(nostr, user, rotated, folded.metadata, undefined, adopted.severed ? nextEpoch : undefined).catch(() => undefined);
         return;
       }
 
@@ -720,10 +802,12 @@ export function useChannelRekey(community: Community | undefined) {
        * to the removed set, which only the caller knows.
        */
       removedTargets: string[];
+      /** Severing a ban's reads, which BAN authorizes too (CORD-06 §3). */
+      forBan?: boolean;
     }
   >({
     scope: { id: `concord-chrekey:${community?.idHex}` },
-    mutationFn: async ({ channelIdHex, keepRecipients, removedTargets }) => {
+    mutationFn: async ({ channelIdHex, keepRecipients, removedTargets, forBan }) => {
       if (!user || !community) throw new Error(t({ id: "useRekey.notReady", defaultMessage: "Not ready." }));
       if (dissolved) throw new Error(t({ id: "useRekey.dissolved", defaultMessage: "This community was dissolved." }));
       const nip44 = user.signer.nip44;
@@ -731,7 +815,8 @@ export function useChannelRekey(community: Community | undefined) {
       const ch = community.privateChannels.find((c) => bytesToHex(c.id) === channelIdHex);
       if (!ch) throw new Error(t({ id: "useRekey.noChannelKey", defaultMessage: "You don't hold this channel's key." }));
       const ownerHex = folded?.ownerHex ?? community.owner;
-      if (user.pubkey !== ownerHex && !(folded && hasPermission(folded.roster, user.pubkey, Permissions.MANAGE_CHANNELS))) {
+      const may = (bit: bigint) => Boolean(folded && hasPermission(folded.roster, user.pubkey, bit));
+      if (user.pubkey !== ownerHex && !may(Permissions.MANAGE_CHANNELS) && !(forBan && may(Permissions.BAN))) {
         throw new Error(t({ id: "useRekey.channelRotateNeedsPermission", defaultMessage: "Rotating a channel key needs the Manage-channels permission." }));
       }
       // CORD-06 §Authority: the Rotator must also strictly outrank every removed
@@ -770,7 +855,7 @@ export function useChannelRekey(community: Community | undefined) {
       }
       const chAddress = channelRekeyGroupKey(community.root, ch.id, chEpoch);
       // Doubles as the severed key's `retiredAt`, as every adopter derives it.
-      const rotatedAtMs = Date.now();
+      const rotatedAtMs = clockNowMs();
       const chRumors = buildRekeyRumors(
         user.pubkey,
         { scope: { kind: "channel", channelId: ch.id }, newEpoch: chEpoch, prevEpoch: ch.epoch, prevCommit: chPrevCommit },
@@ -811,6 +896,25 @@ export function useChannelRekey(community: Community | undefined) {
       });
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
 
+      // The rotator's duty: the details sealed again under the key just minted (CORD-03 §2,
+      // Vector `reseal_rotated`). Best-effort; the reseal backstop retries.
+      // From the store's fold, one write at a time: the rendered fold lags a rename just made.
+      await withControlWrite(community.idHex, async () => {
+        const now = await foldStoredControl(community).catch(() => folded);
+        const def = now?.rankedRoster ? now.channels.get(channelIdHex) : undefined;
+        const head = def ? now?.heads.get(channelIdHex) : undefined;
+        const fresh = rotated.find((c) => bytesToHex(c.id) === channelIdHex);
+        const resealed = def && head && fresh ? resealedChannelContent(def, fresh, bytesToHex(head.hash)) : undefined;
+        if (!resealed || !head) return;
+        const rumor = buildChannelContentEdition(ch.id, resealed, {
+          actorPubkey: user.pubkey,
+          version: head.version + 1n,
+          prevHash: head.hash,
+          authority: citationFor(community, now, user.pubkey),
+        });
+        await publishEdition(nostr, community, user.signer, rumor);
+      }).catch(() => undefined);
+
       // My links still vend the retired key; re-mint at the fresh keys (CORD-05 §2).
       // Best-effort (`useLinkRefreshWatch` retries).
       await refreshInviteBundlesFor(
@@ -830,6 +934,13 @@ export function useChannelRekey(community: Community | undefined) {
       community &&
       (user.pubkey === (folded?.ownerHex ?? community.owner) ||
         (folded && hasPermission(folded.roster, user.pubkey, Permissions.MANAGE_CHANNELS))),
+    ),
+    /** {@link canRekeyChannel}, for a ban's cut, which a BAN holder may also make. */
+    canSeverChannel: Boolean(
+      user?.signer.nip44 &&
+      community &&
+      (user.pubkey === (folded?.ownerHex ?? community.owner) ||
+        (folded && (hasPermission(folded.roster, user.pubkey, Permissions.MANAGE_CHANNELS) || hasPermission(folded.roster, user.pubkey, Permissions.BAN)))),
     ),
   };
 }
@@ -909,7 +1020,10 @@ export function useRefound(community: Community | undefined) {
         community.rootEpoch > 0n
           ? await readControlSnapshot(community.idHex, currentControlGroup(community).pk)
           : undefined;
-      const folded = foldControlState(openControlEditions(stored), community.id, community.owner, rendered.heads, verifySnap);
+      const folded = foldControlState(openControlEditions(stored), community.id, community.owner, rendered.heads, verifySnap, {
+        ...storedControlOf(rendered),
+        heldChannels: community.privateChannels,
+      });
       if (folded.incomplete.length > 0) {
         throw new Error(t({ id: "useRekey.stateUnreachable", defaultMessage: "Part of the community's state isn't reachable right now; rotation aborted so nothing is lost." }));
       }
@@ -966,7 +1080,7 @@ export function useRefound(community: Community | undefined) {
       // (CORD-06 §3); compaction republishes only after it's confirmed.
       const address = baseRekeyGroupKey(community.root, community.id, newEpoch);
       // The retired root's hard read cutoff, as every adopter derives it.
-      const rotatedAtMs = Date.now();
+      const rotatedAtMs = clockNowMs();
       const rumors = buildRekeyRumors(
         user.pubkey,
         { scope: { kind: "root" }, newEpoch, prevEpoch: community.rootEpoch, prevCommit },
@@ -1025,7 +1139,7 @@ export function useRefound(community: Community | undefined) {
           return newControlRead.convKey;
         },
       };
-      for (const head of folded.headEditions.values()) {
+      for (const head of compactionEditions(folded, openControlEditions(stored))) {
         // Store rows keep seals in KV, so fall back to a keyed read; a missing seal
         // aborts (fold-all-or-abort) rather than dropping the entity.
         const seal =
@@ -1075,7 +1189,7 @@ export function useRefound(community: Community | undefined) {
           chBlobs.push({ locator: myLocator(user.pubkey, pk, chIdHex, chEpoch), wrapped: await nip44.encrypt(pk, chPlain) });
         }
         const chAddress = channelRekeyGroupKey(community.root, ch.id, chEpoch);
-        const chRotatedAtMs = Date.now();
+        const chRotatedAtMs = clockNowMs();
         const chRumors = buildRekeyRumors(
           user.pubkey,
           {
@@ -1115,7 +1229,17 @@ export function useRefound(community: Community | undefined) {
       try {
         const newGuestbook = guestbookGroupKey(newRoot, community.id, newEpoch);
         const snapId = bytesToHex(random32());
-        for (const rumor of buildSnapshotRumors(user.pubkey, recipients, snapId, Date.now())) {
+        for (const rumor of buildSnapshotRumors(user.pubkey, recipients, snapId, clockNowMs())) {
+          const wrap = await sealGuestbook(rumor, newGuestbook, user.signer);
+          await Promise.allSettled(
+            community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),
+          );
+        }
+        // The Refounder's duties to the new Guestbook (CORD-04 §8, §10): each running
+        // Timeout and each Nickname set for a re-keyed member, that it could issue itself,
+        // re-issued in its own name dated as first issued.
+        const reissued = await reissuedGuestbook(community, folded, user.pubkey, recipients, citationFor(community, folded, user.pubkey), exclude);
+        for (const rumor of reissued) {
           const wrap = await sealGuestbook(rumor, newGuestbook, user.signer);
           await Promise.allSettled(
             community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),

@@ -7,7 +7,7 @@
  * access can rotate while identity stays fixed (CORD-02 §1–2).
  */
 
-import type { GroupKey } from "@/concord/lib/derive";
+import type { GroupKey, StreamKeyView } from "@/concord/lib/derive";
 import {
   normalizeGitRepositoryAttachments,
   parseGitRepositoryAddress,
@@ -116,7 +116,7 @@ export interface CommunityMetadata {
  * How to OPEN a Channel (CORD-03 §2 `view`): `chat` timeline or thread-first
  * `forum`. Presentation only.
  */
-export type ChannelView = "chat" | "forum";
+export type ChannelView = "chat" | "forum" | "voice";
 
 /** Channel metadata — the vsk=2 Control Plane entity's content (CORD-03 §2). */
 export interface ChannelMetadata {
@@ -299,6 +299,20 @@ export interface VoiceKeys {
   mediaKey: Uint8Array;
 }
 
+/**
+ * A writer address's place in a restricted Channel's Writers ledger (CORD-03 §1):
+ * its writer epoch, the window posts there stand in, and whom the epoch vouches for.
+ */
+export interface WriterWindow {
+  epoch: bigint;
+  /** Unix ms the window opened, inclusive. */
+  from: number;
+  /** Unix ms it closed, exclusive; absent while it still holds. */
+  to?: number;
+  /** The epoch's certifier (x-only hex); absent for one that named none. */
+  certifier?: string;
+}
+
 /** One channel as the UI consumes it: folded definition + derived stream keys. */
 export interface Channel {
   id: Uint8Array;
@@ -309,15 +323,24 @@ export interface Channel {
   category?: string;
   /** Sidebar position (channelOrder.ts); undefined sorts last, by name. */
   position?: number;
+  /** The spec's rank-key position (CORD-03 §2), on the vsk-13 Roster; byte order, lower first. */
+  positionKey?: string;
+  /** The Category it files under (CORD-03 §4), by id, on the vsk-13 Roster. */
+  categoryId?: string;
+  /** Its topic (CORD-03 §2), at most 1024 bytes. */
+  topic?: string;
   /** The presentation the channel opens to (channelView.ts); undefined reads as `chat`. */
   view?: ChannelView;
+  /** When a converted Private Channel went private (`public_until`, unix ms; CORD-03 §2). */
+  publicUntil?: number;
   /** Current-epoch call coordinates (CORD-07 §1), lazily derived (costs a point multiplication). */
   readonly voice: VoiceKeys;
   /**
    * Stream keys across held epochs, newest first. `retiredAt` = the rotation's
-   * publish time; later rumors under that key are refused.
+   * publish time; later rumors under that key are refused. A restricted Channel's
+   * WRITER addresses (CORD-03 §1) ride here too, read-only and write-restricted.
    */
-  streams: Array<{ epoch: bigint; group: GroupKey; retiredAt?: number }>;
+  streams: Array<{ epoch: bigint; group: StreamKeyView; retiredAt?: number; writer?: WriterWindow }>;
   /** The current write coordinate. */
   current: { epoch: bigint; group: GroupKey };
 }

@@ -1,4 +1,5 @@
 import { ControlPlaneSync } from "@/components/ControlPlaneSync";
+import { CommunityDuties } from "@/concord/components/CommunityDuties";
 import { DBMigrationGate } from "@/components/DBMigrationGate";
 import { DesktopBadge } from "@/components/DesktopBadge";
 import { DmSyncLifecycle } from "@/components/DmSyncLifecycle";
@@ -69,6 +70,7 @@ export function SignedInPushServices() {
   return (
     <>
       <ControlPlaneSync />
+      <CommunityDuties />
       <ScreenSharePicker />
       <LoginSetup />
       <KeyBackupReminder />

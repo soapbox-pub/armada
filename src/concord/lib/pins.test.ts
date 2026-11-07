@@ -229,6 +229,47 @@ describe("the two content forms", () => {
   });
 });
 
+describe("entries that don't parse (CORD-04 §7, Vector serde `PinEntry`)", () => {
+  it("drops an entry whose `wrap` or `edit` has the wrong type, alone", async () => {
+    const { opened } = await pinnable("hello");
+    const entry = buildPinEntry(opened, chanA.convKey)!;
+    const ch = bytesToHex(CHANNEL_A);
+    expect(verifyPinEntry({ ...entry, wrap: 5 } as unknown as PinEntry, ch)).toBeUndefined();
+    expect(verifyPinEntry({ ...entry, edit: "x" } as unknown as PinEntry, ch)).toBeUndefined();
+    expect(verifyPinEntry({ ...entry, wrap: null } as unknown as PinEntry, ch)).toBeDefined();
+  });
+
+  it("reads a list carrying an `entries` key as the public form, whatever else it carries", async () => {
+    const { opened } = await pinnable("secret");
+    const entry = buildPinEntry(opened, chanA.convKey)!;
+    const sealed = JSON.parse(serializeSealedPinList([entry], chanA.convKey, 4n));
+    expect(readPinList(JSON.stringify({ ...sealed, entries: 7 }), () => chanA.convKey)).toEqual({ entries: [], sealed: false });
+  });
+});
+
+describe("a pinned rumor's shape (Vector `RumorFields`)", () => {
+  async function pinOf(mutate: (r: Record<string, unknown>) => void): Promise<PinEntry> {
+    const author = signer();
+    const rumor = buildRumor({ kind: KIND_MESSAGE, content: "x", tags: [["channel", bytesToHex(CHANNEL_A)], ["epoch", "0"]], pubkey: author.pubkey }) as unknown as Record<string, unknown>;
+    mutate(rumor);
+    const seal = await sealRumor(rumor as never, KIND_SEAL_ENCRYPTED, chanA, author);
+    return overWire({ seal, keys: encodeMessageKeys(discloseKeysFor(seal.content, chanA.convKey)!) });
+  }
+
+  it("drops an entry whose rumor has a tag that isn't all strings, an empty tag, or a negative time", async () => {
+    const ch = bytesToHex(CHANNEL_A);
+    expect(verifyPinEntry(await pinOf(() => undefined), ch), "the well-formed baseline verifies").toBeDefined();
+    expect(verifyPinEntry(await pinOf((r) => (r.tags as unknown[]).push(["x", 5])), ch)).toBeUndefined();
+    expect(verifyPinEntry(await pinOf((r) => (r.tags as unknown[]).push([])), ch)).toBeUndefined();
+    expect(verifyPinEntry(await pinOf((r) => { r.created_at = -1; }), ch)).toBeUndefined();
+  });
+
+  it("reads a sealed list at an epoch past u64 as empty, not dark", () => {
+    const content = JSON.stringify({ epoch: "18446744073709551616", sealed: "AAAA" });
+    expect(readPinList(content, () => undefined)).toEqual({ entries: [], sealed: false });
+  });
+});
+
 describe("structural caps", () => {
   it("a writer refuses to publish past either cap", async () => {
     const { opened } = await pinnable("x");

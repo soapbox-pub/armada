@@ -28,7 +28,7 @@ import type { ReactNode } from "react";
 
 import { mintCommunity } from "@/concord/lib/community";
 import { buildGrantEdition, buildRoleEdition, currentControlWriteGroup, sealEdition } from "@/concord/lib/control";
-import { adminRole, type Role } from "@/concord/lib/roles";
+import { adminRole, Permissions, type Role } from "@/concord/lib/roles";
 import {
   baseRekeyGroupKey,
   bytesToHex,
@@ -62,6 +62,8 @@ import { _configureAuthWaitForTests } from "@/concord/lib/planeSync";
 import { openWrap, sealRumor, wrapSeal } from "@/concord/lib/stream";
 import type { CommunityListEntry, JoinMaterial } from "@/concord/lib/communityList";
 import type { Community, PrivateChannelKey } from "@/concord/lib/types";
+import { openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
+import { readChannelContent } from "@/concord/lib/control";
 
 import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefound, useRekeyWatch } from "./useRekey";
 
@@ -77,6 +79,9 @@ const h = vi.hoisted(() => ({
   updateList: undefined as unknown,
   /** useDissolved's answer: `null` known alive, a ms dissolved, `undefined` still asking. */
   dissolved: null as number | null | undefined,
+  editions: [] as Array<{ content: string; tags: string[][] }>,
+  /** What the store folds to, when it holds more than the rendered fold. */
+  stored: undefined as unknown,
 }));
 
 vi.mock("@nostrify/react", () => ({
@@ -90,7 +95,11 @@ vi.mock("@/concord/hooks/useControlPlane", () => ({
   useDissolved: () => ({ data: h.dissolved }),
   citationFor: () => undefined,
   invalidateControl: () => undefined,
-  publishEdition: async () => undefined,
+  publishEdition: async (_n: unknown, _c: unknown, _s: unknown, rumor: { content: string; tags: string[][] }) => {
+    h.editions.push(rumor);
+  },
+  foldStoredControl: async () => h.stored ?? h.folded,
+  withControlWrite: (_id: string, run: () => Promise<unknown>) => run(),
 }));
 vi.mock("@/concord/hooks/useCommunityList", () => ({
   useCommunityEntry: () => h.entry,
@@ -1133,6 +1142,103 @@ describe("useChannelRekey (standalone channel rotation, channel-access revoke)",
       );
     },
   );
+
+  it("seals the channel's details again under the key it just minted, on ranked roles (Vector `reseal_rotated`)", async () => {
+    const owner = member();
+    const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+    const ch: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "sec" };
+    const community: Community = { ...base, privateChannels: [ch] };
+    const idHex = bytesToHex(ch.id);
+    const headHash = random32();
+    const sealed = readChannelContent(sealChannelMetadata({ name: "sec", private: true }, ch.key, ch.id, 0n, undefined))!.sealed!;
+    h.pool = { relay: () => new FakeRelay(), query: async () => [] };
+    h.user = asNUser(owner);
+    h.editions = [];
+    h.folded = {
+      ...(foldedFor(owner.pubkey) as object),
+      rankedRoster: true,
+      channels: new Map([[idHex, { channelIdHex: idHex, name: "", isPrivate: true, deleted: false, metadata: { name: "", private: true }, sealed }]]),
+      heads: new Map([[idHex, { version: 1n, hash: headHash }]]),
+    };
+    let adopted: PrivateChannelKey | undefined;
+    h.updateList = vi.fn(async (a: { type: string; channels?: Array<{ id: string; key: string; epoch: number }> }) => {
+      const c = a.channels?.[0];
+      if (a.type === "refresh-channels" && c) adopted = { id: ch.id, key: hex32(c.key), epoch: BigInt(c.epoch), name: "sec" };
+    });
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useChannelRekey(community), { wrapper });
+    await act(async () => {
+      await result.current.rekeyChannel({ channelIdHex: idHex, keepRecipients: [], removedTargets: [] });
+    });
+    expect(adopted?.epoch).toBe(1n);
+    const resealed = h.editions.map((e) => readChannelContent(e.content)?.sealed).find((x) => x?.epoch === 1n);
+    expect(resealed, "a channel edition sealed at the new epoch").toBeDefined();
+    expect(openChannelSeal({ ...resealed!, prevHex: bytesToHex(headHash) }, adopted!)?.metadata.name).toBe("sec");
+  });
+
+  it("reseals from the store's head, which holds a rename this device just made", async () => {
+    const owner = member();
+    const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+    const ch: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "sec" };
+    const community: Community = { ...base, privateChannels: [ch] };
+    const idHex = bytesToHex(ch.id);
+    const fold = (name: string, version: bigint, hash: Uint8Array, prev?: Uint8Array) => ({
+      ...(foldedFor(owner.pubkey) as object),
+      rankedRoster: true,
+      channels: new Map([[idHex, { channelIdHex: idHex, name: "", isPrivate: true, deleted: false, metadata: { name: "", private: true }, sealed: { ...readChannelContent(sealChannelMetadata({ name, private: true }, ch.key, ch.id, 0n, prev ? bytesToHex(prev) : undefined))!.sealed!, prevHex: prev ? bytesToHex(prev) : undefined } }]]),
+      heads: new Map([[idHex, { version, hash }]]),
+    });
+    const [h1, h2] = [random32(), random32()];
+    h.pool = { relay: () => new FakeRelay(), query: async () => [] };
+    h.user = asNUser(owner);
+    h.editions = [];
+    h.folded = fold("sec", 1n, h1);
+    h.stored = fold("renamed", 2n, h2, h1);
+    let adopted: PrivateChannelKey | undefined;
+    h.updateList = vi.fn(async (a: { type: string; channels?: Array<{ id: string; key: string; epoch: number }> }) => {
+      const c = a.channels?.[0];
+      if (a.type === "refresh-channels" && c) adopted = { id: ch.id, key: hex32(c.key), epoch: BigInt(c.epoch), name: "sec" };
+    });
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useChannelRekey(community), { wrapper });
+    await act(async () => {
+      await result.current.rekeyChannel({ channelIdHex: idHex, keepRecipients: [], removedTargets: [] });
+    });
+    h.stored = undefined;
+    const reseal = h.editions.find((e) => readChannelContent(e.content)?.sealed?.epoch === 1n)!;
+    expect(reseal.tags.find((t) => t[0] === "ep")?.[1]).toBe(bytesToHex(h2));
+    expect(openChannelSeal({ ...readChannelContent(reseal.content)!.sealed!, prevHex: bytesToHex(h2) }, adopted!)?.metadata.name).toBe("renamed");
+  });
+
+  it("lets a moderator holding only Ban rotate a channel to sever a banned member, and nothing else (Vector `sever_banned_private_reads`)", async () => {
+    const owner = member();
+    const mod = member();
+    const banned = member();
+    const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+    const ch: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "sec" };
+    const community: Community = { ...base, privateChannels: [ch] };
+    const roleId = "bb".repeat(32);
+    h.pool = { relay: () => new FakeRelay(), query: async () => [] };
+    h.user = asNUser(mod);
+    h.folded = {
+      ownerHex: owner.pubkey,
+      banned: new Set([banned.pubkey]),
+      roster: { roles: [{ roleId, name: "Mods", position: 1, permissions: Permissions.BAN, scope: { kind: "server" }, color: 0 }], grants: [{ member: mod.pubkey, roleIds: [roleId] }] },
+      metadata: { name: "Fleet", relays: [] },
+      headEditions: new Map(),
+    } as unknown;
+    h.updateList = vi.fn(async () => {});
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useChannelRekey(community), { wrapper });
+    expect(result.current.canRekeyChannel).toBe(false);
+    expect(result.current.canSeverChannel).toBe(true);
+    const args = { channelIdHex: bytesToHex(ch.id), keepRecipients: [owner.pubkey], removedTargets: [banned.pubkey] };
+    await expect(result.current.rekeyChannel(args)).rejects.toThrow(/Manage-channels/);
+    await act(async () => {
+      await result.current.rekeyChannel({ ...args, forBan: true });
+    });
+    expect(h.updateList).toHaveBeenCalledWith(expect.objectContaining({ type: "refresh-channels" }));
+  });
 
   it(
     "re-posts the rotator's live invite links, and they vend no channel key at all",

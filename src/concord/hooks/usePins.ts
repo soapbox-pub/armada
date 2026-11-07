@@ -308,6 +308,9 @@ export function usePins(
         .join("|"),
     [localEdits, killed],
   );
+  // The affected author acts at once; other curators wait (CORD-04 §7, Vector `run_pin_duty`).
+  const me = user?.pubkey;
+  const mine = me !== undefined && (killed.some((p) => p.author === me) || [...localEdits.values()].some((e) => e.opened.author === me));
   const pushed = useRef("");
   const runPush = useRef<() => Promise<unknown>>(async () => undefined);
   useEffect(() => {
@@ -326,9 +329,32 @@ export function usePins(
         },
         () => undefined,
       );
-    }, 3_000 + Math.floor(Math.random() * 12_000));
+    }, mine ? 0 : 3_000 + Math.floor(Math.random() * 12_000));
     return () => clearTimeout(timer);
-  }, [canPin, editSignature]);
+  }, [canPin, editSignature, mine]);
+
+  // A rotation leaves the list sealed under a key members let in at the new epoch never
+  // held: re-sealed under the current one, by any curator holding it, after a short
+  // random delay (CORD-06 §3 rotation duties).
+  const sealedEpoch = useMemo(() => {
+    if (!head || !channel?.isPrivate) return undefined;
+    try {
+      const raw = JSON.parse(head.content) as { epoch?: unknown; sealed?: unknown };
+      return typeof raw.epoch === "string" && /^(0|[1-9][0-9]*)$/.test(raw.epoch) && typeof raw.sealed === "string" ? BigInt(raw.epoch) : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [head, channel?.isPrivate]);
+  const resealOwed = canPin && pins.length > 0 && sealedEpoch !== undefined && channel !== undefined && sealedEpoch < channel.current.epoch;
+  const resealRef = useRef<() => Promise<unknown>>(async () => undefined);
+  useEffect(() => {
+    resealRef.current = () => serialize(() => publish(currentPins()));
+  });
+  useEffect(() => {
+    if (!resealOwed) return;
+    const timer = setTimeout(() => void resealRef.current().catch(() => undefined), 3_000 + Math.floor(Math.random() * 12_000));
+    return () => clearTimeout(timer);
+  }, [resealOwed, channel?.current.epoch]);
 
   const pinnedIds = useMemo(() => new Set(alive.map((p) => p.rumorId)), [alive]);
   const isPinned = useCallback((rumorId: string) => pinnedIds.has(rumorId), [pinnedIds]);

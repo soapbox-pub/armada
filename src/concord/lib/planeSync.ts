@@ -115,8 +115,9 @@ export interface PlaneScope {
   /** COMPLETE only: the pager stopped on its own event budget. */
   onTruncated?: () => void;
   /**
-   * COMPLETE only: fired once this relay ANSWERED, so a caller tallies its own
-   * sweep instead of reading the shared map a concurrent sweep may reset.
+   * Fired once this relay ANSWERED, so a caller tallies its own sweep instead of
+   * reading the shared map a concurrent sweep may reset. An incremental scope fires
+   * it only on a page short of the limit: read up to now from its cursor.
    */
   onReached?: () => void;
   /**
@@ -835,6 +836,7 @@ async function runScopes(
         }),
       );
       for (const [i, s] of scopes.entries()) {
+        if (!s.complete && (authSettled || totals[i] > 0) && totals[i] < paging.pageLimit) s.onReached?.();
         // An empty answer with AUTHs unacked is a CLOSED read, not an exhausted plane.
         if (s.complete && (authSettled || totals[i] > 0)) {
           scopeReached.add(s.scope);
@@ -1018,7 +1020,8 @@ export function sweepControl(
 export function sweepGuestbook(
   nostr: NostrLike,
   community: Community,
-  opts?: { onFresh?: (fresh: OpenedEvent[]) => void },
+  opts?: { onFresh?: (fresh: OpenedEvent[]) => void; onReached?: () => void },
 ): Promise<OpenedEvent[]> {
-  return sweepCommunityPlane(nostr, community, guestbookScope, opts);
+  const scopeOf: typeof guestbookScope = (c, url, onFresh) => ({ ...guestbookScope(c, url, onFresh), onReached: opts?.onReached });
+  return sweepCommunityPlane(nostr, community, scopeOf, opts);
 }

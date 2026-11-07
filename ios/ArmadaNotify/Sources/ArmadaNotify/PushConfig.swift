@@ -18,8 +18,23 @@ struct ConcordStream {
     /// message is still stored — the timeline folds it away on read — but the
     /// extension must not present it, so `prepareConcord` drops it after decrypt.
     let banned: Set<String>
-    /// Authors currently authorized to issue a literal @everyone in this channel.
+    /// Authors currently authorized to issue a literal @everyone, server-wide.
     let mentionEveryoneAuthors: Set<String>
+    /// `@everyone` itself holds MENTION_EVERYONE, so any author's @everyone counts.
+    let mentionEveryoneAnyone: Bool
+    /// The Roles the viewer holds, and who may ping any Role (CORD-04 §8).
+    let roleMentions: [RoleMentions.Held]
+    let roleMentionAuthors: Set<String>
+    /// The relays' clock minus this device's, in ms (CORD-03 §3), from the app's sync.
+    let clockOffsetMs: Int
+    /// Posts readers collapse ring nobody (CORD-04 §8): authors without SEND here,
+    /// and the running Timeouts, author → (from, until) in unix seconds.
+    let sendDenied: Set<String>
+    /// In a restricted Channel, the only authors whose posts ring; nil elsewhere (CORD-03 §1).
+    let postAuthors: Set<String>?
+    let timeouts: [String: (from: Int, until: Int)]
+    /// The Nicknames members go by in this Community (CORD-04 §10), which name the sender.
+    let nicknames: [String: String]
     /// "mentions only": the gateway is content-blind and wakes iOS for every
     /// message on this channel, but the extension decrypts, so `prepareConcord`
     /// drops a message that doesn't `#p`-tag the viewer. Mirrors the Android
@@ -42,6 +57,14 @@ struct ConcordStream {
         channelId: String,
         banned: Set<String>,
         mentionEveryoneAuthors: Set<String> = [],
+        mentionEveryoneAnyone: Bool = false,
+        roleMentions: [RoleMentions.Held] = [],
+        roleMentionAuthors: Set<String> = [],
+        clockOffsetMs: Int = 0,
+        sendDenied: Set<String> = [],
+        postAuthors: Set<String>? = nil,
+        timeouts: [String: (from: Int, until: Int)] = [:],
+        nicknames: [String: String] = [:],
         mentionOnly: Bool = false,
         muted: Bool = false,
         joinedAtMs: Int? = nil
@@ -53,6 +76,14 @@ struct ConcordStream {
         self.channelId = channelId
         self.banned = banned
         self.mentionEveryoneAuthors = mentionEveryoneAuthors
+        self.mentionEveryoneAnyone = mentionEveryoneAnyone
+        self.roleMentions = roleMentions
+        self.roleMentionAuthors = roleMentionAuthors
+        self.clockOffsetMs = clockOffsetMs
+        self.sendDenied = sendDenied
+        self.postAuthors = postAuthors
+        self.timeouts = timeouts
+        self.nicknames = nicknames
         self.mentionOnly = mentionOnly
         self.muted = muted
         self.joinedAtMs = joinedAtMs
@@ -232,6 +263,22 @@ struct PushConfig {
                 channelId: channelId,
                 banned: Set((entry["banned"] as? [String]) ?? []),
                 mentionEveryoneAuthors: Set((entry["mentionEveryoneAuthors"] as? [String]) ?? []),
+                mentionEveryoneAnyone: (entry["mentionEveryoneAnyone"] as? Bool) ?? false,
+                roleMentions: RoleMentions.parse(entry["roleMentions"]),
+                roleMentionAuthors: Set((entry["roleMentionAuthors"] as? [String]) ?? []),
+                clockOffsetMs: (entry["clockOffsetMs"] as? NSNumber).map { Int($0.doubleValue) } ?? 0,
+                sendDenied: Set((entry["sendDenied"] as? [String]) ?? []),
+                postAuthors: (entry["postAuthors"] as? [String]).map(Set.init),
+                timeouts: Dictionary(
+                    ((entry["timeouts"] as? [[String: Any]]) ?? []).compactMap { t -> (String, (from: Int, until: Int))? in
+                        guard let pk = t["pk"] as? String,
+                              let from = (t["fromSecs"] as? NSNumber).map({ Int($0.doubleValue) }),
+                              let until = (t["until"] as? NSNumber).map({ Int($0.doubleValue) }) else { return nil }
+                        return (pk, (from: from, until: until))
+                    },
+                    uniquingKeysWith: { a, _ in a }
+                ),
+                nicknames: ((entry["nicknames"] as? [String: Any]) ?? [:]).compactMapValues { ($0 as? String).flatMap { $0.isEmpty ? nil : $0 } },
                 mentionOnly: (entry["mentionOnly"] as? Bool) ?? false,
                 muted: (entry["muted"] as? Bool) ?? false,
                 joinedAtMs: (entry["joinedAtMs"] as? NSNumber).map { Int($0.doubleValue) }

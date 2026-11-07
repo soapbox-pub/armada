@@ -1,4 +1,4 @@
-import { Hand, Headphones, MicOff, ScreenShare } from "lucide-react";
+import { Hand, Headphones, MicOff, ScreenShare, Waypoints } from "lucide-react";
 import type { CSSProperties } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
@@ -92,6 +92,8 @@ export function VoiceParticipantList({
   raised,
   recording,
   refusing,
+  otherTransport,
+  canWatch = true,
   className,
 }: {
   participants: readonly string[];
@@ -104,6 +106,10 @@ export function VoiceParticipantList({
   /** Pubkeys recording the call, and refusing to be recorded (Concord calls only). */
   recording?: ReadonlySet<string>;
   refusing?: ReadonlySet<string>;
+  /** Pubkeys in the call on a transport Armada doesn't speak (CORD-07 §4). */
+  otherTransport?: ReadonlySet<string>;
+  /** Whether a streaming row opens the stream: only from inside the call. */
+  canWatch?: boolean;
   className?: string;
 }) {
   const intl = useIntl();
@@ -122,6 +128,8 @@ export function VoiceParticipantList({
           isRaised={raised?.has(pk) ?? false}
           isRecording={recording?.has(pk) ?? false}
           isRefusing={refusing?.has(pk) ?? false}
+          isOtherTransport={otherTransport?.has(pk) ?? false}
+          canWatch={canWatch}
         />
       ))}
     </div>
@@ -137,6 +145,8 @@ function VoiceParticipantRow({
   isRaised,
   isRecording = false,
   isRefusing = false,
+  isOtherTransport = false,
+  canWatch = true,
 }: {
   pubkey: string;
   isSpeaking?: boolean;
@@ -145,6 +155,8 @@ function VoiceParticipantRow({
   isRaised?: boolean;
   isRecording?: boolean;
   isRefusing?: boolean;
+  isOtherTransport?: boolean;
+  canWatch?: boolean;
 }) {
   const intl = useIntl();
   const author = useAuthor(pubkey);
@@ -178,8 +190,27 @@ function VoiceParticipantRow({
         <span className={cn("truncate flex-1 min-w-0", isSpeaking && "text-success")}>
           <DisplayName pubkey={pubkey} name={name} />
         </span>
-        {isStreaming && (isSelf ? <LiveBadge /> : <WatchableLiveBadge pubkey={pubkey} />)}
+        {isStreaming && (isSelf || !canWatch ? <LiveBadge /> : <WatchableLiveBadge pubkey={pubkey} />)}
         <RecordingFlagIcons recording={isRecording} refusing={isRefusing} className="size-3.5" />
+        {isOtherTransport && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Waypoints
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-label={intl.formatMessage({
+                  id: "voicePresence.otherTransport",
+                  defaultMessage: "In the call peer to peer, which Armada can't join yet",
+                })}
+              />
+            </TooltipTrigger>
+            <TooltipContent>
+              <FormattedMessage
+                id="voicePresence.otherTransport"
+                defaultMessage="In the call peer to peer, which Armada can't join yet"
+              />
+            </TooltipContent>
+          </Tooltip>
+        )}
         {isRaised && (
           <Hand
             className="size-3.5 shrink-0 text-warning"

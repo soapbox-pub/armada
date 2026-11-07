@@ -167,9 +167,9 @@ describe("useStrandedRecovery (stranded self-heal, CORD-05 §2)", () => {
       }),
     );
 
-    // The catch-up re-announces on the NEW epoch's Guestbook (the stranded
-    // Join landed on the superseded plane, invisible to current members).
-    await vi.waitFor(() => expect(relay.published.length).toBeGreaterThan(0));
+    // No Join is posted here: the new epoch's Guestbook may already seed us, so the
+    // Join is restored once it is read and holds no state of ours (CORD-02 §5, `useRestoreJoin`).
+    expect(relay.published).toEqual([]);
   });
 
   it("a bundle still vending my epoch (or older) is a no-op", async () => {

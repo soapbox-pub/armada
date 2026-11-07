@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
+import { clockNowMs } from "@/lib/relayClock";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useCommunityRumors } from "@/concord/hooks/useCommunityRumors";
@@ -11,7 +12,7 @@ import {
   subscribeQuarantineMemory,
 } from "@/concord/lib/quarantineMemory";
 import { KIND_DELETE, KIND_MESSAGE } from "@/concord/lib/kinds";
-import { FUTURE_HOLD_MS } from "@/concord/lib/stream";
+import { FUTURE_HOLD_MS, FUTURE_HORIZON_MS } from "@/concord/lib/stream";
 import type { OpenedChat } from "@/concord/lib/chat";
 import type { Channel, Community } from "@/concord/lib/types";
 import { useChatModeration } from "@/concord/hooks/useChannel";
@@ -58,7 +59,7 @@ export function useConcordUnread(
   // This scan reads the raw store, so the Banlist must be applied here too (CORD-04 §4).
   // Passive by DEFAULT: ambient callers are mounted per joined community, and an
   // active resolve fans out a control sweep for each. The page opts in explicitly.
-  const { banned, canMentionEveryone } = useChatModeration(community, active);
+  const { banned, canMentionEveryone, pingsByRole, holdsPost } = useChatModeration(community, active);
   const joinedAtMs = useCommunityEntry(communityIdHex)?.added_at;
   const {
     readState,
@@ -102,8 +103,8 @@ export function useConcordUnread(
   // cached per channel; a markRead then costs a comparison per channel. A scan
   // that skipped a future-dated message is redone when its time comes.
   const scanDeps = useMemo(
-    () => ({ pubkey, mutedPubkeys, banned, canMentionEveryone, joinedAtMs, communityIdHex, memoryRev }),
-    [pubkey, mutedPubkeys, banned, canMentionEveryone, joinedAtMs, communityIdHex, memoryRev],
+    () => ({ pubkey, mutedPubkeys, banned, canMentionEveryone, pingsByRole, holdsPost, joinedAtMs, communityIdHex, memoryRev }),
+    [pubkey, mutedPubkeys, banned, canMentionEveryone, pingsByRole, holdsPost, joinedAtMs, communityIdHex, memoryRev],
   );
   const scanCacheRef = useRef(new Map<string, ChannelScan>());
 
@@ -113,7 +114,7 @@ export function useConcordUnread(
   const byChannel = useMemo<Record<string, ConcordUnread>>(() => {
     void readSig;
     const cache = scanCacheRef.current;
-    const now = Date.now();
+    const now = clockNowMs();
     const next: Record<string, ConcordUnread> = {};
     for (const [idHex, rumors] of rumorsByChannel) {
       const git = gitByChannel.get(idHex);
@@ -163,6 +164,8 @@ interface ScanDeps {
   mutedPubkeys: ReadonlySet<string>;
   banned: ReadonlySet<string>;
   canMentionEveryone: ((author: string, channelIdHex: string) => boolean) | undefined;
+  pingsByRole: ((author: string, content: string, tags: string[][]) => boolean) | undefined;
+  holdsPost: ((author: string, channelIdHex: string) => boolean) | undefined;
   /** When this membership began (ms); nothing earlier is a mention. */
   joinedAtMs: number | undefined;
   communityIdHex: string | undefined;
@@ -191,7 +194,7 @@ function scanChannel(
   deps: ScanDeps,
   feedOnly: boolean,
 ): ChannelScan {
-  const { pubkey, mutedPubkeys, banned, canMentionEveryone, joinedAtMs, communityIdHex } = deps;
+  const { pubkey, mutedPubkeys, banned, canMentionEveryone, pingsByRole, holdsPost, joinedAtMs, communityIdHex } = deps;
   // A visual flood renders as ONE collapsed row, so its members don't badge.
   // A community PAUSE is deliberately not mirrored: this path has no roster so it
   // couldn't honor the staff exemption, and few messages arrive post-pause.
@@ -213,7 +216,7 @@ function scanChannel(
   let latest = 0;
   let latestMention = 0;
   // One clock for the whole scan, so the hold boundary can't split mid-loop.
-  const holdCeilingMs = Date.now() + FUTURE_HOLD_MS;
+  const holdCeilingMs = clockNowMs() + FUTURE_HOLD_MS;
   let heldUntilMs = Infinity;
   for (const r of rumors) {
     if (r.kind !== KIND_MESSAGE) continue;
@@ -222,13 +225,16 @@ function scanChannel(
     if (r.author === pubkey) continue; // never unread from self
     // ...nor a future-dated message the timeline holds (FUTURE_HOLD_MS).
     if (r.ms > holdCeilingMs) {
-      heldUntilMs = Math.min(heldUntilMs, r.ms);
+      // Past the hour's horizon it isn't held, and nothing waits on it (CORD-03 §3).
+      if (r.ms <= holdCeilingMs - FUTURE_HOLD_MS + FUTURE_HORIZON_MS) heldUntilMs = Math.min(heldUntilMs, r.ms);
       continue;
     }
     // ...nor from someone muted (the timeline won't render it).
     if (mutedPubkeys.has(r.author)) continue;
     // ...nor from a banned one: the fold drops their events entirely.
     if (banned.has(r.author)) continue;
+    // ...nor a post a restricted Channel holds (CORD-03 §1).
+    if (holdsPost?.(r.author, idHex)) continue;
     // ...nor a message its author has since deleted (same reasoning).
     if (selfDeleted.has(r.rumorId)) continue;
     if (quarantined.has(r.rumorId)) continue;
@@ -237,6 +243,7 @@ function scanChannel(
     const mentionsViewer = sentDuringMembership(r.ms, joinedAtMs) && (
       r.tags.some(([n, v]) => n === "p" && v === pubkey)
       || (hasEveryoneMention(r.content) && Boolean(canMentionEveryone?.(r.author, idHex)))
+      || Boolean(pingsByRole?.(r.author, r.content, r.tags))
     );
     if (r.createdAt > latestMention && mentionsViewer) {
       latestMention = r.createdAt;

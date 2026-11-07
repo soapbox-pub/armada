@@ -1,4 +1,7 @@
 import { openChatBatch } from "@/concord/lib/chat";
+import { isRenderableReaction } from "@/concord/lib/reactionContent";
+import { clockNowMs } from "@/lib/relayClock";
+import { rolePings, type HeldRoleMention } from "@/concord/lib/roleMentions";
 import { KIND_MESSAGE, KIND_REACTION } from "@/concord/lib/kinds";
 import type { StreamKeyView } from "@/concord/lib/derive";
 import { notePlaneWrapsJunk, notePlaneWrapsSeen, openPlaneWrapsChunked, unseenPlaneWraps } from "@/concord/lib/planeSync";
@@ -213,7 +216,17 @@ export async function ingestWireEvents(
     scopes.add(`c2:${channel.idHex}`);
     // Banned authors are stored (the timeline hides them) but never notify.
     const banned = communityIdHex ? spec?.concordBannedByCommunity.get(communityIdHex) : undefined;
-    for (const c of concordCandidates(opened, channel, communityIdHex, self, banned)) candidates.push(c);
+    const roleMentions = spec?.concordRoleMentionsByCommunity.get(communityIdHex);
+    const silence = spec?.concordSilenceByChannel.get(channel.idHex);
+    // A post its readers collapse rings nobody (CORD-04 §8, Vector `post_silenced`).
+    const ringing = silence
+      ? opened.filter((r) => !silence.sendDenied?.has(r.author) && !(silence.postAuthors && r.kind !== KIND_REACTION && !silence.postAuthors.has(r.author)) && !silence.timeouts?.some((t) => t.pk === r.author && t.until * 1000 > clockNowMs() && r.ms >= t.fromSecs * 1000 && r.ms < t.until * 1000))
+      : opened;
+    const nicknames = spec?.concordNicknamesByCommunity.get(communityIdHex);
+    for (const c of concordCandidates(ringing, channel, communityIdHex, self, banned, roleMentions)) {
+      const nick = nicknames?.[c.author];
+      candidates.push(nick ? { ...c, authorNickname: nick } : c);
+    }
     for (const o of opened) if (o.wrapId) openedChatWraps.push(o.wrapId);
   }
 
@@ -348,6 +361,7 @@ function concordCandidates(
   communityIdHex: string | undefined,
   self: string | undefined,
   banned: Set<string> | undefined,
+  roleMentions?: { held: HeldRoleMention[]; authors: Set<string> },
 ): NotifyCandidate[] {
   const out: NotifyCandidate[] = [];
   // Tap lands on the message; unknown `communityIdHex` means the hook drops it.
@@ -364,7 +378,8 @@ function concordCandidates(
     // Reactions notify ONLY when p-tagging the user (NIP-25 `p` inside the
     // encrypted rumor); other non-message kinds stay silent.
     if (r.kind === KIND_REACTION) {
-      if (!pTagsMe) continue;
+      // One no row could render is dropped, as the timeline drops it (Vector `is_renderable_reaction`).
+      if (!pTagsMe || !isRenderableReaction(r.content)) continue;
       out.push({
         plane: "c2",
         author: r.author,
@@ -388,7 +403,7 @@ function concordCandidates(
       plane: "c2",
       author: r.author,
       createdAt: r.createdAt,
-      mention: pTagsMe,
+      mention: pTagsMe || Boolean(roleMentions && rolePings(r.content, r.tags, roleMentions.held, roleMentions.authors.has(r.author))),
       kind: r.kind,
       body: preview(r.content),
       content: r.content,

@@ -1,8 +1,15 @@
 import { useNostr } from "@nostrify/react";
+import { clockNowMs } from "@/lib/relayClock";
+import { sendsIn, sendTarget, writerGroup, writerKeyAt } from "@/concord/lib/writerKeys";
 import { hashKey, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { citationFor, dissolvedAt, useControlFold, useDissolved } from "@/concord/hooks/useControlPlane";
+import { useGuestbook } from "@/concord/hooks/useGuestbook";
+import { heldRoleMentions, pingableRoles, rolePings } from "@/concord/lib/roleMentions";
+import { canScrub, scrubbedDeleteExpiry, scrubOwnWraps, sendWrapOwner } from "@/concord/lib/wrapScrub";
+import { useAccountSecret } from "@/hooks/useAccountSecret";
+import { mayHideIn, restrictedPostersIn, timelineCollapse, writerJudge as writerJudgeOf } from "@/concord/lib/channelJudges";
 import { persistTimelineSnapshot, prewarmTimelineSnapshot, takeSnapshotSeed } from "@/concord/hooks/timelineSnapshot";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useKeyedMemo } from "@/hooks/useKeyedMemo";
@@ -12,13 +19,14 @@ import {
   filterEpochCutoff,
   foldTimeline,
   forgetChatSkips,
+  isHeldAhead,
   openChatBatch,
   type ChatModeration,
   type FoldedTimeline,
   type OpenedChat,
 } from "@/concord/lib/chat";
 import { backfillStore, historyRelays, LOAD_OLDER_MAX_PAGES, setChannelSyncContext } from "@/concord/lib/channelSync";
-import { KIND_COMMENT, KIND_DELETE, KIND_MESSAGE, KIND_POLL, KIND_REACTION, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
+import { KIND_COMMENT, KIND_DELETE, KIND_EDIT, KIND_MESSAGE, KIND_POLL, KIND_REACTION, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import {
   clearStreamExhausted,
   CHAT_ROW_KINDS,
@@ -62,10 +70,10 @@ import { citationToTag, type AuthorityCitation } from "@/concord/lib/edition";
 import { citationSatisfied } from "@/concord/lib/control";
 import { whenAuthSettled } from "@/concord/lib/planeSync";
 import { useActivePause } from "@/concord/hooks/usePause";
-import { canActOnMember, isAuthorized, isAuthorizedIn, isStaff, Permissions } from "@/concord/lib/roles";
+import { isAuthorized, isStaff, Permissions } from "@/concord/lib/roles";
 import { chatExpiresAt, messageExpirationOf } from "@/concord/lib/disappearing";
 import { consumeSend, isRateLimitedKind, SendRateLimitError } from "@/concord/lib/sendRateLimit";
-import { buildRumor, channelBindingTags, sealRumor, wrapSeal } from "@/concord/lib/stream";
+import { buildRumor, channelBindingTags, FUTURE_HOLD_MS, sealRumor, wrapSeal } from "@/concord/lib/stream";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type { Channel, Community } from "@/concord/lib/types";
 import { publishTimeoutMs } from "@/lib/publishTimeout";
@@ -194,7 +202,16 @@ export interface TimelineSpan {
   to?: number;
 }
 
-const countRows = (rows: readonly OpenedChat[]) => rows.filter((m) => ROW_KINDS.has(m.kind)).length;
+/** The free pages a read gets past messages dated ahead (Vector's `MAX_EARLY_PAGES`). */
+const MAX_HELD_PAGES = 20;
+
+/** A message the fold holds back for being dated ahead (CORD-03 §3). */
+const heldAhead = (m: OpenedChat, nowMs: number) => isHeldAhead(m.kind, m.ms, nowMs);
+
+const countRows = (rows: readonly OpenedChat[]) => {
+  const nowMs = clockNowMs();
+  return rows.filter((m) => ROW_KINDS.has(m.kind) && !heldAhead(m, nowMs)).length;
+};
 
 export interface ChatModerationState extends ChatModeration {
   /**
@@ -216,11 +233,21 @@ export function useChatModeration(
 ): ChatModerationState {
   const { data: folded } = useControlFold(community, active);
   const { data: dissolvedAtMs } = useDissolved(community, active);
-  return useMemo(
-    () => ({
+  const reader = useCurrentUser().user?.pubkey;
+  const heldRoles = useMemo(() => (folded && reader ? heldRoleMentions(folded.roster, reader) : []), [folded, reader]);
+  return useMemo(() => {
+    const posters = new Map<string, ReadonlySet<string> | undefined>();
+    const postersIn = (channelIdHex: string) => {
+      if (!posters.has(channelIdHex)) {
+        const list = restrictedPostersIn(folded, channelIdHex);
+        posters.set(channelIdHex, list && new Set(list));
+      }
+      return posters.get(channelIdHex);
+    };
+    return {
       ready: folded !== undefined,
       banned: folded?.banned ?? new Set<string>(),
-      canDelete: (deleter: string, author: string, action?: { citation?: AuthorityCitation; ms: number }) => {
+      canDelete: (deleter: string, author: string, action?: { citation?: AuthorityCitation; ms: number }, channelIdHex?: string) => {
         if (!folded || !community) return false;
         // CORD-02 §9: death is an ORDERING rule — only actions after the tombstone
         // are refused, or old moderation would be un-hidden. Self-deletes short-circuit earlier.
@@ -228,7 +255,7 @@ export function useChatModeration(
           return false;
         }
         // Against the CURRENT roster: a citation is a completeness floor, never a grant (CORD-04 §5).
-        if (!canActOnMember(folded.roster, deleter, folded.ownerHex, author, Permissions.MANAGE_MESSAGES)) {
+        if (!mayHideIn(folded, deleter, author, channelIdHex)) {
           return false;
         }
         // Sync floor: uncited means we haven't read enough of their Grant, so park.
@@ -238,19 +265,16 @@ export function useChatModeration(
       canSetTimer: (author: string) =>
         Boolean(folded && isAuthorized(folded.roster, author, folded.ownerHex, Permissions.MANAGE_METADATA)),
       isStaff: (author: string) => Boolean(folded && isStaff(folded.roster, author, folded.ownerHex)),
-      canMentionEveryone: (author: string, channelIdHex: string) => Boolean(
-        folded
-        && isAuthorizedIn(
-          folded.roster,
-          author,
-          folded.ownerHex,
-          channelIdHex,
-          Permissions.MENTION_EVERYONE,
-        )
-      ),
-    }),
-    [folded, community, dissolvedAtMs],
-  );
+      canMentionEveryone: (author: string) => Boolean(folded && isAuthorized(folded.roster, author, folded.ownerHex, Permissions.MENTION_EVERYONE)),
+      mentionRolesFor: (author: string) => (folded ? pingableRoles(folded.roster, author, folded.ownerHex) : []),
+      pingsByRole: (author: string, content: string, tags: string[][]) =>
+        Boolean(folded && heldRoles.length > 0 && rolePings(content, tags, heldRoles, isAuthorized(folded.roster, author, folded.ownerHex, Permissions.MENTION_EVERYONE))),
+      holdsPost: (author: string, channelIdHex: string) => {
+        const list = postersIn(channelIdHex);
+        return list !== undefined && !list.has(author);
+      },
+    };
+  }, [folded, community, dissolvedAtMs, heldRoles]);
 }
 
 /**
@@ -278,6 +302,18 @@ export function useChannelTimeline(
   const pauseSince = useActivePause(community)?.since;
 
   const channelIdHex = channel?.idHex ?? routeChannelIdHex ?? null;
+
+  // CORD-04 §8: collapse posts inside their author's running Timeout, and, in an open
+  // Channel on the vsk-13 Roster, posts whose author can't send there.
+  const { data: control } = useControlFold(community);
+  const { timeouts, history } = useGuestbook(control ? community : undefined);
+  const publicUntil = channel?.publicUntil;
+  const collapse = useMemo(() => timelineCollapse(control, channelIdHex, timeouts, clockNowMs(), publicUntil), [control, channelIdHex, timeouts, publicUntil]);
+  // A restricted Channel's posts stand by its Writers ledger (CORD-03 §1).
+  const writerJudge = useMemo(
+    () => writerJudgeOf(control, channelIdHex, community?.id, readingUser?.pubkey, history),
+    [control, channelIdHex, community, readingUser?.pubkey, history],
+  );
   // Cutoffs included: retirement can change without the epoch set changing.
   const epochSig = channel?.streams.map((s) => `${s.epoch}:${s.retiredAt ?? ""}`).join(",") ?? "";
   const queryKey = useMemo(() => channelKey(channelIdHex), [channelIdHex]);
@@ -512,10 +548,12 @@ export function useChannelTimeline(
     queryClient.setQueryData<OpenedChat[]>(queryKey, filterEpochCutoff(upsert(prev, rows), channel));
   }, [channel, channelIdHex, queryClient, queryKey]);
 
-  const loadOlderPresent = useCallback(async (): Promise<number> => {
-    if (!hasMore || isLoadingOlder) return 0;
-    const before = raw.filter((m) => m.kind === KIND_MESSAGE || m.kind === KIND_POLL).length;
+  // One page below the cursor: the rows it shows, and whether any it read were held back.
+  const loadOlderPage = useCallback(async (): Promise<{ shown: number; held: boolean }> => {
     const cursorKeyId = channelIdHex ?? "";
+    const nowMs = clockNowMs();
+    const shownOf = (rows: readonly OpenedChat[]) => rows.filter((m) => (m.kind === KIND_MESSAGE || m.kind === KIND_POLL) && !heldAhead(m, nowMs)).length;
+    const before = shownOf((queryClient.getQueryData<OpenedChat[]>(queryKey) ?? []).filter((m) => m.channelIdHex === channelIdHex));
     const endLoad = beginOlderLoad();
     let controller: AbortController | undefined;
     try {
@@ -577,7 +615,7 @@ export function useChannelTimeline(
             },
           });
           // The view that asked is gone; its query key is no longer read.
-          if (relayRead.signal.aborted) return 0;
+          if (relayRead.signal.aborted) return { shown: 0, held: false };
           // A clean empty answer below held history ends paging for this view only;
           // it isn't persisted, since an all-empty run can't seal the cursor.
           exhausted = older.exhausted || (!older.failed && older.count === 0 && !!saved?.oldest);
@@ -605,13 +643,22 @@ export function useChannelTimeline(
       );
       const merged = filterEpochCutoff(upsert(prev, added), channel!);
       queryClient.setQueryData<OpenedChat[]>(queryKey, merged);
-      const after = merged.filter((m) => m.kind === KIND_MESSAGE || m.kind === KIND_POLL).length;
-      return Math.max(0, after - before);
+      return { shown: Math.max(0, shownOf(merged) - before), held: added.some((m) => heldAhead(m, nowMs)) };
     } finally {
       if (controller) olderAbortsRef.current.delete(controller);
       endLoad();
     }
-  }, [hasMore, isLoadingOlder, raw, nostr, community, channel, channelIdHex, queryClient, queryKey, mergeRows, noteCursor, beginOlderLoad]);
+  }, [nostr, community, channel, channelIdHex, queryClient, queryKey, mergeRows, noteCursor, beginOlderLoad]);
+
+  // A page that only stepped past messages dated ahead pages on, so they never hide the
+  // history below them (CORD-03 §3), up to Vector's 20 free pages.
+  const loadOlderPresent = useCallback(async (): Promise<number> => {
+    if (!hasMore || isLoadingOlder) return 0;
+    for (let pass = 0; ; pass++) {
+      const { shown, held } = await loadOlderPage();
+      if (shown > 0 || !held || endReachedRef.current || pass >= MAX_HELD_PAGES) return shown;
+    }
+  }, [hasMore, isLoadingOlder, loadOlderPage]);
 
   const authGate = useCallback(
     (url: string) => whenAuthSettled(url, () => channel!.streams.map((s) => s.group)),
@@ -902,6 +949,10 @@ export function useChannelTimeline(
       ...(firstSeen ? { firstSeen } : {}),
       ...(establishedSinceMs !== undefined ? { establishedSinceMs } : {}),
       ...(pauseSince !== undefined ? { pauseSince } : {}),
+      ...(collapse || writerJudge?.iManage
+        ? { collapse: (m: OpenedChat) => Boolean(collapse?.(m)) || (writerJudge?.iManage === true && !writerJudge.stands(m)) }
+        : {}),
+      ...(writerJudge && !writerJudge.iManage ? { hold: (m: OpenedChat) => !writerJudge.stands(m) } : {}),
     });
     // Past sessions' verdicts keep yesterday's wall folded after a refresh.
     const remembered = community?.idHex && channelIdHex
@@ -921,7 +972,7 @@ export function useChannelTimeline(
       return { ...merged, messages: merged.messages.filter((m) => !hidden.has(m.rumorId)) };
     }
     return merged;
-  }, [moderated, moderation, optimisticDeleted, readingUser?.pubkey, firstSeen, establishedSinceMs, pauseSince, community?.idHex, channelIdHex, memoryRev, revealTick]);
+  }, [moderated, moderation, optimisticDeleted, readingUser?.pubkey, firstSeen, establishedSinceMs, pauseSince, collapse, writerJudge, community?.idHex, channelIdHex, memoryRev, revealTick]);
 
   // A removed message's media leaves this device too: a moderator deleting it
   // (abuse, CSAM) shouldn't leave its plaintext in the decrypt cache.
@@ -940,8 +991,8 @@ export function useChannelTimeline(
   const nextRevealMs = folded.nextRevealMs;
   useEffect(() => {
     if (nextRevealMs === undefined) return;
-    // +1ms so the wake lands strictly past the fold's ceiling.
-    const ms = nextRevealMs - Date.now() + 1;
+    // Due once inside the tolerance (Vector `early.rs`); +1ms lands strictly past the fold's ceiling.
+    const ms = nextRevealMs - FUTURE_HOLD_MS - clockNowMs() + 1;
     if (ms <= 0) {
       setRevealTick((n) => n + 1);
       return;
@@ -1142,6 +1193,10 @@ export function useSendMessage(community: Community | undefined, channel: Channe
   // CORD-08 timer at send time; an unlanded fold reads as OFF (the signed tag governs).
   const { data: folded } = useControlFold(community);
   const timerSecs = messageExpirationOf(folded?.metadata);
+  // The wrap's `p` is derived from the account key where held (CORD-01 §Deletions).
+  const secret = useAccountSecret();
+  // A restricted Channel's writer posts at its writer address (CORD-03 §1); kicked writers wait.
+  const { history } = useGuestbook(folded?.rankedRoster ? community : undefined);
 
   return useMutation({
     mutationFn: async ({
@@ -1196,7 +1251,15 @@ export function useSendMessage(community: Community | undefined, channel: Channe
         const waitMs = consumeSend(community.idHex);
         if (waitMs > 0) throw new SendRateLimitError(waitMs);
       }
-      const effectiveMs = ms ?? Date.now();
+      // An honest client posts only where it holds Send Messages (CORD-04 §8).
+      if ((effectiveKind === KIND_MESSAGE || effectiveKind === KIND_COMMENT) && !sendsIn(folded, channel.idHex, user.pubkey)) {
+        throw new Error(t({ id: "useChannel.cantSend", defaultMessage: "You can't send messages in this channel." }));
+      }
+      // In a restricted Channel a post lands at the live writer address, or not at all (Vector `send_group`).
+      const at = sendTarget(channel.current.group, effectiveKind, folded, community.id, channel.idHex, user.pubkey, history);
+      if (!at) throw new Error(t({ id: "useChannel.writersOnly", defaultMessage: "Only this channel's writers can post here." }));
+      const sendGroup = at.group;
+      const effectiveMs = ms ?? clockNowMs();
       const tags: string[][] = [...channelBindingTags(channel.idHex, channel.current.epoch)];
       if (replyTo) tags.push(...buildConcordCommentTags(replyTo));
       if (target) tags.push(["e", target]);
@@ -1209,6 +1272,7 @@ export function useSendMessage(community: Community | undefined, channel: Channe
       const expiresAt =
         expiration !== undefined ? (expiration ?? undefined) : chatExpiresAt(effectiveKind, effectiveMs, timerSecs);
       if (expiresAt !== undefined) tags.push(["expiration", String(expiresAt)]);
+      tags.push(...at.tags);
 
       const rumor: NostrRumor = buildRumor({ kind: effectiveKind, content, tags, pubkey: user.pubkey, ms: effectiveMs });
       // Render immediately, before the (possibly remote) seal; failures flip to "failed".
@@ -1223,7 +1287,7 @@ export function useSendMessage(community: Community | undefined, channel: Channe
         createdAt: rumor.created_at,
         // Placeholders until sealed; not persisted before then.
         wrapId: "",
-        streamPk: channel.current.group.pk,
+        streamPk: sendGroup.pk,
         sealKind: KIND_SEAL_ENCRYPTED,
         seal: {
           id: "",
@@ -1264,7 +1328,7 @@ export function useSendMessage(community: Community | undefined, channel: Channe
       const sealStarted = Date.now();
       let seal: NostrEvent;
       try {
-        seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, user.signer);
+        seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, sendGroup, user.signer);
       } catch (err) {
         logSync("send", `sealing ${rumor.id.slice(0, 8)} FAILED in ${sinceMs(sealStarted)}: ${err instanceof Error ? err.message : String(err)}`);
         if (record) {
@@ -1274,7 +1338,11 @@ export function useSendMessage(community: Community | undefined, channel: Channe
         throw err; // reactions/edits/deletes: callers own the rollback
       }
       logSync("send", `sealed ${rumor.id.slice(0, 8)} in ${sinceMs(sealStarted)} — wrapping + broadcasting to ${community.relays.length} relay(s)`);
-      const wrap = await wrapSeal(seal, channel.current.group, expiresAt !== undefined ? { expiration: expiresAt } : undefined);
+      const ephemeralSk = await sendWrapOwner(secret, sendGroup.pk, rumor.id);
+      const wrap = await wrapSeal(seal, sendGroup, {
+        ...(expiresAt !== undefined ? { expiration: expiresAt } : {}),
+        ephemeralSk,
+      });
 
       // The wrap is authored by the stream key, so mark it ours before its push arrives.
       await markOwnWebPushEvent(wrap.id);
@@ -1305,6 +1373,7 @@ export function useMessageActions(community: Community | undefined, channel: Cha
   const { data: folded } = useControlFold(community);
   const channelIdHex = channel?.idHex ?? null;
   const { mutateAsync: send } = useSendMessage(community, channel);
+  const secret = useAccountSecret();
 
   // Re-broadcast under the SAME rumor id so a slow-ACKed original dedupes:
   // the recorded wrap verbatim when sealed, else re-seal (`buildRumor`
@@ -1332,6 +1401,11 @@ export function useMessageActions(community: Community | undefined, channel: Cha
         try {
           let wrap = record.wrap;
           if (!wrap) {
+            // A post committed to a writer epoch goes back out at that epoch's address (Vector `writer_keys_at`).
+            const wepoch = record.tags.find((t) => t[0] === "wepoch")?.[1];
+            const writer = wepoch !== undefined ? writerKeyAt(community.idHex, channel.idHex, folded?.writers?.get(channel.idHex), Number(wepoch)) : undefined;
+            if (wepoch !== undefined && !writer) throw new Error("writer key gone");
+            const group = writer ? writerGroup(writer, channel.current.group) : channel.current.group;
             let seal = msg.seal && msg.seal.sig ? msg.seal : undefined;
             if (!seal) {
               putOutgoing({ ...record, state: "signing" }, true, { deferPersist: user.method === "nsec" });
@@ -1342,12 +1416,16 @@ export function useMessageActions(community: Community | undefined, channel: Cha
                 pubkey: user.pubkey,
                 ms: record.ms,
               });
-              seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, user.signer);
+              seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, group, user.signer);
             }
             // Mirror the rumor's NIP-40 onto the re-wrap (CORD-08 §2).
             const expTag = record.tags.find((t) => t[0] === "expiration")?.[1];
             const expiration = expTag !== undefined && /^[0-9]+$/.test(expTag) ? Number(expTag) : undefined;
-            wrap = await wrapSeal(seal, channel.current.group, expiration !== undefined ? { expiration } : undefined);
+            const ephemeralSk = await sendWrapOwner(secret, group.pk, msg.rumorId);
+            wrap = await wrapSeal(seal, group, {
+              ...(expiration !== undefined ? { expiration } : {}),
+              ephemeralSk,
+            });
             await markOwnWebPushEvent(wrap.id);
             // Persist so a mid-flight refresh keeps it.
             writeRumors(community.idHex, [{ ...msg, seal, wrapId: wrap.id, streamPk: wrap.pubkey }], { local: true });
@@ -1364,7 +1442,7 @@ export function useMessageActions(community: Community | undefined, channel: Cha
         }
       })();
     },
-    [nostr, user, community, channel, channelIdHex, queryClient],
+    [nostr, user, community, channel, channelIdHex, queryClient, secret, folded],
   );
 
   /** The row to act on: the cached one, else the record (an unsealed send restored after a reload). */
@@ -1436,17 +1514,41 @@ export function useMessageActions(community: Community | undefined, channel: Cha
       queryClient.setQueryData<string[]>(deletedKey(channelIdHex), (old = []) =>
         old.includes(id) ? old : [...old, id],
       );
-      void send({
-        content: "",
-        kind: KIND_DELETE,
-        target: id,
-        extraTags: citation ? [citationToTag(citation)] : undefined,
-      }).catch(() => {
+      void (async () => {
+        // One's own message leaves the relays too, with its edits (they carry its text), by the
+        // derived wrap owner; only then may the in-plane delete expire (CORD-01 §Deletions).
+        let expiration: number | null = null;
+        if (target && !moderating && (await canScrub(secret, id))) {
+          const rows = queryClient.getQueryData<OpenedChat[]>(channelKey(channelIdHex)) ?? [];
+          const edits = rows.filter((m) => m.kind === KIND_EDIT && m.author === user.pubkey && m.tags.some((t) => t[0] === "e" && t[1] === id));
+          const addresses = channel.streams.filter((st) => st.epoch === target.epoch).map((st) => st.group);
+          const scrubbed = await scrubOwnWraps(
+            {
+              query: (url, filters, signal) => nostr.relay(url).query(filters, { signal }),
+              publish: (url, event, signal) => nostr.relay(url).event(event, { signal }),
+            },
+            community.relays,
+            addresses.length > 0 ? addresses : [channel.current.group],
+            [id, ...edits.map((e) => e.rumorId)],
+            secret,
+          ).catch(() => ({ byOwner: false, byPlane: false }));
+          const nowSecs = Math.floor(Date.now() / 1000);
+          const exp = target.tags.find((t) => t[0] === "expiration")?.[1];
+          expiration = scrubbedDeleteExpiry(scrubbed, exp && /^[0-9]+$/.test(exp) ? Number(exp) : undefined, nowSecs);
+        }
+        await send({
+          content: "",
+          kind: KIND_DELETE,
+          target: id,
+          extraTags: citation ? [citationToTag(citation)] : undefined,
+          expiration,
+        });
+      })().catch(() => {
         // Couldn't publish; unhide.
         queryClient.setQueryData<string[]>(deletedKey(channelIdHex), (old = []) => old.filter((d) => d !== id));
       });
     },
-    [user, community, channel, channelIdHex, queryClient, send, folded],
+    [user, community, channel, channelIdHex, queryClient, send, folded, secret, nostr],
   );
 
   return { retry, discard, deleteMessage };

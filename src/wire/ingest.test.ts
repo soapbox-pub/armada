@@ -61,11 +61,11 @@ function signer(sk = generateSecretKey()) {
   return { sk, pubkey: getPublicKey(sk), signEvent: async (t: EventTemplate) => finalizeEvent(t, sk) };
 }
 
-async function wrapChat(channel: Channel, s: ReturnType<typeof signer>, content: string): Promise<NostrEvent> {
+async function wrapChat(channel: Channel, s: ReturnType<typeof signer>, content: string, tags: string[][] = []): Promise<NostrEvent> {
   const rumor = buildRumor({
     kind: KIND_MESSAGE,
     content,
-    tags: [...channelBindingTags(channel.idHex, 0n)],
+    tags: [...channelBindingTags(channel.idHex, 0n), ...tags],
     pubkey: s.pubkey,
     ms: Date.now(),
   });
@@ -90,6 +90,9 @@ function makeSinks(spec: Partial<WireSpec>, store = new FakeStore()) {
     concordByPk: new Map(),
     concordCommunityByChannel: new Map(),
     concordBannedByCommunity: new Map(),
+    concordRoleMentionsByCommunity: new Map(),
+    concordSilenceByChannel: new Map(),
+    concordNicknamesByCommunity: new Map(),
     concordCtlByPk: new Map(),
     concordGbByPk: new Map(),
     gitByRepository: new Map(),
@@ -541,6 +544,109 @@ describe("ingestWireEvents — foreground notify candidates", () => {
       // A tap lands on the message, which is what the `/m/` segment names.
       path: `/c/comm-hex/${idHex}/m/${rumorId}`,
     });
+  });
+
+  it("flags a Role mention the viewer holds as a mention (CORD-04 §8)", async () => {
+    const { channel, idHex } = makeChannel();
+    const communityIdHex = "c".repeat(64);
+    const alice = signer();
+    const [mods, quiet] = ["a".repeat(64), "b".repeat(64)];
+    const wraps = [
+      await wrapChat(channel, alice, "hey @Mods", [["role", mods]]),
+      // A tag without its name in the text pings nobody, nor one for a Role that isn't mentionable.
+      await wrapChat(channel, alice, "hey everyone", [["role", mods]]),
+      await wrapChat(channel, alice, "hey @Quiet", [["role", quiet]]),
+    ];
+    const { captured, off, sinks } = withSink({
+      concordByPk: new Map(wraps.map((w) => [w.pubkey, channel])),
+      concordCommunityByChannel: new Map([[idHex, communityIdHex]]),
+      concordRoleMentionsByCommunity: new Map([[communityIdHex, {
+        held: [{ id: mods, name: "Mods", anyone: true }, { id: quiet, name: "Quiet", anyone: false }],
+        authors: new Set<string>(),
+      }]]),
+    });
+    try {
+      await ingestWireEvents(sinks, wraps);
+    } finally {
+      off();
+    }
+    expect(captured.map((c) => [c.body, c.mention])).toEqual([["hey @Mods", true], ["hey everyone", false], ["hey @Quiet", false]]);
+  });
+
+  it("rings nobody for a post readers collapse: no SEND here, or inside a running Timeout (CORD-04 §8)", async () => {
+    const { channel, idHex } = makeChannel();
+    const [denied, timedOut, ok] = [signer(), signer(), signer()];
+    const wraps = [await wrapChat(channel, denied, "no send"), await wrapChat(channel, timedOut, "in timeout"), await wrapChat(channel, ok, "fine")];
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const { captured, off, sinks } = withSink({
+      concordByPk: new Map(wraps.map((w) => [w.pubkey, channel])),
+      concordCommunityByChannel: new Map([[idHex, "c".repeat(64)]]),
+      concordSilenceByChannel: new Map([[idHex, {
+        sendDenied: new Set([denied.pubkey]),
+        timeouts: [{ pk: timedOut.pubkey, fromSecs: nowSecs - 60, until: nowSecs + 600 }],
+      }]]),
+    });
+    try {
+      await ingestWireEvents(sinks, wraps);
+    } finally {
+      off();
+    }
+    expect(captured.map((c) => c.body)).toEqual(["fine"]);
+  });
+
+  it("rings only the owner's and managers' posts at a restricted Channel's read address (CORD-03 §1 Held posts)", async () => {
+    const { channel, idHex } = makeChannel();
+    const [stranger, manager] = [signer(), signer()];
+    const wraps = [await wrapChat(channel, stranger, "spam"), await wrapChat(channel, manager, "news")];
+    const { captured, off, sinks } = withSink({
+      concordByPk: new Map(wraps.map((w) => [w.pubkey, channel])),
+      concordCommunityByChannel: new Map([[idHex, "c".repeat(64)]]),
+      concordSilenceByChannel: new Map([[idHex, { postAuthors: new Set([manager.pubkey]) }]]),
+    });
+    try {
+      await ingestWireEvents(sinks, wraps);
+    } finally {
+      off();
+    }
+    expect(captured.map((c) => c.body)).toEqual(["news"]);
+  });
+
+  it("rings for a reaction to my message only when a row could render it (Vector `is_renderable_reaction`)", async () => {
+    const { channel, idHex } = makeChannel();
+    const bob = signer();
+    const react = async (content: string) => {
+      const rumor = buildRumor({ kind: 7, content, tags: [...channelBindingTags(channel.idHex, 0n), ["e", "ab".repeat(32)], ["p", SELF]], pubkey: bob.pubkey, ms: Date.now() });
+      return (await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, bob), channel.current.group)) as NostrEvent;
+    };
+    const wraps = [await react(":catclap:https://i.nostr.build/lLMrw.gif"), await react("🔥")];
+    const { captured, off, sinks } = withSink({
+      concordByPk: new Map(wraps.map((w) => [w.pubkey, channel])),
+      concordCommunityByChannel: new Map([[idHex, "c".repeat(64)]]),
+    });
+    try {
+      await ingestWireEvents(sinks, wraps);
+    } finally {
+      off();
+    }
+    expect(captured.map((c) => c.reactionEmoji)).toEqual(["🔥"]);
+  });
+
+  it("names the sender by the Nickname they go by in the Community (CORD-04 §10)", async () => {
+    const { channel, idHex } = makeChannel();
+    const alice = signer();
+    const wrap = await wrapChat(channel, alice, "hello");
+    const communityIdHex = "c".repeat(64);
+    const { captured, off, sinks } = withSink({
+      concordByPk: new Map([[wrap.pubkey, channel]]),
+      concordCommunityByChannel: new Map([[idHex, communityIdHex]]),
+      concordNicknamesByCommunity: new Map([[communityIdHex, { [alice.pubkey]: "Captain" }]]),
+    });
+    try {
+      await ingestWireEvents(sinks, [wrap]);
+    } finally {
+      off();
+    }
+    expect(captured[0]?.authorNickname).toBe("Captain");
   });
 
   it("suppresses a banned member's message but still notifies for everyone else", async () => {

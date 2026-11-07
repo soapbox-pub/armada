@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Permissions } from "@/concord/lib/roles";
 
 import { mintCommunity } from "@/concord/lib/community";
 import { buildConcordSubs } from "@/concord/lib/concordNotifications";
@@ -47,6 +48,9 @@ describe("buildConcordSubs", () => {
     expect(sub.channelName).toBe("general");
     expect(sub.relays).toEqual(["wss://relay.example"]);
     expect(sub.mentionEveryoneAuthors).toEqual([OWNER]);
+    expect(sub.mentionEveryoneAnyone).toBeUndefined();
+    const open = { ...folded, roster: { ...folded.roster, everyone: Permissions.MENTION_EVERYONE } };
+    expect(buildConcordSubs(community, open).subs[0].mentionEveryoneAnyone).toBe(true);
 
     // The stream matches the on-wire derivation exactly.
     const expected = channelGroupKey(community.root, generalId, 0n);

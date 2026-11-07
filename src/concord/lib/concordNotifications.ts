@@ -1,12 +1,15 @@
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-import { channelsView } from "@/concord/lib/community";
+import { restrictedPostersIn, sendDeniedIn } from "@/concord/lib/channelJudges";
+import { clockOffsetMs } from "@/lib/relayClock";
+import { heldRoleMentions, roleMentionAuthors, type HeldRoleMention } from "@/concord/lib/roleMentions";
+import { channelsView, signingStreams, visibleChannels } from "@/concord/lib/community";
 import { messageExpirationOf } from "@/concord/lib/disappearing";
 import { channelGitRepositoryAttachments } from "@/concord/lib/types";
 import type { FoldedControl } from "@/concord/lib/control";
 import type { GroupKey } from "@/concord/lib/derive";
 import type { Community } from "@/concord/lib/types";
-import { everyoneMentionAuthors } from "@/concord/lib/everyoneMention";
+import { everyoneMayMention, everyoneMentionAuthors } from "@/concord/lib/everyoneMention";
 
 /**
  * One stream address of a Concord channel (one per held epoch). The stream
@@ -45,6 +48,24 @@ export interface ConcordSub {
   banned?: string[];
   /** Authors currently allowed to issue @everyone in this channel. */
   mentionEveryoneAuthors?: string[];
+  /** `@everyone` itself holds MENTION_EVERYONE, so any author's @everyone counts. */
+  mentionEveryoneAnyone?: boolean;
+  /** The Roles the viewer holds, as a mention of them is judged (CORD-04 §8). */
+  roleMentions?: HeldRoleMention[];
+  /** Who may mention a Role that isn't mentionable: MENTION_EVERYONE server-wide. */
+  roleMentionAuthors?: string[];
+  /** How far the relays' clock runs ahead of this device's (CORD-03 §3), for judging what's dated ahead. */
+  clockOffsetMs?: number;
+  /**
+   * Posts readers collapse ring nobody (CORD-04 §8, Vector `post_silenced`): members
+   * lacking SEND_MESSAGES in this open Channel, and the Timeouts running, by window.
+   */
+  sendDenied?: string[];
+  /** In a restricted Channel, the only authors whose posts ring: held posts never notify (CORD-03 §1). */
+  postAuthors?: string[];
+  timeouts?: { pk: string; fromSecs: number; until: number }[];
+  /** The Nicknames members go by here (CORD-04 §10), which a notification names its sender by. */
+  nicknames?: Record<string, string>;
   /**
    * When this membership began (ms, the vault entry's `added_at`). Background
    * notifiers drop anything sent earlier: the viewer wasn't there.
@@ -73,6 +94,12 @@ export function buildConcordSubs(
   community: Community,
   folded: FoldedControl | undefined,
   joinedAtMs?: number,
+  /** The account notified: a Channel it can't view (CORD-04 §8) registers nothing. */
+  viewer?: string,
+  /** The running Timeouts ({@link runningTimeouts}). */
+  timeouts: { pk: string; fromSecs: number; until: number }[] = [],
+  /** The Nicknames members go by ({@link communityNicknames}). */
+  nicknames: Record<string, string> = {},
 ): { subs: ConcordSub[]; streamKeys: GroupKey[] } {
   const subs: ConcordSub[] = [];
   const streamKeys: GroupKey[] = [];
@@ -86,10 +113,15 @@ export function buildConcordSubs(
   const timerSecs = messageExpirationOf(folded?.metadata);
   // Sorted for a stable config signature.
   const banned = folded ? [...folded.banned].sort() : [];
-  for (const channel of channelsView(community, folded)) {
+  const clockOffset = clockOffsetMs();
+  const roleMentions = folded && viewer ? heldRoleMentions(folded.roster, viewer).sort((a, b) => (a.id < b.id ? -1 : 1)) : [];
+  const roleMentionAuthorList = folded && roleMentions.length > 0 ? roleMentionAuthors(folded.roster, folded.ownerHex) : [];
+  for (const channel of visibleChannels(channelsView(community, folded), folded, viewer)) {
     if (channel.streams.length === 0) continue;
     // EVERY held epoch registers for NIP-42 (backfill reads retired epochs)…
-    streamKeys.push(...channel.streams.map((s) => s.group));
+    streamKeys.push(...signingStreams(channel));
+    const sendDenied = sendDeniedIn(folded, channel.idHex);
+    const postAuthors = restrictedPostersIn(folded, channel.idHex);
     const mentionEveryoneAuthors = folded
       ? everyoneMentionAuthors(folded.roster, folded.ownerHex, [channel.idHex])
       : community.owner ? [community.owner] : [];
@@ -109,6 +141,13 @@ export function buildConcordSubs(
       ],
       banned,
       mentionEveryoneAuthors,
+      ...(folded && everyoneMayMention(folded.roster) && { mentionEveryoneAnyone: true }),
+      ...(roleMentions.length > 0 && { roleMentions, roleMentionAuthors: roleMentionAuthorList }),
+      ...(clockOffset !== 0 && { clockOffsetMs: clockOffset }),
+      ...(sendDenied.length > 0 && { sendDenied }),
+      ...(postAuthors && { postAuthors }),
+      ...(timeouts.length > 0 && { timeouts }),
+      ...(Object.keys(nicknames).length > 0 && { nicknames }),
       ...(joinedAtMs !== undefined && { joinedAtMs }),
       communityImage,
       timerSecs,

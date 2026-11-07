@@ -8,14 +8,14 @@
 
 import { channelsView } from "@/concord/lib/community";
 import { rehydrateCommunity, type CommunityListEntry } from "@/concord/lib/communityList";
-import { controlGroups, foldControlState, openControlEditions, controlFoldKey } from "@/concord/lib/control";
+import { controlGroups, foldControlState, openControlEditions, controlFoldKey, type FoldedControl } from "@/concord/lib/control";
 import { guestbookGroups } from "@/concord/lib/guestbook";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { openChatBatch } from "@/concord/lib/chat";
 import { controlSweepTruncated, sweepControl, sweepGuestbook, whenAuthSettled } from "@/concord/lib/planeSync";
 import { pruneControlSnapshots, queryPlane, writeRumors } from "@/concord/lib/rumorStore";
 import { registerStreamKeys } from "@/concord/lib/streamAuth";
-import { writeFolded } from "@/lib/foldedCache";
+import { readFolded, writeFolded } from "@/lib/foldedCache";
 import { beginSyncTask } from "@/lib/syncActivity";
 import { t } from "@/i18n/intl";
 import { logSync } from "@/lib/syncLog";
@@ -100,7 +100,10 @@ export async function warmupCommunities(
           void pruneControlSnapshots(c.idHex, controlGroups(c).map((g) => g.pk));
         }
         const stored = await queryPlane(c.idHex, "control");
-        const folded = foldControlState(openControlEditions(stored), c.id, c.owner);
+        // The `@everyone` the last fold held keeps a partial read from demoting the Roster.
+        const prior = await readFolded<FoldedControl>(controlFoldKey(c.idHex));
+        const held = prior?.rankedRoster && prior.roster.everyone !== undefined ? { everyone: prior.roster.everyone } : undefined;
+        const folded = foldControlState(openControlEditions(stored), c.id, c.owner, undefined, undefined, held);
         // Never persist a sweep known to be truncated: it would freeze a partial
         // banlist/roster on disk (plane depth is attacker-controlled).
         if (!controlSweepTruncated(c)) {

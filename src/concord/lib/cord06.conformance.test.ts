@@ -16,6 +16,7 @@ import {
   decodeWrappedKey,
   encodeWrappedKey,
   lowerKeyWins,
+  REKEY_BASE_BLOBS_PER_EVENT,
   REKEY_BLOBS_PER_EVENT,
   rekeyScopeId,
   ROOT_SCOPE_HEX,
@@ -36,16 +37,17 @@ describe("CORD-06 §1 — Rekey Blobs", () => {
     expect(Buffer.from(rekeyScopeId({ kind: "root" })).toString("hex")).toBe(ROOT_SCOPE_HEX);
   });
 
-  it("O-2: at most 120 blobs per event; a larger rotation spans chunked events", () => {
+  it("O-2: at most 80 blobs per event, 60 for a base rotation; a larger rotation spans chunked events", () => {
     const blob = (): RekeyBlob => ({ locator: "ab".repeat(16), wrapped: "x" });
-    const blobs = Array.from({ length: REKEY_BLOBS_PER_EVENT + 1 }, blob);
+    const blobs = Array.from({ length: REKEY_BASE_BLOBS_PER_EVENT + 1 }, blob);
     const rumors = buildRekeyRumors(
       ROTATOR,
       { scope: { kind: "root" }, newEpoch: 1n, prevEpoch: 0n, prevCommit: "00".repeat(32) },
       blobs,
       Date.now(),
     );
-    expect(REKEY_BLOBS_PER_EVENT).toBe(120);
+    expect(REKEY_BLOBS_PER_EVENT).toBe(80);
+    expect(REKEY_BASE_BLOBS_PER_EVENT).toBe(60);
     expect(rumors).toHaveLength(2);
     // Every chunk names its place in the set: ["chunk", i, n] — 1-indexed
     // ("chunk 1 of 2"; the spec fixes the shape, not the base, and receivers

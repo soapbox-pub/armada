@@ -21,10 +21,23 @@ internal object Concord {
 
     /**
      * Every kind claimed by a non-chat plane: control (3308), guestbook
-     * (3306/3309/3312) and rekey (3303). Mirrors `PLANE_KINDS` in
+     * (3306/3309/3312/3314/3315) and rekey (3303). Mirrors `PLANE_KINDS` in
      * `src/concord/lib/kinds.ts`.
      */
-    val PLANE_KINDS = setOf(3308, 3306, 3309, 3312, 3303)
+    val PLANE_KINDS = setOf(3308, 3306, 3309, 3312, 3314, 3315, 3303)
+
+    private val MS_TAG = Regex("^(0|[1-9][0-9]{0,2})$")
+
+    /**
+     * A rumor's time in ms (CORD-02 §4): `created_at` plus its first `ms` tag, or null
+     * when that tag is malformed, which refuses the rumor as `resolveMs` in
+     * `src/concord/lib/stream.ts` does.
+     */
+    fun resolvedMs(createdAt: Long, tags: List<List<String?>>): Long? {
+        val tag = tags.firstOrNull { it.isNotEmpty() && it[0] == "ms" } ?: return createdAt * 1000
+        val raw = tag.getOrNull(1) ?: return null
+        return if (MS_TAG.matches(raw)) createdAt * 1000 + raw.toLong() else null
+    }
 
     /** The ArmadaDB tenant holding one community's opened events. */
     fun tenant(communityIdHex: String): String = ArmadaDb.communityTenant(communityIdHex)
@@ -46,6 +59,8 @@ internal object Concord {
      *    rumor has no seal left for the fold to check the form of. This is the
      *    other half of the boundary the WebView's `writeOpened` guards from the
      *    plane side.
+     *  - its `ms` tag is malformed (CORD-02 §4): the WebView's open refuses it,
+     *    so no reader would ever have filed it;
      *  - its NIP-40 deadline has passed (CORD-08 §3). The WebView's
      *    `writeRumors` refuses an expired chat rumor at ingest, and its sweep
      *    only walks rows the read filter already hides — a second writer that
@@ -59,6 +74,7 @@ internal object Concord {
         if (communityIdHex.isEmpty()) return false
         if (sealKind != SEAL_ENCRYPTED) return false
         if (rumor.kind in PLANE_KINDS) return false
+        if (resolvedMs(rumor.createdAt, rumor.tags) == null) return false
         return !Dm17.isExpired(rumor.tags, now)
     }
 }

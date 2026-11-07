@@ -556,6 +556,10 @@ export function useTransport(
   const canMentionEveryone = Boolean(
     user && channel && moderation.canMentionEveryone?.(user.pubkey, channel.idHex)
   );
+  const mentionRoles = useMemo(
+    () => (user ? moderation.mentionRolesFor?.(user.pubkey) ?? [] : []),
+    [user, moderation],
+  );
 
   const transport = useMemo<ChatTransport>(
     () => ({
@@ -564,6 +568,7 @@ export function useTransport(
       canWrite,
       canModerate,
       canMentionEveryone,
+      mentionRoles,
       mentionsEveryone,
       isRumor: true,
       rotationDividerIds,
@@ -593,7 +598,7 @@ export function useTransport(
       sendThreadReply,
       canSend,
     }),
-    [timeline, isLoading, canWrite, canModerate, canMentionEveryone, mentionsEveryone, rotationDividerIds, quarantinedIds, pausedIds, loadOlder, hasMore, isLoadingOlder, hasNewer, loadNewer, isLoadingNewer, returnToPresent, sendStatusFor, retryEvent, discard, deleteEvent, editMessage, replyCountFor, reactionsFor, zapsFor, sendZap, sendOnchainZap, pollFor, sendPoll, calendarFor, threadRepliesFor, sendThreadReply, canSend],
+    [timeline, isLoading, canWrite, canModerate, canMentionEveryone, mentionRoles, mentionsEveryone, rotationDividerIds, quarantinedIds, pausedIds, loadOlder, hasMore, isLoadingOlder, hasNewer, loadNewer, isLoadingNewer, returnToPresent, sendStatusFor, retryEvent, discard, deleteEvent, editMessage, replyCountFor, reactionsFor, zapsFor, sendZap, sendOnchainZap, pollFor, sendPoll, calendarFor, threadRepliesFor, sendThreadReply, canSend],
   );
 
   // From RAW rows: pinning needs the original seal, and edit proofs the consumed Edit rumor.

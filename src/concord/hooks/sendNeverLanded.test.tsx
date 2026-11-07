@@ -84,6 +84,7 @@ const pool = {
 };
 
 vi.mock("@nostrify/react", () => ({ useNostr: () => ({ nostr: pool }) }));
+vi.mock("@/hooks/useAccountSecret", () => ({ useAccountSecret: () => undefined }));
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: h.user }) }));
 vi.mock("@/hooks/useAppContext", () => ({
   useAppContext: () => ({ config: { appRelays: ["wss://app.test"], communityRelays: [] } }),

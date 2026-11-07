@@ -16,6 +16,7 @@
     "deploy:nsite": "npm run build && nsyte deploy dist --prompt-sec",
     "i18n:extract": "node scripts/i18n.mjs extract",
     "i18n:check": "node scripts/i18n.mjs check",
+    "parity:extract": "node scripts/vector-parity/extract.mjs \"$VECTOR_SRC\" > scripts/vector-parity/points.json",
     "test": "tsc --noEmit && eslint --cache . && npm run i18n:check && vitest run --passWithNoTests --reporter=dot && vite build -l error && npm run build:electron",
     "test:perf": "ARMADA_TEST_PERF=1 vitest run --passWithNoTests",
     "test:e2e": "playwright test",

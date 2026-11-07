@@ -215,10 +215,21 @@ final class ProtocolTests: XCTestCase {
         XCTAssertNil(Concord.open(wrap: concordWrap, stream: wrong))
     }
 
+    func testReadsARumorsMillisecondsAsResolveMsDoes() {
+        // `resolveMs` in src/concord/lib/stream.ts, and Concord.resolvedMs on Android.
+        XCTAssertEqual(Concord.resolvedMs(createdAt: 5, tags: []), 5_000)
+        XCTAssertEqual(Concord.resolvedMs(createdAt: 5, tags: [["ms", "42"]]), 5_042)
+        XCTAssertEqual(Concord.resolvedMs(createdAt: 5, tags: [["ms", "999"], ["ms", "x"]]), 5_999)
+        for bad in ["1000", "042", "+5", " 5", "1e2", "", "-1", "٣"] {
+            XCTAssertNil(Concord.resolvedMs(createdAt: 5, tags: [["ms", bad]]), "ms \(bad)")
+        }
+        XCTAssertNil(Concord.resolvedMs(createdAt: 5, tags: [["ms"]]))
+    }
+
     func testPlaneKindsAreTheOnesReadBackByKind() {
         // The chat ingress refuses exactly these: control, guestbook
         // (join/leave, kick, snapshot) and rekey.
-        XCTAssertEqual(Concord.planeKinds, [3308, 3306, 3309, 3312, 3303])
+        XCTAssertEqual(Concord.planeKinds, [3308, 3306, 3309, 3312, 3314, 3315, 3303])
     }
 
     // MARK: - Canonical event id

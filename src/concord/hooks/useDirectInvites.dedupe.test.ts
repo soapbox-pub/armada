@@ -57,6 +57,14 @@ describe("dedupeParkedInvites", () => {
     expect(out[0].wrapId).toBe("new");
   });
 
+  it("keeps each sender's catch-up for the same channels, so a newer one can't bury the genuine vend", () => {
+    const out = dedupeParkedInvites([
+      inv({ communityId: "A", wrapId: "staff", sender: "admin", receivedAt: 100, catchUp: true, bundle: { channels: [chan("cc")] } as unknown as InviteBundle }),
+      inv({ communityId: "A", wrapId: "junk", sender: "stranger", receivedAt: 900, catchUp: true, bundle: { channels: [chan("cc")] } as unknown as InviteBundle }),
+    ]);
+    expect(new Set(out.map((i) => i.wrapId))).toEqual(new Set(["staff", "junk"]));
+  });
+
   it("keeps catch-ups for the same community that vend DIFFERENT channels", () => {
     // Each carries a private-channel key the member still lacks; collapsing by
     // community would hide a key that exists in no other wrap.
@@ -80,6 +88,15 @@ describe("dedupeParkedInvites", () => {
 
 describe("splitInviteInbox", () => {
   const known = (pubkey: string) => pubkey === "friend";
+
+  it("lists a catch-up only once it's judged a manual Accept, and never badges one being adopted", () => {
+    const keys = (wrapId: string) => inv({ communityId: "A", wrapId, receivedAt: 100, catchUp: true, sender: "admin" });
+    const manual = (wrapId: string) => wrapId === "refused";
+    const out = splitInviteInbox([keys("adopting"), keys("refused")], 0, known, new Set(), manual);
+    expect(out.items.map((i) => i.invite.wrapId)).toEqual(["refused"]);
+    expect(out.unreadCount).toBe(1);
+    expect(out.catchUps.map((i) => i.wrapId).sort()).toEqual(["adopting", "refused"]);
+  });
 
   it("puts known senders in the inbox and strangers in requests, newest first", () => {
     const out = splitInviteInbox(

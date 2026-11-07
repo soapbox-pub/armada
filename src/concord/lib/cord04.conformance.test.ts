@@ -23,12 +23,14 @@
  * `concord/04.md`, the spec wins and this file is the bug.
  */
 
+import type { ParsedEdition } from "@/concord/lib/edition";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import type { EventTemplate } from "nostr-tools/pure";
 import { describe, expect, it } from "vitest";
 
 import {
   buildBanlistEdition,
+  MAX_BANLIST,
   buildChannelEdition,
   buildGrantEdition,
   buildMetadataEdition,
@@ -169,7 +171,7 @@ describe("CORD-04 §1 — Editions", () => {
     // a cold chain walk is contiguous only if its lowest edition is version 1
     // with no prev. A chain that starts at 2 is a gap (which a fresh joiner
     // may still bootstrap past — O-16 — but a tracking client will not).
-    expect(fold([ed(1n, undefined, 1), ed(2n, 1, 2)], 0n)).toEqual({ head: 1, gap: false });
+    expect(fold([ed(1n, undefined, 1), ed(2n, 1, 2)], 0n)).toMatchObject({ head: 1, gap: false });
     expect(fold([ed(2n, undefined, 2), ed(3n, 2, 3)], 0n).gap).toBe(true);
 
     // "Only ever climbs": the head is the top of the contiguous run, and the
@@ -382,19 +384,19 @@ describe("CORD-04 §1 — Editions", () => {
 
   it("O-12: the fold takes the highest version whose chain is intact", () => {
     // Contiguous: the top of the chain.
-    expect(fold([ed(1n, undefined, 1), ed(2n, 1, 2), ed(3n, 2, 3)], 0n)).toEqual({ head: 2, gap: false });
+    expect(fold([ed(1n, undefined, 1), ed(2n, 1, 2), ed(3n, 2, 3)], 0n)).toMatchObject({ head: 2, gap: false });
     // A hole: stop at the contiguous prefix and report the gap — never skip it.
     const holed = fold([ed(1n, undefined, 1), ed(3n, 2, 3)], 0n);
     expect(holed.head).toBe(0);
     expect(holed.gap).toBe(true);
     // Arrival order is not an input: relays serve arbitrary subsets in any order.
     const linked = (v: number) => ed(BigInt(v), v === 1 ? undefined : v - 1, v);
-    expect(fold([linked(3), linked(1), linked(5), linked(2), linked(4)], 0n)).toEqual({ head: 2, gap: false });
+    expect(fold([linked(3), linked(1), linked(5), linked(2), linked(4)], 0n)).toMatchObject({ head: 2, gap: false });
   });
 
   it("O-13: refuse-to-downgrade — a lower version is ignored", async () => {
     // The pure rule: below the floor is skipped outright.
-    expect(fold([ed(1n, undefined, 1), ed(2n, 1, 2)], 2n, new Uint8Array(32).fill(2))).toEqual({ head: 1, gap: false });
+    expect(fold([ed(1n, undefined, 1), ed(2n, 1, 2)], 2n, new Uint8Array(32).fill(2))).toMatchObject({ head: 1, gap: false });
 
     // And the shape it takes on the wire, which is the spec's own example —
     // "a relay replaying a stale Grant or a lifted Ban is rejected". A client
@@ -448,7 +450,7 @@ describe("CORD-04 §1 — Editions", () => {
     expect(attacked.gap).toBe(false);
     expect(attacked.head).toBe(2); // advanced to v3
     // And identically whichever order the relay serves them in.
-    expect(fold([real, junk, next], 2n, floorHash)).toEqual(attacked);
+    expect(fold([real, junk, next], 2n, floorHash)).toMatchObject({ head: attacked.head, gap: attacked.gap });
 
     // A cold walk is protected the same way: the junk sibling at v1 has no
     // valid `prev === undefined` anchor, so the real v1 still anchors.
@@ -457,7 +459,7 @@ describe("CORD-04 §1 — Editions", () => {
     expect(cold.head).toBe(2);
   });
 
-  it("O-14d: under a gap, only the floor's OWN edition may be re-seated", async () => {
+  it("O-14d: under a gap, a rival takes the floor's place only by winning the tiebreak against it", async () => {
     // The sibling of O-13. There, the replay was a LOWER version and was
     // refused by refuse-to-downgrade. Here it is the same version number
     // carrying different content — so refuse-to-downgrade never fires, and the
@@ -470,31 +472,46 @@ describe("CORD-04 §1 — Editions", () => {
       control,
       owner,
     );
-    const b2 = await round(
-      buildBanlistEdition(communityId, [], { actorPubkey: owner.pubkey, version: 2n, prevHash: b1.selfHash }),
-      control,
-      owner,
-    );
+    // The settled v2 lifts the Ban; of nine such, the median id, so rivals fall on both sides of it.
+    const lifts: ParsedEdition[] = [];
+    for (let n = 0; n < 9; n++) {
+      lifts.push(await round(
+        buildBanlistEdition(communityId, [keypair().pubkey], { actorPubkey: owner.pubkey, version: 2n, prevHash: b1.selfHash }),
+        control,
+        owner,
+      ));
+    }
+    const b2 = lifts.sort((a, b) => (bytesToHex(a.rumorId) < bytesToHex(b.rumorId) ? -1 : 1))[4];
     const synced = foldControlState([b1, b2], communityId, owner.pubkey);
     expect(synced.banned.has(target.pubkey)).toBe(false);
 
-    // A fork of the head: same entity, same version, same prev — different
-    // content, so a different edition hash. Signed by the owner, so authority
-    // is not what stops it; only the floor-hash check is.
-    const fork = await round(
-      buildBanlistEdition(communityId, [target.pubkey], {
-        actorPubkey: owner.pubkey,
-        version: 2n,
-        prevHash: b1.selfHash,
-      }),
-      control,
-      owner,
-    );
-    expect(bytesToHex(fork.selfHash)).not.toBe(bytesToHex(b2.selfHash));
+    // Forks of the head: same entity, same version, same prev — different content,
+    // so a different edition hash. Signed by the owner, so authority is equal and
+    // only the tiebreak against the settled edition decides (CORD-04 §2): a rival
+    // that loses it can't be swapped in by withholding; one that wins it would have
+    // won had both been served.
+    const forks: ParsedEdition[] = [];
+    for (let n = 0; n < 24; n++) {
+      forks.push(await round(
+        buildBanlistEdition(communityId, [target.pubkey, ...Array.from({ length: n }, () => keypair().pubkey)], {
+          actorPubkey: owner.pubkey,
+          version: 2n,
+          prevHash: b1.selfHash,
+        }),
+        control,
+        owner,
+      ));
+    }
+    const settledId = bytesToHex(b2.rumorId);
+    const losing = forks.find((f) => bytesToHex(f.rumorId) > settledId)!;
+    const winning = forks.find((f) => bytesToHex(f.rumorId) < settledId)!;
+    expect(losing && winning, "random ids fall on both sides of the median").toBeTruthy();
 
-    const attacked = foldControlState([fork], communityId, owner.pubkey, synced.heads);
+    const attacked = foldControlState([losing], communityId, owner.pubkey, synced.heads);
     expect(attacked.banned.has(target.pubkey)).toBe(false);
     expect(attacked.incomplete).toContain(bytesToHex(banlistLocator(communityId)));
+    const won = foldControlState([winning], communityId, owner.pubkey, synced.heads);
+    expect(won.banned.has(target.pubkey)).toBe(true);
 
     // The genuine head, re-served alone, is still accepted: this must reject
     // forks, not every re-serve.
@@ -596,16 +613,12 @@ describe("CORD-04 §2 — The Roster", () => {
     });
     expect(roleFromJSON(roleToJSON(scoped))).toEqual(scoped);
 
-    // The reader is deliberately TOLERANT of the cosmetic fields (an absent
-    // name/scope/color defaults) but strict about the three that carry meaning:
-    // an unusable role_id, permissions, or position makes the Role unreadable
-    // rather than half-read, because a half-read Role still confers rank.
+    // Read as Vector's serde reads it: name, scope, position and permissions are
+    // required, colour defaults, and a field of the wrong type refuses the Role.
     const wire = JSON.parse(roleToJSON(scoped)) as Record<string, unknown>;
-    expect(roleFromJSON(JSON.stringify({ ...wire, name: undefined, scope: undefined, color: undefined }))).toMatchObject({
-      name: "",
-      scope: { kind: "server" },
-      color: 0,
-    });
+    expect(roleFromJSON(JSON.stringify({ ...wire, color: undefined }))).toMatchObject({ color: 0 });
+    expect(roleFromJSON(JSON.stringify({ ...wire, name: undefined }))).toBeUndefined();
+    expect(roleFromJSON(JSON.stringify({ ...wire, scope: undefined }))).toBeUndefined();
     expect(roleFromJSON(JSON.stringify({ ...wire, role_id: "nothex" }))).toBeUndefined();
     expect(roleFromJSON(JSON.stringify({ ...wire, permissions: {} }))).toBeUndefined();
     expect(roleFromJSON(JSON.stringify({ ...wire, position: 1.5 }))).toBeUndefined();
@@ -699,6 +712,13 @@ describe("CORD-04 §2 — The Roster", () => {
     // The cap is BYTES, not characters: a 4-byte emoji blows it at 16 glyphs.
     const multibyte = { ...ok, name: "🚢".repeat(17) };
     expect(() => buildRoleEdition(multibyte, editionOpts)).toThrow(/64 bytes/);
+  });
+
+  it("O-22b: a Banlist edition past 500 npubs is refused before it is built (Vector `validate_banlist`)", () => {
+    const keys = (n: number) => Array.from({ length: n }, (_, i) => i.toString(16).padStart(64, "0"));
+    const cid = random32();
+    expect(() => buildBanlistEdition(cid, keys(MAX_BANLIST), editionOpts)).not.toThrow();
+    expect(() => buildBanlistEdition(cid, keys(MAX_BANLIST + 1), editionOpts)).toThrow(/at most 500/);
   });
 
   it("O-22: a member holds at most 64 Roles — a longer grant is truncated on read", () => {
