@@ -4,6 +4,16 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.68.1] - 2026-11-06
+
+Opening Armada no longer gets stuck on a community you've left: the app skips
+communities this account can't open and lands on the next one, and "Back to
+base" now takes you somewhere else.
+
+### Fixed
+- Opening the app no longer lands on a "You don't have access" screen for a community you've left, with "Back to base" leading back to it
+- The diamond on the gift box is centered while it unwraps
+
 ## [0.68.0] - 2026-11-06
 
 Give someone Armada Ultra: send a gift link from Settings or straight from
