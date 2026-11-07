@@ -44,7 +44,8 @@ export function GiftBox({ open, shaking, bob = true, rays = true, className }: {
         )}
 
         {open && (
-          <div className="absolute left-1/2 top-[-6%] h-[52%] w-[52%] -translate-x-1/2 motion-safe:animate-gift-reveal [animation-delay:250ms]">
+          // Centered by insets: gift-reveal's keyframes own `transform`.
+          <div className="absolute inset-x-[24%] top-[-6%] h-[52%] motion-safe:animate-gift-reveal [animation-delay:250ms]">
             <div className="flex size-full items-center justify-center [container-type:size] motion-safe:animate-gift-bob">
               <span className="font-emoji leading-none drop-shadow-[0_0_18px_rgba(255,255,255,0.8)]" style={{ fontSize: "80cqh" }}>
                 💎
