@@ -208,6 +208,38 @@ export default {
 				'0%': { transform: 'translateY(0) scale(0.4)', opacity: '0' },
 				'20%': { transform: 'translateY(-15%) scale(1)', opacity: '1' },
 				'100%': { transform: 'translateY(var(--float, -120px)) scale(0.8)', opacity: '0' }
+			},
+			'gift-bob': {
+				// Ultra gifts: a wrapped box hovering in place.
+				'0%, 100%': { transform: 'translateY(0) rotate(-2deg)' },
+				'50%': { transform: 'translateY(-6%) rotate(2deg)' }
+			},
+			'gift-shake': {
+				// The box rattling just before it opens.
+				'0%, 100%': { transform: 'rotate(0deg) scale(1)' },
+				'20%': { transform: 'rotate(-9deg) scale(1.04)' },
+				'40%': { transform: 'rotate(8deg) scale(1.06)' },
+				'60%': { transform: 'rotate(-6deg) scale(1.08)' },
+				'80%': { transform: 'rotate(4deg) scale(1.1)' }
+			},
+			'gift-burst': {
+				// The flash of light out of an opened box.
+				'0%': { transform: 'translate(-50%, -50%) scale(0.2)', opacity: '1' },
+				'100%': { transform: 'translate(-50%, -50%) scale(3)', opacity: '0' }
+			},
+			'gift-aurora': {
+				// The drifting colour behind a gift.
+				'0%, 100%': { transform: 'translate(0, 0) scale(1)' },
+				'33%': { transform: 'translate(8%, 6%) scale(1.15)' },
+				'66%': { transform: 'translate(-6%, 4%) scale(0.9)' }
+			},
+			'gift-twinkle': {
+				'0%, 100%': { opacity: '0.15', transform: 'scale(0.6)' },
+				'50%': { opacity: '1', transform: 'scale(1)' }
+			},
+			'gift-reveal': {
+				'0%': { transform: 'translateY(16px) scale(0.96)', opacity: '0' },
+				'100%': { transform: 'translateY(0) scale(1)', opacity: '1' }
 			}
 			},
 			animation: {
@@ -225,7 +257,13 @@ export default {
 				'reaction-rise': 'reaction-rise 4s ease-out forwards',
 				'ultra-shimmer': 'ultra-shimmer 4s linear infinite',
 				'ultra-shimmer-twice': 'ultra-shimmer 4s linear 2',
-				'ultra-float': 'ultra-float 2.4s ease-out both'
+				'ultra-float': 'ultra-float 2.4s ease-out both',
+				'gift-bob': 'gift-bob 3.2s ease-in-out infinite',
+				'gift-shake': 'gift-shake 0.5s ease-in-out both',
+				'gift-burst': 'gift-burst 0.9s ease-out both',
+				'gift-aurora': 'gift-aurora 18s ease-in-out infinite',
+				'gift-twinkle': 'gift-twinkle 2.6s ease-in-out infinite',
+				'gift-reveal': 'gift-reveal 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.2) both'
 			}
 		}
 	},

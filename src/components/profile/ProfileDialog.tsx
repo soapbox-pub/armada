@@ -3,6 +3,7 @@ import {
   Award,
   Check,
   Copy,
+  Gift,
   Globe,
   Mail,
   MessageSquare,
@@ -23,6 +24,7 @@ import { DittoIcon } from "@/components/brand/DittoIcon";
 import { BotPill } from "@/components/BotPill";
 import { UltraEffect } from "@/components/UltraEffect";
 import { UltraPill } from "@/components/UltraPill";
+import { useUltraGift } from "@/hooks/useUltraGift";
 import { DisplayName } from "@/components/DisplayName";
 import { EmojifiedText } from "@/components/chat/CustomEmoji";
 import { ProfileImageLightbox } from "@/components/profile/ProfileImageLightbox";
@@ -40,6 +42,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -240,6 +243,9 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
   const { accept } = useAcceptedDms();
   const { reopen } = useClosedDms();
   const { start } = useStartedDms();
+  const { sendToPeer: giftUltra } = useUltraGift();
+  // Pointless for someone who already has it; the gift travels as a DM.
+  const canGift = !!user && !isSelf && !!npub && !config.dmsDisabled && !ultra;
 
   // Followers come from the NIP-85 stats provider (Ditto's source).
   const followingQuery = useFollowingOf(pubkey);
@@ -417,7 +423,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
                             : <><UserPlus className="size-4 mr-1.5" /><FormattedMessage id="profileDialog.follow" defaultMessage="Follow" /></>}
                         </Button>
                       )}
-                      {moderation.actions.length > 0 && (
+                      {(moderation.actions.length > 0 || canGift) && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -430,6 +436,15 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-52">
+                            {canGift && (
+                              <>
+                                <DropdownMenuItem onSelect={() => giftUltra(pubkey)}>
+                                  <Gift className="size-4 mr-2" />
+                                  <FormattedMessage id="profileDialog.giftUltra" defaultMessage="Gift Armada Ultra" />
+                                </DropdownMenuItem>
+                                {moderation.actions.length > 0 && <DropdownMenuSeparator />}
+                              </>
+                            )}
                             <UserModerationMenuSection parts={MENU_PARTS} actions={moderation.actions} />
                           </DropdownMenuContent>
                         </DropdownMenu>

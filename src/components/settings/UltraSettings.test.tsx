@@ -14,6 +14,11 @@ const h = vi.hoisted(() => ({
   profile: {} as Record<string, unknown>,
   publish: vi.fn(),
   rerender: () => {},
+  sendToChat: vi.fn(),
+}));
+
+vi.mock("@/hooks/useUltraGift", () => ({
+  useUltraGift: () => ({ url: "https://armada.buzz/gift/npub1x", sendToChat: h.sendToChat }),
 }));
 
 vi.mock("@/hooks/useUltra", () => ({
@@ -87,5 +92,13 @@ describe("UltraSettings", () => {
     expect(screen.getByTitle(DONATION_BITCOIN)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Monero" }));
     expect(screen.getByTitle(DONATION_MONERO)).toBeInTheDocument();
+  });
+
+  it("gifts Ultra from one button, sending the link to a chat from its dialog", () => {
+    h.profile = { name: "pixelwitch" };
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Gift Ultra" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send to a chat" }));
+    expect(h.sendToChat).toHaveBeenCalledOnce();
   });
 });

@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { Confetti } from "@/components/Confetti";
 import { GenericPaymentContent } from "@/components/GenericPaymentContent";
+import { GiftStage } from "@/components/gift/GiftStage";
+import { GiftUltraButton } from "@/components/gift/GiftUltraButton";
 import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
 import {
   EffectIllustration,
@@ -30,8 +32,10 @@ import {
   DONATION_BITCOIN,
   DONATION_MONERO,
   NAME_STYLES,
+  nameStyleCss,
   PROFILE_EFFECTS,
   ULTRA_DEFAULTS,
+  ULTRA_NAME_CLASS,
   ULTRA_THEMES,
   type AvatarFrameId,
   type NameStyleId,
@@ -41,6 +45,8 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ReactNode } from "react";
+
+const HERO_TITLE_STYLE = nameStyleCss("aurora");
 
 /** The least time the $0.00 "payment" pretends to take. */
 const PROCESSING_MS = 1600;
@@ -124,10 +130,10 @@ export function UltraSettings() {
   );
 }
 
-function UltraHero({ children }: { children: ReactNode }) {
+export function UltraHero({ children }: { children: ReactNode }) {
   return (
-    <div className="relative overflow-hidden clip-corner-lg bg-chrome px-6 py-8 text-center">
-      <div aria-hidden className="absolute inset-0 bg-gradient-to-br from-primary/35 via-accent2/20 to-warning/20" />
+    <div className="relative overflow-hidden clip-corner-lg px-6 py-8 text-center">
+      <GiftStage />
       <div className="relative space-y-3">{children}</div>
     </div>
   );
@@ -170,10 +176,11 @@ function UltraPitch({ self, onContinue }: { self: UltraSelf; onContinue: () => v
     <>
       <UltraHero>
         <HeroGem />
-        <h3 className="text-2xl font-bold tracking-tight">Armada Ultra</h3>
+        <h3 className={cn("text-4xl font-black tracking-tight drop-shadow-[0_0_20px_hsl(var(--primary)/0.45)]", ULTRA_NAME_CLASS)} style={HERO_TITLE_STYLE}>Armada Ultra</h3>
         <p className="text-sm text-muted-foreground">
           <FormattedMessage id="ultraSettings.tagline" defaultMessage="Everything Armada already does, plus some shiny extras, for the low price of nothing." />
         </p>
+        <GiftUltraButton size="default" className="mt-1" />
       </UltraHero>
 
       <section className="space-y-1.5">
@@ -277,7 +284,7 @@ function UltraCheckout({ processing, onPay, onBack }: { processing: boolean; onP
 }
 
 /** A picker tile; the art is the option drawn as it will look. */
-function OptionTile({ active, label, onClick, children }: { active: boolean; label: string; onClick: () => void; children: ReactNode }) {
+export function OptionTile({ active, label, onClick, children }: { active: boolean; label: string; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
@@ -337,7 +344,7 @@ function UltraActive({ self, ultra, celebrating, onSave, onCancel, onError }: {
   return (
     <>
       <UltraHero>
-        <h3 className="text-2xl font-bold tracking-tight">
+        <h3 className={cn("text-4xl font-black tracking-tight drop-shadow-[0_0_20px_hsl(var(--primary)/0.45)]", ULTRA_NAME_CLASS)} style={HERO_TITLE_STYLE}>
           {celebrating
             ? <FormattedMessage id="ultraSettings.welcome" defaultMessage="Welcome to Ultra!" />
             : <FormattedMessage id="ultraSettings.activeTitle" defaultMessage="You're Ultra" />}
@@ -347,6 +354,7 @@ function UltraActive({ self, ultra, celebrating, onSave, onCancel, onError }: {
             <FormattedMessage id="ultraSettings.previewMessage" defaultMessage="This is how everyone sees you." />
           </UltraMessage>
         </div>
+        <GiftUltraButton size="default" />
       </UltraHero>
 
       <SettingsGroup title={intl.formatMessage({ id: "ultraSettings.nameStyle", defaultMessage: "Name style" })}>

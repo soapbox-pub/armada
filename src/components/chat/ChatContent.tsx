@@ -17,6 +17,7 @@ import { mediaHost } from "@/lib/mediaPolicy";
 import { BuzzInviteEmbed } from "@/components/chat/BuzzInviteEmbed";
 import { Nip29GroupInviteEmbed } from "@/components/chat/Nip29GroupInviteEmbed";
 import { InviteEmbed } from "@/components/chat/InviteEmbed";
+import { GiftEmbed } from "@/components/chat/GiftEmbed";
 import { Lightbox } from "@/components/chat/Lightbox";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
 import { MediaFallback } from "@/components/chat/MediaFallback";
@@ -43,6 +44,7 @@ import { getDisplayName } from "@/lib/getDisplayName";
 import { HASHTAG_PATTERN } from "@/lib/hashtag";
 import { isBuzzInviteUrl } from "@/buzz/invite";
 import { isInviteUrl } from "@/concord/lib/invite";
+import { parseGiftUrl } from "@/lib/ultraGift";
 import { EVERYONE_MENTION_PATTERN } from "@/concord/lib/everyoneMention";
 import { parseFileMessageTags, parseImetaMap } from "@/lib/imeta";
 import { KIND_DM_FILE } from "@/lib/nip17/protocol";
@@ -175,6 +177,8 @@ export type ContentToken =
   | { type: "file-embed"; url: string; encryption?: ImetaEncryption; mime?: string; name?: string; size?: number; thumbnail?: string; fallbacks?: string[] }
   | { type: "link-embed"; url: string }
   | { type: "invite-embed"; url: string }
+  /** An Armada Ultra gift link alone on its line. */
+  | { type: "gift-embed"; url: string; from: string }
   | { type: "buzz-invite-embed"; url: string }
   | { type: "group-invite-embed"; url: string; group: GroupAddress }
   | { type: "inline-link"; url: string }
@@ -229,6 +233,7 @@ function collapseAroundBlocks(tokens: ContentToken[]): ContentToken[] {
       || token.type === "cashu-token"
       || token.type === "code-block" || token.type === "quote"
       || token.type === "invite-embed"
+      || token.type === "gift-embed"
       || token.type === "buzz-invite-embed"
       || token.type === "group-invite-embed";
     if (!isBlock) continue;
@@ -721,7 +726,10 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
           // Event/naddr URLs unfold to a rich card with a source back-link. Not
           // invites (encrypted content).
           const nostrFromUrl = isInvite || selfTarget ? null : extractNostrFromUrl(url);
-          if (selfTarget?.kind === "profile") {
+          const giftFrom = isEndOfLine ? parseGiftUrl(url) : undefined;
+          if (giftFrom) {
+            out.push({ type: "gift-embed", url, from: giftFrom });
+          } else if (selfTarget?.kind === "profile") {
             out.push({ type: "mention", pubkey: selfTarget.pubkey });
           } else if (selfTarget?.kind === "chat" && isEndOfLine) {
             out.push({ type: "self-chat-embed", url, route: selfTarget.route, path: selfTarget.path });
@@ -1307,6 +1315,9 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
       case "invite-embed":
         if (inQuote || holdMedia) return inlineLink(key, token.url);
         return <InviteEmbed key={key} url={token.url} className="my-1.5" />;
+      case "gift-embed":
+        if (inQuote || holdMedia) return inlineLink(key, token.url);
+        return <GiftEmbed key={key} from={token.from} className="my-1.5" />;
       case "buzz-invite-embed":
         if (inQuote || holdMedia) return inlineLink(key, token.url);
         return <BuzzInviteEmbed key={key} url={token.url} className="my-1.5" />;
@@ -1569,6 +1580,7 @@ const HELD_CARD_TOKENS: ReadonlySet<ContentToken["type"]> = new Set(["image-embe
 const HELD_PREVIEW_TOKENS: ReadonlySet<ContentToken["type"]> = new Set([
   "link-embed",
   "invite-embed",
+  "gift-embed",
   "buzz-invite-embed",
   "group-invite-embed",
   "nevent-embed",
