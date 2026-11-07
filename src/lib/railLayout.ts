@@ -123,6 +123,23 @@ export function firstRailRoute(
   return null;
 }
 
+/**
+ * History state the `/` redirect hands its landing: the communities it already
+ * found inaccessible on this trip. The rail layout outlives a membership, and
+ * the list resolves after the redirect, so the community page reports a miss
+ * by bouncing home with itself appended; the list only grows, so it terminates.
+ */
+export interface HomeLandingState {
+  homeSkipped: string[];
+}
+
+/** The skipped communities if `state` came from the `/` redirect, else `null`. */
+export function homeSkippedOf(state: unknown): string[] | null {
+  if (!state || typeof state !== "object") return null;
+  const skipped = (state as Partial<HomeLandingState>).homeSkipped;
+  return Array.isArray(skipped) && skipped.every((id) => typeof id === "string") ? skipped : null;
+}
+
 /** Canonicalize: dedupe keys (first wins), drop empty folders, dissolve single-item folders (Discord behavior). */
 export function normalizeLayout(nodes: RailLayoutNode[]): RailLayoutNode[] {
   const seenKeys = new Set<string>();

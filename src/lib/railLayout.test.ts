@@ -8,6 +8,7 @@ import {
   firstRailRoute,
   flattenLayout,
   folderAnchor,
+  homeSkippedOf,
   itemAnchor,
   mergeLayout,
   normalizeLayout,
@@ -221,6 +222,21 @@ describe("firstRailRoute", () => {
 
   it("has no route when a blocked community is the only one", () => {
     expect(firstRailRoute([item("c2:banned")], [], blocked)).toBeNull();
+  });
+});
+
+describe("homeSkippedOf", () => {
+  it("reads the skipped communities the / redirect handed its landing", () => {
+    expect(homeSkippedOf({ homeSkipped: [] })).toEqual([]);
+    expect(homeSkippedOf({ homeSkipped: ["left", "gone"] })).toEqual(["left", "gone"]);
+  });
+
+  it("is null for any other history state, so only a home landing bounces", () => {
+    expect(homeSkippedOf(null)).toBeNull();
+    expect(homeSkippedOf(undefined)).toBeNull();
+    expect(homeSkippedOf({ background: {} })).toBeNull();
+    expect(homeSkippedOf({ homeSkipped: "left" })).toBeNull();
+    expect(homeSkippedOf({ homeSkipped: [1] })).toBeNull();
   });
 });
 

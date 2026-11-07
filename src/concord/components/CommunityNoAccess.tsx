@@ -1,9 +1,11 @@
 import { Lock, UserIcon } from "lucide-react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { getAvatarShape } from "@/lib/avatarShape";
+import { type HomeLandingState } from "@/lib/railLayout";
 import { useLoggedInAccounts } from "@/hooks/useLoggedInAccounts";
 import { useSwitchAccount } from "@/hooks/useSwitchAccount";
 import { FormattedMessage, useIntl } from "@/i18n";
@@ -13,9 +15,11 @@ import { FormattedMessage, useIntl } from "@/i18n";
  * nothing about the community: without keys there's no non-leaking version,
  * and naming it would leak the previous account's vault. Mounted only once the
  * list has resolved (an unresolved list looks empty). Offers account switching.
+ * "Back to base" skips this community, which may be the rail's first item.
  */
-export function CommunityNoAccess() {
+export function CommunityNoAccess({ communityId }: { communityId: string }) {
   const intl = useIntl();
+  const homeState = useMemo<HomeLandingState>(() => ({ homeSkipped: [communityId] }), [communityId]);
   const { currentUser, otherUsers } = useLoggedInAccounts();
   const { switchTo } = useSwitchAccount();
 
@@ -66,7 +70,7 @@ export function CommunityNoAccess() {
       )}
 
       <Button asChild variant="outline">
-        <Link to="/"><FormattedMessage id="communityNoAccess.backToBase" defaultMessage="Back to base" /></Link>
+        <Link to="/" state={homeState}><FormattedMessage id="communityNoAccess.backToBase" defaultMessage="Back to base" /></Link>
       </Button>
     </div>
   );

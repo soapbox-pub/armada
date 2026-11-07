@@ -27,7 +27,7 @@ import { useMeshTransport } from "@/hooks/useMeshTransport";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useNip29Servers } from "@/hooks/useNip29Servers";
 import { useIsBlocked } from "@/lib/blocklistStore";
-import { firstRailRoute } from "@/lib/railLayout";
+import { firstRailRoute, homeSkippedOf, type HomeLandingState } from "@/lib/railLayout";
 import { parseJoinLink, setPendingJoin } from "@/lib/joinLink";
 import { CONCORD2_PANES } from "@/lib/routes";
 import { lazyWithReload } from "@/lib/chunkReload";
@@ -145,10 +145,13 @@ function HomeRedirect() {
   // available synchronously, so this doesn't race the lists' async load.
   const liveServers = useNip29Servers();
   const isBlocked = useIsBlocked();
-  const firstRoute = useMemo(
-    () => firstRailRoute(config.railLayout, liveServers, isBlocked),
-    [config.railLayout, liveServers, isBlocked],
-  );
+  const { state: historyState } = useLocation();
+  const homeSkipped = useMemo(() => homeSkippedOf(historyState) ?? [], [historyState]);
+  const firstRoute = useMemo(() => {
+    const skipped = new Set(homeSkipped);
+    return firstRailRoute(config.railLayout, liveServers, (id) => isBlocked(id) || skipped.has(id));
+  }, [config.railLayout, liveServers, isBlocked, homeSkipped]);
+  const landingState = useMemo<HomeLandingState>(() => ({ homeSkipped }), [homeSkipped]);
 
   if (!state.ready) {
     // Launch URL not yet known: hold the redirect (can reach the 1.5s bridge timeout).
@@ -183,7 +186,7 @@ function HomeRedirect() {
     // `/dm` bounces to `/` when DMs are disabled, so avoid the loop.
     return <Navigate to={config.dmsDisabled ? "/discover" : "/dm"} replace />;
   }
-  return <Navigate to={firstRoute} replace />;
+  return <Navigate to={firstRoute} replace state={landingState} />;
 }
 
 /** Bounce signed-out users to `/` for account-scoped routes. */

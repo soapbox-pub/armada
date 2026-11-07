@@ -142,6 +142,7 @@ import { concordChannelMuteKey, useMutes } from "@/hooks/useMutes";
 import { useNotifLevels, concordChannelScopeKey } from "@/hooks/useNotifLevels";
 import { concordThreadReadKey, useReadState } from "@/hooks/useReadState";
 import { useIsBlocked } from "@/lib/blocklistStore";
+import { homeSkippedOf, type HomeLandingState } from "@/lib/railLayout";
 import { usePageCovered } from "@/lib/settingsOverlay";
 import { NotifLevelMenu } from "@/components/NotifLevelMenu";
 import { toast } from "@/hooks/useToast";
@@ -2581,7 +2582,15 @@ function ConcordCommunityPage() {
 
   if (!communityId) return <Navigate to="/" replace />;
   // Render NOTHING of the community to a non-member; placed before all of it.
-  if (noAccess) return <CommunityNoAccess />;
+  if (noAccess) {
+    // Landed here by the `/` redirect: try the next rail item instead.
+    const homeSkipped = homeSkippedOf(location.state);
+    if (homeSkipped && !homeSkipped.includes(communityId)) {
+      const state: HomeLandingState = { homeSkipped: [...homeSkipped, communityId] };
+      return <Navigate to="/" replace state={state} />;
+    }
+    return <CommunityNoAccess communityId={communityId} />;
+  }
 
   const handleSend = async (content: string, tags: string[][]) => {
     // Composer tags are sealed verbatim; `h` and stray `e` always dropped. INLINE
