@@ -15,12 +15,11 @@ import { useEffect, useRef } from "react";
 import { useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { useControlFold } from "@/concord/hooks/useControlPlane";
 import { heldChannelKeys } from "@/concord/lib/communityList";
-import { openChannelSeal } from "@/concord/lib/channelSeal";
-import { accessPlane, deliveryTrusted, parseDelivery } from "@/concord/lib/delivery";
+import { accessDeliveryAdmits, accessKeyRefuted, accessPlane, parseDelivery } from "@/concord/lib/delivery";
 import { bytesToHex, hex32 } from "@/concord/lib/derive";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { base64ToBytes, decodeWrappedKey, myLocator } from "@/concord/lib/rekey";
-import { channelPermissions, isAuthorized, Permissions } from "@/concord/lib/roles";
+import { channelPermissions, Permissions } from "@/concord/lib/roles";
 import { adoptHistoryDeliveries, historyViewsReady, parseHistoryDelivery } from "@/concord/lib/history";
 import { openWrap } from "@/concord/lib/stream";
 import type { Community } from "@/concord/lib/types";
@@ -115,16 +114,9 @@ export function useChannelAccess(community: Community | undefined): void {
       for (const { channelIdHex, opened } of query.data!) {
         const d = parseDelivery(opened);
         if (!d || d.form !== "access" || d.scopeIdHex !== channelIdHex) continue;
-        // Only the epoch the walk has reached or the one after (CORD-03 §5): for a
-        // Channel this member holds nothing of, the sealed head's.
+        // For a Channel this member holds nothing of, the walk starts at the sealed head.
         const sealed = folded.channels.get(channelIdHex)?.sealed;
-        const walk = sealed?.epoch ?? 0n;
-        if (d.newEpoch < walk || d.newEpoch > walk + 1n) continue;
-        if (!deliveryTrusted(folded.roster, folded.ownerHex, folded.banned, channelIdHex, me, d.deliverer)) continue;
-        // Nothing authenticates a key past the seal, so only the owner or a manager, who
-        // could rotate to a key of their own, is taken at its word; a peer's waits for it.
-        if (sealed && d.newEpoch > sealed.epoch && d.deliverer !== folded.ownerHex &&
-          !isAuthorized(folded.roster, d.deliverer, folded.ownerHex, Permissions.MANAGE_CHANNELS)) continue;
+        if (!accessDeliveryAdmits(folded, sealed, channelIdHex, me, d.deliverer, d.newEpoch)) continue;
         const locator = myLocator(d.deliverer, me, channelIdHex, d.newEpoch);
         const blob = d.blobs.find((b) => b.locator.toLowerCase() === locator);
         const purpose = `access:${channelIdHex}:${d.newEpoch}`;
@@ -132,9 +124,7 @@ export function useChannelAccess(community: Community | undefined): void {
         try {
           const plain = await nip44.decrypt(d.deliverer, blob.wrapped);
           const key = decodeWrappedKey(base64ToBytes(plain), hex32(channelIdHex), d.newEpoch);
-          // A key at the sealed head's epoch must open it: what authenticates the key.
-          const sealed = folded.channels.get(channelIdHex)?.sealed;
-          if (sealed && sealed.epoch === d.newEpoch && !openChannelSeal(sealed, { id: hex32(channelIdHex), key, epoch: d.newEpoch, name: "" })) {
+          if (accessKeyRefuted(sealed, channelIdHex, d.newEpoch, key)) {
             noteRefused(purpose, d.deliverer, blob.wrapped);
             continue;
           }

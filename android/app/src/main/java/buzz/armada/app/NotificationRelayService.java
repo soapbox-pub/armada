@@ -4428,14 +4428,7 @@ public class NotificationRelayService extends Service {
             // tags, so requiring them here can only drop what it drops too —
             // and keeps the notification from naming a channel the payload
             // never committed to.
-            // Exactly one of each, as the WebView's uniqueTag requires.
-            String ch = uniqueTagValue(rumor, "channel");
-            String ep = uniqueTagValue(rumor, "epoch");
-            if (ch == null || !st.channelId.equals(ch)) return null;
-            if (ep == null || st.epoch.isEmpty() || !st.epoch.equals(ep)) return null;
-            // Only read addresses are listened on, and a `wepoch` there is forged
-            // (CORD-03 §3), as the WebView's checkWriterBinding refuses it.
-            if (hasTag(rumor, "wepoch")) return null;
+            if (!concordBound(rumor, st.channelId, st.epoch)) return null;
             return new ConcordOpen(rumor, sealKind);
         } catch (Exception e) {
             return null;
@@ -8456,6 +8449,20 @@ public class NotificationRelayService extends Service {
             found = tag.optString(1);
         }
         return found;
+    }
+
+    /**
+     * Whether a chat rumor is bound to the read stream that opened it: exactly one
+     * `channel` and one `epoch`, equal to the stream's, as the WebView's uniqueTag
+     * requires, and no `wepoch`. Only read addresses are listened on, and a `wepoch`
+     * there is forged (CORD-03 §3), as the WebView's checkWriterBinding refuses it.
+     */
+    static boolean concordBound(JSONObject rumor, String channelId, String epoch) {
+        String ch = uniqueTagValue(rumor, "channel");
+        String ep = uniqueTagValue(rumor, "epoch");
+        if (ch == null || !channelId.equals(ch)) return false;
+        if (ep == null || epoch.isEmpty() || !epoch.equals(ep)) return false;
+        return !hasTag(rumor, "wepoch");
     }
 
     private static boolean hasTag(JSONObject event, String name) {

@@ -5,10 +5,12 @@
  * omits removes anyone.
  */
 
+import { openChannelSeal } from "@/concord/lib/channelSeal";
+import type { SealedChannelMeta } from "@/concord/lib/control";
 import { channelAccessGroupKey, hex32, type GroupKey } from "@/concord/lib/derive";
 import { buildHistoryRumor, encodeHistoryPlaintext, historyLocator, MAX_HISTORY_BLOBS_PER_EVENT, type HistoryView } from "@/concord/lib/history";
 import { KIND_REKEY, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
-import { channelPermissions, hasPermission, Permissions, type CommunityRoles } from "@/concord/lib/roles";
+import { channelPermissions, hasPermission, isAuthorized, Permissions, type CommunityRoles } from "@/concord/lib/roles";
 import { bytesToBase64, encodeWrappedKey, MAX_REKEY_BLOBS_RECEIVED, myLocator, parseRekeyBlobs, REKEY_BLOBS_PER_EVENT, uniqueTag, type RekeyBlob } from "@/concord/lib/rekey";
 import { buildRumor, type OpenedEvent } from "@/concord/lib/stream";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -95,6 +97,41 @@ export function deliveryTrusted(
   if (!view(me)) return false;
   if (deliverer === ownerHex) return true;
   return view(deliverer) || hasPermission(roster, deliverer, Permissions.MANAGE_CHANNELS);
+}
+
+/** The slice of a fold an access-plane delivery is judged against. */
+export interface AccessFold {
+  roster: CommunityRoles;
+  ownerHex: string;
+  banned: ReadonlySet<string>;
+}
+
+/**
+ * Whether an access-plane delivery of a Channel's key at `epoch` is worth opening
+ * (CORD-03 §5): the epoch the walk has reached (the sealed head's) or the one
+ * after, from a trusted deliverer. Nothing authenticates a key past the seal, so
+ * only the owner or a manager, who could rotate to a key of their own, is taken at
+ * its word there; a peer's waits for the seal to reach it.
+ */
+export function accessDeliveryAdmits(
+  fold: AccessFold,
+  sealed: SealedChannelMeta | undefined,
+  channelIdHex: string,
+  me: string,
+  deliverer: string,
+  epoch: bigint,
+): boolean {
+  const walk = sealed?.epoch ?? 0n;
+  if (epoch < walk || epoch > walk + 1n) return false;
+  if (!deliveryTrusted(fold.roster, fold.ownerHex, fold.banned, channelIdHex, me, deliverer)) return false;
+  if (sealed && epoch > sealed.epoch && deliverer !== fold.ownerHex &&
+    !isAuthorized(fold.roster, deliverer, fold.ownerHex, Permissions.MANAGE_CHANNELS)) return false;
+  return true;
+}
+
+/** Whether a delivered key is refuted: at the sealed head's epoch, it must open the seal, what authenticates it. */
+export function accessKeyRefuted(sealed: SealedChannelMeta | undefined, channelIdHex: string, epoch: bigint, key: Uint8Array): boolean {
+  return sealed !== undefined && sealed.epoch === epoch && !openChannelSeal(sealed, { id: hex32(channelIdHex), key, epoch, name: "" });
 }
 
 /** At most this many blobs in an event that hands its recipients writer certificates (Vector `MAX_CERTIFIED_BLOBS_PER_EVENT`). */

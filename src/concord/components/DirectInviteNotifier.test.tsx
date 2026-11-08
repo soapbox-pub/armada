@@ -14,6 +14,9 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { InviteInboxItem } from "@/concord/hooks/useDirectInvites";
+import { sealChannelMetadata } from "@/concord/lib/channelSeal";
+import { readChannelContent, type SealedChannelMeta } from "@/concord/lib/control";
+import { hex32 } from "@/concord/lib/derive";
 import type { InviteBundle } from "@/concord/lib/invite";
 import { Permissions, type Role } from "@/concord/lib/roles";
 
@@ -35,7 +38,7 @@ let fold:
       roster: { roles: Role[]; grants: { member: string; roleIds: string[] }[] };
       ownerHex: string;
       banned: Set<string>;
-      channels: Map<string, { isPrivate: boolean; deleted: boolean }>;
+      channels: Map<string, { isPrivate: boolean; deleted: boolean; sealed?: SealedChannelMeta }>;
     }
   | undefined;
 
@@ -93,7 +96,7 @@ const staffRole: Role = {
   color: 0,
 };
 
-function catchUpFrom(sender: string): InviteInboxItem {
+function catchUpFrom(sender: string, epoch = 0): InviteInboxItem {
   const bundle = {
     community_id: CID,
     owner: OWNER,
@@ -101,7 +104,7 @@ function catchUpFrom(sender: string): InviteInboxItem {
     community_root: ROOT,
     control_pk: CPK,
     root_epoch: 0,
-    channels: [{ id: CH, key: "3".repeat(64), epoch: 0, name: "testers" }],
+    channels: [{ id: CH, key: "3".repeat(64), epoch, name: "testers" }],
     relays: [],
     name: "Crew",
   } as unknown as InviteBundle;
@@ -122,8 +125,24 @@ function entitledFold() {
     },
     ownerHex: OWNER,
     banned: new Set<string>(),
-    channels: new Map([[CH, { isPrivate: true, deleted: false }]]),
+    channels: new Map<string, { isPrivate: boolean; deleted: boolean; sealed?: SealedChannelMeta }>([[CH, { isPrivate: true, deleted: false }]]),
   };
+}
+
+/** The Channel's head sealed at `epoch` under `keyHex`. */
+function sealedAt(epoch: number, keyHex: string): SealedChannelMeta {
+  const s = readChannelContent(sealChannelMetadata({ name: "testers", private: true }, hex32(keyHex), hex32(CH), BigInt(epoch), undefined))!.sealed!;
+  return { ...s, prevHex: undefined };
+}
+
+function rerender(view: ReturnType<typeof mount>) {
+  view.rerender(
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter initialEntries={["/c/x"]}>
+        <DirectInviteNotifier />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
 function mount() {
@@ -298,5 +317,51 @@ describe("DirectInviteNotifier: a granted channel key", () => {
     await flush();
     expect(updateList).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "New community invite" }));
+  });
+});
+
+describe("DirectInviteNotifier: catch-ups no click may accept", () => {
+  const offered = expect.objectContaining({ title: "New channel keys offered" });
+
+  it("neither applies nor offers a banned vendor's key", async () => {
+    fold = entitledFold();
+    fold.banned.add(ADMIN);
+    items = [catchUpFrom(ADMIN)];
+    mount();
+    await flush();
+    await outlastGrace();
+    expect(updateList).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalledWith(offered);
+  });
+
+  it("neither applies nor offers a key the sealed head refutes, even from staff", async () => {
+    fold = entitledFold();
+    fold.channels.set(CH, { isPrivate: true, deleted: false, sealed: sealedAt(0, "5".repeat(64)) });
+    items = [catchUpFrom(ADMIN)];
+    mount();
+    await flush();
+    await outlastGrace();
+    expect(updateList).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalledWith(offered);
+  });
+
+  it("holds an entitled peer's key past the seal, unoffered, until the seal reaches it and opens", async () => {
+    fold = entitledFold();
+    fold.roster.grants.push({ member: PEER, roleIds: ["access"] });
+    fold.channels.set(CH, { isPrivate: true, deleted: false, sealed: sealedAt(0, "5".repeat(64)) });
+    items = [catchUpFrom(PEER, 1)];
+    const view = mount();
+    await flush();
+    await outlastGrace();
+    expect(updateList).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalledWith(offered);
+
+    // The rotation's reseal lands, under the key the peer sent: now it's authenticated.
+    fold = entitledFold();
+    fold.roster.grants.push({ member: PEER, roleIds: ["access"] });
+    fold.channels.set(CH, { isPrivate: true, deleted: false, sealed: sealedAt(1, "3".repeat(64)) });
+    rerender(view);
+    await flush();
+    expect(updateList).toHaveBeenCalledTimes(1);
   });
 });
