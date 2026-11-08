@@ -9,7 +9,7 @@
  * chat UI.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, statSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -73,9 +73,31 @@ const remap = [`--remap-path-prefix=${cargoHome}=/cargo`, `--remap-path-prefix=$
 if (process.env.CARGO_TARGET_DIR) remap.push(`--remap-path-prefix=${process.env.CARGO_TARGET_DIR}=/target`);
 const cargoArgs = ["--config", `target.wasm32-unknown-unknown.rustflags=${JSON.stringify(remap)}`];
 
+// wasm-pack fetches the wasm-bindgen CLI Cargo.lock names, and when the
+// download fails it quietly `cargo install`s one instead, whose output differs
+// in its producers section. Where a matching CLI is installed (the CI and
+// reproduction images pin one) it is used and nothing is fetched; a required
+// build refuses to fall back.
+const lockedBindgen = readFileSync(join(crate, "Cargo.lock"), "utf8")
+  .match(/name = "wasm-bindgen"\nversion = "([^"]+)"/)?.[1];
+const installedBindgen = (() => {
+  try {
+    return execFileSync("wasm-bindgen", ["--version"], { encoding: "utf8" }).trim().split(" ")[1];
+  } catch {
+    return undefined;
+  }
+})();
+const packArgs = [];
+if (lockedBindgen && installedBindgen === lockedBindgen) {
+  packArgs.push("--mode", "no-install");
+} else if (required) {
+  note(`wasm-bindgen ${lockedBindgen} is not installed (found ${installedBindgen ?? "none"}), and WEBXDC_RT_REQUIRED=1.`);
+  process.exit(1);
+}
+
 note("building the realtime transport (first build takes a minute)...");
 try {
-  execFileSync("wasm-pack", ["build", "--release", "--target", "web", "--out-dir", out, crate, "--", ...cargoArgs], {
+  execFileSync("wasm-pack", ["build", "--release", "--target", "web", ...packArgs, "--out-dir", out, crate, "--", ...cargoArgs], {
     stdio: "inherit",
     cwd: root,
   });

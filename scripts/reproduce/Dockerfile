@@ -31,6 +31,11 @@ ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
 ARG RUST_VERSION=1.99.1
 ARG WASM_PACK_VERSION=0.13.1
 ARG WASM_PACK_SHA256=c539d91ccab2591a7e975bcf82c82e1911b03335c80aa83d67ad25ed2ad06539
+# The CLI crates/webxdc-rt/Cargo.lock's wasm-bindgen needs; scripts/build-wasm.mjs
+# uses it instead of letting wasm-pack fetch (or compile) one.
+ARG WASM_BINDGEN_VERSION=0.2.127
+ARG WASM_BINDGEN_SHA256=61d4a7dc85acfa0d2354ccc0b8361928c7e52a746d17f28ebaa795ed3dc1614a
+ARG WASM_BINDGEN_ASSET_ID=505858453
 RUN set -eux; \
     curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal \
       --default-toolchain "${RUST_VERSION}" --target wasm32-unknown-unknown; \
@@ -39,11 +44,49 @@ RUN set -eux; \
     tar -xz -C /opt/cargo/bin --strip-components=1 -f /tmp/wp.tgz \
       "wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl/wasm-pack"; \
     rm /tmp/wp.tgz; \
+    curl -fsSL --retry 3 --retry-all-errors "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o /tmp/wb.tgz \
+      || curl -fsSL -H "Accept: application/octet-stream" "https://api.github.com/repos/wasm-bindgen/wasm-bindgen/releases/assets/${WASM_BINDGEN_ASSET_ID}" -o /tmp/wb.tgz; \
+    echo "${WASM_BINDGEN_SHA256}  /tmp/wb.tgz" | sha256sum -c -; \
+    tar -xz -C /opt/cargo/bin --strip-components=1 -f /tmp/wb.tgz \
+      "wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl/wasm-bindgen"; \
+    rm /tmp/wb.tgz; \
     chmod -R a+rwX /opt/cargo /opt/rustup
 
 # The checkout is mounted here; git refuses a repository owned by another uid.
 RUN git config --system --add safe.directory '*'
 WORKDIR /src
+
+FROM web AS desktop
+# wine runs electron-builder's rcedit on the Windows executables, as in the CI
+# image. The rest unpacks every installer format (squashfs, ar, NSIS/7z,
+# Flatpak bundles, zip), plus flathub's signing key for the Flatpak's BaseApp.
+RUN set -eux; \
+    dpkg --add-architecture i386; \
+    apt-get update -qq; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      wine wine32:i386 wine64 \
+      squashfs-tools 7zip zip unzip ostree flatpak gnupg; \
+    rm -rf /var/lib/apt/lists/*
+ARG FLATHUB_KEY_SHA256=8bdc20abc4e19c0796460beb5bfe0e7aa4138716999e19c6f2dbdd78cc41aeaa
+RUN set -eux; \
+    curl -fsSL https://dl.flathub.org/repo/flathub.gpg -o /etc/flathub.gpg; \
+    echo "${FLATHUB_KEY_SHA256}  /etc/flathub.gpg" | sha256sum -c -
+ARG GO_VERSION=1.26.4
+ARG GO_SHA256=1153d3d50e0ac764b447adfe05c2bcf08e889d42a02e0fe0259bd47f6733ad7f
+ARG RCODESIGN_VERSION=0.29.0
+ARG RCODESIGN_SHA256=dbe85cedd8ee4217b64e9a0e4c2aef92ab8bcaaa41f20bde99781ff02e600002
+# The same file through the API, for when github.com's release redirect is down.
+ARG RCODESIGN_ASSET_ID=209933462
+ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local
+RUN set -eux; \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz; \
+    echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c -; \
+    tar -xz -C /usr/local -f /tmp/go.tgz; rm /tmp/go.tgz; \
+    name="apple-codesign-${RCODESIGN_VERSION}-x86_64-unknown-linux-musl"; \
+    curl -fsSL --retry 3 --retry-all-errors "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F${RCODESIGN_VERSION}/${name}.tar.gz" -o /tmp/rc.tgz \
+      || curl -fsSL -H "Accept: application/octet-stream" "https://api.github.com/repos/indygreg/apple-platform-rs/releases/assets/${RCODESIGN_ASSET_ID}" -o /tmp/rc.tgz; \
+    echo "${RCODESIGN_SHA256}  /tmp/rc.tgz" | sha256sum -c -; \
+    tar -xz -C /usr/local/bin --strip-components=1 -f /tmp/rc.tgz "${name}/rcodesign"; rm /tmp/rc.tgz
 
 FROM web AS android
 ARG JDK_RELEASE=jdk-21.0.11%2B10

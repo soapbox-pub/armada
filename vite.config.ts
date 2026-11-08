@@ -181,6 +181,7 @@ function buildInfo(): Plugin {
           node: process.version,
           rustc: toolVersion("rustc", path.resolve(import.meta.dirname, "crates/webxdc-rt")),
           wasmPack: toolVersion("wasm-pack"),
+          wasmBindgen: toolVersion("wasm-bindgen"),
           // `ring`'s C is compiled into the wasm by the host clang.
           clang: toolVersion("clang"),
         },

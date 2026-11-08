@@ -178,7 +178,19 @@ win:
     - target: portable
       arch: [x64]
 
+# The %TEMP% directory the portable exe unpacks into. Unset, electron-builder
+# names it with a fresh random KSUID per build, so no two builds of a commit
+# would be the same program (scripts/verify-build.mjs compares it whole).
+portable:
+  unpackDirName: armada-${version}
+
 nsis:
+  # The app's languages that share one dialog font. Each further font set
+  # (Japanese, CJK, RTL) gets its own copy of the dialogs, which makensis
+  # numbers in a different order from build to build, so no two builds of a
+  # commit would be the same installer (scripts/verify-build.mjs). Japanese
+  # installs see this English installer; the app itself is still Japanese.
+  installerLanguages: [en_US, de_DE, es_ES, fr_FR, it_IT, nl_NL, pt_BR]
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

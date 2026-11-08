@@ -112,28 +112,36 @@ tests are not parity: a `covered` entry is a test written against Vector's
 behaviour. On a Vector bump, `VECTOR_SRC=<vector>/crates/vector-core/src npm run
 parity:extract`, then give every new point an entry.
 
-### Reproducible web builds
+### Reproducible builds
 
-Two builds of one commit with the same config and toolchain are byte-identical,
-and `node scripts/verify-build.mjs` proves a published one is (the live site,
-or `--apk` a release APK): it reads the build's `build.json` (commit, epoch,
-config, toolchain), rebuilds that commit inside `scripts/reproduce/Dockerfile`
-and compares every file. What this does and doesn't cover is in
-`docs/trust.md`. Keep it that way:
+Two builds of one commit with the same config and toolchain have the same
+content, and `node scripts/verify-build.mjs` proves a published one does (the
+live site, `--apk` a release APK, `--desktop` any desktop artifact): it reads
+the build's `build.json` (commit, epoch, config, toolchain), rebuilds that
+commit inside `scripts/reproduce/Dockerfile` and compares every file. What this
+does and doesn't cover is in `docs/trust.md`. Keep it that way:
 
 - **No wall-clock time in the build.** Use `BUILD_EPOCH` in `vite.config.ts`
-  (`SOURCE_DATE_EPOCH`, else the commit time). Same for randomness, absolute
-  paths and the host's locale.
+  (`SOURCE_DATE_EPOCH`, else the commit time); the desktop job exports
+  `SOURCE_DATE_EPOCH` for the packagers. Same for randomness (electron-builder
+  names the portable exe's unpack directory with a random id unless
+  `portable.unpackDirName` is set), absolute paths and the host's locale.
 - **Every input to the bundle goes through `config()`/`CONFIG_NAMES`**, which
   `/build.json` records. A value baked in any other way cannot be reproduced
   by anyone outside CI.
-- The wasm build remaps its source paths (`scripts/build-wasm.mjs`); a new
-  native build step needs the same.
+- The wasm build remaps its source paths and uses the pinned `wasm-bindgen`
+  CLI, never one wasm-pack fetches or compiles (`scripts/build-wasm.mjs`); a
+  new native build step needs the same care.
 - **Toolchain versions move together**: Node in `.nvmrc`, Rust in
-  `crates/webxdc-rt/rust-toolchain.toml`, wasm-pack/JDK/Android SDK, each in
-  BOTH `.ngit/ci-image/Dockerfile` and `scripts/reproduce/Dockerfile`.
-- The APK verifier mirrors the android job of `release.yml` (`apkBuildScript`);
-  a change to that job's build steps changes it too.
+  `crates/webxdc-rt/rust-toolchain.toml`, wasm-bindgen with `Cargo.lock`, and
+  wasm-pack/Go/JDK/Android SDK, each in BOTH `.ngit/ci-image/Dockerfile` and
+  `scripts/reproduce/Dockerfile`.
+- **The verifier mirrors `release.yml`**: `apkBuildScript` its android job and
+  `desktopBuildScript` its desktop job (and `expectedFlatpak` the Flatpak
+  manifest's build commands). A change to those build steps changes it too.
+- **The Windows installer languages share one font.** makensis numbers each
+  extra font set's dialogs in a different order per build
+  (`nsis.installerLanguages` in `electron/electron-builder.yml`).
 
 ### Profiling (never in a shipped build)
 

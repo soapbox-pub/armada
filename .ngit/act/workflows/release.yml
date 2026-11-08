@@ -133,7 +133,9 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: electron/hevc-publisher/go.mod
+          # Exact, as the CI image and scripts/reproduce/Dockerfile carry it: the
+          # H.265 publisher binary ships in the Linux installers.
+          go-version: "1.26.4"
           cache-dependency-path: electron/hevc-publisher/go.sum
 
       - name: Build standalone web bundle
@@ -207,6 +209,9 @@ jobs:
             v[0-9]*) VERSION="${TAG#v}" ;;
             *) VERSION=0.0.0 ;;
           esac
+          # The commit's time, not the clock's, wherever the packagers stamp one
+          # (the .deb's changelog), so scripts/verify-build.mjs can rebuild them.
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           cd electron
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" package.json
           npm ci --no-audit --no-fund

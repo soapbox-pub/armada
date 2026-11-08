@@ -137,12 +137,22 @@ ENV RUSTUP_HOME=/root/.rustup CARGO_HOME=/root/.cargo
 # Keep in step with crates/webxdc-rt/rust-toolchain.toml, or every job downloads it.
 ARG RUST_VERSION=1.99.1
 ARG WASM_PACK_VERSION=0.13.1
+# Must match wasm-bindgen in crates/webxdc-rt/Cargo.lock: scripts/build-wasm.mjs
+# refuses a required build without it, rather than let wasm-pack fetch or
+# compile its own (whose output differs). Same pin as scripts/reproduce/Dockerfile.
+ARG WASM_BINDGEN_VERSION=0.2.127
+ARG WASM_BINDGEN_SHA256=61d4a7dc85acfa0d2354ccc0b8361928c7e52a746d17f28ebaa795ed3dc1614a
 RUN set -eux; \
     curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal \
       --default-toolchain "${RUST_VERSION}" --target wasm32-unknown-unknown; \
     curl -fsSL "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
       | tar -xz -C /root/.cargo/bin --strip-components=1 \
-          "wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl/wasm-pack"
+          "wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl/wasm-pack"; \
+    curl -fsSL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o /tmp/wb.tgz; \
+    echo "${WASM_BINDGEN_SHA256}  /tmp/wb.tgz" | sha256sum -c -; \
+    tar -xz -C /root/.cargo/bin --strip-components=1 -f /tmp/wb.tgz \
+      "wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl/wasm-bindgen"; \
+    rm /tmp/wb.tgz
 
 # ── nsyte binary (nsite deploys in deploy-nsite.yml) ─────────────────────────
 # The release asset is ~129 MB and has repeatedly died mid-transfer with
@@ -230,9 +240,9 @@ ENV PATH="/opt/hostedtoolcache/go/${GO_VERSION}/x64/bin:$JAVA_HOME/bin:$ANDROID_
 # /opt/hostedtoolcache.
 RUN set -eux; \
     for b in swift swiftc; do ln -sf "/usr/local/swift/usr/bin/$b" /usr/local/bin/; done; \
-    for b in cargo rustc rustup wasm-pack; do ln -sf "/root/.cargo/bin/$b" /usr/local/bin/; done; \
+    for b in cargo rustc rustup wasm-pack wasm-bindgen; do ln -sf "/root/.cargo/bin/$b" /usr/local/bin/; done; \
     node --version; go version; java -version; \
     ruby --version; fastlane --version; zsp --version; wine --version; \
     swift --version; flatpak-builder --version; flatpak info org.electronjs.Electron2.BaseApp >/dev/null; \
-    sdkmanager --version; cargo --version; wasm-pack --version; nsyte --version; \
-    for t in fastlane zsp swift cargo wasm-pack nsyte; do command -v "$t" | grep -qv hostedtoolcache; done
+    sdkmanager --version; cargo --version; wasm-pack --version; wasm-bindgen --version; nsyte --version; \
+    for t in fastlane zsp swift cargo wasm-pack wasm-bindgen nsyte; do command -v "$t" | grep -qv hostedtoolcache; done
