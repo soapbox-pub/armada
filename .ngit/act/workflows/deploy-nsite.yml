@@ -44,8 +44,6 @@ name: Deploy nsite
 #                             the form nsyte documents for CI (`nsyte ci`).
 #                             The SIGNING PUBKEY IS THE SITE ADDRESS, so this
 #                             secret decides whose namespace the site lives in.
-#   KLIPY_API_KEY             KLIPY production API key used by GIF search
-#   VITE_BRIDGE_PORTAL_URL    (optional) Discord bridge portal origin
 # An empty NSYTE_BUNKER FAILS the job rather than skipping quietly: this is
 # the only workflow that publishes the client anywhere, so a skipped run
 # leaves the nsite silently pinned to an older build.
@@ -66,9 +64,8 @@ jobs:
     timeout-minutes: 25
     env:
       # Inlined at build time (src/build/buildConfig.ts), and so public: the
-      # site's /build.json records them for scripts/verify-build.mjs.
-      KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
-      BRIDGE_PORTAL_URL: ${{ secrets.VITE_BRIDGE_PORTAL_URL }}
+      # site's /build.json records it for scripts/verify-build.mjs.
+      BRIDGE_PORTAL_URL: https://bridge.armada.buzz
     steps:
       - uses: actions/checkout@v4
 

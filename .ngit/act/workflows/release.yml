@@ -87,7 +87,6 @@ name: Release
 #   NSYTE_BUNKER             nbunksec for a session on the Soapbox key, which
 #                            owns buzz.armada.app. Signs the NIP-82 release
 #                            (and the nsite deploys).
-#   KLIPY_API_KEY            (optional) GIF search key baked into the bundles
 #   WINDOWS_CSC_LINK         (optional) base64 PFX for Authenticode signing
 #   WINDOWS_CSC_KEY_PASSWORD (optional) its password
 #   GOOGLE_PLAY_SERVICE_ACCOUNT_JSON  (optional) base64 of the Play Console
@@ -138,10 +137,9 @@ jobs:
 
       - name: Build standalone web bundle
         env:
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
           # Discord bridge portal origin (only the origin of links the user
           # clicks — nothing dialed, no data sent). Empty = affordances hidden.
-          BRIDGE_PORTAL_URL: ${{ secrets.VITE_BRIDGE_PORTAL_URL }}
+          BRIDGE_PORTAL_URL: https://bridge.armada.buzz
         run: |
           set -eu
           npm ci
@@ -459,11 +457,10 @@ jobs:
 
       - name: Build web assets and sync into Capacitor
         env:
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
           # Discord bridge portal origin. Only the origin of links the user
           # clicks (nothing is dialed on boot, no Armada data is sent).
           # Empty = every Discord affordance hidden.
-          BRIDGE_PORTAL_URL: ${{ secrets.VITE_BRIDGE_PORTAL_URL }}
+          BRIDGE_PORTAL_URL: https://bridge.armada.buzz
         run: |
           set -eu
           npm ci
