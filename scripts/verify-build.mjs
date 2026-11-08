@@ -530,7 +530,9 @@ if (!prebuilt) {
 
 /** What `target` should contain, from the rebuild; and which of its files are generated metadata. */
 function rebuilt(target, i) {
-  if (prebuilt) return { expected: tree(path.resolve(prebuilt)) };
+  // Site manifests name absolute paths.
+  const sitePaths = (files) => new Map([...files].map(([name, hash]) => [`/${name}`, hash]));
+  if (prebuilt) return { expected: sitePaths(tree(path.resolve(prebuilt))) };
   if (target.kind?.kind === "flatpak") return expectedFlatpak(target, checkout, path.join(scratch, `expected-${i}`));
   if (target.kind) {
     const artifact = rebuiltDesktop(checkout, target.kind);
@@ -540,7 +542,7 @@ function rebuilt(target, i) {
     return { expected: tree(extract(artifact, path.join(scratch, `rebuilt-${i}`)), { gunzip: true }), problems };
   }
   if (apkFile) return { expected: apkEntries(path.join(checkout, "android/app/build/outputs/apk/release/app-release-unsigned.apk")) };
-  return { expected: tree(path.join(checkout, "dist")) };
+  return { expected: sitePaths(tree(path.join(checkout, "dist"))) };
 }
 
 function warnToolchain(recorded) {
