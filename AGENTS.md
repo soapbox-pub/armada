@@ -112,6 +112,23 @@ tests are not parity: a `covered` entry is a test written against Vector's
 behaviour. On a Vector bump, `VECTOR_SRC=<vector>/crates/vector-core/src npm run
 parity:extract`, then give every new point an entry.
 
+### Reproducible web builds
+
+Two builds of one commit with the same config and toolchain are byte-identical,
+and `node scripts/verify-build.mjs` proves the live site is one: it reads
+`/build.json` out of the signed nsite manifest (commit, epoch, config,
+toolchain), rebuilds that commit in a temporary worktree and compares every
+file. Keep it that way:
+
+- **No wall-clock time in the build.** Use `BUILD_EPOCH` in `vite.config.ts`
+  (`SOURCE_DATE_EPOCH`, else the commit time). Same for randomness, absolute
+  paths and the host's locale.
+- **Every input to the bundle goes through `config()`/`CONFIG_NAMES`**, which
+  `/build.json` records. A value baked in any other way cannot be reproduced
+  by anyone outside CI.
+- The wasm build remaps its source paths (`scripts/build-wasm.mjs`); a new
+  native build step needs the same.
+
 ### Profiling (never in a shipped build)
 
 Runtime instrumentation exists only in profiling builds, gated on compile-time

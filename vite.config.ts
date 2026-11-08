@@ -24,12 +24,42 @@ function getCommitSha(): string {
   }
 }
 
+/** Full commit SHA, or empty string without git. Recorded in `/build.json`. */
+function getFullCommitSha(): string {
+  try {
+    return execSync("git rev-parse HEAD", { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The one timestamp a build may carry: `SOURCE_DATE_EPOCH` (reproducible-builds.org),
+ * else the commit's own time, so two builds of one commit come out byte-identical.
+ * Wall-clock time only without git.
+ */
+function getBuildEpoch(): number {
+  const fromEnv = Number(process.env.SOURCE_DATE_EPOCH);
+  if (process.env.SOURCE_DATE_EPOCH && Number.isSafeInteger(fromEnv)) return fromEnv;
+  try {
+    const committed = Number(execSync("git log -1 --format=%ct", { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim());
+    if (Number.isSafeInteger(committed) && committed > 0) return committed;
+  } catch {
+    // fall through
+  }
+  return Math.floor(Date.now() / 1000);
+}
+
+const BUILD_EPOCH = getBuildEpoch();
+
 /**
  * Git tag for the current commit — prefer CI env var, fall back to git. Empty
- * string if untagged (pre-release build).
+ * string if untagged (pre-release build). A SET but empty `CI_COMMIT_TAG` means
+ * untagged, so a verifier can rebuild a branch build from a clone that has the
+ * tag CI's shallow checkout never saw.
  */
 function getCommitTag(): string {
-  if (process.env.CI_COMMIT_TAG) return process.env.CI_COMMIT_TAG;
+  if (process.env.CI_COMMIT_TAG !== undefined) return process.env.CI_COMMIT_TAG;
   try {
     return execSync("git describe --exact-match --tags HEAD 2>/dev/null", { encoding: "utf-8" }).trim();
   } catch {
@@ -95,7 +125,7 @@ function serveChangelog(): Plugin {
 
 /**
  * Writes `/desktop.json`: the desktop shell API level this bundle was built
- * against (`electron/desktopApi.json`) and the build time. A shell refuses a
+ * against (`electron/desktopApi.json`) and the build epoch. A shell refuses a
  * site whose level is above its own, and its own shipped copy's `builtAt` is
  * the floor no site manifest may predate (`electron/webSite.js`).
  */
@@ -107,14 +137,54 @@ function desktopManifest(): Plugin {
     writeBundle(options) {
       const outDir = options.dir ?? path.resolve("dist");
       const { level } = JSON.parse(fs.readFileSync(source, "utf-8")) as { level: number };
-      const manifest = { api: level, builtAt: Math.floor(Date.now() / 1000) };
+      const manifest = { api: level, builtAt: BUILD_EPOCH };
       fs.writeFileSync(path.join(outDir, "desktop.json"), `${JSON.stringify(manifest)}\n`);
     },
   };
 }
 
+function toolVersion(command: string): string | null {
+  try {
+    return execSync(`${command} --version`, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Stamps each build with a unique id:
+ * Writes `/build.json`: everything `scripts/verify-build.mjs` needs to rebuild
+ * this bundle byte-for-byte — the commit, the build epoch, the deployment
+ * config (already readable in the bundle itself) and the toolchain. It sits
+ * inside the signed site manifest, so the manifest commits to its source.
+ */
+function buildInfo(): Plugin {
+  let mode = "production";
+  let root = process.cwd();
+  return {
+    name: "armada-build-info",
+    apply: "build",
+    configResolved(config) {
+      mode = config.mode;
+      root = config.root;
+    },
+    writeBundle(options) {
+      const outDir = options.dir ?? path.resolve("dist");
+      const info = {
+        commit: getFullCommitSha(),
+        tag: getCommitTag(),
+        version: getVersion(),
+        sourceDateEpoch: BUILD_EPOCH,
+        config: loadBuildConfig(mode, root),
+        webxdcRt: fs.existsSync(path.resolve(import.meta.dirname, "src/wasm/webxdc-rt/webxdc_rt_bg.wasm")),
+        toolchain: { node: process.version, rustc: toolVersion("rustc"), wasmPack: toolVersion("wasm-pack") },
+      };
+      fs.writeFileSync(path.join(outDir, "build.json"), `${JSON.stringify(info, null, 2)}\n`);
+    },
+  };
+}
+
+/**
+ * Stamps each build with an id unique to its source commit (the build epoch):
  *  - index.html: fills the `<meta name="build">` placeholder so a device's
  *    running bundle can be identified from the DOM when debugging stale-PWA
  *    issues (installed iOS PWAs resume from memory and can serve a stale cached
@@ -129,7 +199,7 @@ function desktopManifest(): Plugin {
  * indistinguishable from having no card at all.
  */
 function buildStamp(): Plugin {
-  const stamp = new Date().toISOString().slice(0, 19).replace("T", " ") + "Z";
+  const stamp = new Date(BUILD_EPOCH * 1000).toISOString().slice(0, 19).replace("T", " ") + "Z";
   let origin = "https://armada.buzz";
   return {
     name: "armada-build-stamp",
@@ -400,7 +470,7 @@ export default defineConfig({
       ignored: [...BUILD_ARTIFACT_EXCLUDES, "**/electron/.dev-profile/**"],
     },
   },
-  plugins: [react(), buildConfigPlugin(), buildStamp(), serveChangelog(), desktopManifest(), serviceWorker(), npanelPreview(), oneByteScripts()],
+  plugins: [react(), buildConfigPlugin(), buildStamp(), serveChangelog(), desktopManifest(), buildInfo(), serviceWorker(), npanelPreview(), oneByteScripts()],
   optimizeDeps: {
     // Pin the dep-scanner's entry points to the real HTML entries. Left to its
     // default the scanner GLOBS `**/*.html` from the project root, and that
@@ -424,7 +494,7 @@ export default defineConfig({
   },
   define: {
     "import.meta.env.VERSION": JSON.stringify(getVersion()),
-    "import.meta.env.BUILD_DATE": JSON.stringify(new Date().toISOString()),
+    "import.meta.env.BUILD_DATE": JSON.stringify(new Date(BUILD_EPOCH * 1000).toISOString()),
     "import.meta.env.COMMIT_SHA": JSON.stringify(getCommitSha()),
     "import.meta.env.COMMIT_TAG": JSON.stringify(getCommitTag()),
   },

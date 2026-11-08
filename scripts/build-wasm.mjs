@@ -11,6 +11,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, statSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 /**
@@ -64,9 +65,16 @@ if (haveBuild) {
   }
 }
 
+// Panic locations embed source paths; remapping the machine-specific prefixes
+// keeps the wasm identical across checkouts (scripts/verify-build.mjs). Cargo
+// appends `--config` arrays to the crate's own rustflags rather than replacing them.
+const cargoHome = process.env.CARGO_HOME || join(homedir(), ".cargo");
+const remap = [`--remap-path-prefix=${cargoHome}=/cargo`, `--remap-path-prefix=${root}=/armada`];
+const cargoArgs = ["--config", `target.wasm32-unknown-unknown.rustflags=${JSON.stringify(remap)}`];
+
 note("building the realtime transport (first build takes a minute)...");
 try {
-  execFileSync("wasm-pack", ["build", "--release", "--target", "web", "--out-dir", out, crate], {
+  execFileSync("wasm-pack", ["build", "--release", "--target", "web", "--out-dir", out, crate, "--", ...cargoArgs], {
     stdio: "inherit",
     cwd: root,
   });

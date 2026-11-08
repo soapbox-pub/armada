@@ -65,7 +65,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      # Inlined at build time (src/build/buildConfig.ts).
+      # Inlined at build time (src/build/buildConfig.ts), and so public: the
+      # site's /build.json records them for scripts/verify-build.mjs.
       KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
       BRIDGE_PORTAL_URL: ${{ secrets.VITE_BRIDGE_PORTAL_URL }}
     steps:
