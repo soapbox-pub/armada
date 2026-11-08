@@ -1080,8 +1080,10 @@ describe("control plane fold (CORD-04)", () => {
     const folded = foldControlState(openControlWraps(wraps, [control]), communityId, owner.pubkey);
     expect(folded.banned.has(admin.pubkey)).toBe(false);
     expect(folded.banned.has(outsider.pubkey)).toBe(true); // honored in part
-    // Ban history counts every name an admissible edition carries, the owner aside (Vector `banned_at`).
-    expect(folded.bannedAt.has(admin.pubkey)).toBe(true);
+    // Ban history counts only the names its author may ban, unlike Vector's `banned_at`: a
+    // mark of the Admin would have the owner's client Kick them (`banDeparturesOwed`).
+    expect(folded.bannedAt.has(admin.pubkey)).toBe(false);
+    expect(folded.bannedAt.has(outsider.pubkey)).toBe(true);
   });
 
   it("a moderator cannot ban a peer moderator (equal does not act on equal)", async () => {

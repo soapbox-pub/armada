@@ -17,6 +17,7 @@ import { forgetRenderedPlaintext } from "@/hooks/dmRenderCache";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 import { KvPrefixCache } from "@/lib/db/kvCache";
 import { evictMessageMedia, mediaRefs } from "@/lib/evictMessageMedia";
+import { blobHashOf } from "@/lib/mediaCache";
 import { otherUsersOfMedia } from "@/lib/removeMessageFromDevice";
 import { logSync } from "@/lib/syncLog";
 
@@ -78,7 +79,9 @@ export async function purgeDeletedChannel(
   await dropChannelSnapshots(channel.idHex);
   await Promise.all(ids.map((id) => forgetStoredSeals([community.idHex], id)));
 
-  // With the Channel's rows gone, a file is unused once nothing outside it names it.
+  // With the Channel's rows gone, a file is unused once nothing outside it names it. An
+  // upload is an `imeta` URL, never a link in the text; a blob is content-addressed, so
+  // a hash still named anywhere, on any server, keeps every copy.
   const db = getArmadaDB();
   const uploads = new Set<string>();
   for (const r of rows) {
@@ -87,8 +90,11 @@ export async function purgeDeletedChannel(
     const kept = await otherUsersOfMedia(db, { id: r.rumorId, tags: r.tags, content: r.content });
     evictMessageMedia(r.tags, r.content, kept);
     if (r.author !== self) continue;
-    const inUse = new Set(kept.flatMap((k) => [...mediaRefs(k.tags, k.content).urls]));
-    for (const url of refs.urls) if (!inUse.has(url)) uploads.add(url);
+    const inUse = new Set(kept.flatMap((k) => [...mediaRefs(k.tags, k.content).hashes]));
+    for (const url of mediaRefs(r.tags, "").urls) {
+      const hash = blobHashOf(url);
+      if (hash && !inUse.has(hash)) uploads.add(url);
+    }
   }
   logSync("purge", `${community.idHex.slice(0, 8)} #${channel.idHex.slice(0, 8)} deleted: ${ids.length} row(s) dropped, ${mine.length} own`);
   return { removed: ids.length, uploads: [...uploads], queued };

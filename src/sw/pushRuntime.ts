@@ -158,6 +158,9 @@ export function openConcord(
     if (ev.sealKind !== KIND_SEAL_ENCRYPTED) return undefined;
     const epoch = BigInt(stream.epoch);
     checkChannelBinding(ev, stream.channelId, epoch);
+    // Only read addresses are listened on here, and a `wepoch` there is forged (CORD-03 §3):
+    // stored, the timeline would stand it as a writer's post.
+    if (ev.tags.some((t) => t[0] === "wepoch")) return undefined;
     // Another plane's kind re-sealed onto a chat stream is not chat (CORD-02 §5).
     if (PLANE_KINDS.has(ev.kind)) return undefined;
     return { opened: { ...ev, channelIdHex: stream.channelId, epoch }, stream };

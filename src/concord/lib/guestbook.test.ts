@@ -350,6 +350,13 @@ describe("the departures a lifted Ban still owes (CORD-04 §6, Vector `heal_ban_
     const owed = await banDeparturesOwed({ bannedAt: new Map([[pk, atSecs]]), banned: new Set() }, standing, new Map(), async () => false);
     expect(owed).toEqual([{ pk, ms: atSecs * 1000 }]);
   });
+
+  it("owes none for a Ban dated past the horizon, which would hold the member out until then", async () => {
+    const nowMs = atSecs * 1000;
+    const future = atSecs + 10 * 365 * 86_400;
+    const owed = await banDeparturesOwed({ bannedAt: new Map([[pk, future]]), banned: new Set() }, standing, new Map(), async () => false, nowMs);
+    expect(owed).toEqual([]);
+  });
 });
 
 describe("carrying this member's own Nickname into a new epoch (CORD-04 §10, Vector `carry_my_nickname`)", () => {

@@ -118,6 +118,9 @@ enum Concord {
         // a private channel, or one in another community.
         guard rumor.uniqueTag("channel") == stream.channelId else { return nil }
         guard rumor.uniqueTag("epoch") == stream.epoch else { return nil }
+        // Only read addresses are listened on, where a `wepoch` is forged (CORD-03 §3):
+        // stored, the timeline would stand it as a writer's post.
+        guard !rumor.tags.contains(where: { $0.first == "wepoch" }) else { return nil }
 
         guard rumor.kind == kindMessage || rumor.kind == kindReaction else { return nil }
         guard let ms = resolvedMs(createdAt: rumor.createdAt, tags: rumor.tags) else { return .malformed }

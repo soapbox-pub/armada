@@ -65,6 +65,13 @@ class ConcordTest {
     }
 
     @Test
+    fun `refuses a writer epoch at the read address`() {
+        // CORD-03 §3: the timeline stands a stored `wepoch` as a writer's post.
+        val forged = rumor(kind = 9, tags = listOf(listOf("wepoch", "1")))
+        assertFalse(Concord.storable(community, Concord.SEAL_ENCRYPTED, forged, now))
+    }
+
+    @Test
     fun `refuses a chat rumor whose NIP-40 deadline has passed`() {
         // CORD-08 §3: the WebView refuses an expired rumor at ingest and its
         // sweep only walks what the read filter already hides — a second

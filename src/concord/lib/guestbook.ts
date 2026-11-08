@@ -14,7 +14,8 @@ import type { NostrEvent } from "nostr-tools/pure";
 import { guestbookGroupKey, type GroupKey } from "@/concord/lib/derive";
 import { citationFromTags, citationToTag, type AuthorityCitation } from "@/concord/lib/edition";
 import { KIND_JOIN_LEAVE, KIND_KICK, KIND_NICKNAME, KIND_SEAL_ENCRYPTED, KIND_SNAPSHOT, KIND_TIMEOUT } from "@/concord/lib/kinds";
-import { buildRumor, openWrap, sealRumor, wrapSeal, type OpenedEvent, type StreamSigner } from "@/concord/lib/stream";
+import { buildRumor, FUTURE_HORIZON_MS, openWrap, sealRumor, wrapSeal, type OpenedEvent, type StreamSigner } from "@/concord/lib/stream";
+import { clockNowMs } from "@/lib/relayClock";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type { Community } from "@/concord/lib/types";
 
@@ -368,18 +369,22 @@ export function kickedInto(history: GuestbookHistory, member: string, startMs: n
 /**
  * The members whose lifted Ban still owes its departure (Vector `heal_ban_departures`):
  * no longer banned, still standing on a Join from before the Ban, and silent since,
- * judged by every post this device holds (`postedAfter`), not only those loaded.
+ * judged by every post this device holds (`postedAfter`), not only those loaded. A Ban
+ * dated past the horizon owes nothing: no post can follow it, and the owner's Kick would
+ * hold the member out until then.
  */
 export async function banDeparturesOwed(
   control: { bannedAt: ReadonlyMap<string, number>; banned: ReadonlySet<string> },
   coalesced: ReadonlyMap<string, CoalescedMember>,
   observed: ReadonlyMap<string, number>,
   postedAfter: (pk: string, afterMs: number) => Promise<boolean>,
+  nowMs: number = clockNowMs(),
 ): Promise<Array<{ pk: string; ms: number }>> {
   const out: Array<{ pk: string; ms: number }> = [];
   for (const [pk, at] of control.bannedAt) {
     if (control.banned.has(pk)) continue;
     const atMs = at * 1000;
+    if (atMs > nowMs + FUTURE_HORIZON_MS) continue;
     const standing = coalesced.get(pk);
     if (standing?.state !== "join" || standing.ms > atMs) continue;
     if ((observed.get(pk) ?? 0) > atMs || (await postedAfter(pk, atMs).catch(() => true))) continue;

@@ -4433,6 +4433,9 @@ public class NotificationRelayService extends Service {
             String ep = uniqueTagValue(rumor, "epoch");
             if (ch == null || !st.channelId.equals(ch)) return null;
             if (ep == null || st.epoch.isEmpty() || !st.epoch.equals(ep)) return null;
+            // Only read addresses are listened on, and a `wepoch` there is forged
+            // (CORD-03 §3), as the WebView's checkWriterBinding refuses it.
+            if (hasTag(rumor, "wepoch")) return null;
             return new ConcordOpen(rumor, sealKind);
         } catch (Exception e) {
             return null;
@@ -8453,6 +8456,16 @@ public class NotificationRelayService extends Service {
             found = tag.optString(1);
         }
         return found;
+    }
+
+    private static boolean hasTag(JSONObject event, String name) {
+        JSONArray tags = event.optJSONArray("tags");
+        if (tags == null) return false;
+        for (int i = 0; i < tags.length(); i++) {
+            JSONArray tag = tags.optJSONArray(i);
+            if (tag != null && name.equals(tag.optString(0))) return true;
+        }
+        return false;
     }
 
     private static String tagValue(JSONObject event, String name) {

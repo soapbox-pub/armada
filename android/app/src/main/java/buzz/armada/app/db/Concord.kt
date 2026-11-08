@@ -75,6 +75,8 @@ internal object Concord {
         if (sealKind != SEAL_ENCRYPTED) return false
         if (rumor.kind in PLANE_KINDS) return false
         if (resolvedMs(rumor.createdAt, rumor.tags) == null) return false
+        // The service opens read addresses only, where a `wepoch` is forged (CORD-03 §3).
+        if (rumor.tags.any { it.firstOrNull() == "wepoch" }) return false
         return !Dm17.isExpired(rumor.tags, now)
     }
 }

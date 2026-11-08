@@ -310,6 +310,11 @@ describe("openConcord", () => {
     expect(openConcord(streamWrap(spoofed), [stream])).toBeUndefined();
   });
 
+  it("refuses a `wepoch` at the read address, which only a forger writes there (CORD-03 §3)", () => {
+    const forged = chatRumor({ tags: [["channel", CHANNEL], ["epoch", EPOCH], ["wepoch", "1"]] });
+    expect(openConcord(streamWrap(forged), [stream])).toBeUndefined();
+  });
+
   it("refuses another plane's kinds carried on the chat plane", () => {
     // A control edition re-sealed onto a chat stream must not become a message.
     expect(openConcord(streamWrap(chatRumor({ kind: 3308 })), [stream])).toBeUndefined();

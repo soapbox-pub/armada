@@ -1527,12 +1527,14 @@ function foldOnce(
     else for (const pk of stored?.banned ?? []) banned.add(pk);
 
     // Ban history (see FoldedControl.bannedAt): the newest admissible edition naming each
-    // npub, the owner aside, since an un-ban replaces the head: over every served edition, not
-    // only those above the floor (Vector `banned_at`). `createdAt` is seconds.
+    // npub its author may ban, since an un-ban replaces the head: over every served edition,
+    // not only those above the floor (Vector `banned_at`). Vector skips the outrank check;
+    // without it a Moderator's mark of an Admin makes the owner's client Kick them
+    // (`banDeparturesOwed`). `createdAt` is seconds.
     for (const p of byVskLinked.get(VSK_BANLIST)?.get(eid) ?? []) {
       if (!admissible(p)) continue;
       for (const pk of parseList(p)!) {
-        if (pk === ownerHex || !isKey(pk)) continue;
+        if (pk === ownerHex || !isKey(pk) || !entitled(p.author, pk, p)) continue;
         const prev = bannedAt.get(pk);
         if (prev === undefined || p.createdAt > prev) bannedAt.set(pk, p.createdAt);
       }

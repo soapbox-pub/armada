@@ -203,6 +203,22 @@ final class ProtocolTests: XCTestCase {
         XCTAssertNil(Concord.open(wrap: concordWrap, stream: stale))
     }
 
+    func testRefusesAWriterEpochAtTheReadAddress() {
+        // CORD-03 §3, as the WebView's checkWriterBinding: one author, one stream, the
+        // forged wrap differing only by its `wepoch`.
+        let v = vectorObject("concordWepoch")
+        let stream = ConcordStream(
+            pubkey: v["streamPk"] as! String,
+            conversationKey: v["convKey"] as! String,
+            epoch: v["epoch"] as! String,
+            communityId: "cc",
+            channelId: v["channelId"] as! String,
+            banned: []
+        )
+        XCTAssertNotNil(Concord.open(wrap: NostrEvent.parse(v["plain"] as! [String: Any])!, stream: stream))
+        XCTAssertNil(Concord.open(wrap: NostrEvent.parse(v["forged"] as! [String: Any])!, stream: stream))
+    }
+
     func testRefusesTheWrongConversationKey() {
         let wrong = ConcordStream(
             pubkey: concordStream.pubkey,

@@ -73,6 +73,23 @@ describe("purgeDeletedChannel", () => {
     expect((await purgeDeletedChannel(community, gone, me.pubkey, me.sk)).removed).toBe(0);
   });
 
+  it("names no linked file as an upload, and keeps a blob whose hash is still in use on another server", async () => {
+    const me = signer();
+    const gone = makeChannel(41);
+    const kept = makeChannel(42);
+    const hash = "c".repeat(64);
+    const linked = await post(gone, me, `see https://elsewhere.test/${"d".repeat(64)}`);
+    const mirrored = await post(gone, me, "mirrored", [["imeta", `url https://one.test/${hash}.png`]]);
+    // The same blob on another server: a URL check would ask one.test to delete it.
+    const elsewhere = await post(kept, me, `same file https://two.test/${hash}.png`);
+    writeRumors(CID, await openChatBatch([linked.wrap, mirrored.wrap], gone));
+    writeRumors(CID, await openChatBatch([elsewhere.wrap], kept));
+    await eventually(() => queryChannelRumors(CID, gone.idHex, { limit: 10 }), (r) => r.length === 2);
+    await eventually(() => queryChannelRumors(CID, kept.idHex, { limit: 10 }), (r) => r.length === 1);
+
+    expect((await purgeDeletedChannel(community, gone, me.pubkey, me.sk)).uploads).toEqual([]);
+  });
+
   it("drains the queue, deleting each own wrap by its derived owner", async () => {
     const me = signer();
     const gone = makeChannel(33);
