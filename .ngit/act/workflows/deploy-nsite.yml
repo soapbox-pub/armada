@@ -71,7 +71,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Exact, and the CI image's toolcache version, so a build can be reproduced.
+          node-version-file: .nvmrc
 
       # Ahead of npm ci and the build, so a config nsyte won't accept costs
       # seconds instead of failing at the end of a green-looking run.

@@ -26,6 +26,11 @@ shadcn/ui + Nostrify), the Capacitor Android project (`android/`), and the
 Electron desktop shell (`electron/`). It does not depend on the backend at build
 time; it talks to relays and voice brokers over runtime-configurable URLs.
 
+The web app and the Android APK are reproducible builds: `node
+scripts/verify-build.mjs` rebuilds the live site (or `--apk` a release APK) from
+the commit it names and compares every file. [docs/trust.md](docs/trust.md)
+covers what that proves and what it doesn't.
+
 ## Concepts
 
 - **Concord communities** — serverless, E2EE. All control/chat/invite/rekey

@@ -143,9 +143,10 @@ function desktopManifest(): Plugin {
   };
 }
 
-function toolVersion(command: string): string | null {
+/** First line of `<command> --version`, run where `cwd` would run it (rustc honours the crate's toolchain file). */
+function toolVersion(command: string, cwd = import.meta.dirname): string | null {
   try {
-    return execSync(`${command} --version`, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return execSync(`${command} --version`, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).split("\n")[0].trim();
   } catch {
     return null;
   }
@@ -176,7 +177,13 @@ function buildInfo(): Plugin {
         sourceDateEpoch: BUILD_EPOCH,
         config: loadBuildConfig(mode, root),
         webxdcRt: fs.existsSync(path.resolve(import.meta.dirname, "src/wasm/webxdc-rt/webxdc_rt_bg.wasm")),
-        toolchain: { node: process.version, rustc: toolVersion("rustc"), wasmPack: toolVersion("wasm-pack") },
+        toolchain: {
+          node: process.version,
+          rustc: toolVersion("rustc", path.resolve(import.meta.dirname, "crates/webxdc-rt")),
+          wasmPack: toolVersion("wasm-pack"),
+          // `ring`'s C is compiled into the wasm by the host clang.
+          clang: toolVersion("clang"),
+        },
       };
       fs.writeFileSync(path.join(outDir, "build.json"), `${JSON.stringify(info, null, 2)}\n`);
     },

@@ -47,7 +47,7 @@ needs no Armada-specific server at all: any NIP-29 relay serves it.
 | `ios/ArmadaDB/` | ArmadaDB in Swift: the SQLite engine the iOS build runs, with SQLite vendored. A SwiftPM package so it builds on **Linux**, where its conformance suite runs without a Mac |
 | `ios/ArmadaNotify/` | The decrypt/store/present pipeline the iOS Notification Service Extension runs (NIP-44/NIP-17/Concord, libsecp256k1 vendored). A SwiftPM package for the same reason — its suite runs on **Linux** |
 | `electron/`  | Electron desktop shell (loads the bundled web build; Linux/Windows/macOS installers built in CI) |
-| `docs/`      | Design notes too long for this file — `settings-documents.md` (the NIP-78 settings root, its derived documents, and the split) and `releases.md` (the NIP-82 release and asset events `/downloads` and the desktop updater read) |
+| `docs/`      | Design notes too long for this file — `settings-documents.md` (the NIP-78 settings root, its derived documents, and the split), `trust.md` (which published builds can be reproduced and verified, and what still has to be trusted) and `releases.md` (the NIP-82 release and asset events `/downloads` and the desktop updater read) |
 | `scripts/`   | Repo tooling, incl. two Concord-aware moderation-UX harnesses that mirror the same CORD-01/02/05 derivations: `scripts/spambot.mjs` (WRITES — chat spam with flood-fold evasion, plus kind-3313 direct-invite spam via `--invite-spam`) and `scripts/dump-community.mjs` (READS — resolves an invite and pages the decrypted Chat Plane out of the relays in `OpenedChat` shape, for feeding `floodCluster.ts`); see each file's header comment |
 
 ## Build / test
@@ -115,10 +115,11 @@ parity:extract`, then give every new point an entry.
 ### Reproducible web builds
 
 Two builds of one commit with the same config and toolchain are byte-identical,
-and `node scripts/verify-build.mjs` proves the live site is one: it reads
-`/build.json` out of the signed nsite manifest (commit, epoch, config,
-toolchain), rebuilds that commit in a temporary worktree and compares every
-file. Keep it that way:
+and `node scripts/verify-build.mjs` proves a published one is (the live site,
+or `--apk` a release APK): it reads the build's `build.json` (commit, epoch,
+config, toolchain), rebuilds that commit inside `scripts/reproduce/Dockerfile`
+and compares every file. What this does and doesn't cover is in
+`docs/trust.md`. Keep it that way:
 
 - **No wall-clock time in the build.** Use `BUILD_EPOCH` in `vite.config.ts`
   (`SOURCE_DATE_EPOCH`, else the commit time). Same for randomness, absolute
@@ -128,6 +129,11 @@ file. Keep it that way:
   by anyone outside CI.
 - The wasm build remaps its source paths (`scripts/build-wasm.mjs`); a new
   native build step needs the same.
+- **Toolchain versions move together**: Node in `.nvmrc`, Rust in
+  `crates/webxdc-rt/rust-toolchain.toml`, wasm-pack/JDK/Android SDK, each in
+  BOTH `.ngit/ci-image/Dockerfile` and `scripts/reproduce/Dockerfile`.
+- The APK verifier mirrors the android job of `release.yml` (`apkBuildScript`);
+  a change to that job's build steps changes it too.
 
 ### Profiling (never in a shipped build)
 

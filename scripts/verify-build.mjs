@@ -1,27 +1,30 @@
 #!/usr/bin/env node
 /**
- * Rebuilds the deployed web app from source and checks it against the signed
- * site manifest, file by file. The site is what the browser, the nsite
- * gateways and every desktop edition run, so this is the check that the code
- * people run is the code in this repository.
+ * Rebuilds a published Armada build from source and checks it file by file:
+ * the live web app (the nsite, which browsers, the nsite gateways and every
+ * desktop edition run), or a release APK.
  *
  * Usage:
  *   node scripts/verify-build.mjs                    the live site, from the release relays
- *   node scripts/verify-build.mjs --manifest e.json  a specific kind-35128 event
- *   node scripts/verify-build.mjs --dist dist        compare a build you already made
- *   --keep                                           leave the checkout for inspection
+ *   node scripts/verify-build.mjs --manifest e.json  a specific kind-35128 site manifest
+ *   node scripts/verify-build.mjs --apk Armada-vX.Y.Z.apk [--tag vX.Y.Z]
  *
- * The manifest's `/build.json` (written by vite.config.ts) names the commit,
- * the build epoch and the deployment config the build was made with; this
- * checks the commit out into a temporary worktree, runs `npm ci && npm run
- * build` with exactly those inputs, and compares hashes. Toolchain versions
- * are recorded there too: a different Node, rustc or wasm-pack can change the
- * output, so a mismatch is reported first. `.ngit/ci-image/Dockerfile` is the
- * environment the deploy builds in.
+ *   --no-container  build with this machine's tools instead of scripts/reproduce/Dockerfile
+ *   --dist <dir>    (site) compare a build you already made, without rebuilding
+ *   --keep          leave the checkout for inspection
  *
- * Files the deploy adds after `npm run build` (the spellcheck dictionaries,
- * the legacy `/downloads` archive) are listed as not checked rather than
- * passed.
+ * Every build carries a `/build.json` (written by vite.config.ts) naming its
+ * commit, build epoch, deployment config and toolchain: the site's is a file in
+ * the signed manifest, the APK's is `assets/public/build.json`. The verifier
+ * fetches that commit into a fresh shallow clone — what CI checks out — and
+ * runs CI's build steps with exactly those inputs inside the pinned toolchain
+ * image, then compares.
+ *
+ * An APK is compared entry by entry, without its v1 signature files: the
+ * signature is the publisher's, not something a rebuild can produce, and the
+ * v2/v3 signing block is not a zip entry at all. Site files the deploy adds
+ * after `npm run build` (spellcheck dictionaries, the legacy `/downloads`
+ * archive) are listed as not checked rather than passed.
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -30,6 +33,8 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+
+import { unzipSync } from "fflate";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -40,8 +45,13 @@ const option = (name) => {
   return i === -1 ? undefined : args[i + 1];
 };
 const keep = args.includes("--keep");
+const useContainer = !args.includes("--no-container");
 const manifestFile = option("--manifest");
 const prebuilt = option("--dist");
+const apkFile = option("--apk");
+
+/** What reaches a container build besides the recorded config. */
+const BUILD_ENV = ["SOURCE_DATE_EPOCH", "CI_COMMIT_TAG", "WEBXDC_RT_REQUIRED"];
 
 const log = (message) => console.log(message);
 const fail = (message) => {
@@ -49,67 +59,108 @@ const fail = (message) => {
   process.exit(1);
 };
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const run = (command, argv, options = {}) =>
-  execFileSync(command, argv, { stdio: "inherit", ...options });
+const run = (command, argv, options = {}) => execFileSync(command, argv, { stdio: "inherit", ...options });
 
-// The manifest is parsed by the same code the desktop shell trusts it with.
-const feed = path.join(root, "electron/updateFeed.cjs");
-if (!fs.existsSync(feed)) run("npm", ["run", "-s", "build:electron-update"], { cwd: root });
-const { parseWebSite, resolveWebSite } = require(feed);
+/** `{ path → sha256 }` of what was published, and the build.json inside it. */
+async function loadSite() {
+  // Parsed by the same code the desktop shell trusts the manifest with.
+  const feed = path.join(root, "electron/updateFeed.cjs");
+  if (!fs.existsSync(feed)) run("npm", ["run", "-s", "build:electron-update"], { cwd: root });
+  const { parseWebSite, resolveWebSite } = require(feed);
 
-const site = manifestFile
-  ? parseWebSite(JSON.parse(fs.readFileSync(manifestFile, "utf8")))
-  : await resolveWebSite();
-if (!site) fail("no site manifest signed by a release author was found");
-log(`manifest ${site.id} (${new Date(site.createdAt * 1000).toISOString()}), ${site.files.size} files`);
+  const site = manifestFile
+    ? parseWebSite(JSON.parse(fs.readFileSync(manifestFile, "utf8")))
+    : await resolveWebSite();
+  if (!site) fail("no site manifest signed by a release author was found");
+  log(`manifest ${site.id} (${new Date(site.createdAt * 1000).toISOString()}), ${site.files.size} files`);
 
-async function fetchBlob(hash) {
+  const infoHash = site.files.get("/build.json");
+  if (!infoHash) fail("the manifest has no /build.json, so it does not say which commit it was built from");
+  let infoBytes;
   for (const server of site.servers) {
     try {
-      const response = await fetch(`${server}/${hash}`, { signal: AbortSignal.timeout(20_000) });
+      const response = await fetch(`${server}/${infoHash}`, { signal: AbortSignal.timeout(20_000) });
       if (!response.ok) continue;
       const bytes = Buffer.from(await response.arrayBuffer());
-      if (sha256(bytes) === hash) return bytes;
+      if (sha256(bytes) === infoHash) {
+        infoBytes = bytes;
+        break;
+      }
     } catch { /* next server */ }
   }
-  return undefined;
+  if (!infoBytes) fail(`could not fetch /build.json (${infoHash}) from ${site.servers.join(", ")}`);
+  return { files: site.files, info: JSON.parse(infoBytes.toString("utf8")) };
 }
 
-const infoHash = site.files.get("/build.json");
-if (!infoHash) fail("the manifest has no /build.json, so it does not say which commit it was built from");
-const infoBytes = await fetchBlob(infoHash);
-if (!infoBytes) fail(`could not fetch /build.json (${infoHash}) from ${site.servers.join(", ")}`);
-const info = JSON.parse(infoBytes.toString("utf8"));
-if (!/^[0-9a-f]{40}$/.test(info.commit ?? "")) fail("/build.json names no commit");
+/** v1 signature files: META-INF/MANIFEST.MF and the signer's .SF and block files. */
+const isSignatureEntry = (name) =>
+  name === "META-INF/MANIFEST.MF" || /^META-INF\/[^/]+\.(SF|RSA|DSA|EC)$/i.test(name);
+
+function apkEntries(file) {
+  const entries = new Map();
+  for (const [name, bytes] of Object.entries(unzipSync(fs.readFileSync(file)))) {
+    if (!name.endsWith("/") && !isSignatureEntry(name)) entries.set(name, sha256(bytes));
+  }
+  return entries;
+}
+
+function loadApk() {
+  const entries = unzipSync(fs.readFileSync(apkFile), { filter: (f) => f.name === "assets/public/build.json" });
+  const bytes = entries["assets/public/build.json"];
+  if (!bytes) fail("the APK has no assets/public/build.json, so it does not say which commit it was built from");
+  const tag = option("--tag") ?? path.basename(apkFile).match(/v\d+\.\d+\.\d+/)?.[0];
+  if (!tag) fail("pass --tag vX.Y.Z: the release tag sets the APK's versionName and versionCode");
+  return { files: apkEntries(apkFile), info: JSON.parse(Buffer.from(bytes).toString("utf8")), tag };
+}
+
+const target = apkFile ? loadApk() : await loadSite();
+const { info } = target;
+if (!/^[0-9a-f]{40}$/.test(info.commit ?? "")) fail("build.json names no commit");
 log(`built from ${info.commit}${info.tag ? ` (${info.tag})` : ""}, version ${info.version}, epoch ${info.sourceDateEpoch}`);
 
-const toolVersion = (command) => {
-  try {
-    return execFileSync(command, ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  } catch {
-    return null;
+let workdir;
+let built;
+if (prebuilt) {
+  built = walk(path.resolve(prebuilt));
+} else {
+  workdir = fs.mkdtempSync(path.join(os.tmpdir(), "armada-verify-"));
+  process.on("exit", () => {
+    if (keep) log(`\ncheckout kept at ${workdir}`);
+    else fs.rmSync(workdir, { recursive: true, force: true });
+  });
+  // A shallow fetch of the one commit, as ngit-ci checks a build out: no tags,
+  // no history, a real .git that the container can read.
+  run("git", ["init", "-q", workdir]);
+  run("git", ["-C", workdir, "-c", "protocol.version=2", "fetch", "-q", "--depth=1", `file://${root}`, info.commit]);
+  run("git", ["-C", workdir, "checkout", "-q", "--detach", info.commit]);
+
+  const env = buildEnv(workdir);
+  const script = apkFile ? apkBuildScript(target.tag) : "npm ci --no-audit --no-fund && npm run build";
+  if (useContainer) {
+    const stage = apkFile ? "android" : "web";
+    const image = `armada-reproduce:${stage}`;
+    run("docker", ["build", "-q", "--target", stage, "-t", image, path.join(root, "scripts/reproduce")]);
+    const passed = Object.keys(env).filter((name) => name in info.config || BUILD_ENV.includes(name));
+    run("docker", [
+      "run", "--rm",
+      "-u", `${process.getuid()}:${process.getgid()}`,
+      "-e", "HOME=/tmp/home",
+      ...passed.flatMap((name) => ["-e", `${name}=${env[name]}`]),
+      "-v", `${workdir}:/src`,
+      image, "bash", "-euc", script,
+    ]);
+  } else {
+    warnToolchain();
+    run("bash", ["-euc", script], { cwd: workdir, env });
   }
-};
-const local = { node: process.version, rustc: toolVersion("rustc"), wasmPack: toolVersion("wasm-pack") };
-for (const [tool, version] of Object.entries(info.toolchain ?? {})) {
-  if ((tool === "rustc" || tool === "wasmPack") && !info.webxdcRt) continue;
-  if (version !== local[tool]) log(`warning: built with ${tool} ${version}, you have ${local[tool] ?? "none"}`);
+  built = apkFile
+    ? apkEntries(path.join(workdir, "android/app/build/outputs/apk/release/app-release-unsigned.apk"))
+    : walk(path.join(workdir, "dist"));
 }
 
-let workdir;
-let dist = prebuilt && path.resolve(prebuilt);
-if (!dist) {
-  try {
-    execFileSync("git", ["-C", root, "cat-file", "-e", `${info.commit}^{commit}`], { stdio: "ignore" });
-  } catch {
-    run("git", ["-C", root, "fetch", "origin", info.commit]);
-  }
-  workdir = fs.mkdtempSync(path.join(os.tmpdir(), "armada-verify-"));
-  run("git", ["-C", root, "worktree", "add", "--detach", workdir, info.commit]);
-
-  // Only the recorded config may reach the build: drop every name it reads
-  // (and their VITE_ spellings) from this shell before applying the record.
-  const source = fs.readFileSync(path.join(workdir, "src/build/buildConfig.ts"), "utf8");
+/** This shell's environment with only the recorded config reaching the build. */
+function buildEnv(checkout) {
+  const source = fs.readFileSync(path.join(checkout, "src/build/buildConfig.ts"), "utf8");
   const list = source.match(/CONFIG_NAMES = \[([\s\S]*?)\] as const/)?.[1] ?? "";
   const names = [...list.matchAll(/^\s*"([A-Z0-9_]+)",/gm)].map((m) => m[1]);
   const env = { ...process.env };
@@ -118,15 +169,48 @@ if (!dist) {
     delete env[`VITE_${name}`];
   }
   delete env.CI_COMMIT_SHORT_SHA;
-  Object.assign(env, info.config, {
+  return Object.assign(env, info.config, {
     SOURCE_DATE_EPOCH: String(info.sourceDateEpoch),
     CI_COMMIT_TAG: info.tag ?? "",
     WEBXDC_RT_REQUIRED: info.webxdcRt ? "1" : "0",
   });
+}
 
-  run("npm", ["ci", "--no-audit", "--no-fund"], { cwd: workdir, env });
-  run("npm", ["run", "build"], { cwd: workdir, env });
-  dist = path.join(workdir, "dist");
+/** The android job of .ngit/act/workflows/release.yml, minus signing. */
+function apkBuildScript(tag) {
+  const name = tag.replace(/^v/, "");
+  const [major, minor, patch] = name.split(".").map(Number);
+  const code = major * 1_000_000 + minor * 1_000 + patch;
+  return [
+    "npm ci --no-audit --no-fund",
+    "npm run build:wasm",
+    "npx vite build",
+    "cp dist/index.html dist/404.html",
+    "npx cap sync android",
+    `sed -i "s/versionCode [0-9]*/versionCode ${code}/" android/app/build.gradle`,
+    `sed -i 's/versionName "[^"]*"/versionName "${name}"/' android/app/build.gradle`,
+    "cd android && chmod +x gradlew && ./gradlew --no-daemon -q assembleRelease -PapkAbis=armeabi-v7a,arm64-v8a",
+  ].join(" && ");
+}
+
+function warnToolchain() {
+  const version = (command, cwd = root) => {
+    try {
+      return execFileSync(command, ["--version"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).split("\n")[0].trim();
+    } catch {
+      return null;
+    }
+  };
+  const local = {
+    node: process.version,
+    rustc: version("rustc", path.join(root, "crates/webxdc-rt")),
+    wasmPack: version("wasm-pack"),
+    clang: version("clang"),
+  };
+  for (const [tool, recorded] of Object.entries(info.toolchain ?? {})) {
+    if (tool !== "node" && !info.webxdcRt) continue;
+    if (recorded !== local[tool]) log(`warning: built with ${tool} ${recorded}, you have ${local[tool] ?? "none"}`);
+  }
 }
 
 function walk(dir, prefix = "") {
@@ -139,32 +223,27 @@ function walk(dir, prefix = "") {
   }
   return files;
 }
-const built = walk(dist);
 
 const mismatched = [];
 const unchecked = [];
 let matched = 0;
-for (const [sitePath, hash] of site.files) {
-  const ours = built.get(sitePath);
-  if (ours === undefined) unchecked.push(sitePath);
+for (const [name, hash] of target.files) {
+  const ours = built.get(name);
+  if (ours === undefined) unchecked.push(name);
   else if (ours === hash) matched++;
-  else mismatched.push(sitePath);
+  else mismatched.push(name);
 }
-const extra = [...built.keys()].filter((p) => !site.files.has(p));
+const extra = [...built.keys()].filter((name) => !target.files.has(name));
 
 log("");
 log(`${matched} files match`);
-if (unchecked.length) log(`${unchecked.length} deployed files are not produced by npm run build (not checked):\n  ${unchecked.join("\n  ")}`);
-if (extra.length) log(`${extra.length} built files are not in the manifest:\n  ${extra.join("\n  ")}`);
+if (unchecked.length) log(`${unchecked.length} published files the rebuild did not produce (not checked):\n  ${unchecked.join("\n  ")}`);
+if (extra.length) log(`${extra.length} rebuilt files are not in the published build:\n  ${extra.join("\n  ")}`);
 if (mismatched.length) log(`${mismatched.length} files DIFFER:\n  ${mismatched.join("\n  ")}`);
 
-if (workdir) {
-  if (keep) log(`\ncheckout kept at ${workdir}`);
-  else run("git", ["-C", root, "worktree", "remove", "--force", workdir]);
-}
-
-if (mismatched.length || matched === 0) {
-  log("\nNOT VERIFIED: the deployed site is not what this commit builds.");
+// An APK entry missing from the rebuild is code nobody can account for.
+if (mismatched.length || matched === 0 || (apkFile && (unchecked.length || extra.length))) {
+  log("\nNOT VERIFIED: the published build is not what this commit builds.");
   process.exit(1);
 }
-log(`\nVERIFIED: every built file of the deployed site matches ${info.commit}.`);
+log(`\nVERIFIED: every rebuilt file matches ${info.commit}.`);

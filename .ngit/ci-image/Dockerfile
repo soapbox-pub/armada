@@ -53,6 +53,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # These only matter as the SEED for the act-toolcache volume (see the header);
 # at job time the volume shadows this path.
 FROM fetch AS node
+# Keep in step with .nvmrc.
 ARG NODE_VERSION=22.23.1
 RUN set -eux; \
     d="/opt/hostedtoolcache/node/${NODE_VERSION}"; mkdir -p "$d/x64"; \
@@ -133,7 +134,8 @@ RUN set -eux; \
 # There is no setup-rust in the workflows, so a stale image does NOT self-heal.
 FROM fetch AS rust
 ENV RUSTUP_HOME=/root/.rustup CARGO_HOME=/root/.cargo
-ARG RUST_VERSION=stable
+# Keep in step with crates/webxdc-rt/rust-toolchain.toml, or every job downloads it.
+ARG RUST_VERSION=1.99.1
 ARG WASM_PACK_VERSION=0.13.1
 RUN set -eux; \
     curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal \

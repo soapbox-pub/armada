@@ -70,6 +70,7 @@ if (haveBuild) {
 // appends `--config` arrays to the crate's own rustflags rather than replacing them.
 const cargoHome = process.env.CARGO_HOME || join(homedir(), ".cargo");
 const remap = [`--remap-path-prefix=${cargoHome}=/cargo`, `--remap-path-prefix=${root}=/armada`];
+if (process.env.CARGO_TARGET_DIR) remap.push(`--remap-path-prefix=${process.env.CARGO_TARGET_DIR}=/target`);
 const cargoArgs = ["--config", `target.wasm32-unknown-unknown.rustflags=${JSON.stringify(remap)}`];
 
 note("building the realtime transport (first build takes a minute)...");

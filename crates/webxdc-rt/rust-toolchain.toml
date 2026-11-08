@@ -1,0 +1,6 @@
+# Pinned so the wasm in a deployed build can be reproduced (scripts/verify-build.mjs).
+# Keep RUST_VERSION in .ngit/ci-image/Dockerfile and scripts/reproduce/Dockerfile in step.
+[toolchain]
+channel = "1.99.1"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
