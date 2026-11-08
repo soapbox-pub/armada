@@ -175,7 +175,7 @@ describe("useMessageActions.retry", () => {
     h.pool = { relay: () => relay };
 
     const row = await failedRow(channel, idHex, alice, "hello");
-    const community = { idHex: CID, relays: [RELAY] } as unknown as Community;
+    const community = { idHex: CID, relays: [RELAY], rootEpoch: 0n } as unknown as Community;
     const { queryClient, wrapper } = makeWrapper();
     queryClient.setQueryData(channelKey(idHex), [row]);
     await recordFailed(row, alice.pubkey);
@@ -200,7 +200,7 @@ describe("useMessageActions.retry", () => {
     h.pool = { relay: () => relay };
 
     const row = await failedRow(channel, idHex, alice, "hello");
-    const community = { idHex: CID, relays: [RELAY] } as unknown as Community;
+    const community = { idHex: CID, relays: [RELAY], rootEpoch: 0n } as unknown as Community;
     const { queryClient, wrapper } = makeWrapper();
     queryClient.setQueryData(channelKey(idHex), [row]);
     await recordFailed(row, alice.pubkey);

@@ -69,6 +69,18 @@ enum Concord {
     /// and this matches the web worker's rule rather than the Android
     /// service's laxer one.
     static func open(wrap: NostrEvent, stream: ConcordStream) -> OpenedChat? {
+        if case .chat(let opened) = read(wrap: wrap, stream: stream) { return opened }
+        return nil
+    }
+
+    /// What a wrap held: a chat rumor, or one that opened but is malformed (a bad `ms`,
+    /// CORD-02 §5), which is dropped rather than announced as a wrap that wouldn't open.
+    enum Read {
+        case chat(OpenedChat)
+        case malformed
+    }
+
+    static func read(wrap: NostrEvent, stream: ConcordStream) -> Read? {
         guard wrap.kind == kindWrap || wrap.kind == kindWrapEphemeral else { return nil }
         guard wrap.pubkey == stream.pubkey else { return nil }
         guard let convKey = Hex.decode(stream.conversationKey), convKey.count == 32 else {
@@ -108,9 +120,9 @@ enum Concord {
         guard rumor.uniqueTag("epoch") == stream.epoch else { return nil }
 
         guard rumor.kind == kindMessage || rumor.kind == kindReaction else { return nil }
-        guard let ms = resolvedMs(createdAt: rumor.createdAt, tags: rumor.tags) else { return nil }
+        guard let ms = resolvedMs(createdAt: rumor.createdAt, tags: rumor.tags) else { return .malformed }
 
-        return OpenedChat(
+        return .chat(OpenedChat(
             rumorId: claimedId,
             author: seal.pubkey,
             kind: rumor.kind,
@@ -119,7 +131,7 @@ enum Concord {
             createdAt: rumor.createdAt,
             ms: ms,
             channelIdHex: stream.channelId
-        )
+        ))
     }
 
     /// A rumor's time in ms: `createdAt` plus its first `ms` tag, or nil when that tag is

@@ -30,6 +30,8 @@ interface QueuedScrub {
   communityIdHex: string;
   relays: string[];
   addresses: { pk: string; sk?: string }[];
+  /** When it was queued, or last failed: the drain takes the oldest first (Vector `queued_at`). */
+  queuedAt?: number;
 }
 
 const scrubQueue = new KvPrefixCache<QueuedScrub>({ prefix: "c2scrub:" });
@@ -62,7 +64,7 @@ export async function purgeDeletedChannel(
       .filter((st) => st.epoch === r.epoch)
       .map((st) => ({ pk: st.group.pk, ...(st.group.sk ? { sk: bytesToHex(st.group.sk) } : {}) }));
     if (addresses.length === 0) continue;
-    scrubQueue.set(r.rumorId, { communityIdHex: community.idHex, relays: community.relays, addresses });
+    scrubQueue.set(r.rumorId, { communityIdHex: community.idHex, relays: community.relays, addresses, queuedAt: Date.now() });
     queued++;
   }
 
@@ -95,8 +97,9 @@ export async function purgeDeletedChannel(
 let draining = false;
 
 /**
- * Work through the queued wrap deletions, one per {@link SCRUB_PACE_MS}, until none
- * is left; one that can't go out stays queued and the next drain tries again.
+ * Work through the queued wrap deletions, oldest first, one per {@link SCRUB_PACE_MS},
+ * until none is left; one that can't go out stays queued at the back and the next drain
+ * tries again, so it never holds up the rest (Vector `drain_scrubs`).
  */
 export async function drainWrapScrubs(pool: ScrubPool, secret: Uint8Array | undefined, paceMs = SCRUB_PACE_MS): Promise<number> {
   if (draining) return 0;
@@ -104,13 +107,17 @@ export async function drainWrapScrubs(pool: ScrubPool, secret: Uint8Array | unde
   let done = 0;
   try {
     await scrubQueue.ready();
-    for (const id of scrubQueue.ids()) {
+    const order = scrubQueue.ids().map((id) => [id, scrubQueue.get(id)?.queuedAt ?? 0] as const);
+    order.sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    for (const [id] of order) {
       const q = scrubQueue.get(id);
       if (!q) continue;
       const addresses = q.addresses.map((a) => ({ pk: a.pk, ...(a.sk ? { sk: hexToBytes(a.sk) } : {}) }));
       const scrubbed = await scrubOwnWraps(pool, q.relays, addresses, [id], secret).catch(() => undefined);
-      // One that can't go out stays queued for the next drain (Vector `drain_scrubs`).
-      if (!scrubbed?.settled) break;
+      if (!scrubbed?.settled) {
+        scrubQueue.set(id, { ...q, queuedAt: Date.now() });
+        break;
+      }
       scrubQueue.delete(id);
       done++;
       if (paceMs > 0) await new Promise((r) => setTimeout(r, paceMs));

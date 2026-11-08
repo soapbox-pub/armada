@@ -414,7 +414,12 @@ struct PushProcessor {
             trace("c2-no-stream(\(config.concord.count) watched)")
             return nil
         }
-        guard let opened = Concord.open(wrap: wrap, stream: stream) else {
+        let read = Concord.read(wrap: wrap, stream: stream)
+        if case .malformed = read {
+            trace("c2-malformed")
+            return dropped
+        }
+        guard case .chat(let opened) = read else {
             trace("c2-open-failed")
             return nil
         }
@@ -468,12 +473,14 @@ struct PushProcessor {
             $0.count > 1 && $0[0] == "p" && $0[1] == config.selfPubkey
         }
         let reaction = opened.kind == Concord.kindReaction
-        let mention = directMention || (
-            (stream.mentionEveryoneAnyone || stream.mentionEveryoneAuthors.contains(opened.author))
-            && Self.hasEveryoneMention(opened.content)
-        ) || (!reaction && RoleMentions.pings(
-            content: opened.content, tags: opened.tags, held: stream.roleMentions,
-            authorMentionsAny: stream.roleMentionAuthors.contains(opened.author)
+        // A reaction is aimed at one message's author only: its content mentions nobody.
+        let mention = directMention || (!reaction && (
+            ((stream.mentionEveryoneAnyone || stream.mentionEveryoneAuthors.contains(opened.author))
+                && Self.hasEveryoneMention(opened.content))
+            || RoleMentions.pings(
+                content: opened.content, tags: opened.tags, held: stream.roleMentions,
+                authorMentionsAny: stream.roleMentionAuthors.contains(opened.author)
+            )
         ))
         // A reaction notifies only when it points at one of YOUR messages; the
         // `p` tag is on the encrypted rumor, so this is the first place it can

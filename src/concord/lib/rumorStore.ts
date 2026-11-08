@@ -80,6 +80,9 @@ function touchTenant(communityIdHex: string): void {
 export function clearRumorStoreMemory(): void {
   controlPlaneMemo.clear();
   tenantRev.clear();
+  guestbookAddrs.clear();
+  guestbookAddrsReady.clear();
+  guestbookAddrsPending.clear();
 }
 
 /** The ArmadaDB tenant id holding a community's opened events. */
@@ -90,15 +93,17 @@ export function communityTenant(communityIdHex: string): string {
 // Control snapshot membership. Wraps aren't stored; the one envelope fact not in
 // the rumor is whether a control edition arrived under the CURRENT epoch's
 // control stream (compaction re-wraps verbatim, CORD-06 §3, so ids match, but a
-// snapshot outranks old-root fragments — `headCandidates`). Kept as a KV set of
-// rumor ids per control stream address; the reader picks the address it deems current.
+// snapshot outranks old-root fragments — `headCandidates`). Kept as one KV key per
+// (control stream address, rumor), so recording one never reads and two writes
+// can't lose each other: a wrap already seen is never offered again to put one back.
 
-/** KV key prefix holding a community's per-stream control snapshot sets. */
-const snapshotPrefix = (communityIdHex: string) => `c2snap:${communityIdHex}:`;
+/** KV key prefix holding a community's control snapshot entries. */
+export const SNAPSHOT_PREFIX = "c2snap:";
+const snapshotPrefix = (communityIdHex: string) => `${SNAPSHOT_PREFIX}${communityIdHex}:`;
 
-/** KV key holding the rumor ids seen under one control stream address. */
-const snapshotKey = (communityIdHex: string, controlPk: string) =>
-  `${snapshotPrefix(communityIdHex)}${controlPk}`;
+/** KV key recording that `rumorId` arrived under control stream address `controlPk`. */
+export const snapshotKey = (communityIdHex: string, controlPk: string, rumorId: string) =>
+  `${snapshotPrefix(communityIdHex)}${controlPk}:${rumorId}`;
 
 /**
  * The rumor ids that arrived under `controlPk`, or undefined. May be a superset
@@ -110,84 +115,106 @@ export async function readControlSnapshot(
 ): Promise<Set<string> | undefined> {
   if (!communityIdHex || !controlPk) return undefined;
   try {
-    const ids = await getArmadaDB().kv.get<string[]>(snapshotKey(communityIdHex, controlPk));
-    return ids && ids.length > 0 ? new Set(ids) : undefined;
+    const prefix = `${snapshotPrefix(communityIdHex)}${controlPk}:`;
+    const entries = await getArmadaDB().kv.list({ prefix });
+    return entries.length > 0 ? new Set(entries.map(({ key }) => key.slice(prefix.length))) : undefined;
   } catch {
     return undefined;
   }
 }
 
 /**
- * Record which control stream each fresh rumor arrived on. Last-writer-wins is
- * fine: COMPLETE-mode sweeps re-offer the whole plane. Only needed for Refounded
+ * Record which control stream each fresh rumor arrived on. Only needed for Refounded
  * communities, so {@link writeOpened} skips it when `refounded` is false.
  */
 export async function noteControlSnapshot(
   communityIdHex: string,
   opened: Array<{ streamPk?: string; rumorId: string }>,
 ): Promise<void> {
-  const byPk = new Map<string, string[]>();
-  for (const o of opened) {
-    if (!o.streamPk) continue;
-    const list = byPk.get(o.streamPk);
-    if (list) list.push(o.rumorId);
-    else byPk.set(o.streamPk, [o.rumorId]);
-  }
   const kv = getArmadaDB().kv;
   await Promise.all(
-    [...byPk].map(async ([pk, ids]) => {
-      const key = snapshotKey(communityIdHex, pk);
-      const merged = new Set((await kv.get<string[]>(key)) ?? []);
-      const before = merged.size;
-      for (const id of ids) merged.add(id);
-      if (merged.size !== before) await kv.set(key, [...merged]);
-    }),
+    opened.flatMap((o) => (o.streamPk ? [kv.set(snapshotKey(communityIdHex, o.streamPk, o.rumorId), 1)] : [])),
   );
 }
 
 // The Guestbook epoch a rumor arrived at, by the same arrangement: only the live
 // epoch's Nicknames count (CORD-04 §10), and nothing in the rumor says which it was.
-const guestbookStreamKey = (communityIdHex: string, pk: string) => `c2gbpk:${communityIdHex}:${pk}`;
+// One key per (rumor, address), so recording never reads and two writes can't lose each other.
+export const GUESTBOOK_ADDR_PREFIX = "c2gbaddr:";
+const guestbookAddrPrefix = (communityIdHex: string) => `${GUESTBOOK_ADDR_PREFIX}${communityIdHex}:`;
+export const guestbookAddrKey = (communityIdHex: string, rumorId: string, pk: string) =>
+  `${guestbookAddrPrefix(communityIdHex)}${rumorId}:${pk}`;
 
-/** The rumor ids that arrived at Guestbook address `pk`, or undefined when none were recorded. */
-export async function readGuestbookStream(communityIdHex: string, pk: string): Promise<Set<string> | undefined> {
-  try {
-    const ids = await getArmadaDB().kv.get<string[]>(guestbookStreamKey(communityIdHex, pk));
-    return ids && ids.length > 0 ? new Set(ids) : undefined;
-  } catch {
-    return undefined;
-  }
+/** Per community, each rumor's addresses: read from KV once a session, then kept current by every write. */
+const guestbookAddrs = new Map<string, Promise<Map<string, Set<string>>>>();
+/** The loaded maps, so a write lands in one synchronously; and writes made while one loads. */
+const guestbookAddrsReady = new Map<string, Map<string, Set<string>>>();
+const guestbookAddrsPending = new Map<string, Array<{ rumorId: string; pk: string }>>();
+
+function addAddr(map: Map<string, Set<string>>, rumorId: string, pk: string): void {
+  const held = map.get(rumorId);
+  if (held) held.add(pk);
+  else map.set(rumorId, new Set([pk]));
 }
 
-/** Each stored Guestbook rumor tagged with the address it was recorded arriving at, where known. */
+/** Every address each Guestbook rumor of a community was recorded arriving at. */
+export function readGuestbookAddresses(communityIdHex: string): Promise<Map<string, Set<string>>> {
+  let loaded = guestbookAddrs.get(communityIdHex);
+  if (!loaded) {
+    const prefix = guestbookAddrPrefix(communityIdHex);
+    const pending: Array<{ rumorId: string; pk: string }> = [];
+    guestbookAddrsPending.set(communityIdHex, pending);
+    const load: Promise<Map<string, Set<string>>> = getArmadaDB().kv.list({ prefix }).then((entries) => {
+      const map = new Map<string, Set<string>>();
+      for (const { key } of entries) {
+        const [rumorId, pk] = key.slice(prefix.length).split(":");
+        if (rumorId && pk) addAddr(map, rumorId, pk);
+      }
+      for (const a of pending) addAddr(map, a.rumorId, a.pk);
+      // A load a session clear superseded publishes nothing: its map is the old session's.
+      if (guestbookAddrs.get(communityIdHex) === load) {
+        guestbookAddrsPending.delete(communityIdHex);
+        guestbookAddrsReady.set(communityIdHex, map);
+      }
+      return map;
+    });
+    // A failed read is retried by the next caller rather than remembered as empty.
+    load.catch(() => {
+      if (guestbookAddrs.get(communityIdHex) !== load) return;
+      guestbookAddrs.delete(communityIdHex);
+      guestbookAddrsPending.delete(communityIdHex);
+    });
+    guestbookAddrs.set(communityIdHex, load);
+    loaded = load;
+  }
+  return loaded.catch(() => new Map());
+}
+
+/** Each stored Guestbook rumor tagged with the address it was recorded arriving at: the live epoch's where it was one. */
 export async function withGuestbookStreams(community: Community, stored: OpenedEvent[]): Promise<OpenedEvent[]> {
   const live = currentGuestbookGroup(community).pk;
-  const seen = new Map<string, string>();
-  for (const g of guestbookGroups(community)) {
-    for (const id of (await readGuestbookStream(community.idHex, g.pk)) ?? []) if (!seen.has(id) || g.pk === live) seen.set(id, g.pk);
-  }
-  if (seen.size === 0) return stored;
-  return stored.map((e) => (e.streamPk === undefined && seen.has(e.rumorId) ? { ...e, streamPk: seen.get(e.rumorId) } : e));
+  const held = guestbookGroups(community).map((g) => g.pk);
+  const addrs = await readGuestbookAddresses(community.idHex);
+  if (addrs.size === 0) return stored;
+  return stored.map((e) => {
+    if (e.streamPk !== undefined) return e;
+    const at = addrs.get(e.rumorId);
+    const pk = at && (at.has(live) ? live : held.find((h) => at.has(h)));
+    return pk ? { ...e, streamPk: pk } : e;
+  });
 }
 
 async function noteGuestbookStreams(communityIdHex: string, opened: Array<{ streamPk?: string; rumorId: string }>): Promise<void> {
-  const byPk = new Map<string, string[]>();
-  for (const o of opened) {
-    if (!o.streamPk) continue;
-    const list = byPk.get(o.streamPk);
-    if (list) list.push(o.rumorId);
-    else byPk.set(o.streamPk, [o.rumorId]);
+  const fresh = opened.filter((o): o is { streamPk: string; rumorId: string } => Boolean(o.streamPk));
+  if (fresh.length === 0) return;
+  const ready = guestbookAddrsReady.get(communityIdHex);
+  const pending = guestbookAddrsPending.get(communityIdHex);
+  for (const o of fresh) {
+    if (ready) addAddr(ready, o.rumorId, o.streamPk);
+    else pending?.push({ rumorId: o.rumorId, pk: o.streamPk });
   }
   const kv = getArmadaDB().kv;
-  await Promise.all(
-    [...byPk].map(async ([pk, ids]) => {
-      const key = guestbookStreamKey(communityIdHex, pk);
-      const merged = new Set((await kv.get<string[]>(key)) ?? []);
-      const before = merged.size;
-      for (const id of ids) merged.add(id);
-      if (merged.size !== before) await kv.set(key, [...merged]);
-    }),
-  );
+  await Promise.all(fresh.map((o) => kv.set(guestbookAddrKey(communityIdHex, o.rumorId, o.streamPk), 1)));
 }
 
 /**
@@ -201,10 +228,11 @@ export async function pruneControlSnapshots(
   if (!communityIdHex) return;
   try {
     const kv = getArmadaDB().kv;
-    const keep = new Set(keepPks.map((pk) => snapshotKey(communityIdHex, pk)));
-    const stale = (await kv.list({ prefix: snapshotPrefix(communityIdHex) }))
+    const prefix = snapshotPrefix(communityIdHex);
+    const keep = new Set(keepPks);
+    const stale = (await kv.list({ prefix }))
       .map(({ key }) => key)
-      .filter((key) => !keep.has(key));
+      .filter((key) => !keep.has(key.slice(prefix.length).split(":")[0]));
     await Promise.all(stale.map((key) => kv.delete(key)));
   } catch {
     // best-effort
@@ -327,10 +355,13 @@ export async function heldPostAfter(communityIdHex: string, author: string, afte
   return notExpired(events).some((ev) => ev.tags.some((t) => t[0] === "channel") && resolveMs(ev.created_at, ev.tags) > afterMs);
 }
 
-/** Whether this device holds a post `author` sent at a Channel's writer address since `sinceMs` (Vector `posts_since_by`). */
+/**
+ * Whether this device holds a post `author` sent at a Channel's writer address since `sinceMs`
+ * (Vector `posts_since_by`): every row since then, since any number of ordinary posts can follow it.
+ */
 export async function heldWriterPostSince(communityIdHex: string, channelIdHex: string, author: string, sinceMs: number): Promise<boolean> {
   const events = await rumorStore(communityIdHex).query([
-    { kinds: CHAT_ROW_KINDS, "#channel": [channelIdHex], authors: [author], since: Math.floor(sinceMs / 1000), limit: 50 },
+    { kinds: CHAT_ROW_KINDS, "#channel": [channelIdHex], authors: [author], since: Math.floor(sinceMs / 1000) },
   ]);
   return events.some((ev) => resolveMs(ev.created_at, ev.tags) >= sinceMs && ev.tags.some((t) => t[0] === "wepoch"));
 }
@@ -1040,6 +1071,27 @@ const SWEEP_MAX_PAGES = 20;
 /** At most one sweep per community per interval, per session. */
 const SWEEP_MIN_INTERVAL_MS = 6 * 3600 * 1000;
 const lastSweepAt = new Map<string, number>();
+/** How long a sweep waits after a community opens: its pages would queue ahead of the timeline's first read. */
+const SWEEP_DELAY_MS = 10_000;
+
+/**
+ * {@link sweepExpiredCommunityRumors} once the page has settled: after {@link SWEEP_DELAY_MS},
+ * then when the browser is idle. Reads already hide expired rows. Returns a cancel.
+ */
+export function scheduleExpiredSweep(communityIdHex: string): () => void {
+  const controller = new AbortController();
+  let idle: number | undefined;
+  const timer = setTimeout(() => {
+    const run = () => void sweepExpiredCommunityRumors(communityIdHex, { signal: controller.signal }).catch(() => undefined);
+    if (typeof requestIdleCallback === "function") idle = requestIdleCallback(run, { timeout: 5_000 });
+    else run();
+  }, SWEEP_DELAY_MS);
+  return () => {
+    clearTimeout(timer);
+    if (idle !== undefined) cancelIdleCallback(idle);
+    controller.abort();
+  };
+}
 
 /**
  * Physically remove stored chat rumors past their NIP-40 `expiration` (CORD-08
@@ -1064,30 +1116,36 @@ export async function sweepExpiredCommunityRumors(
   let removed = 0;
   const channels = new Set<string>();
 
-  for (let page = 0; page < SWEEP_MAX_PAGES; page++) {
-    const filter: { kinds: number[]; limit: number; until?: number } = { kinds, limit: SWEEP_PAGE };
-    if (until !== undefined) filter.until = until;
-    const events = await s.query([filter], { signal: opts.signal });
-    if (events.length === 0) break;
+  try {
+    for (let page = 0; page < SWEEP_MAX_PAGES; page++) {
+      if (opts.signal?.aborted) break;
+      const filter: { kinds: number[]; limit: number; until?: number } = { kinds, limit: SWEEP_PAGE };
+      if (until !== undefined) filter.until = until;
+      const events = await s.query([filter], { signal: opts.signal });
+      if (events.length === 0) break;
 
-    const expired = events.filter((ev) => isExpired(ev.tags, now));
-    if (expired.length > 0) {
-      try {
-        await s.remove([{ ids: expired.map((ev) => ev.id) }], { signal: opts.signal });
-      } finally {
-        touchTenant(communityIdHex);
+      const expired = events.filter((ev) => isExpired(ev.tags, now));
+      if (expired.length > 0) {
+        try {
+          await s.remove([{ ids: expired.map((ev) => ev.id) }], { signal: opts.signal });
+        } finally {
+          touchTenant(communityIdHex);
+        }
+        removed += expired.length;
+        for (const ev of expired) {
+          const idHex = ev.tags.find((t) => t[0] === "channel")?.[1];
+          if (idHex) channels.add(idHex);
+        }
       }
-      removed += expired.length;
-      for (const ev of expired) {
-        const idHex = ev.tags.find((t) => t[0] === "channel")?.[1];
-        if (idHex) channels.add(idHex);
-      }
+      if (events.length < SWEEP_PAGE) break;
+      // Strictly older than this page's oldest, or a boundary second loops forever.
+      const oldest = Math.min(...events.map((ev) => ev.created_at));
+      if (until !== undefined && oldest - 1 >= until) break;
+      until = oldest - 1;
     }
-    if (events.length < SWEEP_PAGE) break;
-    // Strictly older than this page's oldest, or a boundary second loops forever.
-    const oldest = Math.min(...events.map((ev) => ev.created_at));
-    if (until !== undefined && oldest - 1 >= until) break;
-    until = oldest - 1;
+  } finally {
+    // A cancelled sweep didn't finish: the next open may run it again.
+    if (opts.signal?.aborted) lastSweepAt.delete(communityIdHex);
   }
 
   if (channels.size > 0) emitWireScopes([...channels].map((id) => `c2:${id}`));

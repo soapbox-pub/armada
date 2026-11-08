@@ -81,7 +81,7 @@ vi.mock("@/concord/lib/rumorStore", () => ({
     }),
   queryChannelRumorsByIds: async () => (h.focusRead ? h.focusRead() : h.focus),
   readStreamCursor: async () => undefined,
-  sweepExpiredCommunityRumors: async () => undefined,
+  scheduleExpiredSweep: () => () => undefined,
   updateStreamCursor: async () => undefined,
   writeRumors: () => true,
 }));

@@ -17,7 +17,7 @@ import { verifyEvent } from "nostr-tools/pure";
 import { hexToBytes } from "@noble/hashes/utils.js";
 
 import { rolePings } from "@/concord/lib/roleMentions";
-import { checkChannelBinding, FUTURE_HOLD_MS, openWrap } from "@/concord/lib/stream";
+import { checkChannelBinding, FUTURE_HOLD_MS, openWrap, StreamError } from "@/concord/lib/stream";
 import {
   KIND_COMMENT,
   KIND_MESSAGE,
@@ -147,7 +147,7 @@ export async function openDm(
 export function openConcord(
   wrap: NostrEvent,
   streams: SwConcordStream[],
-): { opened: OpenedChat; stream: SwConcordStream } | undefined {
+): { opened: OpenedChat; stream: SwConcordStream } | "malformed" | undefined {
   const stream = streams.find((s) => s.pk === wrap.pubkey);
   if (!stream) return undefined;
   try {
@@ -161,8 +161,10 @@ export function openConcord(
     // Another plane's kind re-sealed onto a chat stream is not chat (CORD-02 §5).
     if (PLANE_KINDS.has(ev.kind)) return undefined;
     return { opened: { ...ev, channelIdHex: stream.channelId, epoch }, stream };
-  } catch {
-    // not ours, spliced, or malformed
+  } catch (e) {
+    // A bad `ms` opened fine and is refused for what it says (CORD-02 §5, Vector `BadMs`).
+    if (e instanceof StreamError && e.code === "bad-ms") return "malformed";
+    // not ours, spliced, or otherwise malformed
     return undefined;
   }
 }
@@ -462,6 +464,7 @@ async function prepareConcord(
   const streams = cfg?.concord;
   if (!streams || streams.length === 0) return undefined;
   const result = openConcord(wrap, streams);
+  if (result === "malformed") return DROP;
   if (!result) {
     const addressed = streams.find((s) => s.pk === wrap.pubkey);
     return addressed ? opaqueConcord(addressed, policyOf(cfg)) : undefined;
@@ -500,12 +503,12 @@ async function prepareConcord(
 
   const mention = Boolean(cfg?.self) && (
     opened.tags.some(([n, v]) => n === "p" && v === cfg?.self)
-    || (
-      (stream.mentionEveryoneAnyone === true || stream.mentionEveryoneAuthors?.includes(opened.author))
-      && hasEveryoneMention(opened.content)
-    )
-    || (opened.kind !== KIND_REACTION
-      && rolePings(opened.content, opened.tags, stream.roleMentions ?? [], stream.roleMentionAuthors?.includes(opened.author) ?? false))
+    // A reaction is aimed at one message's author only: its content mentions nobody.
+    || (opened.kind !== KIND_REACTION && (
+      ((stream.mentionEveryoneAnyone === true || stream.mentionEveryoneAuthors?.includes(opened.author))
+        && hasEveryoneMention(opened.content))
+      || rolePings(opened.content, opened.tags, stream.roleMentions ?? [], stream.roleMentionAuthors?.includes(opened.author) ?? false)
+    ))
   );
   const reaction = opened.kind === KIND_REACTION;
   // Reactions only notify when pointing at YOUR message (`p` on the encrypted rumor), and

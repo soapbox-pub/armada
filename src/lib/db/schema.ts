@@ -5,6 +5,8 @@
  * {@link SchemaMigration} and bump {@link ARMADA_DB_VERSION} — don't make readers
  * cope with two shapes.
  */
+import { guestbookAddrKey, SNAPSHOT_PREFIX, snapshotKey } from "@/concord/lib/rumorStore";
+
 import { getArmadaDB } from "./armadaDB";
 
 /**
@@ -12,8 +14,10 @@ import { getArmadaDB } from "./armadaDB";
  * 1 — initial ArmadaDB layout.
  * 2 — unbounded localStorage key spaces move into KV (`KvPrefixCache`).
  * 3 — NIP-29 moves from `main` to per-relay tenants; `provenance:` KV dropped.
+ * 4 — a Guestbook rumor's address is a key of its own (`c2gbaddr:`), not an id in a per-address array (`c2gbpk:`).
+ * 5 — likewise a Control snapshot entry (`c2snap:<community>:<address>:<rumor>`), not an id in `c2snap:<community>:<address>`.
  */
-export const ARMADA_DB_VERSION = 3;
+export const ARMADA_DB_VERSION = 5;
 
 export const SCHEMA_VERSION_KEY = "db:version";
 
@@ -34,8 +38,50 @@ export interface SchemaMigration {
   run(self: string | undefined): Promise<void>;
 }
 
+const OLD_GUESTBOOK_PREFIX = "c2gbpk:";
+
 /** Ordered by `to`, ascending. */
-export const SCHEMA_MIGRATIONS: SchemaMigration[] = [];
+export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
+  {
+    to: 4,
+    label: "Guestbook addresses",
+    needed: async () => (await getArmadaDB().kv.list({ prefix: OLD_GUESTBOOK_PREFIX }, { limit: 1 })).length > 0,
+    async run() {
+      const kv = getArmadaDB().kv;
+      for (const { key, value } of await kv.list<unknown>({ prefix: OLD_GUESTBOOK_PREFIX })) {
+        // `c2gbpk:<community>:<address>` → the ids that arrived there.
+        const [communityIdHex, pk] = key.slice(OLD_GUESTBOOK_PREFIX.length).split(":");
+        if (communityIdHex && pk && Array.isArray(value)) {
+          await Promise.all(value.filter((id): id is string => typeof id === "string").map((id) => kv.set(guestbookAddrKey(communityIdHex, id, pk), 1)));
+        }
+        await kv.delete(key);
+      }
+    },
+  },
+  {
+    to: 5,
+    label: "Control snapshots",
+    needed: async () => (await oldSnapshotSets()).length > 0,
+    async run() {
+      const kv = getArmadaDB().kv;
+      for (const { key, communityIdHex, pk, ids } of await oldSnapshotSets()) {
+        await Promise.all(ids.map((id) => kv.set(snapshotKey(communityIdHex, pk, id), 1)));
+        await kv.delete(key);
+      }
+    },
+  },
+];
+
+/** The `c2snap:<community>:<address>` id arrays, which the per-entry keys sharing their prefix never are. */
+async function oldSnapshotSets(): Promise<Array<{ key: string; communityIdHex: string; pk: string; ids: string[] }>> {
+  const out: Array<{ key: string; communityIdHex: string; pk: string; ids: string[] }> = [];
+  for (const { key, value } of await getArmadaDB().kv.list<unknown>({ prefix: SNAPSHOT_PREFIX })) {
+    const parts = key.slice(SNAPSHOT_PREFIX.length).split(":");
+    if (parts.length !== 2 || !Array.isArray(value)) continue;
+    out.push({ key, communityIdHex: parts[0], pk: parts[1], ids: value.filter((id): id is string => typeof id === "string") });
+  }
+  return out;
+}
 
 /** The version on disk, or `undefined` if it was never stamped. */
 export async function readSchemaVersion(): Promise<number | undefined> {

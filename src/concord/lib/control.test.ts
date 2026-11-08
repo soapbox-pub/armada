@@ -34,7 +34,9 @@ import { SIGNAL_PAUSE, VSK_PINS } from "@/concord/lib/kinds";
 import { buildRumor, openWrap, rewrapSeal, sealRumor, wrapSeal } from "@/concord/lib/stream";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { KIND_SEAL_ENCRYPTED, KIND_SEAL_PLAINTEXT } from "@/concord/lib/kinds";
-import { adminRole, badgeOf, hasPermission, isAdmin, moderatorRole, Permissions, type Role } from "@/concord/lib/roles";
+import { adminRole, badgeOf, hasPermission, isAdmin, moderatorRole, Permissions, type Overwrite, type Role } from "@/concord/lib/roles";
+import { overwriteLocator } from "@/concord/lib/roster";
+import { hexKey, rankedCommunity } from "@/test/concordEditions";
 import {
   ARMADA_GIT_CHANNEL_METADATA_KEY,
   MAX_CHANNEL_GIT_ATTACHMENTS,
@@ -2459,5 +2461,18 @@ describe("community signals — pause (vsk 12, CORD-04 §8)", () => {
 
     expect(hasPermission(folded.roster, admin.pubkey, Permissions.MANAGE_CHANNELS)).toBe(true);
     expect(activePause(folded, 1500)).toEqual({ since: 1000, by: admin.pubkey });
+  });
+});
+
+describe("foldControlState memo", () => {
+  it("keys a held overwrite's allow and deny apart, so one pair isn't served for another", () => {
+    const { c, base } = rankedCommunity(Permissions.MANAGE_ROLES);
+    const scope = hexKey();
+    const held = (allow: bigint, deny: bigint): Overwrite => ({ scope, target: { kind: "everyone" }, allow, deny });
+    // A floored overwrite the relay no longer serves stands as the reader held it.
+    const floors = new Map([[bytesToHex(overwriteLocator(c.id, held(0n, 0n))), { version: 1n, hash: random32() }]]);
+    const fold = (o: Overwrite) => foldControlState(base, c.id, c.owner, floors, undefined, { overwrites: [o] }).roster.overwrites;
+    expect(fold(held(1n, 23n))).toEqual([held(1n, 23n)]);
+    expect(fold(held(12n, 3n))).toEqual([held(12n, 3n)]);
   });
 });

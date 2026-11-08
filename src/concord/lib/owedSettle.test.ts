@@ -28,6 +28,20 @@ describe("a settle owed until a whole read lands (Vector `owe_settle`, `run_owed
     expect(later.from?.banned.has("before")).toBe(true);
   });
 
+  it("keeps a settle of everything through a failed read and a restart, and clears it once settled", async () => {
+    const book = settleBook(id);
+    await book.owe(undefined);
+    await book.begin();
+    await book.end(false);
+    __resetFoldedForTests();
+    const restarted = settleBook(id);
+    const later = await restarted.begin();
+    expect(later).toEqual({ settle: true });
+    await restarted.end(true);
+    __resetFoldedForTests();
+    expect((await settleBook(id).begin()).settle).toBe(false);
+  });
+
   it("keeps the earliest, so the owed settle covers every change since", async () => {
     const book = settleBook(id);
     await book.owe(fold("first"));

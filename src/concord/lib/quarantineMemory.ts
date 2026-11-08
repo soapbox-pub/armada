@@ -1,8 +1,8 @@
 /**
  * Flood-detector verdicts remembered across sessions. `floodClusters` depends on
  * context the next session doesn't reload, so once a message is folded it stays
- * folded. Stored like `c2snap:` (see rumorStore.ts): one KV entry per (community,
- * channel), `{rumorId: ms}`, behind a `KvPrefixCache` for synchronous reads.
+ * folded. One KV entry per (community, channel), `{rumorId: ms}`, behind a
+ * `KvPrefixCache`, which merges in memory synchronously and reads synchronously.
  *
  * - Merge-only: a later, less-informed fold never un-remembers.
  * - Still a display fold (collapsed, expandable), never a drop.

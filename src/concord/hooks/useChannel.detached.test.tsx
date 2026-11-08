@@ -86,7 +86,7 @@ vi.mock("@/concord/lib/rumorStore", () => {
     },
     // The store is whole from 100s to 10_000s, so forward reads never need relays.
     readStreamCursor: async () => ({ newest: 10_000, oldest: 100, exhausted: false }),
-    sweepExpiredCommunityRumors: async () => undefined,
+    scheduleExpiredSweep: () => () => undefined,
     updateStreamCursor: async () => undefined,
     writeRumors: () => Promise.resolve(true),
   };

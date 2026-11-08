@@ -916,7 +916,7 @@ export function outranksMember(
 ): boolean {
   if (actorHex === ownerHex) return true;
   if (memberHex === ownerHex) return false;
-  const target = highestPosition(roles, memberHex) ?? Number.MAX_SAFE_INTEGER;
+  const target = highestPosition(roles, memberHex) ?? BENEATH_EVERY_ROLE;
   return outranks(roles, actorHex, ownerHex, target);
 }
 
@@ -945,7 +945,7 @@ export function canActOnMember(
   permission: bigint,
 ): boolean {
   if (ownerHex === targetHex) return false;
-  const targetPosition = highestPosition(roles, targetHex) ?? Number.MAX_SAFE_INTEGER;
+  const targetPosition = highestPosition(roles, targetHex) ?? BENEATH_EVERY_ROLE;
   return canActOnPosition(roles, actorHex, ownerHex, targetPosition, permission);
 }
 

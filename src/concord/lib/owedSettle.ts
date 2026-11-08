@@ -16,18 +16,22 @@ export interface SettleRun {
   from?: FoldedControl;
 }
 
+/** What is kept for a settle owed of everything, which covers any fold one could start from. */
+const EVERYTHING = { everything: true } as const;
+type Owed = FoldedControl | typeof EVERYTHING;
+const isEverything = (o: Owed | undefined): o is typeof EVERYTHING => (o as { everything?: unknown } | undefined)?.everything === true;
+
 export function settleBook(communityIdHex: string) {
   const key = `c2settle:${communityIdHex}`;
   let running = false;
-  let all = false;
-  let read: FoldedControl | undefined;
-  let runAll = false;
+  let read: Owed | undefined;
   let pending: FoldedControl | undefined;
   let pendingAll = false;
 
   const persist = async (before: FoldedControl) => {
-    if ((await readFolded<FoldedControl>(key)) === undefined) await writeFolded(key, before);
+    if ((await readFolded<Owed>(key)) === undefined) await writeFolded(key, before);
   };
+  const persistAll = () => writeFolded(key, EVERYTHING);
 
   return {
     /** Owe a settle from `before`, or of everything when there is none. */
@@ -38,28 +42,21 @@ export function settleBook(communityIdHex: string) {
         return;
       }
       if (before) await persist(before);
-      else all = true;
+      else await persistAll();
     },
     async begin(): Promise<SettleRun> {
       running = true;
-      runAll = all;
-      all = false;
-      read = await readFolded<FoldedControl>(key);
-      return { settle: runAll || read !== undefined, ...(runAll || !read ? {} : { from: read }) };
+      read = await readFolded<Owed>(key);
+      return { settle: read !== undefined, ...(read && !isEverything(read) ? { from: read } : {}) };
     },
     /** Close a pass; true when a change made during it still owes one. */
     async end(settled: boolean): Promise<boolean> {
       running = false;
-      if (settled) {
-        if (read) await deleteFolded(key);
-      } else if (runAll) {
-        all = true;
-      }
+      if (settled && read !== undefined) await deleteFolded(key);
       read = undefined;
-      runAll = false;
       const again = pending !== undefined || pendingAll;
-      if (pending) await persist(pending);
-      if (pendingAll) all = true;
+      if (pendingAll) await persistAll();
+      else if (pending) await persist(pending);
       pending = undefined;
       pendingAll = false;
       return again;

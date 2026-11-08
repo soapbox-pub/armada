@@ -60,17 +60,16 @@ export function useRankedCategoryControls(community: Community | undefined, canM
       .finally(() => setDeleteBusy(false));
   };
 
+  const closeDelete = () => {
+    if (deleteBusy) return;
+    setDeleting(undefined);
+    setDeleteError(null);
+  };
+
   const dialog = community ? (
     <>
       <ChannelPermissionsDialog community={community} scope={scope} onOpenChange={(open) => !open && setScope(undefined)} />
-      <Dialog
-        open={Boolean(deleting)}
-        onOpenChange={(open) => {
-          if (open || deleteBusy) return;
-          setDeleting(undefined);
-          setDeleteError(null);
-        }}
-      >
+      <Dialog open={Boolean(deleting)} onOpenChange={(open) => !open && closeDelete()}>
         <ChromeDialogContent
           title={intl.formatMessage({ id: "rankedCategory.deleteTitle", defaultMessage: "Delete {name}?" }, { name: deleting?.name ?? "" })}
           className="sm:max-w-sm"
@@ -86,7 +85,7 @@ export function useRankedCategoryControls(community: Community | undefined, canM
           />
           {deleteError && <p className="mt-3 text-sm text-destructive">{deleteError}</p>}
           <ChromeDialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
+            <Button type="button" variant="ghost" onClick={closeDelete} disabled={deleteBusy}>
               <FormattedMessage {...common.cancel} />
             </Button>
             <Button type="button" variant="destructive" onClick={confirmDelete} disabled={deleteBusy}>

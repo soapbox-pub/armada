@@ -8,7 +8,7 @@
 import type { NPool } from "@nostrify/nostrify";
 
 import { readAccessPlanes } from "@/concord/hooks/useChannelAccess";
-import { citationFor, publishEdition } from "@/concord/hooks/useControlPlane";
+import { citationFor, publishEdition, withControlWrite } from "@/concord/hooks/useControlPlane";
 import type { OpenedChat } from "@/concord/lib/chat";
 import type { FoldedControl } from "@/concord/lib/control";
 import { accessPlane, buildAccessDeliveries, parseDelivery } from "@/concord/lib/delivery";
@@ -55,6 +55,8 @@ export interface WriterDutyEnv {
    * the fold catch up (Vector `follow_fresh`, `sync_guestbook`); false on a short read.
    */
   freshen?: (guestbook: boolean) => Promise<boolean>;
+  /** The Control Plane as this device stores it, folded: a ledger edition is planned on it, under the write lock. */
+  stored?: () => Promise<FoldedControl | undefined>;
   /** Settling this member's own change: acted on at once, neither rank-staggered nor damped (Vector `settle_writers`). */
   settle?: boolean;
   /** The fold before that change: settling touches only the Channels it moved. */
@@ -297,26 +299,41 @@ async function backstop(env: WriterDutyEnv, ch: string, seen: Ledger | undefined
 
 /** Publish one ledger edition appending `spell`, from the ledger as it stands now. */
 async function appendToLedger(env: WriterDutyEnv, ch: string, spell: Parameters<typeof ledgerEdition>[0]["spell"], from?: number): Promise<boolean> {
-  const { community, folded } = env.now();
-  if (!community || !folded) return false;
-  const nowMs = clockNowMs();
+  const { community, folded: seen } = env.now();
+  if (!community || !seen) return false;
   const newest = await newestPost(env, community.idHex, ch);
   if (mustStop(env)) return false;
-  const built = ledgerEdition({
-    communityId: community.id,
-    control: folded,
-    channelIdHex: ch,
-    base: folded.writers?.get(ch) ?? { channel: ch, entries: [], retired: [], extra: {} },
-    spell,
-    ...(from !== undefined ? { from } : {}),
-    entryAtMs: entryTime(nowMs, newest),
-    nowMs,
-    me: env.user.pubkey,
-    authority: citationFor(community, folded, env.user.pubkey),
+  return withControlWrite(community.idHex, async () => {
+    const folded = await heldFold(env, seen);
+    // This device's own last write may have moved the ledger since the pass saw it.
+    if (!sameLedger(folded, seen, ch) || mustStop(env)) return false;
+    const nowMs = clockNowMs();
+    const built = ledgerEdition({
+      communityId: community.id,
+      control: folded,
+      channelIdHex: ch,
+      base: folded.writers?.get(ch) ?? { channel: ch, entries: [], retired: [], extra: {} },
+      spell,
+      ...(from !== undefined ? { from } : {}),
+      entryAtMs: entryTime(nowMs, newest),
+      nowMs,
+      me: env.user.pubkey,
+      authority: citationFor(community, folded, env.user.pubkey),
+    });
+    if (!built) return false;
+    await publishEdition(env.nostr, community, env.user.signer, built.rumor);
+    return true;
   });
-  if (!built) return false;
-  await publishEdition(env.nostr, community, env.user.signer, built.rumor);
-  return true;
+}
+
+/** The fold this device stores, which holds its own last write before the rendered one does; `fallback` without one. */
+async function heldFold(env: WriterDutyEnv, fallback: FoldedControl): Promise<FoldedControl> {
+  return (await env.stored?.().catch(() => undefined)) ?? fallback;
+}
+
+function sameLedger(a: FoldedControl, b: FoldedControl, ch: string): boolean {
+  const [x, y] = [a.writers?.get(ch), b.writers?.get(ch)];
+  return (x ? ledgerToJson(x) : "") === (y ? ledgerToJson(y) : "");
 }
 
 async function stopWriter(env: WriterDutyEnv, ch: string, writer: string): Promise<boolean> {
@@ -387,16 +404,20 @@ async function mint(env: WriterDutyEnv, ch: string, cut: readonly string[]): Pro
   });
   if (!built || mustStop(env)) return false;
   // Building took a signer round trip per writer: another manager may have moved the ledger (Vector `ledger_moved_since`).
-  const base = folded.writers?.get(ch);
   if (env.freshen) {
     if (!(await env.freshen(false)) || mustStop(env)) return false;
-    const now = env.now().folded?.writers?.get(ch);
-    if ((now ? ledgerToJson(now) : "") !== (base ? ledgerToJson(base) : "")) return false;
+    const now = env.now().folded;
+    if (!now || !sameLedger(now, folded, ch)) return false;
   }
-  if (built.own) storeOwnWriter(community.idHex, ch, built.epoch, built.own.secret, built.own.cert);
-  // The ledger goes first, so a manager that sees it moved stands down; then every part of the mint.
-  await publishEdition(env.nostr, community, env.user.signer, built.edition);
-  if (mustStop(env, true)) return false;
+  const published = await withControlWrite(community.idHex, async () => {
+    // …or this device's own last write did.
+    if (!sameLedger(await heldFold(env, folded), folded, ch) || mustStop(env)) return false;
+    if (built.own) storeOwnWriter(community.idHex, ch, built.epoch, built.own.secret, built.own.cert);
+    // The ledger goes first, so a manager that sees it moved stands down; then every part of the mint.
+    await publishEdition(env.nostr, community, env.user.signer, built.edition);
+    return true;
+  });
+  if (!published || mustStop(env, true)) return false;
   await publishOnPlane(env, community, hex32(ch), built.deliveries);
   logSync("writers", `${community.idHex.slice(0, 8)} #${ch.slice(0, 8)}: minted writer epoch ${built.epoch}`);
   return true;

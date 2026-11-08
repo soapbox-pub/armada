@@ -16,6 +16,7 @@ import { buildEditionRumor, parseEdition, type AuthorityCitation, type ParsedEdi
 import { bytesToHex, editionBinding, everyoneLocator, grantLocator, hex32, random32, syncLocator } from "@/concord/lib/derive";
 import { denseRanks, rankBetween } from "@/concord/lib/rankKey";
 import {
+  BENEATH_EVERY_ROLE,
   EVERYONE_DEFAULT,
   highestPosition,
   isAuthorized,
@@ -48,7 +49,7 @@ import type { NostrRumor } from "@/lib/nostrRumor";
 import { t } from "@/i18n/intl";
 
 /** Beneath every Role: what `@everyone` and a roleless member sit at. */
-const BENEATH = Number.MAX_SAFE_INTEGER;
+const BENEATH = BENEATH_EVERY_ROLE;
 const NAME_MAX_BYTES = 64;
 /** At most this many Categories in a Community (Vector `MAX_CATEGORIES`). */
 export const MAX_CATEGORIES = 100;

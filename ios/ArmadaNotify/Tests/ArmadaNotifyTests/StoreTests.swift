@@ -360,6 +360,62 @@ final class StorelessTests: XCTestCase {
         XCTAssertNotEqual(prepared([], [author: (from: 1_700_000_000, until: 1_700_000_550)]), true, "a lapsed Timeout")
     }
 
+    /// A reaction rings only the author it reacts to: one saying `@everyone` is not a
+    /// mass mention, even where every member may mention everyone. Mirrors the web
+    /// worker and the Android service.
+    func testAReactionSayingEveryoneRingsNobodyElse() {
+        let (wrap, stream) = streamWrap(kind: 7, content: "@everyone", tags: [["p", vectorString("bobPk")]], everyoneMayMention: true)
+        let config = PushConfig(policy: .generic, selfPubkey: self_, knownPeers: [], secretKey: nil, nip46: nil, concord: [stream])
+        XCTAssertEqual(PushProcessor(store: nil, config: config, now: 1_700_000_600).prepare(userInfo: napp(wrap))?.drop, true)
+    }
+
+    /// A parity gap, pinned as it stands: in Vector a reaction never rings, even one to the
+    /// viewer's own message (it reaches `on_community_update`, never the notifier); here it
+    /// still does, as in the web worker. Flip the assertion when that changes.
+    func testAReactionToTheViewersMessageStillRingsUnlikeVector() {
+        let (wrap, stream) = streamWrap(kind: 7, content: "🔥", tags: [["e", String(repeating: "ab", count: 32)], ["p", self_]])
+        let config = PushConfig(policy: .generic, selfPubkey: self_, knownPeers: [], secretKey: nil, nip46: nil, concord: [stream])
+        XCTAssertNotEqual(PushProcessor(store: nil, config: config, now: 1_700_000_600).prepare(userInfo: napp(wrap))?.drop, true)
+    }
+
+    /// A malformed `ms` tag makes the rumor malformed, so it is dropped, never announced as
+    /// a wrap that wouldn't open (CORD-02 §5, Vector `resolve_ms_strict`). Mirrors the web
+    /// worker and the Android service.
+    func testDropsAMessageWithAMalformedMsTag() {
+        for ms in ["1000", "05", "x"] {
+            let (wrap, stream) = streamWrap(kind: 9, content: "hi", tags: [["ms", ms]])
+            let config = PushConfig(policy: .generic, selfPubkey: self_, knownPeers: [], secretKey: nil, nip46: nil, concord: [stream])
+            XCTAssertEqual(PushProcessor(store: nil, config: config, now: 1_700_000_600).prepare(userInfo: napp(wrap))?.drop, true, ms)
+        }
+    }
+
+    /// A chat wrap by bob at a fresh stream address, and the stream that opens it.
+    private func streamWrap(kind: Int, content: String, tags: [[String]], everyoneMayMention: Bool = false) -> ([String: Any], ConcordStream) {
+        let streamSk = String(repeating: "03", count: 32)
+        let streamPk = Secp256k1.xonlyPublicKey(secretKey: Hex.decode(streamSk)!)!
+        let convKey = Secp256k1.conversationKey(secretKey: Hex.decode(streamSk)!, peerPubkeyHex: streamPk)!
+        let channel = String(repeating: "cd", count: 32)
+        var rumor: [String: Any] = [
+            "pubkey": vectorString("bobPk"), "created_at": 1_700_000_500, "kind": kind, "content": content,
+            "tags": [["channel", channel], ["epoch", "1"]] + tags,
+        ]
+        rumor["id"] = NostrEvent.parse(rumor)!.computedId
+        func json(_ o: [String: Any]) -> String { String(data: try! JSONSerialization.data(withJSONObject: o), encoding: .utf8)! }
+        let seal = signedEvent(
+            secretKeyHex: vectorString("bobSk"), kind: Concord.kindSealEncrypted, tags: [],
+            content: Nip44.encrypt(conversationKey: convKey, plaintext: json(rumor))!, createdAt: 1_700_000_500
+        )
+        let wrap = signedEvent(
+            secretKeyHex: streamSk, kind: 1059, tags: [["p", vectorString("alicePk")]],
+            content: Nip44.encrypt(conversationKey: convKey, plaintext: json(seal))!, createdAt: 1_700_000_500
+        )
+        let stream = ConcordStream(
+            pubkey: streamPk, conversationKey: Hex.encode(convKey), epoch: "1", communityId: "cc", channelId: channel,
+            banned: [], mentionEveryoneAnyone: everyoneMayMention
+        )
+        return (wrap, stream)
+    }
+
     /// At a restricted Channel's read address a post rings only from those who manage it (CORD-03 §1 Held posts).
     func testRingsOnlyManagersInARestrictedChannel() {
         let concord = vectorObject("concord")

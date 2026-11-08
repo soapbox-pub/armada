@@ -47,7 +47,7 @@ export interface Ledger {
 
 const HEX64 = /^[0-9a-fA-F]{64}$/;
 
-function isPoint(hex: unknown): hex is string {
+function isCurvePoint(hex: unknown): hex is string {
   if (typeof hex !== "string" || !HEX64.test(hex)) return false;
   try {
     schnorr.utils.lift_x(BigInt(`0x${hex}`));
@@ -71,7 +71,22 @@ export function effectiveAt(e: LedgerEntry): number {
 }
 
 /** Parse a ledger, or undefined when it is malformed (CORD-03 §1). */
-export function parseLedger(content: string): Ledger | undefined {
+/**
+ * Which keys a run of parses found to be x-only public keys, each checked once: a ledger names
+ * the same writers in every version, and each check is a point decompression (Vector `KeyCheck`).
+ */
+export type KeyCheck = Map<string, boolean>;
+
+/** `keys` shares the point checks across a run of parses, such as one fold's ledger chain. */
+export function parseLedger(content: string, keys: KeyCheck = new Map()): Ledger | undefined {
+  const isPoint = (hex: unknown): hex is string => {
+    if (typeof hex !== "string") return false;
+    const known = keys.get(hex);
+    if (known !== undefined) return known;
+    const ok = isCurvePoint(hex);
+    keys.set(hex, ok);
+    return ok;
+  };
   const top = parseStrictValue(content);
   if (!top || typeof top !== "object" || Array.isArray(top)) return undefined;
   const { channel, ledger, retired: rawRetired, ...extra } = top as Record<string, unknown>;

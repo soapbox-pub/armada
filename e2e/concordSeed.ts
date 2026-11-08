@@ -29,7 +29,9 @@ import {
   currentControlWriteGroup,
   sealEdition,
 } from "@/concord/lib/control";
+import { buildTimeoutRumor, currentGuestbookGroup, sealGuestbook } from "@/concord/lib/guestbook";
 import { encryptImageBlob } from "@/concord/lib/image";
+import { openPlaneWraps } from "@/concord/lib/planeSync";
 import { KIND_COMMENT, KIND_COMMUNITY_LIST_FRAG, KIND_REACTION } from "@/concord/lib/kinds";
 import { fragment, serializeFragList } from "@/concord/lib/listFrag";
 import { EVERYONE_DEFAULT, hexToColor } from "@/concord/lib/roles";
@@ -66,6 +68,10 @@ export interface ConcordSeedPayload {
   relayHistory?: { localNewest: number };
   /** Switch the community to the vsk-13 Roster (CORD-04 §2), so the owner's background duties keep running. */
   ranked?: boolean;
+  /** Another key owns the community instead (hex secret key); the viewer is a member. */
+  ownerSk?: string;
+  /** The owner times the viewer out until this many seconds from now (CORD-04 §8). Needs `ownerSk`. */
+  timeoutViewerSecs?: number;
 }
 
 export interface ConcordSeedResult {
@@ -98,16 +104,19 @@ async function seed(p: ConcordSeedPayload): Promise<ConcordSeedResult> {
   const signer = { signEvent: async (t: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(t, sk) };
   const self = finalizeEvent({ kind: 1, content: "", tags: [], created_at: 0 }, sk).pubkey;
   localStorage.setItem(`armada:relay-prompt-shown:${self}`, "1");
+  const ownerSk = p.ownerSk ? hexToBytes(p.ownerSk) : sk;
+  const ownerSigner = { signEvent: async (t: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(t, ownerSk) };
+  const owner = finalizeEvent({ kind: 1, content: "", tags: [], created_at: 0 }, ownerSk).pubkey;
 
-  const { community, generalChannelId } = mintCommunity("Perf Harbor", self, ["wss://relay.invalid"]);
+  const { community, generalChannelId } = mintCommunity("Perf Harbor", owner, ["wss://relay.invalid"]);
   const control = currentControlWriteGroup(community);
   const channelIds = [generalChannelId, ...p.channelSizes.slice(1).map(() => random32())];
 
   // Genesis: the metadata edition, then one edition per channel.
   const genesis = [
-    buildMetadataEdition(community.id, { name: community.name, relays: community.relays }, { actorPubkey: self, version: 1n }),
+    buildMetadataEdition(community.id, { name: community.name, relays: community.relays }, { actorPubkey: owner, version: 1n }),
     ...channelIds.map((id, i) =>
-      buildChannelEdition(id, { name: i === 0 ? "general" : `channel-${i}`, private: false }, { actorPubkey: self, version: 1n }),
+      buildChannelEdition(id, { name: i === 0 ? "general" : `channel-${i}`, private: false }, { actorPubkey: owner, version: 1n }),
     ),
   ];
   if (p.ranked) {
@@ -118,13 +127,19 @@ async function seed(p: ConcordSeedPayload): Promise<ConcordSeedResult> {
         entityId: everyoneLocator(community.id),
         version: 1n,
         content: everyoneToJSON(EVERYONE_DEFAULT, legacy),
-        actorPubkey: self,
+        actorPubkey: owner,
         binding: editionBinding(community.id),
       }),
     );
   }
-  const opened = await Promise.all(genesis.map(async (r) => openWrap(await sealEdition(r, control, signer), control)));
+  const opened = await Promise.all(genesis.map(async (r) => openWrap(await sealEdition(r, control, ownerSigner), control)));
   await writeOpened(community.idHex, opened, "control", { refounded: false });
+  if (p.timeoutViewerSecs !== undefined) {
+    const group = currentGuestbookGroup(community);
+    const ms = Date.now() - 1_000;
+    const rumor = buildTimeoutRumor(owner, self, Math.floor(ms / 1000) + p.timeoutViewerSecs, ms);
+    await writeOpened(community.idHex, openPlaneWraps([await sealGuestbook(rumor, group, ownerSigner)], [group]), "guestbook");
+  }
 
   // Chat: spread over ~90 days, mostly the viewer (exempt from flood folding).
   const nowMs = Date.now() - 60_000;

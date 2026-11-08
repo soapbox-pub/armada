@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
 
-const h = vi.hoisted(() => ({ editions: [] as NostrRumor[], halted: false, rows: [] as unknown[] }));
+const h = vi.hoisted(() => ({ editions: [] as NostrRumor[], halted: false, rows: [] as unknown[], order: [] as string[] }));
 vi.mock("@/concord/lib/rumorStore", async (orig) => ({
   ...(await orig<typeof import("@/concord/lib/rumorStore")>()),
   queryChannelRumors: async () => h.rows,
@@ -21,7 +21,10 @@ vi.mock("@/sync/syncManager", async (orig) => ({
 }));
 vi.mock("@/concord/hooks/useControlPlane", async (orig) => ({
   ...(await orig<typeof import("@/concord/hooks/useControlPlane")>()),
-  publishEdition: async (_n: unknown, _c: unknown, _s: unknown, rumor: NostrRumor) => void h.editions.push(rumor),
+  publishEdition: async (_n: unknown, _c: unknown, _s: unknown, rumor: NostrRumor) => {
+    h.editions.push(rumor);
+    h.order.push("ledger");
+  },
   citationFor: () => undefined,
 }));
 
@@ -53,7 +56,7 @@ function setup() {
   const nostr = { relay: () => ({ query: async () => [], event: async (e: NostrEvent) => void published.push(e) }) };
   const members = new Map([actors.owner, actors.member].map((pk) => [pk, { pubkey: pk, state: "join" as const, ms: 0, rumorId: "", fromSnapshot: false }]));
   const fold = { current: folded };
-  const run = (encrypted: () => void = () => undefined, controller = new AbortController(), freshen?: () => Promise<boolean>, settledFrom?: typeof folded) =>
+  const run = (encrypted: () => void = () => undefined, controller = new AbortController(), freshen?: () => Promise<boolean>, settledFrom?: typeof folded, stored?: () => Promise<typeof folded>) =>
     runWriterDuty({
       nostr: nostr as never,
       user: {
@@ -72,6 +75,7 @@ function setup() {
       accessCandidates: (f) => accessCandidates(f, members),
       signal: controller.signal,
       ...(freshen ? { freshen } : {}),
+      ...(stored ? { stored } : {}),
       ...(settledFrom ? { settle: true, settledFrom } : {}),
     });
   return { c, community, published, run, fold, events, read };
@@ -184,6 +188,38 @@ describe("running the writer duty, cut short", () => {
     const { published, run } = setup();
     const controller = new AbortController();
     await run(() => controller.abort(), controller);
+    expect(h.editions).toEqual([]);
+    expect(published).toEqual([]);
+  });
+});
+
+describe("the writer duty and this device's other Control writes (Vector `follow_lock`)", () => {
+  it("publishes its ledger edition only once a Control write already in flight has finished", async () => {
+    await writerKeysReady();
+    h.editions = [];
+    h.order = [];
+    const { withControlWrite } = await import("@/concord/hooks/useControlPlane");
+    const { c, run } = setup();
+    const held = withControlWrite(c.id, async () => {
+      await new Promise((r) => setTimeout(r, 300));
+      h.order.push("other write");
+    });
+    await run();
+    await held;
+    expect(h.order).toEqual(["other write", "ledger"]);
+  });
+
+  it("stands down when the store holds a ledger the rendered fold doesn't yet", async () => {
+    await writerKeysReady();
+    h.editions = [];
+    const { c, published, run, read } = setup();
+    const ahead = foldControlState(
+      openControlWraps(fixture.events as unknown as NostrEvent[], [{ pk: c.control_pk!, get convKey() { return read.convKey; }, restricted: true }]),
+      hex32(c.id),
+      c.owner,
+    );
+    expect(ahead.writers?.size).toBeGreaterThan(0);
+    await run(undefined, undefined, undefined, undefined, async () => ahead);
     expect(h.editions).toEqual([]);
     expect(published).toEqual([]);
   });

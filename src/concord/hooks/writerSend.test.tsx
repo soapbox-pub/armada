@@ -28,6 +28,7 @@ const h = vi.hoisted(() => ({
   published: [] as NostrEvent[],
   user: undefined as unknown,
   folded: undefined as unknown,
+  timeouts: new Map<string, unknown>(),
 }));
 
 vi.mock("@nostrify/react", () => ({
@@ -49,7 +50,8 @@ vi.mock("@/concord/hooks/useControlPlane", async (orig) => ({
 }));
 vi.mock("@/concord/hooks/useGuestbook", async (orig) => ({
   ...(await orig<typeof import("@/concord/hooks/useGuestbook")>()),
-  useGuestbook: () => ({ history: undefined, timeouts: new Map(), nicknames: new Map(), coalesced: new Map(), data: [] }),
+  // As the real hook: nothing is read for an undefined community.
+  useGuestbook: (cm: unknown) => ({ history: undefined, timeouts: cm ? h.timeouts : new Map(), nicknames: new Map(), coalesced: new Map(), data: [] }),
 }));
 
 const { useSendMessage } = await import("@/concord/hooks/useChannel");
@@ -136,5 +138,55 @@ describe("sending in a restricted Channel", () => {
       await expect(result.current.mutateAsync({ content: "not mine to post" })).rejects.toThrow(/can.t send messages/);
     });
     expect(h.published).toEqual([]);
+  });
+});
+
+describe("sending while timed out (CORD-04 §8, Vector `refuse_while_timed_out`)", () => {
+  it("refuses a message, a reaction and an edit before anything is sent, and lets a delete through", async () => {
+    h.user = userOf(hex32(actors.member_secret));
+    const nowSecs = Math.floor(Date.now() / 1000);
+    h.timeouts = new Map([[actors.member, { by: c.owner, fromSecs: nowSecs - 60, until: nowSecs + 3600, ms: (nowSecs - 60) * 1000, rumorId: "ab".repeat(32) }]]);
+    try {
+      const { result } = renderHook(() => useSendMessage(community, general), { wrapper });
+      for (const send of [
+        { content: "still here" },
+        { content: "+", kind: KIND_REACTION, target: "cd".repeat(32), targetPubkey: c.owner },
+        { content: "edited", kind: 3302, target: "cd".repeat(32) },
+      ]) {
+        h.published = [];
+        await act(async () => {
+          await expect(result.current.mutateAsync(send)).rejects.toThrow(/timed out/);
+        });
+        expect(h.published, String(send.kind ?? 9)).toEqual([]);
+      }
+      h.published = [];
+      await act(async () => {
+        await result.current.mutateAsync({ content: "", kind: 5, target: "cd".repeat(32) });
+      });
+      expect(h.published.length).toBeGreaterThan(0);
+    } finally {
+      h.timeouts = new Map();
+    }
+  });
+
+  it("refuses a timed-out member's message in a legacy-roster community too", async () => {
+    h.user = userOf(hex32(actors.member_secret));
+    const nowSecs = Math.floor(Date.now() / 1000);
+    h.timeouts = new Map([[actors.member, { by: c.owner, fromSecs: nowSecs - 60, until: nowSecs + 3600, ms: (nowSecs - 60) * 1000, rumorId: "ab".repeat(32) }]]);
+    const { rankedRoster: _ranked, ...legacy } = folded;
+    h.folded = legacy;
+    try {
+      h.published = [];
+      const { result } = renderHook(() => useSendMessage(community, general), { wrapper });
+      let error: unknown;
+      await act(async () => {
+        await result.current.mutateAsync({ content: "still here" }).catch((e: unknown) => void (error = e));
+      });
+      expect(String(error)).toMatch(/timed out/);
+      expect(h.published).toEqual([]);
+    } finally {
+      h.timeouts = new Map();
+      h.folded = folded;
+    }
   });
 });

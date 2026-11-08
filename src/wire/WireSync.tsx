@@ -195,11 +195,16 @@ function catchUpCommunity(
  * pulled on activation. The silenced qualifier is load-bearing: the wire is the
  * only live-notification path. Control planes are never deferred.
  */
-/** Deleted Channels this session already cleared, by community and channel id. */
+/** Deleted Channels this session already cleared, by account, community and channel id. */
 const purgedChannels = new Set<string>();
 
+/** Forget which deleted Channels were cleared, so the next account clears its own. */
+export function clearPurgedChannelsMemory(): void {
+  purgedChannels.clear();
+}
+
 /** Clear what this device holds of each deleted Channel (CORD-03 §2), then delete its own uploads and wraps there. */
-async function purgeDeletedChannels(
+export async function purgeDeletedChannels(
   community: Community,
   folded: FoldedControl | undefined,
   ctx: { user: ReturnType<typeof useCurrentUser>["user"]; secret: Uint8Array | undefined; nostr: ReturnType<typeof useNostr>["nostr"] },
@@ -208,7 +213,7 @@ async function purgeDeletedChannels(
   if (!user) return;
   let queued = false;
   for (const channel of deletedChannels(community, folded)) {
-    const key = `${community.idHex}:${channel.idHex}`;
+    const key = `${user.pubkey}:${community.idHex}:${channel.idHex}`;
     if (purgedChannels.has(key)) continue;
     purgedChannels.add(key);
     try {

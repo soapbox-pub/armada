@@ -94,7 +94,7 @@ import {
   type SealedBy,
 } from "@/concord/lib/roster";
 import { isRankKey } from "@/concord/lib/rankKey";
-import { ledgerExtends, parseLedger, type Ledger } from "@/concord/lib/writers";
+import { ledgerExtends, parseLedger, type KeyCheck, type Ledger } from "@/concord/lib/writers";
 import { buildRumor, openWrap, sealRumor, wrapSeal, type OpenedEvent, type StreamSigner } from "@/concord/lib/stream";
 import { readFoldedShared } from "@/lib/foldedCache";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -863,7 +863,7 @@ function authorizeDelegation(
    * rumor id); the id is grindable, authority is not.
    */
   const authorityFirst = (a: { author: string; parsed: ParsedEdition }, b: { author: string; parsed: ParsedEdition }): number => {
-    const rank = (author: string) => (author === ownerHex ? -1 : (highestPosition(roster, author) ?? Number.MAX_SAFE_INTEGER));
+    const rank = (author: string) => (author === ownerHex ? -1 : (highestPosition(roster, author) ?? BENEATH_EVERY_ROLE));
     const ra = rank(a.author);
     const rb = rank(b.author);
     if (ra !== rb) return ra - rb;
@@ -967,7 +967,10 @@ function authorizeDelegation(
 }
 
 /** Fold-once memo, keyed on the community + the exact edition set. */
-const foldMemo = new Map<string, FoldedControl>();
+/** Each fold, and when the clock passes a ledger entry it refused for being ahead, when that is. */
+const foldMemo = new Map<string, { folded: FoldedControl; until?: number }>();
+/** The soonest a ledger entry refused as ahead of the clock stops being so, in the fold running now. */
+let refusedAheadUntil = Infinity;
 
 /**
  * Replay opened control editions into current state (`ownerHex` is the proven
@@ -991,16 +994,17 @@ export function foldControlState(
   // Attribution (a re-wrap arriving) can change without the edition set changing.
   const snapSig = snapshotIds ? [...snapshotIds].sort().join(",") : "";
   const storedSig = stored
-    ? `${stored.everyone ?? ""}/${(stored.legacyChannels ?? []).join(",")}/${[...(stored.banned ?? [])].sort().join(",")}/${(stored.overwrites ?? []).map((o) => `${o.scope}${o.target.kind}${"id" in o.target ? o.target.id : ""}${o.allow}${o.deny}`).join(",")}/${JSON.stringify(stored.syncs ?? {})}/${(stored.heldChannels ?? []).map((c) => `${bytesToHex(c.id)}@${c.epoch}+${c.priors?.length ?? 0}`).sort().join(",")}/${JSON.stringify(stored.banMarks ?? {})}/${JSON.stringify(stored.writers ?? {})}/${JSON.stringify([stored.roleIds ?? [], stored.grantees ?? [], stored.roleManagers ?? []])}/${JSON.stringify([stored.channels ?? [], stored.categories ?? []], (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`
+    ? `${stored.everyone ?? ""}/${(stored.legacyChannels ?? []).join(",")}/${[...(stored.banned ?? [])].sort().join(",")}/${(stored.overwrites ?? []).map((o) => `${o.scope}|${o.target.kind}|${"id" in o.target ? o.target.id : ""}|${o.allow}|${o.deny}`).join(",")}/${JSON.stringify(stored.syncs ?? {})}/${(stored.heldChannels ?? []).map((c) => `${bytesToHex(c.id)}@${c.epoch}+${c.priors?.length ?? 0}`).sort().join(",")}/${JSON.stringify(stored.banMarks ?? {})}/${JSON.stringify(stored.writers ?? {})}/${JSON.stringify([stored.roleIds ?? [], stored.grantees ?? [], stored.roleManagers ?? []])}/${JSON.stringify([stored.channels ?? [], stored.categories ?? []], (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`
     : "";
   // By RUMOR id: `snapSig` already covers re-wrap attribution.
   const memoKey = `${cidHex}:${ownerHex}:${floorSig}:${snapSig}:${storedSig}:${editions.map((e) => e.opened.rumorId).sort().join(",")}`;
   const hit = foldMemo.get(memoKey);
   // A hit still costs O(n log n) key building; counted separately to stay visible.
-  if (hit) {
+  if (hit && !(hit.until !== undefined && clockNowMs() >= hit.until)) {
     perfCount("fold.controlState (memo hit)", performance.now() - start, editions.length, "editions");
-    return hit;
+    return hit.folded;
   }
+  refusedAheadUntil = Infinity;
 
   // CORD-04 §1: a marked edition bound to another Community is refused, and so is an
   // unmarked edition of a kind no older client wrote.
@@ -1037,7 +1041,7 @@ export function foldControlState(
 
   // One entry per community.
   for (const k of foldMemo.keys()) if (k.startsWith(`${cidHex}:`)) foldMemo.delete(k);
-  foldMemo.set(memoKey, result);
+  foldMemo.set(memoKey, { folded: result, ...(refusedAheadUntil !== Infinity ? { until: refusedAheadUntil } : {}) });
   perfCount("fold.controlState", performance.now() - start, editions.length, "editions");
   return result;
 }
@@ -1364,7 +1368,7 @@ function foldOnce(
 
   /** Authority order for equal-version tiebreaks: owner first, then position. */
   const rankOf = (author: string): number =>
-    author === ownerHex ? -1 : (highestPosition(roster, author) ?? Number.MAX_SAFE_INTEGER);
+    author === ownerHex ? -1 : (highestPosition(roster, author) ?? BENEATH_EVERY_ROLE);
 
   // 3. Metadata (vsk 0): must be the community's own entity + an authorized actor.
   let metadata: CommunityMetadata | undefined;
@@ -1605,11 +1609,17 @@ function foldOnce(
     // to its predecessor's (CORD-03 §1), so a head that doesn't is refused.
     const ledgerCands = byVsk.get(VSK_WRITERS) ?? new Map<string, ParsedEdition[]>();
     const ledgerEids = new Set([...ledgerCands.keys(), ...Object.keys(stored?.writers ?? {})]);
+    const keys: KeyCheck = new Map();
     for (const eid of ledgerEids) {
       const candidates = ledgerCands.get(eid) ?? [];
+      // Parsed once per content: a parse checks every key on the curve, and the chain is judged link by link.
+      const parsed = new Map<string, Ledger | undefined>();
       const ledgerOf = (p: { content: string }) => {
-        const l = parseLedger(p.content);
-        return l && bytesToHex(writersLocator(communityId, hex32(l.channel))) === eid ? l : undefined;
+        if (parsed.has(p.content)) return parsed.get(p.content);
+        const parsedLedger = parseLedger(p.content, keys);
+        const l = parsedLedger && bytesToHex(writersLocator(communityId, hex32(parsedLedger.channel))) === eid ? parsedLedger : undefined;
+        parsed.set(p.content, l);
+        return l;
       };
       // The head this reader holds, while no relay serves it: what an edition built on it
       // must extend, and what stands when nothing served does (Vector's ledger anchor).
@@ -1620,6 +1630,9 @@ function foldOnce(
       // new entry dated within ten minutes of its own time and at most an hour past the
       // reader's clock, a writer entry naming its signer as minter (CORD-03 §1).
       const judged = new Map<ParsedEdition, boolean>();
+      // The first served with each hash, as a scan of `candidates` would find it.
+      const byHash = new Map<string, ParsedEdition>();
+      for (const x of candidates) if (!byHash.has(bytesToHex(x.selfHash))) byHash.set(bytesToHex(x.selfHash), x);
       const nowMs = clockNowMs();
       const gate = (p: ParsedEdition): boolean => {
         const memo = judged.get(p);
@@ -1629,10 +1642,14 @@ function foldOnce(
           const l = ledgerOf(p);
           if (!l || !may(p, Permissions.MANAGE_CHANNELS) || !citationOk(p)) return false;
           const last = l.entries[l.entries.length - 1];
-          if (!last || Math.abs(last.at - p.createdAt * 1000) > LEDGER_ENTRY_SKEW_MS || last.at > nowMs + LEDGER_HORIZON_MS) return false;
+          if (!last || Math.abs(last.at - p.createdAt * 1000) > LEDGER_ENTRY_SKEW_MS) return false;
+          if (last.at > nowMs + LEDGER_HORIZON_MS) {
+            refusedAheadUntil = Math.min(refusedAheadUntil, last.at - LEDGER_HORIZON_MS);
+            return false;
+          }
           if (last.spell.kind === "writer" && last.spell.by !== p.author) return false;
           if (!p.prevHash) return p.version === 1n && l.entries.length === 1 && l.retired.length === 0;
-          const prev = candidates.find((x: ParsedEdition) => bytesEq(x.selfHash, p.prevHash));
+          const prev = byHash.get(bytesToHex(p.prevHash));
           if (!prev) return !(held && floor && bytesEq(floor.hash, p.prevHash)) || ledgerExtends(l, held);
           const before = ledgerOf(prev);
           return before !== undefined && gate(prev) && ledgerExtends(l, before);

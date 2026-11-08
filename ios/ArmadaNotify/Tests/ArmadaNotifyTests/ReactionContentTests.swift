@@ -13,6 +13,6 @@ final class ReactionContentTests: XCTestCase {
     func testDropsJunk() {
         XCTAssertFalse(ReactionContent.renderable(":catclap:https://i.nostr.build/lLMrw.gif"))
         XCTAssertFalse(ReactionContent.renderable("this is a whole sentence"))
-        XCTAssertFalse(ReactionContent.renderable("a b"))
+        XCTAssertFalse(ReactionContent.renderable("a\u{00A0}b"))
     }
 }

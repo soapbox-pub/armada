@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { citationFor, dissolvedAt, useControlFold, useDissolved } from "@/concord/hooks/useControlPlane";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
+import { timeoutRunning } from "@/concord/lib/guestbook";
 import { heldRoleMentions, pingableRoles, rolePings } from "@/concord/lib/roleMentions";
 import { canScrub, scrubbedDeleteExpiry, scrubOwnWraps, sendWrapOwner } from "@/concord/lib/wrapScrub";
 import { useAccountSecret } from "@/hooks/useAccountSecret";
@@ -36,7 +37,7 @@ import {
   queryChannelRumorsByIds,
   queryChannelWindow,
   readStreamCursor,
-  sweepExpiredCommunityRumors,
+  scheduleExpiredSweep,
   updateStreamCursor,
   writeRumors,
   peekPendingWraps,
@@ -89,7 +90,7 @@ import { otherUsersOfMedia } from "@/lib/removeMessageFromDevice";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 
 import type { NostrEvent } from "@nostrify/nostrify";
-import { t } from "@/i18n";
+import { getLocale, t } from "@/i18n";
 
 export const channelKey = (channelIdHex: string | null) => ["concord", "channel", channelIdHex] as const;
 const deletedKey = (channelIdHex: string | null) => ["concord", "msg-deleted", channelIdHex] as const;
@@ -331,9 +332,7 @@ export function useChannelTimeline(
   }, [viewerPubkey, channelIdHex, queryClient]);
 
   // Physically purge expired messages (CORD-08 §3); self-gated per community.
-  useEffect(() => {
-    if (community?.idHex) void sweepExpiredCommunityRumors(community.idHex).catch(() => undefined);
-  }, [community?.idHex]);
+  useEffect(() => (community?.idHex ? scheduleExpiredSweep(community.idHex) : undefined), [community?.idHex]);
 
   // Keeps a live re-read from turning `hasMore` back on.
   const endReachedRef = useRef(false);
@@ -1185,6 +1184,9 @@ export function outgoingBroadcast(nostr: WrapPublisher & VerifyPool, rumorId: st
  * NIP-46), wrap under the CURRENT epoch key, broadcast fire-and-forget. A visible
  * rumor is tracked in `outgoing.ts` until a relay is seen to hold it.
  */
+/** What a running Timeout refuses: posts, reactions and edits, never a delete (Vector `refuse_while_timed_out`). */
+const TIMEOUT_REFUSED_KINDS: ReadonlySet<number> = new Set([KIND_MESSAGE, KIND_COMMENT, KIND_REACTION, KIND_EDIT, KIND_POLL]);
+
 export function useSendMessage(community: Community | undefined, channel: Channel | undefined) {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
@@ -1195,8 +1197,8 @@ export function useSendMessage(community: Community | undefined, channel: Channe
   const timerSecs = messageExpirationOf(folded?.metadata);
   // The wrap's `p` is derived from the account key where held (CORD-01 §Deletions).
   const secret = useAccountSecret();
-  // A restricted Channel's writer posts at its writer address (CORD-03 §1); kicked writers wait.
-  const { history } = useGuestbook(folded?.rankedRoster ? community : undefined);
+  // Timeouts bind under either roster; `history` matters only where a writer ledger exists.
+  const { history, timeouts } = useGuestbook(community);
 
   return useMutation({
     mutationFn: async ({
@@ -1245,6 +1247,14 @@ export function useSendMessage(community: Community | undefined, channel: Channe
       }
 
       const effectiveKind = replyTo ? KIND_COMMENT : kind;
+      // Readers collapse what a timed-out member posts, reacts or edits (CORD-04 §8, Vector `refuse_while_timed_out`).
+      const timeout = timeouts.get(user.pubkey);
+      if (TIMEOUT_REFUSED_KINDS.has(effectiveKind) && timeoutRunning(timeout, clockNowMs())) {
+        throw new Error(t(
+          { id: "useChannel.timedOut", defaultMessage: "You're timed out here until {until}." },
+          { until: new Date(timeout!.until * 1000).toLocaleString(getLocale(), { dateStyle: "medium", timeStyle: "short" }) },
+        ));
+      }
       // Rate-limit before the optimistic insert/seal so a block leaves nothing to
       // reconcile; backstop for paths the composer doesn't check.
       if (!bypassRateLimit && isRateLimitedKind(effectiveKind)) {

@@ -190,6 +190,7 @@ describe("openConcord", () => {
 
   it("opens a chat wrap routed by the stream address", () => {
     const result = openConcord(streamWrap(chatRumor()), [stream]);
+    if (result === "malformed") throw new Error("opened as malformed");
     expect(result?.opened).toMatchObject({
       author: authorPk,
       kind: 9,
@@ -344,6 +345,14 @@ describe("openConcord", () => {
     expect(prepared?.drop).not.toBe(true);
     expect(prepared?.line).toContain("replying in the thread");
     expect(prepared?.url).toBe(`/c/${stream.communityId}/${CHANNEL}/t/${root}`);
+  });
+
+  it("drops a message with a malformed ms tag rather than announcing it (CORD-02 §5, Vector `resolve_ms_strict`)", async () => {
+    for (const ms of ["1000", "05", "x"]) {
+      const bad = chatRumor({ tags: [["channel", CHANNEL], ["epoch", EPOCH], ["ms", ms]] });
+      const prepared = await preparePush({ scope: "c2", event: streamWrap(bad) }, cfg());
+      expect(prepared?.drop, ms).toBe(true);
+    }
   });
 
   /** Signed by our stream address, but under a key we don't hold (another epoch's). */
@@ -826,6 +835,57 @@ describe("preparePush — showing nothing on purpose", () => {
       concord: config.concord?.map((stream) => ({ ...stream, mentionEveryoneAnyone: true })),
     };
     expect((await preparePush({ scope: "c2", event: massMention as never }, anyoneConfig))?.drop, "@everyone may mention everyone").not.toBe(true);
+  });
+
+  it.fails("never rings a reaction, even to the viewer's own message (Vector: a reaction reaches `on_community_update`, never the notifier)", async () => {
+    const CHANNEL = "95".repeat(32);
+    const streamSk = generateSecretKey();
+    const streamPk = getPublicKey(streamSk);
+    const convKey = getConversationKey(streamSk, streamPk);
+    const authorSk = generateSecretKey();
+    const self = getPublicKey(generateSecretKey());
+    const rumor = { pubkey: getPublicKey(authorSk), kind: 7, content: "🔥", tags: [["channel", CHANNEL], ["epoch", "1"], ["e", "ab".repeat(32)], ["p", self]], created_at: now() };
+    const withId = { ...rumor, id: getEventHash(rumor as Parameters<typeof getEventHash>[0]) };
+    const sealed = finalizeEvent({ kind: 20013, content: nip44Encrypt(JSON.stringify(withId), convKey), tags: [], created_at: rumor.created_at }, authorSk);
+    const streamed = finalizeEvent({ kind: 1059, content: nip44Encrypt(JSON.stringify(sealed), convKey), tags: [["p", getPublicKey(generateSecretKey())]], created_at: now() }, streamSk);
+    const p = await preparePush({ scope: "c2", event: streamed as never }, {
+      policy: "generic",
+      self,
+      knownPeers: [],
+      concord: [{ pk: streamPk, convKey: bytesToHex(convKey), epoch: "1", communityId: "96".repeat(32), channelId: CHANNEL }],
+    });
+    expect(p?.drop).toBe(true);
+  });
+
+  it("never rings a reaction that says @everyone at anyone but the reacted-to author", async () => {
+    const CHANNEL = "93".repeat(32);
+    const streamSk = generateSecretKey();
+    const streamPk = getPublicKey(streamSk);
+    const convKey = getConversationKey(streamSk, streamPk);
+    const authorSk = generateSecretKey();
+    const rumor = {
+      pubkey: getPublicKey(authorSk),
+      kind: 7,
+      content: "@everyone",
+      tags: [["channel", CHANNEL], ["epoch", "1"], ["p", getPublicKey(generateSecretKey())]],
+      created_at: now(),
+    };
+    const withId = { ...rumor, id: getEventHash(rumor as Parameters<typeof getEventHash>[0]) };
+    const sealed = finalizeEvent(
+      { kind: 20013, content: nip44Encrypt(JSON.stringify(withId), convKey), tags: [], created_at: rumor.created_at },
+      authorSk,
+    );
+    const streamed = finalizeEvent(
+      { kind: 1059, content: nip44Encrypt(JSON.stringify(sealed), convKey), tags: [["p", getPublicKey(generateSecretKey())]], created_at: now() },
+      streamSk,
+    );
+    const p = await preparePush({ scope: "c2", event: streamed as never }, {
+      policy: "generic",
+      self: getPublicKey(generateSecretKey()),
+      knownPeers: [],
+      concord: [{ pk: streamPk, convKey: bytesToHex(convKey), epoch: "1", communityId: "94".repeat(32), channelId: CHANNEL, mentionEveryoneAnyone: true }],
+    });
+    expect(p?.drop).toBe(true);
   });
 
   it("drops a banned member's Concord message but still stores it", async () => {

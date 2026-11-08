@@ -121,4 +121,23 @@ describe("purgeDeletedChannel", () => {
     }, me.sk, 0);
     expect(queuedWrapScrubs()).toContain(msg.rumor.id);
   });
+
+  it("sends one that can't go out to the back, so the next drain reaches the rest (Vector `retry`: queued_at moves to now)", async () => {
+    const stuck = await queuedOwnWrap(36);
+    const other = await queuedOwnWrap(37);
+    const stuckFirst = queuedWrapScrubs().indexOf(stuck.msg.rumor.id) < queuedWrapScrubs().indexOf(other.msg.rumor.id);
+    expect(stuckFirst).toBe(true);
+    // Only `stuck`'s relay search fails; every other wrap goes out.
+    const pool = {
+      query: async (_u: string, filters: NostrFilter[]) => {
+        if (filters.some((f) => f.authors?.includes(stuck.owned.wrap.pubkey))) throw new Error("unreachable");
+        return [other.owned.wrap].filter((e) => matchFilters(filters, e));
+      },
+      publish: async () => undefined,
+    };
+    await drainWrapScrubs(pool, stuck.me.sk, 0);
+    await drainWrapScrubs(pool, other.me.sk, 0);
+    expect(queuedWrapScrubs()).toContain(stuck.msg.rumor.id);
+    expect(queuedWrapScrubs()).not.toContain(other.msg.rumor.id);
+  });
 });

@@ -6,7 +6,7 @@
  */
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { restrictedPostersIn, writerJudge } from "@/concord/lib/channelJudges";
 import { foldTimeline, type OpenedChat } from "@/concord/lib/chat";
@@ -189,6 +189,22 @@ describe("which Writers ledger editions fold (CORD-03 §1 Judging the ledger)", 
     const at = Date.now() + 2 * 60 * MIN;
     const v1 = ledgerEdition(c, ch, [writerEntry(at, 1, c.owner)], { createdAt: Math.floor(at / 1000) });
     expect(foldControlState([...base, v1], c.id, c.owner).writers?.has(ch)).toBe(false);
+  });
+
+  it("takes an entry refused for being an hour ahead once its time comes, on the same editions", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(T0);
+      const { c, base } = rankedCommunity(Permissions.MANAGE_CHANNELS);
+      const ch = hexKey();
+      const at = T0 + 2 * 60 * MIN;
+      const v1 = ledgerEdition(c, ch, [writerEntry(at, 1, c.owner)], { createdAt: Math.floor(at / 1000) });
+      expect(foldControlState([...base, v1], c.id, c.owner).writers?.has(ch)).toBe(false);
+      vi.setSystemTime(at);
+      expect(foldControlState([...base, v1], c.id, c.owner).writers?.has(ch)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refuses a chainless edition that isn't version 1 ('the first holds one, at version 1')", () => {

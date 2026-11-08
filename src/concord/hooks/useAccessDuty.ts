@@ -11,7 +11,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 
 import { readAccessPlanes } from "@/concord/hooks/useChannelAccess";
-import { citationFor, publishEdition, useControlFold, useDissolved } from "@/concord/hooks/useControlPlane";
+import { citationFor, foldStoredControl, publishEdition, useControlFold, useDissolved, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { guestbookWalked, useGuestbook } from "@/concord/hooks/useGuestbook";
 import { runWriterDuty } from "@/concord/hooks/writerDutyRun";
 import { useChannelRekey } from "@/concord/hooks/useRekey";
@@ -174,6 +174,7 @@ export function useAccessDuty(community: Community | undefined): void {
           accessCandidates: (f) => accessCandidates(f, latest.current.coalesced),
           refresh: () => void queryClient.invalidateQueries({ queryKey: ["concord", "control", now.community!.idHex] }),
           freshen,
+          stored: () => (latest.current.community ? foldStoredControl(latest.current.community) : Promise.resolve(undefined)),
           settle: owed.settle,
           ...(owed.from ? { settledFrom: owed.from } : {}),
           signal: controller.signal,
@@ -280,7 +281,7 @@ async function runAccessDuty(
  * head is sealed at an earlier one, or still plain, after a rank-staggered wait,
  * and from the Control Plane as it stands then.
  */
-async function resealBackstop(
+export async function resealBackstop(
   nostr: NPool,
   now: () => { community?: Community; folded?: FoldedControl },
   user: DutyUser,
@@ -305,15 +306,21 @@ async function resealBackstop(
   // Sealed from what the Control Plane says now: another manager's reseal or rename may have landed (Vector `follow_fresh`).
   if (signal.aborted || (freshen && !(await freshen(false)))) return;
   const fresh = now();
-  if (signal.aborted || !fresh.community || !fresh.folded) return;
-  for (const { idHex, content, head } of needing(fresh.community, fresh.folded)) {
-    const rumor = buildChannelContentEdition(hex32(idHex), content, {
-      actorPubkey: user.pubkey,
-      version: head.version + 1n,
-      prevHash: head.hash,
-      authority: citationFor(fresh.community, fresh.folded, user.pubkey),
-    });
-    await publishEdition(nostr, fresh.community, user.signer, rumor);
-    logSync("access", `${fresh.community.idHex.slice(0, 8)} #${idHex.slice(0, 8)}: sealed the details again under the current key`);
-  }
+  const community = fresh.community;
+  if (signal.aborted || !community || !fresh.folded) return;
+  // One write at a time, from the store's fold: the rendered one lags this device's last write.
+  await withControlWrite(community.idHex, async () => {
+    const folded = await foldStoredControl(community).catch(() => fresh.folded!);
+    if (signal.aborted) return;
+    for (const { idHex, content, head } of needing(community, folded)) {
+      const rumor = buildChannelContentEdition(hex32(idHex), content, {
+        actorPubkey: user.pubkey,
+        version: head.version + 1n,
+        prevHash: head.hash,
+        authority: citationFor(community, folded, user.pubkey),
+      });
+      await publishEdition(nostr, community, user.signer, rumor);
+      logSync("access", `${community.idHex.slice(0, 8)} #${idHex.slice(0, 8)}: sealed the details again under the current key`);
+    }
+  });
 }

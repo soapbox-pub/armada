@@ -28,7 +28,7 @@ describe("foldFloors", () => {
 
     // Epoch 1 is Refounded, so readLivePause needs its compaction snapshot.
     const next = { ...base, root: new Uint8Array(32).fill(2), rootEpoch: 1n } as Community;
-    await getArmadaDB().kv.set(`c2snap:${idHex}:${currentControlGroup(next).pk}`, ["x"]);
+    await getArmadaDB().kv.set(`c2snap:${idHex}:${currentControlGroup(next).pk}:x`, 1);
     await readLivePause(next, 0);
 
     expect(floorMaps.size).toBe(1);

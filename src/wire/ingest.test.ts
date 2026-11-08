@@ -631,6 +631,23 @@ describe("ingestWireEvents — foreground notify candidates", () => {
     expect(captured.map((c) => c.reactionEmoji)).toEqual(["🔥"]);
   });
 
+  it.fails("raises no notification for a reaction, even to my message (Vector: a reaction reaches `on_community_update`, never the notifier)", async () => {
+    const { channel, idHex } = makeChannel();
+    const bob = signer();
+    const rumor = buildRumor({ kind: 7, content: "🔥", tags: [...channelBindingTags(channel.idHex, 0n), ["e", "ab".repeat(32)], ["p", SELF]], pubkey: bob.pubkey, ms: Date.now() });
+    const wrap = (await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, bob), channel.current.group)) as NostrEvent;
+    const { captured, off, sinks } = withSink({
+      concordByPk: new Map([[wrap.pubkey, channel]]),
+      concordCommunityByChannel: new Map([[idHex, "c".repeat(64)]]),
+    });
+    try {
+      await ingestWireEvents(sinks, [wrap]);
+    } finally {
+      off();
+    }
+    expect(captured).toEqual([]);
+  });
+
   it("names the sender by the Nickname they go by in the Community (CORD-04 §10)", async () => {
     const { channel, idHex } = makeChannel();
     const alice = signer();

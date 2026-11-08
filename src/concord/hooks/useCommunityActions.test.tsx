@@ -40,6 +40,11 @@ const h = vi.hoisted(() => ({
   /** The store read the new community's switch plans on fails. */
   storeFails: false,
   rotations: [] as Array<{ epoch: bigint; recipients: string[] }>,
+  /** The store's fold, when it is ahead of the rendered one (`folded`). */
+  stored: undefined as unknown,
+  /** Control writes in flight, and whether each edition was published inside one. */
+  lockDepth: 0,
+  inLock: [] as boolean[],
 }));
 
 vi.mock("@nostrify/react", () => ({
@@ -57,17 +62,26 @@ vi.mock("@/concord/hooks/useControlPlane", async () => {
   return {
   foldStoredControl: async (c: { id: Uint8Array; owner: string }) => {
     if (h.storeFails) throw new Error("store unavailable");
+    if (h.stored) return h.stored;
     // A test that hands the hook its fold stands for a store that holds the same.
     if (h.folded) return h.folded;
     return foldControlState(h.editions.map((e) => parsedOf(e as never)), c.id, c.owner);
   },
   useControlFold: () => ({ data: h.folded }),
-  withControlWrite: (_id: string, run: () => Promise<unknown>) => run(),
+  withControlWrite: async (_id: string, run: () => Promise<unknown>) => {
+    h.lockDepth++;
+    try {
+      return await run();
+    } finally {
+      h.lockDepth--;
+    }
+  },
   useDissolved: () => ({ data: undefined }),
   citationFor: () => undefined,
   invalidateControl: () => undefined,
   publishEdition: async (_pool: unknown, _c: unknown, _s: unknown, edition: { content: string; tags: string[][] }) => {
     h.editions.push(edition);
+    h.inLock.push(h.lockDepth > 0);
     h.ops.push(`edition:${edition.tags.find((t) => t[0] === "vsk")?.[1]}`);
   },
   };
@@ -121,6 +135,9 @@ beforeEach(() => {
   h.ops = [];
   h.storeFails = false;
   h.rotations = [];
+  h.stored = undefined;
+  h.lockDepth = 0;
+  h.inLock = [];
   // The regression condition: the fold has not caught up with the new channel.
   h.folded = undefined;
   h.user = { pubkey: OWNER, signer: { nip44: {} } } as unknown as NUser;
@@ -554,5 +571,35 @@ describe("defaultCreateRelays", () => {
   it("dedupes and caps at the recommended community relay count", () => {
     const many = Array.from({ length: 8 }, (_, i) => `wss://r${i}.example.com`);
     expect(defaultCreateRelays([...many, many[0]])).toEqual(many.slice(0, MAX_COMMUNITY_RELAYS));
+  });
+});
+
+describe("nameCategory on a ranked community (one Control write at a time, Vector `follow_lock`)", () => {
+  const CATEGORY = "66".repeat(32);
+  const foldAt = (version: bigint, hash: Uint8Array, name: string) => ({
+    rankedRoster: true,
+    ownerHex: OWNER,
+    roster: { roles: [], grants: [], everyone: 0n },
+    channels: new Map(),
+    categories: new Map([[CATEGORY, { idHex: CATEGORY, name, position: "m", deleted: false }]]),
+    heads: new Map([[CATEGORY, { version, hash }]]),
+    headEditions: new Map(),
+    incomplete: [],
+  });
+
+  it("renames from the stored head, inside the write lock, when the rendered fold lags this device's own write", async () => {
+    // The rendered fold still shows v1; this device already published v2.
+    h.folded = foldAt(1n, hex32("77".repeat(32)), "Old");
+    h.stored = foldAt(2n, hex32("88".repeat(32)), "Newer");
+    const { result } = renderHook(() => useCommunityManagement(community), { wrapper });
+
+    await result.current.nameCategory({ channelIds: [], categoryId: CATEGORY, name: "Text" });
+
+    expect(h.editions).toHaveLength(1);
+    const { parsedOf } = await import("@/concord/lib/rankedWrites");
+    const edition = parsedOf(h.editions[0] as never);
+    expect(edition.version).toBe(3n);
+    expect(bytesToHex(edition.prevHash!)).toBe("88".repeat(32));
+    expect(h.inLock).toEqual([true]);
   });
 });

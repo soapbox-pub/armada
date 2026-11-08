@@ -1471,16 +1471,25 @@ export function useCommunityManagement(community: Community | undefined) {
         for (const channelIdHex of channelIds) await setChannelCategory.mutateAsync({ channelIdHex, category: name });
         return;
       }
-      const authority = citationFor(community, folded, user.pubkey);
-      if (categoryId) {
-        await publishEdition(nostr, community, user.signer, planRenameCategory(folded, community.id, user.pubkey, categoryId, name, authority));
-      } else {
-        const { idHex, rumor } = planCreateCategory(folded, community.id, user.pubkey, name, authority);
-        await publishEdition(nostr, community, user.signer, rumor);
+      const c = community;
+      // One write at a time, from the store's fold: the rendered one lags this device's last write.
+      const created = await withControlWrite(c.idHex, async () => {
+        const now = await foldStoredControl(c).catch(() => folded);
+        const authority = citationFor(c, now, user.pubkey);
+        if (categoryId) {
+          await publishEdition(nostr, c, user.signer, planRenameCategory(now, c.id, user.pubkey, categoryId, name, authority));
+          return undefined;
+        }
+        const { idHex, rumor } = planCreateCategory(now, c.id, user.pubkey, name, authority);
+        await publishEdition(nostr, c, user.signer, rumor);
+        return idHex;
+      });
+      // Each Channel edition takes the lock itself.
+      if (created) {
         for (const channelIdHex of channelIds) {
           await writeChannel(channelIdHex, (meta) => {
             const { category: _category, ...rest } = meta;
-            return { ...rest, category: idHex };
+            return { ...rest, category: created };
           });
         }
       }

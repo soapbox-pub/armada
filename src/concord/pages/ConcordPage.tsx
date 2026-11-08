@@ -1,5 +1,5 @@
 import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Bell, BellOff, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, MessageSquareText, MessagesSquare, Pause, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigationType, useSearchParams } from "react-router-dom";
 
 import { AppStageSlot } from "@/components/chat/AppStage";
@@ -41,7 +41,6 @@ import { useTimelineFocus } from "@/hooks/useTimelineFocus";
 import { useStableNavigate } from "@/hooks/useStableNavigate";
 import { CalendarEventsBar } from "@/components/chat/CalendarEventsBar";
 import { PinnedBar } from "@/concord/components/PinnedBar";
-import { CreateEventDialog } from "@/components/dialogs/CreateEventDialog";
 import { ThreadPanel } from "@/components/chat/ThreadPanel";
 import { GitTimelineRow, TicketSidePanel } from "@/components/chat/GitTimeline";
 import { isGitTimelineEntry, mergeChannelTimeline } from "@/components/chat/channelTimeline";
@@ -49,7 +48,6 @@ import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { useVoiceActionsFor } from "@/concord/hooks/useVoiceActions";
 import { VoiceModerationContext } from "@/contexts/VoiceModerationContext";
 import { VoiceParticipantList } from "@/components/VoicePresence";
-import { CommunitySettingsView } from "@/concord/components/CommunitySettingsView";
 import { AddChannelMembersDialog } from "@/concord/components/AddChannelMembersDialog";
 import { ImageLightbox } from "@/concord/components/ImageLightbox";
 import { InviteDialog } from "@/concord/components/InviteDialog";
@@ -140,7 +138,6 @@ import { forumPosts, isTitledPost, subjectOf, subjectTags, type ForumPost, type 
 import { showsAsFeed, toggleForumAsChat, useForumAsChatIds } from "@/concord/lib/forumPresentation";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { NewIssueDialog } from "@/components/projects/NewIssueDialog";
-import { ProjectsView } from "@/components/projects/ProjectsView";
 import type { ProjectWorkItem } from "@/components/projects/projectData";
 import { useCommunityGitActivity } from "@/hooks/useCommunityGitActivity";
 import { useNewMessagesDivider } from "@/hooks/useNewMessagesDivider";
@@ -156,7 +153,6 @@ import { usePageCovered } from "@/lib/settingsOverlay";
 import { NotifLevelMenu } from "@/components/NotifLevelMenu";
 import { toast } from "@/hooks/useToast";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
-import { CommunityBlocked } from "@/concord/components/CommunityBlocked";
 import { CommunityNoAccess } from "@/concord/components/CommunityNoAccess";
 import { useCommunity, useCommunityList, useIsExcluded } from "@/concord/hooks/useCommunityList";
 import { channelDecodeDeadEnd } from "@/concord/lib/channelSync";
@@ -175,7 +171,7 @@ import type { BanPhase } from "@/concord/hooks/useModeration";
 import { hasForeignLiveLinks } from "@/concord/lib/control";
 import { replyTargetOf } from "@/concord/lib/chat";
 import { communityTimerNotice, messageExpirationOf } from "@/concord/lib/disappearing";
-import { sweepExpiredCommunityRumors } from "@/concord/lib/rumorStore";
+import { scheduleExpiredSweep } from "@/concord/lib/rumorStore";
 import { useDecryptedImage } from "@/concord/hooks/useDecryptedImage";
 import { useCarryMyNickname, useGuestbook, useHealBanDepartures, useMemberStanding, useRestoreJoin } from "@/concord/hooks/useGuestbook";
 import { useModeration, useReadCutRetry } from "@/concord/hooks/useModeration";
@@ -218,6 +214,19 @@ import { shortTimeAgo } from "@/lib/formatTime";
 import { authorsByRecency, threadSummary } from "@/components/chat/transport";
 import type { ChatMsg, MessageCalendar, MessagePoll, MessageReactions, MessageZaps, OnchainZapAnnouncement, SendStatus, ZapPayment } from "@/components/chat/transport";
 import { ThumbImg } from "@/components/ui/ThumbImg";
+import { lazyWithReload } from "@/lib/chunkReload";
+
+// Off the channel's first paint: each is a pane, a dialog or a state the page opens into rarely.
+const CommunitySettingsView = lazy(lazyWithReload(() => import("@/concord/components/CommunitySettingsView").then((m) => ({ default: m.CommunitySettingsView }))));
+const ProjectsView = lazy(lazyWithReload(() => import("@/components/projects/ProjectsView").then((m) => ({ default: m.ProjectsView }))));
+const CreateEventDialog = lazy(lazyWithReload(() => import("@/components/dialogs/CreateEventDialog").then((m) => ({ default: m.CreateEventDialog }))));
+const CommunityBlocked = lazy(lazyWithReload(() => import("@/concord/components/CommunityBlocked").then((m) => ({ default: m.CommunityBlocked }))));
+
+const paneLoading = (
+  <div className="flex justify-center py-8">
+    <Loader2 className="size-5 animate-spin text-muted-foreground" />
+  </div>
+);
 
 /** How long a channel must stay open before it becomes the remembered one. */
 const LAST_CHANNEL_SETTLE_MS = 1500;
@@ -1081,7 +1090,7 @@ export function ConcordPage() {
   const isBlocked = useIsBlocked();
   const route = parseChatRoute(pathname);
   const communityId = route?.kind === "concord" ? route.communityId : undefined;
-  if (communityId && isBlocked(communityId)) return <CommunityBlocked />;
+  if (communityId && isBlocked(communityId)) return <Suspense fallback={null}><CommunityBlocked /></Suspense>;
   return <ConcordCommunityPage />;
 }
 
@@ -1607,9 +1616,7 @@ function ConcordCommunityPage() {
 
   // Purge expired disappearing messages (CORD-08 §3); hygiene, reads filter anyway.
   const sweepIdHex = community?.idHex;
-  useEffect(() => {
-    if (sweepIdHex) void sweepExpiredCommunityRumors(sweepIdHex);
-  }, [sweepIdHex]);
+  useEffect(() => (sweepIdHex ? scheduleExpiredSweep(sweepIdHex) : undefined), [sweepIdHex]);
 
   // Pins (CORD-04 §7) need the ORIGINAL seal, from the opened-rumor cache.
   const pins = usePins(community, channel, openedById);
@@ -2477,13 +2484,15 @@ function ConcordCommunityPage() {
     if (communityPaused) {
       return t({ id: "concordPage.paused.cantSend", defaultMessage: "This community is paused. A moderator must resume it before anyone can post." });
     }
+    // Readers collapse what a timed-out member sends while it runs (CORD-04 §8).
+    if (timedOut) return t({ id: "concordPage.timedOut.cantSend", defaultMessage: "You're timed out, so you can't post here yet." });
     if (!canPost) {
       return sendDenied
         ? t({ id: "useChannel.cantSend", defaultMessage: "You can't send messages in this channel." })
         : t({ id: "concordPage.composer.keyPending", defaultMessage: "Your key to post here is on its way." });
     }
     return transportRef.current.canSend?.() ?? null;
-  }, [communityPaused, canPost, sendDenied]);
+  }, [communityPaused, timedOut, canPost, sendDenied]);
 
   const [forumSort, setForumSort] = useLocalStorage<ForumSort>("armada:concord-forum-sort", "active");
   const [newPostOpen, setNewPostOpen] = useState(false);
@@ -3674,6 +3683,7 @@ function ConcordCommunityPage() {
               ) : view === "settings" ? (
                 <div className="flex-1 min-h-0 overflow-y-auto overflow-x-clip overscroll-contain scrollbar-stable pb-safe">
                   {community && (
+                    <Suspense fallback={paneLoading}>
                     <CommunitySettingsView
                       community={community}
                       metadata={folded?.metadata}
@@ -3687,6 +3697,7 @@ function ConcordCommunityPage() {
                       onMintAccessRole={canManageRoles && !folded?.rankedRoster ? handleMintAccessRole : undefined}
                       onOpenInvites={() => selectPane("invites")}
                     />
+                    </Suspense>
                   )}
                 </div>
               ) : view === "suspicious" ? (
@@ -3715,6 +3726,7 @@ function ConcordCommunityPage() {
                 </div>
               ) : view === "projects" ? (
                 <div className="flex-1 min-h-0 overflow-y-auto overflow-x-clip overscroll-contain scrollbar-stable pb-safe">
+                  <Suspense fallback={paneLoading}>
                   <ProjectsView
                     repos={projects.repos}
                     items={projects.items}
@@ -3743,6 +3755,7 @@ function ConcordCommunityPage() {
                       </div>
                     }
                   />
+                  </Suspense>
                 </div>
               ) : searching ? (
                 <div className="flex-1 min-h-0 overflow-y-auto overflow-x-clip overscroll-contain scrollbar-stable pb-safe">
@@ -3988,6 +4001,17 @@ function ConcordCommunityPage() {
                         {isLeaving ? <Loader2 className="size-4 animate-spin" /> : <FormattedMessage id="concordPage.excluded.leave" defaultMessage="Leave" />}
                       </Button>
                     </div>
+                  ) : user && channel && timedOut && presentation !== "feed" ? (
+                    <div className="mx-gutter mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
+                      <Lock className="size-5 shrink-0 text-muted-foreground" />
+                      <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+                        <FormattedMessage
+                          id="concordPage.timedOut.banner"
+                          defaultMessage="You're timed out until {until}. You can read, but not post."
+                          values={{ until: intl.formatDate((guestbookTimeouts.get(user.pubkey)?.until ?? 0) * 1000, { dateStyle: "medium", timeStyle: "short" }) }}
+                        />
+                      </p>
+                    </div>
                   ) : user && channel && !canPost && presentation !== "feed" ? (
                     // Locked, not refused on send (Vector `channelAllowsSend`, `channelAwaitsWriterKey`).
                     <div className="mx-gutter mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
@@ -4095,11 +4119,13 @@ function ConcordCommunityPage() {
               />
             </MountWhenOpened>
             <MountWhenOpened open={createEventOpen}>
-              <CreateEventDialog
-                calendar={calendar}
-                open={createEventOpen}
-                onOpenChange={setCreateEventOpen}
-              />
+              <Suspense fallback={null}>
+                <CreateEventDialog
+                  calendar={calendar}
+                  open={createEventOpen}
+                  onOpenChange={setCreateEventOpen}
+                />
+              </Suspense>
             </MountWhenOpened>
             </ComposerBoundsProvider>
 

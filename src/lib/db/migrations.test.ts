@@ -64,6 +64,41 @@ describe("schema migrations", { timeout: 30_000 }, () => {
     expect(await mod.kv.get(mod.SCHEMA_VERSION_KEY)).toBe(before);
   });
 
+  it("converts each Guestbook address array into a key per rumor (v4)", async () => {
+    const mod = await freshModules();
+    const { readGuestbookAddresses } = await import("@/concord/lib/rumorStore");
+    const community = "c".repeat(64);
+    const [r1, r2, pk] = ["1".repeat(64), "2".repeat(64), "d".repeat(64)];
+    await mod.kv.set(`c2gbpk:${community}:${pk}`, [r1, r2]);
+    await mod.kv.set(mod.SCHEMA_VERSION_KEY, 3);
+
+    expect((await mod.pendingUpgrades()).schema.map((m) => m.to)).toEqual([4]);
+    await mod.runMigrations([A]);
+
+    expect(await mod.kv.get(`c2gbpk:${community}:${pk}`)).toBeUndefined();
+    const addrs = await readGuestbookAddresses(community);
+    expect([...addrs.keys()].sort()).toEqual([r1, r2]);
+    expect([...addrs.get(r1)!]).toEqual([pk]);
+    expect(await mod.kv.get(mod.SCHEMA_VERSION_KEY)).toBe(mod.ARMADA_DB_VERSION);
+  });
+
+  it("converts each Control snapshot id array into a key per edition (v5), leaving converted entries alone", async () => {
+    const mod = await freshModules();
+    const { readControlSnapshot } = await import("@/concord/lib/rumorStore");
+    const community = "e".repeat(64);
+    const [r1, r2, r3, pk] = ["1".repeat(64), "2".repeat(64), "3".repeat(64), "f".repeat(64)];
+    await mod.kv.set(`c2snap:${community}:${pk}`, [r1, r2]);
+    await mod.kv.set(`c2snap:${community}:${pk}:${r3}`, 1);
+    await mod.kv.set(mod.SCHEMA_VERSION_KEY, 4);
+
+    expect((await mod.pendingUpgrades()).schema.map((m) => m.to)).toEqual([5]);
+    await mod.runMigrations([A]);
+
+    expect(await mod.kv.get(`c2snap:${community}:${pk}`)).toBeUndefined();
+    expect([...((await readControlSnapshot(community, pk)) ?? [])].sort()).toEqual([r1, r2, r3]);
+    expect(await mod.kv.get(mod.SCHEMA_VERSION_KEY)).toBe(5);
+  });
+
   it("leaves data written by a newer build alone", async () => {
     const mod = await freshModules();
     await mod.kv.set(mod.SCHEMA_VERSION_KEY, 999);

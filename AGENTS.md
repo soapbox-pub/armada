@@ -757,9 +757,14 @@ Things to know before touching it:
 - **The one exception is worth knowing, because it is the shape of a real
   one.** A compaction re-wraps control editions VERBATIM under the new epoch's
   address (CORD-06 §3), so whether an edition is in the current snapshot is
-  genuinely not in the rumor. It lives in KV as a set of rumor ids per control
-  stream address (`c2snap:<community>:<pk>`, `readControlSnapshot`) — the fact
-  itself, not an event-shaped row impersonating one.
+  genuinely not in the rumor. It lives in KV as one key per (control stream
+  address, rumor) (`c2snap:<community>:<pk>:<rumor>`, `readControlSnapshot`) —
+  the fact itself, not an event-shaped row impersonating one. The Guestbook
+  address a rumor arrived at is the same kind of fact (only the live epoch's
+  Nicknames count, CORD-04 §10): `c2gbaddr:<community>:<rumor>:<pk>`, held in
+  memory once read (`readGuestbookAddresses`). A key per fact, never a merged
+  set: recording one then never reads, so two writes can't lose each other, and
+  a wrap already seen is never offered again to put a lost one back.
 - **Where the derivation is real but unfilterable, index a TERM.** A NIP-01
   filter can only ask about what a rumor literally says, and a NIP-17
   conversation is the SET of its participants — half in `pubkey`, half in the

@@ -12,6 +12,7 @@ import {
   isAuthorizedIn,
   moderatorRole,
   normalizeOrder,
+  outranksMember,
   Permissions,
   projectReorder,
   roleFromJSON,
@@ -442,5 +443,19 @@ describe("tierMoves (stock Admin/Moderator)", () => {
     expect(tierMoves(tiered, R_ADMIN, R_OWNER, R_OWNER)).toEqual([]);
     expect(tierMoves(tiered, R_MOD, R_OWNER, R_PLAIN)).toEqual([]);
     expect(tierMoves(tiered, R_PLAIN, R_OWNER, R_MOD)).toEqual([]);
+  });
+});
+
+describe("a roleless member sits at u32::MAX (Vector `can_act_on_member`)", () => {
+  // A ranked Role can sit at u32::MAX itself (Vector `parse_role_v2_content`): equal to the
+  // roleless, so it doesn't outrank them.
+  const roster: CommunityRoles = {
+    roles: [mkRole("4".repeat(64), 0xffffffff, Permissions.KICK)],
+    grants: [{ member: R_MOD, roleIds: ["4".repeat(64)] }],
+  };
+
+  it("doesn't let a Role at u32::MAX act on a member who holds none", () => {
+    expect(canActOnMember(roster, R_MOD, R_OWNER, R_PLAIN, Permissions.KICK)).toBe(false);
+    expect(outranksMember(roster, R_MOD, R_OWNER, R_PLAIN)).toBe(false);
   });
 });

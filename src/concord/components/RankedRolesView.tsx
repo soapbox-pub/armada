@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { useRankedRoles } from "@/concord/hooks/useRankedRoles";
 import type { FoldedControl } from "@/concord/lib/control";
 import { rankedOrder, roleAuthor, type RoleAuthor, type RoleFields } from "@/concord/lib/rankedWrites";
-import { colorToHex, hexToColor, MAX_ROLES_PER_COMMUNITY, PERMISSION_LABELS, type Role } from "@/concord/lib/roles";
+import { BENEATH_EVERY_ROLE, colorToHex, hexToColor, MAX_ROLES_PER_COMMUNITY, PERMISSION_LABELS, type Role } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { toast } from "@/hooks/useToast";
@@ -19,8 +19,6 @@ import { common, FormattedMessage, t, useIntl } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_SWATCH = "#5865f2";
-/** Where `@everyone` sits: beneath every Role. */
-const BENEATH = Number.MAX_SAFE_INTEGER;
 
 type Editing = { kind: "new" } | { kind: "role"; role: Role } | { kind: "everyone" };
 
@@ -78,7 +76,8 @@ export function RankedRolesBody({ community }: { community: Community }) {
   const moveDrag = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (dragFrom === null) return;
     const over = rowIndexAt(e.clientY);
-    if (over !== null) setDragOver(over);
+    // Only among the Roles beneath the editor (Vector `RolesSection` targets).
+    if (over !== null && author?.outranks(roles[over].position)) setDragOver(over);
   };
   const endDrag = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
@@ -99,7 +98,7 @@ export function RankedRolesBody({ community }: { community: Community }) {
   if (editing) {
     const role = editing.kind === "role" ? editing.role : undefined;
     const bottom = roles.reduce((m, r) => Math.max(m, r.position), 0) + 1;
-    const reach = editing.kind === "everyone" ? BENEATH : role ? role.position : bottom;
+    const reach = editing.kind === "everyone" ? BENEATH_EVERY_ROLE : role ? role.position : bottom;
     return (
       <RankedRoleEditor
         key={role?.roleId ?? editing.kind}
@@ -184,7 +183,7 @@ export function RankedRolesBody({ community }: { community: Community }) {
                 onPointerMove={moveDrag}
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
-                className={cn("shrink-0 touch-none rounded p-1 touch:p-2 text-muted-foreground", movable ? "cursor-grab active:cursor-grabbing" : "opacity-30")}
+                className={cn("flex size-6 touch:size-11 shrink-0 touch-none items-center justify-center rounded text-muted-foreground", movable ? "cursor-grab active:cursor-grabbing" : "opacity-30")}
               >
                 <GripVertical className="size-4" aria-hidden />
               </button>
