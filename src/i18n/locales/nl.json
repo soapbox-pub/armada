@@ -4486,6 +4486,7 @@
   "useControlPlane.noRelayAccepted": "Geen enkele relay heeft de wijziging geaccepteerd.",
   "useControlPlane.noRelayAcceptedWithReasons": "Geen enkele relay heeft de wijziging geaccepteerd: {reasons}",
   "useControlPlane.noRelaysConfigured": "Geen enkele relay heeft de wijziging geaccepteerd: de community heeft geen relays ingesteld.",
+  "useDirectInvites.catchUpRefused": "Deze kanaalsleutels kunnen niet worden geaccepteerd.",
   "useDirectInvites.expired": "Deze uitnodiging is verlopen.",
   "useDirectInvites.signInToAccept": "Log in om een uitnodiging te accepteren.",
   "useDiscoverListings.noRelayAnswered": "Geen enkele Ontdekken-relay heeft geantwoord.",

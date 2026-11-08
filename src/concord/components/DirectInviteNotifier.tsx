@@ -9,7 +9,7 @@ import { useCommunity, useCommunityEntry, useUpdateCommunityList } from "@/conco
 import { invalidateControl, useControlFold } from "@/concord/hooks/useControlPlane";
 import { useInviteInbox, type ParkedInvite } from "@/concord/hooks/useDirectInvites";
 import { judgeCatchUpChannels, type CatchUpJudgement, type CatchUpVerdict } from "@/concord/lib/catchUpAdoption";
-import { setCatchUpVerdict } from "@/concord/lib/catchUpVerdicts";
+import { setCatchUpVerdict, verdictIsManual } from "@/concord/lib/catchUpVerdicts";
 import { heldMembershipOf } from "@/concord/lib/directInvite";
 import { sweepControl } from "@/concord/lib/planeSync";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -57,9 +57,8 @@ export function DirectInviteNotifier() {
     const fresh = items.filter((it) => {
       if (!it.unread || announced.current.has(it.invite.wrapId)) return false;
       if (!it.invite.catchUp) return true;
-      // Catch-ups are offered only once judged not adoptable.
-      const verdict = verdicts.get(it.invite.wrapId);
-      return verdict !== undefined && verdict !== "adopt" && verdict !== "no-fold" && verdict !== "nothing-new";
+      // Catch-ups are offered only once judged a manual Accept.
+      return verdictIsManual(verdicts.get(it.invite.wrapId));
     });
     if (fresh.length === 0) return;
     for (const it of fresh) announced.current.add(it.invite.wrapId);

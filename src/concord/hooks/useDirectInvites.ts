@@ -1,7 +1,7 @@
 import { useNostr } from "@nostrify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useSyncExternalStore } from "react";
-import { catchUpIsManual, catchUpVerdictsVersion, subscribeCatchUpVerdicts } from "@/concord/lib/catchUpVerdicts";
+import { catchUpIsManual, catchUpIsRefused, catchUpVerdictsVersion, subscribeCatchUpVerdicts } from "@/concord/lib/catchUpVerdicts";
 
 import { assertNotBanned, assertNotBlocked, assertNotDissolved, bundleToEntry } from "@/concord/hooks/useCommunityActions";
 import { useCommunityList, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
@@ -427,6 +427,9 @@ export function useAcceptDirectInvite() {
       if (!user) throw new Error(t({ id: "useDirectInvites.signInToAccept", defaultMessage: "Sign in to accept an invite." }));
       const { bundle } = invite;
       if (directInviteExpired(bundle)) throw new Error(t({ id: "useDirectInvites.expired", defaultMessage: "This invite has expired." }));
+      if (invite.catchUp && catchUpIsRefused(invite.wrapId)) {
+        throw new Error(t({ id: "useDirectInvites.catchUpRefused", defaultMessage: "These channel keys can't be accepted." }));
+      }
 
       // No accepting into a blocked or dissolved community, as with link joins (`completeJoin`).
       await assertNotBlocked(nostr, bundle.community_id);

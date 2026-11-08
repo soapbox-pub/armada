@@ -4486,6 +4486,7 @@
   "useControlPlane.noRelayAccepted": "Ningún relay aceptó el cambio.",
   "useControlPlane.noRelayAcceptedWithReasons": "Ningún relay aceptó el cambio: {reasons}",
   "useControlPlane.noRelaysConfigured": "Ningún relay aceptó el cambio: la comunidad no tiene relays configurados.",
+  "useDirectInvites.catchUpRefused": "Estas claves de canal no se pueden aceptar.",
   "useDirectInvites.expired": "Esta invitación ha caducado.",
   "useDirectInvites.signInToAccept": "Inicia sesión para aceptar una invitación.",
   "useDiscoverListings.noRelayAnswered": "Ningún relay de Descubrir respondió.",

@@ -4486,6 +4486,7 @@
   "useControlPlane.noRelayAccepted": "No relay accepted the change.",
   "useControlPlane.noRelayAcceptedWithReasons": "No relay accepted the change: {reasons}",
   "useControlPlane.noRelaysConfigured": "No relay accepted the change: the community has no relays configured.",
+  "useDirectInvites.catchUpRefused": "These channel keys can't be accepted.",
   "useDirectInvites.expired": "This invite has expired.",
   "useDirectInvites.signInToAccept": "Sign in to accept an invite.",
   "useDiscoverListings.noRelayAnswered": "No Discover relay answered.",

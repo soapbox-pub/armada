@@ -4486,6 +4486,7 @@
   "useControlPlane.noRelayAccepted": "Aucun relais n’a accepté la modification.",
   "useControlPlane.noRelayAcceptedWithReasons": "Aucun relais n’a accepté la modification : {reasons}",
   "useControlPlane.noRelaysConfigured": "Aucun relais n’a accepté la modification : la communauté n’a aucun relais configuré.",
+  "useDirectInvites.catchUpRefused": "Ces clés de salon ne peuvent pas être acceptées.",
   "useDirectInvites.expired": "Cette invitation a expiré.",
   "useDirectInvites.signInToAccept": "Connectez-vous pour accepter une invitation.",
   "useDiscoverListings.noRelayAnswered": "Aucun relais Découvrir n’a répondu.",

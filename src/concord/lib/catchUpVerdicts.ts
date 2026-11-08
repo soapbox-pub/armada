@@ -16,10 +16,29 @@ export function setCatchUpVerdict(wrapId: string, verdict: CatchUpVerdict): void
   for (const l of listeners) l();
 }
 
-/** Whether the catch-up waits on the member's click: refused automatic adoption, not waiting or done. */
+/**
+ * Verdicts no click may override: a banned vendor, an epoch the head could never walk
+ * back from, a key the seal refutes, or a banned recipient (CORD-04 §4, CORD-03 §5).
+ */
+const REFUSED = new Set<CatchUpVerdict>(["sender-banned", "implausible-epoch", "key-mismatch", "banned"]);
+
+/** Verdicts that wait for the fold: re-judged as it moves, never offered. */
+const WAITING = new Set<CatchUpVerdict>(["no-fold", "unverified"]);
+
+/** Whether a verdict leaves the catch-up to the member's click: not adopted, waiting, done or refused. */
+export function verdictIsManual(v: CatchUpVerdict | undefined): boolean {
+  return v !== undefined && v !== "adopt" && v !== "nothing-new" && !WAITING.has(v) && !REFUSED.has(v);
+}
+
+/** Whether the catch-up waits on the member's click. */
 export function catchUpIsManual(wrapId: string): boolean {
+  return verdictIsManual(verdicts.get(wrapId));
+}
+
+/** Whether the catch-up was judged one no click may accept. */
+export function catchUpIsRefused(wrapId: string): boolean {
   const v = verdicts.get(wrapId);
-  return v !== undefined && v !== "adopt" && v !== "no-fold" && v !== "nothing-new";
+  return v !== undefined && REFUSED.has(v);
 }
 
 export function catchUpVerdictsVersion(): number {

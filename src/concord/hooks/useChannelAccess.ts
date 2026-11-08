@@ -20,7 +20,7 @@ import { accessPlane, deliveryTrusted, parseDelivery } from "@/concord/lib/deliv
 import { bytesToHex, hex32 } from "@/concord/lib/derive";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { base64ToBytes, decodeWrappedKey, myLocator } from "@/concord/lib/rekey";
-import { channelPermissions, Permissions } from "@/concord/lib/roles";
+import { channelPermissions, isAuthorized, Permissions } from "@/concord/lib/roles";
 import { adoptHistoryDeliveries, historyViewsReady, parseHistoryDelivery } from "@/concord/lib/history";
 import { openWrap } from "@/concord/lib/stream";
 import type { Community } from "@/concord/lib/types";
@@ -121,6 +121,10 @@ export function useChannelAccess(community: Community | undefined): void {
         const walk = sealed?.epoch ?? 0n;
         if (d.newEpoch < walk || d.newEpoch > walk + 1n) continue;
         if (!deliveryTrusted(folded.roster, folded.ownerHex, folded.banned, channelIdHex, me, d.deliverer)) continue;
+        // Nothing authenticates a key past the seal, so only the owner or a manager, who
+        // could rotate to a key of their own, is taken at its word; a peer's waits for it.
+        if (sealed && d.newEpoch > sealed.epoch && d.deliverer !== folded.ownerHex &&
+          !isAuthorized(folded.roster, d.deliverer, folded.ownerHex, Permissions.MANAGE_CHANNELS)) continue;
         const locator = myLocator(d.deliverer, me, channelIdHex, d.newEpoch);
         const blob = d.blobs.find((b) => b.locator.toLowerCase() === locator);
         const purpose = `access:${channelIdHex}:${d.newEpoch}`;

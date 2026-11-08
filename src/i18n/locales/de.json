@@ -4486,6 +4486,7 @@
   "useControlPlane.noRelayAccepted": "Kein Relay hat die Änderung angenommen.",
   "useControlPlane.noRelayAcceptedWithReasons": "Kein Relay hat die Änderung angenommen: {reasons}",
   "useControlPlane.noRelaysConfigured": "Kein Relay hat die Änderung angenommen: Für die Community sind keine Relays konfiguriert.",
+  "useDirectInvites.catchUpRefused": "Diese Kanalschlüssel können nicht angenommen werden.",
   "useDirectInvites.expired": "Diese Einladung ist abgelaufen.",
   "useDirectInvites.signInToAccept": "Melde dich an, um eine Einladung anzunehmen.",
   "useDiscoverListings.noRelayAnswered": "Kein Entdecken-Relay hat geantwortet.",

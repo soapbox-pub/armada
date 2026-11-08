@@ -4486,6 +4486,7 @@
   "useControlPlane.noRelayAccepted": "変更を受け付けたリレーはありませんでした。",
   "useControlPlane.noRelayAcceptedWithReasons": "変更を受け付けたリレーはありませんでした: {reasons}",
   "useControlPlane.noRelaysConfigured": "変更を受け付けたリレーはありませんでした: コミュニティにリレーが設定されていません。",
+  "useDirectInvites.catchUpRefused": "このチャンネルの鍵は受け入れられません。",
   "useDirectInvites.expired": "この招待は期限切れです。",
   "useDirectInvites.signInToAccept": "招待を承諾するにはログインしてください。",
   "useDiscoverListings.noRelayAnswered": "ディスカバーのリレーから応答がありませんでした。",

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { judgeCatchUp, judgeCatchUpChannels, MAX_VEND_EPOCH_LEAD, type CatchUpFold } from "./catchUpAdoption";
 import type { HeldMembership } from "./directInvite";
+import { sealChannelMetadata } from "./channelSeal";
+import { readChannelContent } from "./control";
+import { hex32 } from "./derive";
 import { Permissions, type CommunityRoles, type Role } from "./roles";
 
 const OWNER = "aa".repeat(32);
@@ -174,5 +177,39 @@ describe("judgeCatchUp", () => {
 
   it("matches the channel id case-insensitively, as the classifier does", () => {
     expect(judgeCatchUp(fold(), ME, ADMIN, bundle([{ id: CH.toUpperCase() }]), held())).toBe("adopt");
+  });
+});
+
+describe("judgeCatchUp: the seal authenticates the key (CORD-03 §5)", () => {
+  const realKey = "5".repeat(64);
+  const fakeKey = "6".repeat(64);
+  const sealedAt = (epoch: number) =>
+    readChannelContent(sealChannelMetadata({ name: "general", private: true }, hex32(realKey), hex32(CH), BigInt(epoch), undefined))!.sealed!;
+  const sealedFold = (epoch: number) => fold({ channels: new Map([[CH, { ...priv(), sealed: sealedAt(epoch) }]]) });
+  const vend = (epoch: number, key: string) => ({ ...bundle([{ id: CH, epoch }]), channels: [{ id: CH, epoch, key, name: "ch" }] });
+
+  it("adopts a key at the sealed epoch that opens the seal, from an entitled peer", () => {
+    expect(judgeCatchUp(sealedFold(1), ME, PEER, vend(1, realKey), held())).toBe("adopt");
+  });
+
+  it("refuses a key at the sealed epoch that doesn't open it, whoever sends it", () => {
+    expect(judgeCatchUp(sealedFold(1), ME, PEER, vend(1, fakeKey), held())).toBe("key-mismatch");
+    expect(judgeCatchUp(sealedFold(1), ME, ADMIN, vend(1, fakeKey), held())).toBe("key-mismatch");
+    expect(judgeCatchUp(sealedFold(1), ME, OWNER, vend(1, fakeKey), held())).toBe("key-mismatch");
+  });
+
+  it("waits on an entitled peer's key past the seal, and takes a manager's or the owner's", () => {
+    // Unauthenticated: a peer's would otherwise become the member's current key.
+    expect(judgeCatchUp(sealedFold(1), ME, PEER, vend(1000, fakeKey), held())).toBe("unverified");
+    expect(judgeCatchUp(sealedFold(1), ME, ADMIN, vend(2, fakeKey), held())).toBe("adopt");
+    expect(judgeCatchUp(sealedFold(1), ME, OWNER, vend(2, fakeKey), held())).toBe("adopt");
+  });
+
+  it("reports a refuted key before a manual refusal when a bundle carries both", () => {
+    type Ch = { isPrivate: boolean; deleted: boolean; sealed?: ReturnType<typeof sealedAt> };
+    const f = fold({ channels: new Map<string, Ch>([[CH, { ...priv(), sealed: sealedAt(1) }], [OTHER_CH, priv()]]) });
+    // OTHER_CH: ME holds no Role for it, so it is `not-entitled`.
+    const both = { ...bundle([]), channels: [{ id: CH, epoch: 1, key: fakeKey, name: "a" }, { id: OTHER_CH, epoch: 1, key: fakeKey, name: "b" }] };
+    expect(judgeCatchUpChannels(f, ME, PEER, both, held())).toEqual({ verdict: "key-mismatch", adopt: [] });
   });
 });

@@ -4486,6 +4486,7 @@
   "useControlPlane.noRelayAccepted": "Nessun relay ha accettato la modifica.",
   "useControlPlane.noRelayAcceptedWithReasons": "Nessun relay ha accettato la modifica: {reasons}",
   "useControlPlane.noRelaysConfigured": "Nessun relay ha accettato la modifica: la community non ha relay configurati.",
+  "useDirectInvites.catchUpRefused": "Queste chiavi di canale non possono essere accettate.",
   "useDirectInvites.expired": "Questo invito è scaduto.",
   "useDirectInvites.signInToAccept": "Accedi per accettare un invito.",
   "useDiscoverListings.noRelayAnswered": "Nessun relay di Esplora ha risposto.",
