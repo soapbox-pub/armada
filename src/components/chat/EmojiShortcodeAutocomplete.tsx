@@ -6,6 +6,7 @@ import { useEmojiData, type EmojiMartData } from "@/lib/emojiData";
 import { findEmojiShortcodeColon } from "@/lib/emojiShortcode";
 import { usePortalDropdown } from "@/hooks/usePortalDropdown";
 import { useCustomEmojis, type CustomEmoji } from "@/hooks/useCustomEmojis";
+import { menuPickHandlers } from "@/lib/menuPick";
 import { cn } from "@/lib/utils";
 
 interface EmojiShortcodeAutocompleteProps {
@@ -285,11 +286,7 @@ export function EmojiShortcodeAutocomplete({
                 "relative w-full flex items-center gap-3 menu-row clip-corner px-2 py-1.5 text-left text-popover-foreground transition-colors cursor-pointer",
                 index === selectedIndex ? "bg-foreground/[0.08]" : "hover:bg-foreground/[0.05]",
               )}
-              // Pointer-down fires reliably on touch; preventDefault keeps composer focus.
-              onPointerDown={(e) => {
-                e.preventDefault();
-                selectEmoji(emoji);
-              }}
+              {...menuPickHandlers(() => selectEmoji(emoji))}
             >
               {emoji.customUrl ? (
                 <CustomEmojiImg

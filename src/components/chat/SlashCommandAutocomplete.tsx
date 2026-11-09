@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuthor } from "@/hooks/useAuthor";
 import { usePortalDropdown } from "@/hooks/usePortalDropdown";
 import { matchSlashCommands, type SlashCapability, type SlashCommand } from "@/lib/slashCommands";
+import { menuPickHandlers } from "@/lib/menuPick";
 import { cn } from "@/lib/utils";
 import { useIntl } from "@/i18n";
 
@@ -293,11 +294,7 @@ export function SlashCommandAutocomplete({
                       "relative w-full flex items-baseline gap-2 scroll-mt-8 menu-row clip-corner px-2 py-1.5 text-left transition-colors cursor-pointer",
                       index === selectedIndex ? "bg-foreground/[0.08]" : "hover:bg-foreground/[0.05]",
                     )}
-                    // Pointer-down fires reliably on touch; preventDefault keeps composer focus.
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      selectRow(row);
-                    }}
+                    {...menuPickHandlers(() => selectRow(row))}
                   >
                     {section.key === "recents" && row.type === "bot" && (
                       <span className="self-center">

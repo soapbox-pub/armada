@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCaretCoordinates } from "@/lib/caretCoordinates";
 import { usePortalDropdown } from "@/hooks/usePortalDropdown";
 import { meshIdentity, meshMentionToken, type MeshIdentity } from "@/lib/meshIdentity";
+import { menuPickHandlers } from "@/lib/menuPick";
 import { cn } from "@/lib/utils";
 
 import type { MeshPeer } from "@/lib/bluetoothMesh";
@@ -197,11 +198,7 @@ export function MeshMentionAutocomplete({
                 "relative w-full flex items-center gap-3 menu-row clip-corner px-2 py-1.5 text-left transition-colors cursor-pointer",
                 index === selectedIndex ? "bg-foreground/[0.08]" : "hover:bg-foreground/[0.05]",
               )}
-              // Pointer-down fires reliably on touch; preventDefault keeps composer focus.
-              onPointerDown={(e) => {
-                e.preventDefault();
-                selectCandidate(candidate);
-              }}
+              {...menuPickHandlers(() => selectCandidate(candidate))}
             >
               <span
                 className="size-8 shrink-0 rounded-full flex items-center justify-center text-xs font-semibold"

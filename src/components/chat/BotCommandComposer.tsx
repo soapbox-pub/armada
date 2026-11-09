@@ -15,6 +15,7 @@ import {
   type BotCommandEntry,
 } from "@/lib/botCommands";
 import { FormattedMessage, useIntl } from "@/i18n";
+import { menuPickHandlers } from "@/lib/menuPick";
 import { cn } from "@/lib/utils";
 import type { ImetaEntry } from "@/lib/imeta";
 
@@ -360,7 +361,7 @@ export function BotCommandComposer({
                   !values[i] && "text-muted-foreground",
                 )}
                 onFocus={() => setFocused(i)}
-                // Rows pick on pointer-down with preventDefault, so any blur is a real move.
+                // Menu rows preventDefault their pointer-down, so any blur is a real move.
                 onBlur={() => { if (menuFor === i) closeMenu(); }}
                 onKeyDown={(e) => onFieldKeyDown(e, i)}
                 onPointerDown={(e) => {
@@ -401,7 +402,7 @@ export function BotCommandComposer({
                   setFocused(i);
                   if (arg.type === "user") openMenu(i);
                 }}
-                // Rows pick on pointer-down with preventDefault, so any blur is a real move.
+                // Menu rows preventDefault their pointer-down, so any blur is a real move.
                 onBlur={() => { if (menuFor === i) closeMenu(); }}
                 onChange={(e) => {
                   let next = e.target.value;
@@ -434,10 +435,7 @@ export function BotCommandComposer({
                         oi === menuIndex ? "bg-foreground/[0.08]" : "hover:bg-foreground/[0.05]",
                         option.value === "" && "text-muted-foreground italic",
                       )}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        pickOption(i, option);
-                      }}
+                      {...menuPickHandlers(() => pickOption(i, option))}
                     >
                       {arg.type === "user" && (
                         <Avatar className="size-4 shrink-0">
