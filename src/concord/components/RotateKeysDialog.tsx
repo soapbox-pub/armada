@@ -74,7 +74,7 @@ export function RotateKeysDialog({
       <ChromeDialogContent
         title={
           upgrade
-            ? intl.formatMessage({ id: "rotateKeysDialog.upgradeTitle", defaultMessage: "Upgrade this community's security?" })
+            ? intl.formatMessage({ id: "rotateKeysDialog.upgradeTitle", defaultMessage: "Upgrade security?" })
             : intl.formatMessage({ id: "rotateKeysDialog.title", defaultMessage: "Rotate this community's keys?" })
         }
         className="sm:max-w-sm"
@@ -91,8 +91,7 @@ export function RotateKeysDialog({
             upgrade
               ? intl.formatMessage({
                   id: "rotateKeysDialog.upgradeDescription",
-                  defaultMessage:
-                    "This community uses an older format in which any member can write to its settings stream. Upgrading rotates its keys so only staff can.",
+                  defaultMessage: "This community uses an older, less secure format. Upgrading rotates its keys.",
                 })
               : intl.formatMessage({
                   id: "rotateKeysDialog.description",
@@ -103,14 +102,16 @@ export function RotateKeysDialog({
         />
 
         <ul className="mt-5 space-y-1 text-sm text-muted-foreground">
-          <li>
-            <FormattedMessage
-              id="rotateKeysDialog.members"
-              defaultMessage="{count, plural, one {# member keeps access. Nobody is removed.} other {# members keep access. Nobody is removed.}}"
-              values={{ count: memberCount }}
-            />
-          </li>
-          {privateChannelCount > 0 && (
+          {!upgrade && (
+            <li>
+              <FormattedMessage
+                id="rotateKeysDialog.members"
+                defaultMessage="{count, plural, one {# member keeps access. Nobody is removed.} other {# members keep access. Nobody is removed.}}"
+                values={{ count: memberCount }}
+              />
+            </li>
+          )}
+          {!upgrade && privateChannelCount > 0 && (
             <li>
               <FormattedMessage
                 id="rotateKeysDialog.privateChannels"

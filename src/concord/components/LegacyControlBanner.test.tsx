@@ -36,7 +36,8 @@ describe("RotateKeysDialog upgrade framing", () => {
   it("runs the same rotation under upgrade wording", async () => {
     const onConfirm = vi.fn(async () => {});
     render(<RotateKeysDialog {...props} upgrade onConfirm={onConfirm} />);
-    expect(screen.getByText(/older format in which any member can write/)).toBeInTheDocument();
+    expect(screen.getByText(/older, less secure format/)).toBeInTheDocument();
+    expect(screen.queryByText(/Nobody is removed/)).toBeNull();
     expect(screen.queryByRole("button", { name: /Rotate keys/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Upgrade/ }));
     await waitFor(() => expect(onConfirm).toHaveBeenCalledOnce());

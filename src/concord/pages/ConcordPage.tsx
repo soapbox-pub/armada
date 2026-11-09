@@ -3012,10 +3012,7 @@ function ConcordCommunityPage() {
     await moderation.rotateKeys();
     toast(
       upgrading
-        ? {
-            title: t({ id: "concordPage.upgrade.done", defaultMessage: "Community security upgraded" }),
-            description: t({ id: "concordPage.upgrade.description", defaultMessage: "Only staff can change the community's settings now. Everyone still in the community keeps access." }),
-          }
+        ? { title: t({ id: "concordPage.upgrade.done", defaultMessage: "Security upgraded" }) }
         : {
             title: t({ id: "concordPage.rotate.done", defaultMessage: "Community keys rotated" }),
             description: t({ id: "concordPage.rotate.description", defaultMessage: "Everyone still in the community keeps access. The previous keys can't read new messages." }),
@@ -3193,7 +3190,7 @@ function ConcordCommunityPage() {
                       >
                         {legacyControl ? <ShieldAlert className="size-4" /> : <KeyRound className="size-4" />}
                         {legacyControl ? (
-                          <FormattedMessage id="concordPage.communityMenu.upgradeSecurity" defaultMessage="Upgrade community security" />
+                          <FormattedMessage id="concordPage.communityMenu.upgradeSecurity" defaultMessage="Upgrade security" />
                         ) : (
                           <FormattedMessage id="concordPage.communityMenu.rotateKeys" defaultMessage="Rotate community keys" />
                         )}
