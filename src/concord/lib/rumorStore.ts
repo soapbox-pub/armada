@@ -62,27 +62,32 @@ function rumorStore(communityIdHex: string): NRumorStore {
 }
 
 /**
- * Each community's stored control plane, shared by every reader until the next
- * write to its tenant. Boot folds, gates and seeds all read the whole plane, and
- * on Android each read re-serialized it across the bridge (measured: 91 reads,
- * 4.4 MB, for 40 communities). Bumped on every write and removal here, which
- * every row reaches through, including the service's (via the drain's ingest).
+ * Each community's stored Control and Guestbook planes, shared by every reader until
+ * the next write that can change them. Boot folds, gates, seeds and the notifiers'
+ * Timeouts and Nicknames all read whole planes, and on Android each read
+ * re-serialized it across the bridge (measured: 91 reads, 4.4 MB, for 40
+ * communities). Bumped on every plane write, delete and removal here, which every
+ * row reaches through, including the service's (via the drain's ingest).
  */
-const controlPlaneMemo = new Map<string, { rev: number; rows: Promise<NostrRumor[]> }>();
+const planeMemo = new Map<string, { rev: number; rows: Promise<NostrRumor[]> }>();
 const tenantRev = new Map<string, number>();
+const MEMO_PLANES: ReadonlySet<Plane> = new Set(["control", "guestbook"]);
+const planeMemoKey = (communityIdHex: string, plane: Plane) => `${plane}:${communityIdHex}`;
 
 function touchTenant(communityIdHex: string): void {
   tenantRev.set(communityIdHex, (tenantRev.get(communityIdHex) ?? 0) + 1);
-  controlPlaneMemo.delete(communityIdHex);
+  for (const plane of MEMO_PLANES) planeMemo.delete(planeMemoKey(communityIdHex, plane));
 }
 
 /** Forget the shared plane reads on logout: they are decrypted community state. */
 export function clearRumorStoreMemory(): void {
-  controlPlaneMemo.clear();
+  planeMemo.clear();
   tenantRev.clear();
   guestbookAddrs.clear();
   guestbookAddrsReady.clear();
   guestbookAddrsPending.clear();
+  snapshotsNoted.clear();
+  pendingChat.clear();
 }
 
 /** The ArmadaDB tenant id holding a community's opened events. */
@@ -132,14 +137,23 @@ export async function noteControlSnapshot(
   opened: Array<{ streamPk?: string; rumorId: string }>,
 ): Promise<void> {
   const kv = getArmadaDB().kv;
+  // Sweeps re-offer what they read: a key recorded this session isn't written again.
+  const keys = opened.flatMap((o) => (o.streamPk ? [snapshotKey(communityIdHex, o.streamPk, o.rumorId)] : []));
   await Promise.all(
-    opened.flatMap((o) => (o.streamPk ? [kv.set(snapshotKey(communityIdHex, o.streamPk, o.rumorId), 1)] : [])),
+    keys.filter((key) => !snapshotsNoted.has(key)).map(async (key) => {
+      await kv.set(key, 1);
+      snapshotsNoted.add(key);
+    }),
   );
 }
 
+/** Snapshot keys written this session. */
+const snapshotsNoted = new Set<string>();
+
 // The Guestbook epoch a rumor arrived at, by the same arrangement: only the live
 // epoch's Nicknames count (CORD-04 §10), and nothing in the rumor says which it was.
-// One key per (rumor, address), so recording never reads and two writes can't lose each other.
+// One key per (rumor, address), so two writes can't lose each other; the session's map of
+// what is recorded keeps a re-offered rumor from being written again.
 export const GUESTBOOK_ADDR_PREFIX = "c2gbaddr:";
 const guestbookAddrPrefix = (communityIdHex: string) => `${GUESTBOOK_ADDR_PREFIX}${communityIdHex}:`;
 export const guestbookAddrKey = (communityIdHex: string, rumorId: string, pk: string) =>
@@ -205,7 +219,11 @@ export async function withGuestbookStreams(community: Community, stored: OpenedE
 }
 
 async function noteGuestbookStreams(communityIdHex: string, opened: Array<{ streamPk?: string; rumorId: string }>): Promise<void> {
-  const fresh = opened.filter((o): o is { streamPk: string; rumorId: string } => Boolean(o.streamPk));
+  const offered = opened.filter((o): o is { streamPk: string; rumorId: string } => Boolean(o.streamPk));
+  if (offered.length === 0) return;
+  // Every sweep re-offers the wraps it reads; only an address not yet recorded is written.
+  const known = await readGuestbookAddresses(communityIdHex);
+  const fresh = offered.filter((o) => !known.get(o.rumorId)?.has(o.streamPk));
   if (fresh.length === 0) return;
   const ready = guestbookAddrsReady.get(communityIdHex);
   const pending = guestbookAddrsPending.get(communityIdHex);
@@ -233,7 +251,10 @@ export async function pruneControlSnapshots(
     const stale = (await kv.list({ prefix }))
       .map(({ key }) => key)
       .filter((key) => !keep.has(key.slice(prefix.length).split(":")[0]));
-    await Promise.all(stale.map((key) => kv.delete(key)));
+    await Promise.all(stale.map(async (key) => {
+      await kv.delete(key);
+      snapshotsNoted.delete(key);
+    }));
   } catch {
     // best-effort
   }
@@ -808,17 +829,18 @@ export async function queryPlane(
   opts?: { limit?: number; signal?: AbortSignal },
 ): Promise<OpenedEvent[]> {
   const filter: { kinds: number[]; limit?: number } = { kinds: PLANE_RULES[plane].kinds };
-  if (plane === "control" && opts?.limit === undefined) {
+  if (MEMO_PLANES.has(plane) && opts?.limit === undefined) {
     const rev = tenantRev.get(communityIdHex) ?? 0;
-    let memo = controlPlaneMemo.get(communityIdHex);
+    const key = planeMemoKey(communityIdHex, plane);
+    let memo = planeMemo.get(key);
     if (!memo || memo.rev !== rev) {
       // Never handed a signal: one reader's abort must not fail the others.
       const rows = rumorStore(communityIdHex).query([filter]);
       memo = { rev, rows };
-      controlPlaneMemo.set(communityIdHex, memo);
+      planeMemo.set(key, memo);
       const held = memo;
       rows.catch(() => {
-        if (controlPlaneMemo.get(communityIdHex) === held) controlPlaneMemo.delete(communityIdHex);
+        if (planeMemo.get(key) === held) planeMemo.delete(key);
       });
     }
     const events = await memo.rows;
@@ -925,7 +947,9 @@ function writeStored(
   snapshot = true,
 ): Promise<boolean> {
   if (opened.length === 0 || !communityIdHex) return Promise.resolve(true);
-  touchTenant(communityIdHex);
+  // Chat leaves the plane memos standing, but a delete can reach any of its author's kinds (NIP-09).
+  const touches = plane !== undefined || opened.some((o) => o.kind === KIND_DELETE);
+  if (touches) touchTenant(communityIdHex);
   const db = getArmadaDB();
   const s = db.tenant(communityTenant(communityIdHex));
   const writes: Promise<unknown>[] = [];
@@ -954,7 +978,9 @@ function writeStored(
   return Promise.all(writes)
     .then(() => true)
     .catch(() => false)
-    .finally(() => touchTenant(communityIdHex));
+    .finally(() => {
+      if (touches) touchTenant(communityIdHex);
+    });
 }
 
 /**
@@ -991,11 +1017,80 @@ export function writeOpened(
   );
 }
 
+/** The open timelines, by channel: handed each write's rows before its commit (see {@link writeRumors}). */
+const freshChatListeners = new Map<string, Set<(rows: OpenedChat[]) => void>>();
+
 /**
- * Persist opened chat rumors, then (after commit) ring `c2:<channel>` on the wire
- * bus so every live timeline re-reads, even if the triggering query was aborted.
- * Resolves to whether it committed — parked-wrap drains only delete a wrap once
- * stored. Never rejects.
+ * Hear the rows each write is about to store in `channelIdHex`, ahead of its commit:
+ * under a busy boot a commit can trail the decrypt by seconds, and what was received
+ * has already passed every refusal the write applies. Returns an unsubscribe.
+ */
+export function onFreshChat(channelIdHex: string, listener: (rows: OpenedChat[]) => void): () => void {
+  let set = freshChatListeners.get(channelIdHex);
+  if (!set) freshChatListeners.set(channelIdHex, (set = new Set()));
+  set.add(listener);
+  return () => {
+    set.delete(listener);
+    if (set.size === 0 && freshChatListeners.get(channelIdHex) === set) freshChatListeners.delete(channelIdHex);
+  };
+}
+
+/**
+ * Rows handed to an open timeline whose write hasn't settled, by channel: a store read
+ * in that window would otherwise drop them from a view that replaces what it held.
+ */
+const pendingChat = new Map<string, Map<string, OpenedChat>>();
+
+/** The rows announced in `channelIdHex` that the store may not hold yet. */
+export function pendingChatRows(channelIdHex: string): OpenedChat[] {
+  const rows = pendingChat.get(channelIdHex);
+  return rows ? [...rows.values()] : [];
+}
+
+function settlePendingChat(rows: OpenedChat[]): void {
+  for (const o of rows) {
+    const held = o.channelIdHex ? pendingChat.get(o.channelIdHex) : undefined;
+    if (held?.get(o.rumorId) !== o) continue;
+    held.delete(o.rumorId);
+    if (held.size === 0) pendingChat.delete(o.channelIdHex!);
+  }
+}
+
+/** Whether a timeline is open on `channelIdHex`, so what arrives for it is wanted first. */
+export function hasFreshChatListener(channelIdHex: string): boolean {
+  return freshChatListeners.has(channelIdHex);
+}
+
+function announceFreshChat(chat: OpenedChat[]): OpenedChat[] {
+  if (freshChatListeners.size === 0) return [];
+  const byChannel = new Map<string, OpenedChat[]>();
+  for (const o of chat) {
+    // Removed from this device: the store refuses it, so the early path must too.
+    if (!o.channelIdHex || !freshChatListeners.has(o.channelIdHex) || isRemovedMessageId(o.rumorId)) continue;
+    const rows = byChannel.get(o.channelIdHex);
+    if (rows) rows.push(o);
+    else byChannel.set(o.channelIdHex, [o]);
+  }
+  for (const [channelIdHex, rows] of byChannel) {
+    let held = pendingChat.get(channelIdHex);
+    if (!held) pendingChat.set(channelIdHex, (held = new Map()));
+    for (const o of rows) held.set(o.rumorId, o);
+    for (const listener of freshChatListeners.get(channelIdHex) ?? []) {
+      try {
+        listener(rows);
+      } catch {
+        // A listener's failure never costs the write.
+      }
+    }
+  }
+  return [...byChannel.values()].flat();
+}
+
+/**
+ * Persist opened chat rumors, handing them to any open timeline first, then (after
+ * commit) ring `c2:<channel>` on the wire bus so every live timeline re-reads, even
+ * if the triggering query was aborted. Resolves to whether it committed — parked-wrap
+ * drains only delete a wrap once stored. Never rejects.
  */
 export function writeRumors(
   communityIdHex: string,
@@ -1024,7 +1119,10 @@ export function writeRumors(
   if (chat.length === 0) return Promise.resolve(true);
   const channels = new Set(chat.map((o) => o.channelIdHex).filter(Boolean));
   notePresence(communityIdHex, chat);
+  const announced = announceFreshChat(chat);
   return writeStored(communityIdHex, chat).then((stored) => {
+    // Before the ring: the read it prompts finds them stored (or, failed, not at all).
+    settlePendingChat(announced);
     if (ring && stored && channels.size > 0) emitWireScopes([...channels].map((id) => `c2:${id}`));
     return stored;
   });

@@ -45,17 +45,46 @@ export function roundWatch(now: number, startedAt: number, lastMsgAt: number, sa
 
 /** Quiet the spec must keep before a running loop takes changed filters. */
 export const SPEC_SETTLE_MS = 1_500;
+/**
+ * The same for a change that only widens the filters: the spec filling in at boot, whose
+ * every millisecond of settling is a millisecond those streams go unsubscribed.
+ */
+export const SPEC_WIDEN_SETTLE_MS = 150;
 /** Longest a running loop waits on a spec that keeps changing. */
 export const SPEC_SETTLE_MAX_MS = 5_000;
 
 /**
  * When a running loop with changed filters restarts: `true` now, else the time
- * to look again. Each change pushes the restart SPEC_SETTLE_MS out, never past
+ * to look again. Each change pushes the restart SPEC_SETTLE_MS out
+ * (SPEC_WIDEN_SETTLE_MS when every change only widens), never past
  * SPEC_SETTLE_MAX_MS after the first. A re-run at or after the due time (the
  * timer firing) restarts.
  */
-export function settleDue(firstAt: number, dueAt: number | undefined, now: number): true | number {
+export function settleDue(firstAt: number, dueAt: number | undefined, now: number, widening = false): true | number {
   const cap = firstAt + SPEC_SETTLE_MAX_MS;
   if (now >= cap || (dueAt !== undefined && now >= dueAt)) return true;
-  return Math.min(cap, now + SPEC_SETTLE_MS);
+  return Math.min(cap, now + (widening ? SPEC_WIDEN_SETTLE_MS : SPEC_SETTLE_MS));
+}
+
+/** Whether `next` asks for everything `prev` did: each old filter is covered by a new one. */
+export function filtersWiden(next: readonly NostrFilter[], prev: readonly NostrFilter[]): boolean {
+  return prev.every((old) => next.some((f) => filterCovers(f, old)));
+}
+
+/** Same fields, each array a superset of the old one's and every other value equal. */
+function filterCovers(f: NostrFilter, old: NostrFilter): boolean {
+  const a = f as Record<string, unknown>;
+  const b = old as Record<string, unknown>;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    const x = a[k];
+    const y = b[k];
+    if (Array.isArray(x) && Array.isArray(y)) {
+      const have = new Set(x.map((v) => JSON.stringify(v)));
+      if (!y.every((v) => have.has(JSON.stringify(v)))) return false;
+    } else if (JSON.stringify(x) !== JSON.stringify(y)) {
+      return false;
+    }
+  }
+  return true;
 }

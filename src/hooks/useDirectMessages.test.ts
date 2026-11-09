@@ -520,6 +520,32 @@ describe("hasMoreCursor", () => {
 });
 
 describe("queryRelaysDmPage", () => {
+  it("hands over each relay's events as it answers, before a slow relay does", async () => {
+    const fast = dmEvent({ id: "fast", from: PEER1, to: SELF });
+    let answerSlow!: (events: NostrEvent[]) => void;
+    const nostr = {
+      relay: (url: string) => ({
+        query: url.includes("slow")
+          ? () => new Promise<NostrEvent[]>((resolve) => (answerSlow = resolve))
+          : vi.fn().mockResolvedValue([fast]),
+      }),
+    };
+    const heard: string[][] = [];
+    const page = queryRelaysDmPage(
+      nostr as never,
+      ["wss://fast.example", "wss://slow.example"],
+      SELF,
+      {},
+      [PEER1],
+      AbortSignal.timeout(1_000),
+      (events) => heard.push(events.map((e) => e.id)),
+    );
+    await vi.waitFor(() => expect(heard).toEqual([[fast.id]]));
+    answerSlow([]);
+    expect((await page).events.map((e) => e.id)).toEqual([fast.id]);
+    expect(heard).toEqual([[fast.id], []]);
+  });
+
   it("rejects an all-relays failure instead of blessing a false-empty first sync", async () => {
     const nostr = {
       relay: () => ({ query: vi.fn().mockRejectedValue(new Error("offline")) }),

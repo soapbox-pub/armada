@@ -850,6 +850,16 @@ Things to know before touching it:
   conversation" is not a deletion anyone should be able to ask for), never
   matched row-wise, and refused outright rather than approximated — two of them,
   or a namespace that isn't one, fail closed.
+- **Limited scans on IndexedDB are chunked** (`db/chunkedScans.ts`).
+  `@nostrify/indexeddb` walks one `cursor.continue()` round trip per row for a
+  `limit`ed scan, and under a busy boot each lands behind everything else on the
+  main thread: a 400-row timeline window took 2 s. Limits of 50+ over at most four
+  ranges are routed through the library's own chunked `searchScan` instead (one
+  `getAll` per 256 keys); the answer is the same but for which same-second rows a
+  cutting limit keeps, which was never contract. It reaches into private
+  internals, so `chunkedScans.test.ts` pins them: on a library bump that fails,
+  re-check the routing rather than dropping it. It is upstreamed as
+  soapbox-pub/nostrify!146; once a released version carries it, delete the module.
 - **A message removed from this device is refused by the ENGINE, not by its
   callers.** `ArmadaDB.forget(ids)` deletes the ids from every tenant and
   records them in `removed_rumors` (IndexedDB: NUL-prefixed keys in the KV

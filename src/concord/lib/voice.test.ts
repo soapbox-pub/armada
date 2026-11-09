@@ -6,6 +6,7 @@ import { KIND_VOICE_PRESENCE } from "@/concord/lib/kinds";
 import type { OpenedEvent } from "@/concord/lib/stream";
 import { MAX_COMMUNITY_AV_BROKERS } from "@/concord/lib/types";
 import {
+  directivesToReassert,
   brokerRank,
   canonicalOrigin,
   communityAvBrokers,
@@ -35,6 +36,7 @@ import {
   VOICE_BEHIND_MS,
   VOICE_STALE_MS,
   type VoicePresenceEntry,
+  type VoiceDirectiveVerb,
 } from "@/concord/lib/voice";
 
 const A = new Uint8Array(32).fill(1);
@@ -634,5 +636,22 @@ describe("moderator directives (CORD-07 §7, Vector `apply_directive`)", () => {
     expect(directiveInWindow(stay, now - 1000 - 10_000, now)).toBe(true);
     expect(directiveInWindow(stay, now + 60_001, now)).toBe(false);
     expect(directiveInWindow(undefined, now, now)).toBe(false);
+  });
+});
+
+describe("directivesToReassert (CORD-07 §7)", () => {
+  const target = "ab".repeat(32);
+
+  it("re-sends what this member may still sign, and drops what it no longer may", () => {
+    const standing = new Set<VoiceDirectiveVerb>(["mute", "deafen"]);
+    expect(directivesToReassert(standing, target, (_, verb) => verb === "mute")).toEqual(["mute"]);
+    expect([...standing]).toEqual(["mute"]);
+  });
+
+  it("re-sends nothing once this member is demoted, and holds nothing for later", () => {
+    const standing = new Set<VoiceDirectiveVerb>(["mute", "deafen"]);
+    expect(directivesToReassert(standing, target, () => false)).toEqual([]);
+    expect(standing.size).toBe(0);
+    expect(directivesToReassert(undefined, target, () => true)).toEqual([]);
   });
 });

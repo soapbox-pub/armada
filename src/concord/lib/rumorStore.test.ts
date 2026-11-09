@@ -12,11 +12,15 @@ import type { NostrRumor } from "@/lib/nostrRumor";
 import type { Channel } from "@/concord/lib/types";
 import { onWireScopes } from "@/wire/bus";
 import { getArmadaDB } from "@/lib/db/armadaDB";
+import { buildJoinRumor, sealGuestbook } from "@/concord/lib/guestbook";
+import { openPlaneWraps } from "@/concord/lib/planeSync";
 import {
   ackPendingWraps,
   heldPostAfter,
   heldWriterPostSince,
+  onFreshChat,
   openedToStored,
+  pendingChatRows,
   parkPendingWraps,
   peekPendingWraps,
   queryChannelFirstSeen,
@@ -40,6 +44,13 @@ import {
   writeOpened,
   writeRumors,
 } from "@/concord/lib/rumorStore";
+
+// The removed-message list reads localStorage, which this environment lacks.
+const removedIds = vi.hoisted(() => new Set<string>());
+vi.mock("@/lib/removedMessages", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/removedMessages")>()),
+  isRemovedMessageId: (id: string) => removedIds.has(id),
+}));
 
 // A clean IndexedDB for the suite (the store singleton opens against it lazily).
 (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
@@ -369,6 +380,58 @@ describe("concord rumor store", () => {
       await writeOpened(cid, [await edition("02".repeat(32))], "control");
       await inFlight;
       expect(await queryPlane(cid, "control")).toHaveLength(2);
+    } finally {
+      query.mockRestore();
+    }
+  });
+
+  it("hands an open timeline a write's rows before its commit, minus a message removed from this device", async () => {
+    const { channel, idHex } = makeChannel();
+    const alice = signer();
+    const kept = chatRumor(idHex, alice, KIND_MESSAGE, "kept", Date.now());
+    const gone = chatRumor(idHex, alice, KIND_MESSAGE, "removed", Date.now() + 1);
+    removedIds.add(gone.id);
+    const opened = await openChatBatch([await wrapChat(kept, channel, alice), await wrapChat(gone, channel, alice)], channel);
+    const heard: string[][] = [];
+    const off = onFreshChat(idHex, (rows) => heard.push(rows.map((r) => r.rumorId)));
+    try {
+      const write = writeRumors(CID, opened);
+      // Before the write settles: that is the point.
+      expect(heard).toEqual([[kept.id]]);
+      // Held for a store read in the meantime, until the write settles.
+      expect(pendingChatRows(idHex).map((r) => r.rumorId)).toEqual([kept.id]);
+      expect(await write).toBe(true);
+      expect(pendingChatRows(idHex)).toEqual([]);
+    } finally {
+      off();
+      removedIds.delete(gone.id);
+    }
+    // Unsubscribed: a later write reaches nobody.
+    writeRumors(CID, await openChatBatch([await wrapChat(chatRumor(idHex, alice, KIND_MESSAGE, "later", Date.now() + 2), channel, alice)], channel));
+    expect(heard).toHaveLength(1);
+  });
+
+  it("keeps a Guestbook plane read across chat writes, and drops it for a delete, which can reach any kind", async () => {
+    const cid = "ce".repeat(32);
+    const alice = signer();
+    const group = channelGroupKey(new Uint8Array(32).fill(8), new Uint8Array(32).fill(4), 0);
+    const join = openPlaneWraps([await sealGuestbook(buildJoinRumor(alice.pubkey, Date.now()), group, alice)], [group]);
+    await writeOpened(cid, join, "guestbook");
+    const { channel, idHex } = makeChannel();
+
+    const store = getArmadaDB().tenant(`c2:${cid}`);
+    const query = vi.spyOn(store.constructor.prototype, "query");
+    try {
+      await queryPlane(cid, "guestbook");
+      const msg = chatRumor(idHex, alice, KIND_MESSAGE, "hi", Date.now());
+      await writeRumors(cid, await openChatBatch([await wrapChat(msg, channel, alice)], channel));
+      expect(await queryPlane(cid, "guestbook")).toHaveLength(1);
+      expect(query).toHaveBeenCalledTimes(1);
+
+      const del = chatRumor(idHex, alice, KIND_DELETE, "", Date.now(), [["e", join[0].rumorId]]);
+      await writeRumors(cid, await openChatBatch([await wrapChat(del, channel, alice)], channel));
+      await queryPlane(cid, "guestbook");
+      expect(query).toHaveBeenCalledTimes(2);
     } finally {
       query.mockRestore();
     }

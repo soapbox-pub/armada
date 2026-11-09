@@ -1,7 +1,7 @@
 /** Keeping the clock by the relays (CORD-03 §3, Vector `clock.rs`). */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { agreedOffset, clockNowMs, clockOffsetMs, parseHttpDate, resetClockOffset, syncClockWithRelays } from "@/lib/relayClock";
+import { accountClockRelays, agreedOffset, clockNowMs, clockOffsetMs, parseHttpDate, resetClockOffset, syncClockWithRelays } from "@/lib/relayClock";
 
 afterEach(() => {
   resetClockOffset();
@@ -50,6 +50,30 @@ describe("relayClock", () => {
     await syncClockWithRelays(["wss://a.test"], async () => ({ date: httpDate(Date.now() + 60_000) }));
     expect(clockOffsetMs()).toBe(0);
     await syncClockWithRelays(["wss://a.test", "wss://b.test"], async () => ({ date: null }));
+    expect(clockOffsetMs()).toBe(0);
+  });
+});
+
+describe("accountClockRelays", () => {
+  const me = "a".repeat(64);
+
+  it("takes the account's own NIP-65 and DM relays, once each", () => {
+    const meta = { pubkey: me, relays: [{ url: "wss://b.test" }, { url: "wss://a.test" }] };
+    expect(accountClockRelays(meta, ["wss://dm.test", "wss://a.test"], me)).toEqual(["wss://a.test", "wss://b.test", "wss://dm.test"]);
+  });
+
+  it("ignores another account's relay list, and gives none when the account has none", () => {
+    expect(accountClockRelays({ pubkey: "b".repeat(64), relays: [{ url: "wss://theirs.test" }] }, [], me)).toEqual([]);
+    expect(accountClockRelays({ relays: [] }, [], me)).toEqual([]);
+  });
+});
+
+describe("syncClockWithRelays with no relays", () => {
+  it("falls back to the device's clock", async () => {
+    const ahead = new Date(Date.now() + 3_600_000).toUTCString();
+    await syncClockWithRelays(["wss://r1.test", "wss://r2.test", "wss://r3.test"], async () => ({ date: ahead }));
+    expect(clockOffsetMs()).not.toBe(0);
+    await syncClockWithRelays([]);
     expect(clockOffsetMs()).toBe(0);
   });
 });

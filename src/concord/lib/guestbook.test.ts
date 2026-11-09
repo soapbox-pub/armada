@@ -17,6 +17,8 @@ import {
   banDeparturesOwed,
   nextGuestbookMs,
   nicknameToCarry,
+  displayNickname,
+  foldNicknames,
 } from "@/concord/lib/guestbook";
 import { KIND_NICKNAME, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import type { OpenedEvent } from "@/concord/lib/stream";
@@ -386,6 +388,38 @@ describe("carrying this member's own Nickname into a new epoch (CORD-04 §10, Ve
 
   it("re-issues nothing for a member who may not name themselves", () => {
     expect(nicknameToCarry([nick(me, "Captain", 5_000, oldPk)], { ...opts, mayName: () => false })).toBeUndefined();
+  });
+});
+
+describe("a Nickname as shown", () => {
+  const me = "ab".repeat(32);
+  const nick = (content: string, ms = 5_000): OpenedEvent => ({
+    rumorId: `${ms}`.padStart(64, "0"),
+    author: me,
+    kind: KIND_NICKNAME,
+    content,
+    tags: [["p", me]],
+    ms,
+    createdAt: Math.floor(ms / 1000),
+    sealKind: KIND_SEAL_ENCRYPTED,
+  });
+  const fold = (content: string) => foldNicknames([nick(content)], { nowMs: 10_000_000, mayName: () => true }).get(me);
+
+  it("drops direction controls and invisible spacers that let it pass for another name", () => {
+    expect(fold("\u202Erenwo")).toBe("renwo");
+    expect(fold("Ali\u200Bce")).toBe("Alice");
+    expect(fold("\u2066Mod\u2069 \uFEFF")).toBe("Mod");
+  });
+
+  it("keeps the joiners emoji and scripts need, and shows none when nothing is left", () => {
+    expect(fold("\u{1F468}\u200D\u{1F469}")).toBe("\u{1F468}\u200D\u{1F469}");
+    expect(displayNickname("\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645")).toBe("\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645");
+    expect(fold("\u202E\u200B")).toBeUndefined();
+  });
+
+  it("carries the Nickname as signed, not as shown", () => {
+    const carried = nicknameToCarry([{ ...nick("\u202Erenwo"), streamPk: "01".repeat(32) }], { me, livePk: "02".repeat(32), nowMs: 10_000_000, mayName: () => true });
+    expect(carried?.nick).toBe("\u202Erenwo");
   });
 });
 

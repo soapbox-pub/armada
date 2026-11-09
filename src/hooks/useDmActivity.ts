@@ -97,7 +97,7 @@ export function useDmActivity(): {
   const { user } = useCurrentUser();
   const { getLastRead } = useReadState();
   const eventStore = useEventStore();
-  const { isKnown, isLoading: trustLoading } = useKnownDmPeers();
+  const { isKnown, displayLoading: trustLoading } = useKnownDmPeers();
   const legacy = useDMConversations();
   const modern = useDm17Conversations();
 

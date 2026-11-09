@@ -172,7 +172,7 @@ export function QuickSwitcher() {
   // Globally mounted, so NIP-17 stays non-interactive: Ctrl+K must never prompt a signer.
   const { conversations: legacyDms, isLoading: legacyDmsLoading } = useDMConversations();
   const { conversations: dm17Dms, isLoading: dm17DmsLoading } = useDm17Conversations();
-  const { isKnown, isLoading: dmTrustLoading } = useKnownDmPeers();
+  const { isKnown, displayLoading: dmTrustLoading } = useKnownDmPeers();
   const { reopen: reopenDm } = useClosedDms();
   const dmEntriesLoading =
     Boolean(user) && (legacyDmsLoading || dm17DmsLoading || dmTrustLoading);

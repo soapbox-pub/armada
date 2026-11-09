@@ -50,6 +50,7 @@ import { clearMediaCacheMemory } from "@/lib/mediaCache";
 import { closeAllNip46Transports } from "@/lib/nip46Transport";
 import { PUSH_STATE_DB_NAME } from "@/lib/pushState";
 import { clearDm17ThreadSnapshotMemory } from "@/lib/nip17/threadSnapshot";
+import { clearPendingDm17 } from "@/lib/nip17/dm17Store";
 import { clearSettingsRootMemory } from "@/lib/settingsRootStore";
 import { clearProfileSyncMemory } from "@/sync/profileSync";
 import { haltSyncManager } from "@/sync/syncManager";
@@ -170,6 +171,7 @@ function clearSessionMemos(): void {
   clearTimelineSnapshotMemory();
   clearDm17ThreadSnapshotMemory();
   clearDm17SessionState();
+  clearPendingDm17();
   clearMuteListMemos();
   clearGroupListMemo();
   clearAttachmentCache();

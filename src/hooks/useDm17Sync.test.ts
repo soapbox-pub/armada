@@ -12,9 +12,11 @@ import {
   serviceCovered,
   syncDm17Inbox,
   walkDm17History,
+  whenDm17InboxFirstPage,
 } from "@/hooks/useDm17";
-import { readDm17Cursor, updateDm17Cursor } from "@/lib/nip17/dm17Store";
-import { MAX_WRAP_BACKDATE_SECS } from "@/lib/nip17/protocol";
+import { onFreshDm17, readDm17Cursor, updateDm17Cursor } from "@/lib/nip17/dm17Store";
+import { buildDmRumor, dmChatTags, KIND_DM_CHAT, MAX_WRAP_BACKDATE_SECS, sealDmRumor, wrapDmSeal } from "@/lib/nip17/protocol";
+import { NSecSigner } from "@nostrify/nostrify";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
@@ -177,6 +179,7 @@ describe("relayScanWatermarks", () => {
 // ── syncDm17Inbox against a controllable pool ────────────────────────────────
 
 interface PendingQuery {
+  url: string;
   filter: NostrFilter;
   resolve: (events: NostrEvent[]) => void;
   reject: (error: unknown) => void;
@@ -186,10 +189,10 @@ interface PendingQuery {
 function deferredPool() {
   const queries: PendingQuery[] = [];
   const pool = {
-    relay: () => ({
+    relay: (url: string) => ({
       query: (filters: NostrFilter[]) =>
         new Promise<NostrEvent[]>((resolve, reject) => {
-          queries.push({ filter: filters[0], resolve, reject });
+          queries.push({ url, filter: filters[0], resolve, reject });
         }),
     }),
   };
@@ -307,6 +310,39 @@ describe("syncDm17Inbox", () => {
     await expect(c).resolves.toBe(true);
     await expect(d).resolves.toBe(true);
     expect(queries.length).toBe(3);
+  });
+
+  it("stores what a fast relay holds without waiting on a slow one, opening a wrap both hold once", async () => {
+    const sk = generateSecretKey();
+    const self = getPublicKey(sk);
+    const sender = new NSecSigner(generateSecretKey());
+    const senderPk = await sender.getPublicKey();
+    const rumor = buildDmRumor({ kind: KIND_DM_CHAT, content: "from the fast relay", tags: dmChatTags([self]), pubkey: senderPk, createdAt: Math.floor(Date.now() / 1000) });
+    const wrap = await wrapDmSeal(await sealDmRumor(rumor, self, sender), self);
+    const { pool, queries } = deferredPool();
+    const ctx = { ...syncCtx(pool, self, ["wss://fast.example", "wss://slow.example"]), signer: new NSecSigner(sk) as never };
+    const heard: string[] = [];
+    const off = onFreshDm17(self, (fresh) => heard.push(...fresh.map((o) => o.rumorId)));
+    try {
+      const stored = vi.fn();
+      const pass = syncDm17Inbox(ctx, { force: true, onPageStored: stored });
+      // Any caller, not just the one that started the pass, can wait for its first page.
+      let firstPageIn = false;
+      void whenDm17InboxFirstPage(self).then(() => (firstPageIn = true));
+      await vi.waitFor(() => expect(queries.length).toBe(2));
+      queries.find((q) => q.url.includes("fast"))!.resolve([wrap]);
+      // Stored while the slow relay hasn't answered, and reported as such.
+      await vi.waitFor(() => expect(heard).toEqual([rumor.id]));
+      await vi.waitFor(() => expect(stored).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(firstPageIn).toBe(true));
+      queries.find((q) => q.url.includes("slow"))!.resolve([wrap]);
+      await expect(pass).resolves.toBe(true);
+      expect(heard).toEqual([rumor.id]);
+      // The slow relay's copy was already held: nothing new, so no second report.
+      expect(stored).toHaveBeenCalledTimes(1);
+    } finally {
+      off();
+    }
   });
 
   it("does not ask a relay the background service has covered since its last full read", async () => {

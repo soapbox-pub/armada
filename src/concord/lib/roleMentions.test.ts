@@ -24,6 +24,10 @@ describe("rolePings", () => {
     expect(rolePings("hey @Quiet", [["role", QUIET]], held, true)).toBe(true);
   });
 
+  it("pings nobody for a Role with an empty name, which would match any `@`", () => {
+    expect(rolePings("hey @bob", [["role", MODS]], [{ id: MODS, name: "", anyone: true }], true)).toBe(false);
+  });
+
   it("matches the name byte for byte", () => {
     // A precomposed é in the text doesn't name a Role spelled with a combining accent.
     const decomposed = [{ id: MODS, name: "Cafe\u0301", anyone: true }];

@@ -678,8 +678,22 @@ export function foldNicknames(
   },
 ): Map<string, string> {
   const out = new Map<string, string>();
-  for (const [pk, v] of foldNicknameWinners(opened, opts)) out.set(pk, v.nick);
+  for (const [pk, v] of foldNicknameWinners(opened, opts)) {
+    const shown = displayNickname(v.nick);
+    if (shown) out.set(pk, shown);
+  }
   return out;
+}
+
+/** Direction controls and invisible spacers, which let a Nickname pass for another; ZWJ/ZWNJ stay for emoji and scripts. */
+const SPOOFING_FORMAT = /[\u061C\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
+
+/**
+ * A Nickname as shown: without {@link SPOOFING_FORMAT}, trimmed, or `""` when nothing is
+ * left. Display only; the fold and a carried Nickname keep what was signed (CORD-04 §10).
+ */
+export function displayNickname(nick: string): string {
+  return nick.replace(SPOOFING_FORMAT, "").trim();
 }
 
 /** The rumor each target's Nickname stands on, as {@link foldNicknames} decides it; a cleared one is absent. */

@@ -57,6 +57,7 @@ import {
 } from "@/lib/tabAttention";
 import { PROFILE_FETCH_TIMEOUT_MS } from "@/sw/profileFetch";
 import {
+  candidateStillRings,
   ingestPushedEvent,
   registerNotifySink,
   wrapOpenedThisSession,
@@ -277,6 +278,9 @@ export function foregroundPushRoomKey(
  * is (CORD-03 §3, released inside the tolerance as Vector's `early.rs` does), or
  * "beyond" the horizon, past which it isn't held.
  */
+/** At most this many candidates wait on their date at once; past it a flood of future-dated rumors rings nothing. */
+export const MAX_HELD_CANDIDATES = 256;
+
 export function futureHold(createdAt: number, nowMs: number): "now" | "beyond" | number {
   const aheadMs = createdAt * 1000 - nowMs;
   if (aheadMs <= FUTURE_HOLD_MS) return "now";
@@ -758,10 +762,11 @@ export function useForegroundNotifications(): void {
         if (hold !== "now") {
           suppress(initialRoomKey);
           const key = cand.eventId ?? cand.wrapId;
-          if (key && hold !== "beyond" && !heldTimers.has(key)) {
+          if (key && hold !== "beyond" && !heldTimers.has(key) && heldTimers.size < MAX_HELD_CANDIDATES) {
             heldTimers.set(key, setTimeout(() => {
               heldTimers.delete(key);
-              if (mounted) onCandidates([cand]);
+              // A ban or Timeout since it arrived silences it.
+              if (mounted && candidateStillRings(cand)) onCandidates([cand]);
             }, hold));
           }
           continue;

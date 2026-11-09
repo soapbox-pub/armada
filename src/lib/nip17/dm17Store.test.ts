@@ -1,12 +1,13 @@
 import { IDBFactory } from "fake-indexeddb";
 import { getPublicKey, generateSecretKey } from "nostr-tools/pure";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   conversationFilters,
   countUnreadDm17Messages,
   dm17Store,
   dm17ToStored,
+  onFreshDm17,
   queryDm17Conversations,
   queryDm17Messages,
   queryDm17Rumor,
@@ -40,6 +41,13 @@ import {
 } from "@/lib/nip17/protocol";
 import { dmConvKey, dmPeersOf } from "@/lib/nip17/conversation";
 import { dmThreadScope, onWireScopes, resetWireBus } from "@/wire/bus";
+
+// The removed-message list reads localStorage, which this environment lacks.
+const removedIds = vi.hoisted(() => new Set<string>());
+vi.mock("@/lib/removedMessages", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/removedMessages")>()),
+  isRemovedMessageId: (id: string) => removedIds.has(id),
+}));
 
 // A clean IndexedDB for the suite (the store singleton opens against it lazily).
 (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
@@ -880,5 +888,79 @@ describe("Mini App state", () => {
 
   it("names no session at all rather than reading every game", async () => {
     expect(await queryDm17Webxdc(viewer, [friend], "")).toEqual([]);
+  });
+});
+
+describe("the conversation list read", () => {
+  const viewer = getPublicKey(generateSecretKey());
+  const peer = getPublicKey(generateSecretKey());
+  const said = (content: string): OpenedDm => {
+    const o = opened({ author: peer, peer, content, tags: dmChatTags([viewer]) });
+    return o;
+  };
+  const collapseReads = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.filter(([filters]) => (filters as Array<{ search?: string }>).some((f) => f.search?.startsWith("distinct:"))).length;
+
+  it("is shared by concurrent callers, each getting rows of its own", async () => {
+    await writeDm17Rumors(viewer, [said("first")]);
+    const store = dm17Store(viewer);
+    const query = vi.spyOn(store.constructor.prototype, "query");
+    try {
+      const [a, b] = await Promise.all([queryDm17Conversations(viewer), queryDm17Conversations(viewer)]);
+      expect(collapseReads(query)).toBe(1);
+      expect(a).toEqual(b);
+      expect(a[0]).not.toBe(b[0]);
+    } finally {
+      query.mockRestore();
+    }
+  });
+
+  it("is started afresh by a caller arriving after a write, which it then sees", async () => {
+    const before = queryDm17Conversations(viewer);
+    const newest = said("written meanwhile");
+    await writeDm17Rumors(viewer, [newest]);
+    const after = await queryDm17Conversations(viewer);
+    await before;
+    expect(after.find((c) => c.peers.includes(peer))?.latest.rumorId).toBe(newest.rumorId);
+  });
+
+  it("lets a caller's abort reject only that caller", async () => {
+    const controller = new AbortController();
+    const aborted = queryDm17Conversations(viewer, { signal: controller.signal });
+    const other = queryDm17Conversations(viewer);
+    controller.abort();
+    await expect(aborted).rejects.toBeDefined();
+    expect((await other).length).toBeGreaterThan(0);
+  });
+
+  it("holds a message handed over before its commit, even against a read begun before it", async () => {
+    const heard: string[] = [];
+    const off = onFreshDm17(viewer, (fresh) => heard.push(...fresh.map((o) => o.rumorId)));
+    try {
+      const before = queryDm17Conversations(viewer);
+      const newest = said("before the commit");
+      const write = writeDm17Rumors(viewer, [newest]);
+      // Heard at once, ahead of the commit.
+      expect(heard).toEqual([newest.rumorId]);
+      expect((await before).find((c) => c.peers.includes(peer))?.latest.rumorId).toBe(newest.rumorId);
+      await write;
+      expect((await queryDm17Conversations(viewer)).find((c) => c.peers.includes(peer))?.latest.rumorId).toBe(newest.rumorId);
+    } finally {
+      off();
+    }
+  });
+
+  it("never hands over a message removed from this device", async () => {
+    const heard: string[] = [];
+    const off = onFreshDm17(viewer, (fresh) => heard.push(...fresh.map((o) => o.rumorId)));
+    const gone = said("removed");
+    removedIds.add(gone.rumorId);
+    try {
+      await writeDm17Rumors(viewer, [gone]);
+      expect(heard).toEqual([]);
+    } finally {
+      off();
+      removedIds.delete(gone.rumorId);
+    }
   });
 });

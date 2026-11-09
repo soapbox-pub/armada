@@ -525,6 +525,21 @@ export function directivePermission(verb: VoiceDirectiveVerb): bigint {
   return Permissions.MOVE_MEMBERS;
 }
 
+/**
+ * The standing directives to re-send to `target` on rejoining: those this member may still
+ * sign. One it no longer may is dropped from `standing`, since receivers refuse it anyway
+ * and a remote signer would be asked to sign it at every rejoin.
+ */
+export function directivesToReassert(
+  standing: Set<VoiceDirectiveVerb> | undefined,
+  target: string,
+  may: (target: string, verb: VoiceDirectiveVerb) => boolean,
+): VoiceDirectiveVerb[] {
+  if (!standing) return [];
+  for (const verb of [...standing]) if (!may(target, verb)) standing.delete(verb);
+  return [...standing];
+}
+
 /** A kind-23314 rumor's directive; undefined when `p`, `do` or `to` repeats, or a move has no `to` (Vector). */
 export function parseDirective(opened: Pick<OpenedEvent, "author" | "tags" | "ms">): VoiceDirective | undefined {
   const target = uniqueTag(opened.tags, "p");

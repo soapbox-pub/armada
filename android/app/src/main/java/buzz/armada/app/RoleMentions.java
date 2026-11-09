@@ -66,7 +66,8 @@ final class RoleMentions {
         boolean authorAny = anyAuthors.contains(author);
         for (String id : ids(tags)) {
             for (Held r : held) {
-                if (r.id.equals(id) && content.contains("@" + r.name) && (r.anyone || authorAny)) return true;
+                // An empty name would match any `@`.
+                if (r.id.equals(id) && !r.name.isEmpty() && content.contains("@" + r.name) && (r.anyone || authorAny)) return true;
             }
         }
         return false;

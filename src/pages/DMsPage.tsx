@@ -86,7 +86,7 @@ import {
   useHasUnreadDMs,
 } from "@/hooks/useDirectMessages";
 import { useBotManifests } from "@/hooks/useBotManifests";
-import { useDm17Backfill, useDm17Conversations, useDm17HistoryIncomplete, useDm17Support, type Dm17Conversation } from "@/hooks/useDm17";
+import { useDm17Backfill, useDm17Conversations, useDm17HistoryIncomplete, useDm17Support, whenDm17InboxFirstPage, type Dm17Conversation } from "@/hooks/useDm17";
 import { useDmConversationName } from "@/hooks/useDmConversationName";
 import {
   recordDmConversationIndex,
@@ -122,6 +122,8 @@ import { getAvatarShape } from "@/lib/avatarShape";
 import { writeClipboardText } from "@/lib/clipboard";
 import { forwardableTags } from "@/lib/forwardMessage";
 import { chatRoute, parseChatRoute, type ChatRoute } from "@/lib/routes";
+import { markBootPainted } from "@/lib/bootGate";
+import { usePerfMilestone } from "@/hooks/usePerfMilestone";
 import { stashShare } from "@/lib/shareTarget";
 import { dittoProfileUrl } from "@/lib/dittoUrl";
 import { tryNpubEncode } from "@/lib/safeNip19";
@@ -2594,7 +2596,7 @@ export function DMsPage() {
   });
   const indexedConversations = useDmConversationIndex();
   const indexReady = useDmConversationIndexReady();
-  const { isKnown, isLoading: followsLoading } = useKnownDmPeers();
+  const { isKnown, displayLoading: followsLoading } = useKnownDmPeers();
   const { mutedPubkeys, ready: muteReady } = useMutedPubkeys();
   const { accept } = useAcceptedDms();
   const { started: startedPeers } = useStartedDms();
@@ -2849,6 +2851,14 @@ export function DMsPage() {
 
   // Skeletons only on a genuine cold start (no snapshot).
   const showSkeletons = isLoading && visibleRestoredRows.length === 0;
+  // The list, with the first page of the inbox pass running under it, is this route's first
+  // paint, so it opens the boot gate: what the gate releases slowed that page's decrypt and
+  // write. An open thread's timeline opens the gate itself.
+  const listPainted = !activePeer && !showSkeletons;
+  usePerfMilestone("dm.list painted", listPainted);
+  useEffect(() => {
+    if (listPainted) void whenDm17InboxFirstPage(self).then(markBootPainted);
+  }, [listPainted, self]);
   const displayRows = useMemo(() => {
     if (!isLoading || visibleRestoredRows.length === 0) return withNoteToSelf(visibleRows);
     if (!activePeer || visibleRestoredRows.some((r) => r.conversation === activePeer)) {

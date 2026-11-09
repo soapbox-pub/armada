@@ -79,6 +79,7 @@ export function rolePings(
   if (held.length === 0) return false;
   return roleMentionIds(tags).some((id) => {
     const role = held.find((r) => r.id === id);
-    return role !== undefined && content.includes(`@${role.name}`) && (role.anyone || authorMentionsAny);
+    // An empty name would match any `@`.
+    return role !== undefined && role.name !== "" && content.includes(`@${role.name}`) && (role.anyone || authorMentionsAny);
   });
 }

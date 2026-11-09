@@ -40,6 +40,8 @@ import {
   scheduleExpiredSweep,
   updateStreamCursor,
   writeRumors,
+  onFreshChat,
+  pendingChatRows,
   peekPendingWraps,
   ackPendingWraps,
   removeRumors,
@@ -336,6 +338,8 @@ export function useChannelTimeline(
 
   // Keeps a live re-read from turning `hasMore` back on.
   const endReachedRef = useRef(false);
+  // Rows handed over ahead of their commit (`onFreshChat`), until a store read holds them.
+  const freshRowsRef = useRef(new Map<string, OpenedChat>());
   const [hasMore, setHasMore] = useState(true);
   // Older pages in flight, the present's and a run's alike: the flag clears with the last.
   const olderLoadsRef = useRef(new Set<symbol>());
@@ -463,7 +467,7 @@ export function useChannelTimeline(
         ackPendingWraps(parked.filter((w) => openedWrapIds.has(w.id)).map((w) => w.id));
       };
 
-      const composeFromStore = async (extra?: OpenedChat[]): Promise<OpenedChat[]> => {
+      const composeFromStore = async (): Promise<OpenedChat[]> => {
         // Only the NEWEST page: older pages are already cached, and re-reading them
         // made every live message cost the whole window.
         const [rumors, saved] = await Promise.all([
@@ -473,6 +477,12 @@ export function useChannelTimeline(
           }),
           readStreamCursor(cursorKeyId),
         ]);
+        // Rows already shown whose write landed after this read began, or hasn't yet:
+        // collected now, since a busy boot's read can take seconds.
+        const stored = new Set(rumors.map((r) => r.rumorId));
+        const fresh = freshRowsRef.current;
+        for (const id of stored) fresh.delete(id);
+        const extra = [...fresh.values(), ...pendingChatRows(channelIdHex!)].filter((r) => !stored.has(r.rumorId));
         setHasMore(!endReachedRef.current && (rumors.length >= WINDOW_SIZE || !saved?.exhausted));
         // A snapshot seed is replaced, not merged into: a row only it holds was never stored.
         const prev = takeSnapshotSeed(viewerPubkey, channelIdHex!)
@@ -483,7 +493,7 @@ export function useChannelTimeline(
         noteCursor(cursorKeyId, lowerCursor(cursorHolds(held, prev) ? held : undefined, rumors));
         // Fold in freshly-decrypted events directly (don't race the write). The
         // cutoff filter re-applies to rows stored before a rotation was known.
-        return filterEpochCutoff(upsert(prev, extra ? upsert(rumors, extra) : rumors), channel!);
+        return filterEpochCutoff(upsert(prev, extra.length > 0 ? upsert(rumors, extra) : rumors), channel!);
       };
 
       const existing = queryClient.getQueryData<OpenedChat[]>(queryKey);
@@ -546,6 +556,23 @@ export function useChannelTimeline(
     );
     queryClient.setQueryData<OpenedChat[]>(queryKey, filterEpochCutoff(upsert(prev, rows), channel));
   }, [channel, channelIdHex, queryClient, queryKey]);
+
+  // What a write is about to store shows now; its commit's ring re-reads the store
+  // after. Only into a timeline already showing rows: the first read stays the store's.
+  const mergeRowsRef = useRef(mergeRows);
+  mergeRowsRef.current = mergeRows;
+  useEffect(() => {
+    if (!channelIdHex) return;
+    const fresh = freshRowsRef.current;
+    const off = onFreshChat(channelIdHex, (rows) => {
+      for (const r of rows) fresh.set(r.rumorId, r);
+      if ((queryClient.getQueryData<OpenedChat[]>(channelKey(channelIdHex))?.length ?? 0) > 0) mergeRowsRef.current(rows);
+    });
+    return () => {
+      off();
+      fresh.clear();
+    };
+  }, [channelIdHex, queryClient]);
 
   // One page below the cursor: the rows it shows, and whether any it read were held back.
   const loadOlderPage = useCallback(async (): Promise<{ shown: number; held: boolean }> => {

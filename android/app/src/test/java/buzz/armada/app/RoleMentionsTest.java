@@ -42,6 +42,12 @@ public class RoleMentionsTest {
         assertTrue(RoleMentions.pings("hey @Quiet", tags(QUIET), HELD, any, AUTHOR));
     }
 
+    @Test public void aRoleWithAnEmptyNamePingsNobody() {
+        // An empty name would match any `@`.
+        List<RoleMentions.Held> unnamed = List.of(new RoleMentions.Held(MODS, "", true));
+        assertFalse(RoleMentions.pings("hey @bob", tags(MODS), unnamed, new HashSet<>(Set.of(AUTHOR)), AUTHOR));
+    }
+
     @Test public void readsOnlyLowercaseIdsTheFirstSixteenDistinct() {
         assertTrue(RoleMentions.ids(tags(MODS.toUpperCase())).isEmpty());
         String[] many = new String[20];

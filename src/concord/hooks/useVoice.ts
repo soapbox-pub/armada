@@ -27,6 +27,7 @@ import {
   fetchAvTokenFromAny,
   foldVoicePresence,
   greetDelayMs,
+  directivesToReassert,
   heartbeatDelayMs,
   isNewcomer,
   notePresence,
@@ -292,6 +293,8 @@ export function useVoiceModeration(community: Community | undefined, channel: Ch
   );
   const publishRef = useRef(publish);
   publishRef.current = publish;
+  const mayRef = useRef(may);
+  mayRef.current = may;
 
   const send = useCallback(
     async (target: string, verb: VoiceDirectiveVerb, to?: string) => {
@@ -318,9 +321,12 @@ export function useVoiceModeration(community: Community | undefined, channel: Ch
     // Back in the call: re-send what this device stands behind.
     const stopRejoins = onNewcomer(currentPk, (author) => {
       if (reasserters.get(currentPk)?.[0] !== me) return;
-      for (const verb of standingDirectives.get(`${currentPk}|${author}`) ?? []) {
+      const key = `${currentPk}|${author}`;
+      const standing = standingDirectives.get(key);
+      for (const verb of directivesToReassert(standing, author, mayRef.current)) {
         void publishRef.current(author, verb).catch(() => undefined);
       }
+      if (standing?.size === 0) standingDirectives.delete(key);
     });
     // A newer lift from anyone ends what this device stood behind.
     const stopLifts = onVoiceDirective(currentPk, (d) => {

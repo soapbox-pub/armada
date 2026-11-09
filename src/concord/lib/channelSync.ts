@@ -20,6 +20,7 @@ import {
 } from "@/concord/lib/rumorStore";
 import type { Channel, Community } from "@/concord/lib/types";
 import { isRelayUnreachable } from "@/lib/relayHealth";
+import { perfMark } from "@/lib/perf";
 import { beginSyncTask } from "@/lib/syncActivity";
 import { t } from "@/i18n/intl";
 import { invalidateSyncTopic, registerSyncTopic } from "@/sync/syncManager";
@@ -410,6 +411,7 @@ export async function syncChannelRound(
   // Scoped `c2:<id>` so the chat view can tell its own catch-up from other sync.
   const task = budget.background ? undefined : beginSyncTask(`#${channel.name}`, { scope: `c2:${idHex}` });
   const pageRing = budget.background ? backgroundRing(idHex) : undefined;
+  if (!budget.background) perfMark("chan.round start", `#${channel.name}`);
   try {
     // Heal a POISONED cursor: `exhausted` with `oldest === 0` was sealed by an
     // all-empty run and never paged; clear it so history gets pulled.
@@ -489,7 +491,9 @@ export async function syncChannelRound(
       freezeRetired,
       beforeRelay: authGate,
       onPage: async (events) => {
+        if (!budget.background) perfMark("chan.newest page", `${events.length} wrap(s)`);
         const top = await writePage(events, pageRing);
+        if (!budget.background) perfMark("chan.newest committed", `${synced} opened`);
         if (top !== undefined && (top1 === undefined || top > top1)) top1 = top;
       },
     });

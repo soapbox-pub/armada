@@ -1,8 +1,6 @@
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { clockNowMs } from "@/lib/relayClock";
-import { queryPlane, withGuestbookStreams } from "@/concord/lib/rumorStore";
-import { communityNicknames, runningTimeouts } from "@/concord/lib/channelJudges";
-import { currentGuestbookGroup } from "@/concord/lib/guestbook";
+import { storedGuestbookExtras } from "@/concord/lib/guestbookExtras";
+import { useBootGateOpen } from "@/lib/bootGate";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
@@ -59,6 +57,7 @@ export function useConcordSubsState(): ConcordSubsState {
   const { data } = communityList;
   const queryClient = useQueryClient();
   const viewer = useCurrentUser().user?.pubkey;
+  const bootGateOpen = useBootGateOpen();
 
   // Keyed on membership identity + epoch, so unrelated list churn is free. A
   // blocked community gets no subscription, and no native notifications.
@@ -109,45 +108,34 @@ export function useConcordSubsState(): ConcordSubsState {
 
   const query = useQuery<{ subs: ConcordSub[]; foldsReady: boolean }>({
     queryKey: ["concord", "notif-subs", listSig, viewer ?? null],
-    enabled: membershipUsable && entries.length > 0,
+    // After first paint, as the wire: every community's fold and Guestbook at once would
+    // compete with the reads the page paints from, and only background notifiers wait on these.
+    enabled: bootGateOpen && membershipUsable && entries.length > 0,
     staleTime: 30_000,
     // Fold snapshots update out-of-band; re-read to pick up new channels.
     refetchInterval: 60_000,
     queryFn: async () => {
-      const subs: ConcordSub[] = [];
-      let foldsReady = true;
-      for (const entry of entries) {
+      // Every community at once: each is its own storage reads, and none waits on another's.
+      const built = await Promise.all(entries.map(async (entry) => {
         const community = rehydrateCommunity(entry);
-        if (!community) {
-          foldsReady = false;
-          continue;
-        }
+        if (!community) return { foldReady: false };
         const folded = await readControlFold(community.idHex);
         // A cache miss is not an empty fold: public channels exist only in the
         // persisted fold, so pruning before it appears would silently remove them.
-        if (folded === undefined) foldsReady = false;
+        const foldReady = folded !== undefined;
         // A paused community (CORD-04 §8) drops its chat plane from the background
         // service too, staff included. `readLivePause` reads the CURRENT pause (the fold
         // may be hours stale). The control plane stays subscribed so the lift lands;
         // the missed window is caught up via the same IOU WireSync uses.
-        if (await readLivePause(community, Math.floor(Date.now() / 1000))) continue;
-        // Silence and names are extras: a failure to read them costs those, never the subs.
-        let timeouts: ReturnType<typeof runningTimeouts> = [];
-        let nicknames: Record<string, string> = {};
-        try {
-          const guestbook = await withGuestbookStreams(community, await queryPlane(community.idHex, "guestbook"));
-          timeouts = runningTimeouts(guestbook, folded, community.id, clockNowMs());
-          nicknames = communityNicknames(guestbook, folded, community.id, currentGuestbookGroup(community).pk, clockNowMs());
-        } catch {
-          // keep none
-        }
-        const built = buildConcordSubs(community, folded, entry.added_at, viewer, timeouts, nicknames);
-        subs.push(...built.subs);
+        if (await readLivePause(community, Math.floor(Date.now() / 1000))) return { foldReady };
+        const { timeouts, nicknames } = await storedGuestbookExtras(community, folded);
+        const out = buildConcordSubs(community, folded, entry.added_at, viewer, timeouts, nicknames);
         // NIP-42, scoped per relay: the native service bridges AUTH challenges to the
         // WebView, which signs a kind-22242 per stream key (see useNativeNotifications).
-        registerStreamKeys(built.streamKeys, community.relays);
-      }
-      return { subs, foldsReady };
+        registerStreamKeys(out.streamKeys, community.relays);
+        return { foldReady, subs: out.subs };
+      }));
+      return { subs: built.flatMap((b) => b.subs ?? []), foldsReady: built.every((b) => b.foldReady) };
     },
   });
 

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { hashKey, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { queryRumorsByChannel } from "@/concord/lib/rumorStore";
+import { useBootGateOpen } from "@/lib/bootGate";
 import { STORE_READ } from "@/lib/storeQuery";
 import { useWireScopes } from "@/wire/useWireScopes";
 
@@ -27,6 +28,7 @@ export function useCommunityRumors(
   isLoading: boolean;
 } {
   const queryClient = useQueryClient();
+  const bootGateOpen = useBootGateOpen();
 
   const channelSig = channelIds.join(",");
   const idSet = useMemo(() => new Set(channelIds), [channelSig]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -41,7 +43,9 @@ export function useCommunityRumors(
     queryKey,
     queryFn: ({ signal }) =>
       queryRumorsByChannel(communityIdHex!, channelIds, { perChannel: PER_CHANNEL, signal }),
-    enabled: !!communityIdHex && channelIds.length > 0,
+    // After first paint: every joined community's read at once queued the open channel's
+    // own first read behind them, and these only feed badges and side views.
+    enabled: bootGateOpen && !!communityIdHex && channelIds.length > 0,
     // No refetch interval: the wire bus is the complete live path (every community
     // rumor write rings `c2:<channel>`, pinned in rumorStore.test.ts) and is
     // mirrored across tabs over a BroadcastChannel. Polling here meant N periodic

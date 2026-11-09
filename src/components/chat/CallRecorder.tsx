@@ -19,6 +19,7 @@ import {
   type CallRecorderStatus,
   type CallRecorderValue,
 } from "@/contexts/CallRecorderContext";
+import { callSpeaks, subscribeCallGate } from "@/concord/lib/callGate";
 import { useCallSignals } from "@/contexts/CallSignalsContext";
 import { useVoiceIdentity } from "@/contexts/VoiceIdentityContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -102,7 +103,7 @@ export function CallRecorderProvider({ children }: { children: React.ReactNode }
       micTrack: micTrackOf(p),
     }));
     // Without signals there is no way to honor a refusal, so nobody is recorded.
-    const sources = current ? recordableSources(participants, resolve, current.refusing, titleOf) : [];
+    const sources = current ? recordableSources(participants, resolve, current.refusing, titleOf, callSpeaks) : [];
     active.recording.setSources(sources);
     const now = active.recording.capturing();
     setCapturing((prev) => (prev.size === now.size && [...now].every((k) => prev.has(k)) ? prev : now));
@@ -240,10 +241,11 @@ export function CallRecorderProvider({ children }: { children: React.ReactNode }
     };
   }, [status, room, sync]);
 
-  // A refusal or a newly verified member takes effect at once.
+  // A refusal, a newly verified member or a server-mute takes effect at once.
   useEffect(() => {
     if (status === "recording") sync();
   }, [status, signals?.refusing, resolveIdentity, sync]);
+  useEffect(() => (status === "recording" ? subscribeCallGate(sync) : undefined), [status, sync]);
 
   // Leaving the call ends the take; its files are still saved.
   useEffect(

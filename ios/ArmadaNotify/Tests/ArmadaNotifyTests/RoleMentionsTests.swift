@@ -21,6 +21,12 @@ final class RoleMentionsTests: XCTestCase {
         XCTAssertTrue(RoleMentions.pings(content: "hey @Quiet", tags: [["role", quiet]], held: held, authorMentionsAny: true))
     }
 
+    func testARoleWithAnEmptyNamePingsNobody() {
+        // An empty name would match any `@`.
+        let unnamed = [RoleMentions.Held(id: mods, name: "", anyone: true)]
+        XCTAssertFalse(RoleMentions.pings(content: "hey @bob", tags: [["role", mods]], held: unnamed, authorMentionsAny: true))
+    }
+
     func testReadsOnlyLowercaseIdsTheFirstSixteenDistinct() {
         XCTAssertEqual(RoleMentions.ids([["role", mods.uppercased()]]), [])
         let many = (0..<20).map { ["role", String(format: "%064x", $0)] }

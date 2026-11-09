@@ -40,7 +40,8 @@ enum RoleMentions {
         // Byte for byte: Swift's `contains` on String compares by canonical equivalence.
         let bytes = Array(content.utf8)
         return ids(tags).contains { id in
-            guard let role = held.first(where: { $0.id == id }), role.anyone || authorMentionsAny else { return false }
+            // An empty name would match any `@`.
+            guard let role = held.first(where: { $0.id == id }), !role.name.isEmpty, role.anyone || authorMentionsAny else { return false }
             return containsBytes(bytes, Array("@\(role.name)".utf8))
         }
     }
@@ -49,7 +50,7 @@ enum RoleMentions {
         guard needle.count <= hay.count else { return false }
         if needle.isEmpty { return true }
         for i in 0...(hay.count - needle.count) where hay[i] == needle[0] {
-            if Array(hay[i..<(i + needle.count)]) == needle { return true }
+            if hay[i..<(i + needle.count)].elementsEqual(needle) { return true }
         }
         return false
     }

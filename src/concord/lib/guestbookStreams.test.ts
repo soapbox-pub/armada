@@ -1,11 +1,11 @@
 /**
  * Which Guestbook address each stored rumor arrived at. Vector stores the epoch in the
  * same row as the event (`community_guestbook_events.body`), so it is written with it,
- * atomically; here each (rumor, address) is a KV key of its own, so no write reads one.
+ * atomically; here each (rumor, address) is a KV key of its own, written once.
  */
 import { IDBFactory } from "fake-indexeddb";
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from "nostr-tools/pure";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
 
@@ -14,6 +14,7 @@ const { buildJoinRumor, currentGuestbookGroup, sealGuestbook } = await import("@
 const { guestbookGroupKey, random32 } = await import("@/concord/lib/derive");
 const { openPlaneWraps } = await import("@/concord/lib/planeSync");
 const { clearRumorStoreMemory, readGuestbookAddresses, withGuestbookStreams, writeOpened } = await import("@/concord/lib/rumorStore");
+const { getArmadaDB } = await import("@/lib/db/armadaDB");
 
 async function joinAt(group: ReturnType<typeof currentGuestbookGroup>, sk = generateSecretKey()) {
   const signer = { signEvent: async (t: EventTemplate) => finalizeEvent(t, sk) };
@@ -51,6 +52,22 @@ describe("the Guestbook address each rumor arrived at", () => {
     void streamPk;
     expect((await withGuestbookStreams(refounded, [stored]))[0].streamPk).toBe(live.pk);
     expect((await withGuestbookStreams(community, [stored]))[0].streamPk).toBe(old.pk);
+  });
+
+  it("writes nothing for a rumor re-offered at an address already recorded, this session or the next", async () => {
+    const { community } = mintCommunity("Fleet", getPublicKey(generateSecretKey()), ["wss://r.test"]);
+    const opened = await joinAt(currentGuestbookGroup(community));
+    await writeOpened(community.idHex, opened, "guestbook");
+    const kv = getArmadaDB().kv;
+    const set = vi.spyOn(kv, "set");
+    try {
+      await writeOpened(community.idHex, opened, "guestbook");
+      clearRumorStoreMemory();
+      await writeOpened(community.idHex, opened, "guestbook");
+      expect(set.mock.calls.filter(([key]) => String(key).startsWith("c2gbaddr:"))).toEqual([]);
+    } finally {
+      set.mockRestore();
+    }
   });
 
   it("doesn't let a load a session clear superseded swallow a write made after it", async () => {

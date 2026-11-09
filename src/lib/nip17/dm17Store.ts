@@ -18,6 +18,7 @@ import { tenantOptsFor } from "@/lib/db/termPolicies";
 import type { NRumorStore } from "@/lib/db/types";
 import { readFolded, writeFolded } from "@/lib/foldedCache";
 import { isUserBannedNow, tombstoned } from "@/lib/bannedUsers";
+import { isRemovedMessageId } from "@/lib/removedMessages";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import {
   DM_MESSAGE_KINDS,
@@ -39,7 +40,7 @@ import {
   KIND_DM_WEBXDC,
   type OpenedDm,
 } from "@/lib/nip17/protocol";
-import { dmThreadScope, emitWireScopes } from "@/wire/bus";
+import { dmThreadScope, emitWireScopes, onWireScopes } from "@/wire/bus";
 
 /**
  * The opened-DM store for one account, bound to its conversation term policy
@@ -79,6 +80,7 @@ export async function purgeAuthorDms(self: string, pubkey: string): Promise<Nost
   await Promise.all(doomed
     .filter((row) => DM_ROW_KINDS.has(row.kind))
     .map((row) => store.event(tombstoned(row, DM_TOMBSTONE_TAGS)).catch(() => undefined)));
+  retireConversationReads();
   emitWireScopes(["dm"]);
   return doomed;
 }
@@ -118,13 +120,20 @@ export async function writeDm17Rumors(self: string, opened: OpenedDm[]): Promise
   // and a banned user's only as a tombstone in place of a message.
   const fresh = withoutBannedDms(opened.filter((o) => !isExpired(o.tags)));
   if (fresh.length === 0) return;
+  const pending = holdPendingDms(self, fresh);
   const s = dm17Store(self);
-  await Promise.all(
-    fresh.map((o) =>
-      s.event(dm17ToStored(o)).catch(() => {
-      }),
-    ),
-  );
+  try {
+    await Promise.all(
+      fresh.map((o) =>
+        s.event(dm17ToStored(o)).catch(() => {
+        }),
+      ),
+    );
+  } finally {
+    retireConversationReads();
+    // Held until a list read begun after this commit lands; that read holds them, or they failed.
+    for (const p of pending) p.clearAt = conversationGeneration;
+  }
   const scopes = new Set<string>(["dm"]);
   for (const rumor of fresh) {
     if (rumor.peers.length > 0) scopes.add(dmThreadScope(dmConvKey(rumor.peers)));
@@ -340,7 +349,138 @@ export interface Dm17ConversationRow {
  * rather than per message. `mine` must be complete or push gateways treat
  * known peers as strangers (see `useNostrPush`). Keys are re-derived per row.
  */
-export async function queryDm17Conversations(
+export function queryDm17Conversations(
+  self: string,
+  opts: { limit?: number; signal?: AbortSignal } = {},
+): Promise<Dm17ConversationRow[]> {
+  // Concurrent callers share one read: the rail, the page and the notifiers all ask at once.
+  const key = `${self}:${opts.limit ?? ""}`;
+  let shared = conversationReads.get(key);
+  if (!shared) {
+    const startedAt = conversationGeneration;
+    const read = readDm17Conversations(self, { limit: opts.limit }).then((rows) => withPendingDms(self, rows, startedAt));
+    shared = read;
+    conversationReads.set(key, read);
+    void read.finally(() => {
+      if (conversationReads.get(key) === read) conversationReads.delete(key);
+    }).catch(() => undefined);
+  }
+  const signal = opts.signal;
+  // Each caller gets its own rows, and leaves on its own abort without cancelling the rest.
+  const mine = shared.then((rows) => rows.map((row) => ({ ...row })));
+  if (!signal) return mine;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    mine.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+/** Conversation-list reads in flight, by account and limit. */
+const conversationReads = new Map<string, Promise<Dm17ConversationRow[]>>();
+/** Bumped as each write lands, so a read can tell which writes began before it. */
+let conversationGeneration = 0;
+
+/** A write landed: later callers start a read that sees it rather than join one that may not. */
+function retireConversationReads(): void {
+  conversationGeneration += 1;
+  conversationReads.clear();
+}
+
+/**
+ * Messages handed to the list ahead of their commit, per account, by rumor id. Under a
+ * busy boot a commit, and the read after it, can trail the decrypt by seconds; and a read
+ * begun before the commit would otherwise drop them again.
+ */
+interface PendingDm {
+  row: OpenedDm;
+  /** The generation whose reads hold it (or never will: a failed write); until then, Infinity. */
+  clearAt: number;
+}
+const pendingDms = new Map<string, Map<string, PendingDm>>();
+const freshDmListeners = new Map<string, Set<(fresh: OpenedDm[]) => void>>();
+
+/** Hear the messages each write is about to store for `self`, ahead of its commit. Returns an unsubscribe. */
+export function onFreshDm17(self: string, listener: (fresh: OpenedDm[]) => void): () => void {
+  let set = freshDmListeners.get(self);
+  if (!set) freshDmListeners.set(self, (set = new Set()));
+  set.add(listener);
+  return () => {
+    set.delete(listener);
+    if (set.size === 0 && freshDmListeners.get(self) === set) freshDmListeners.delete(self);
+  };
+}
+
+/** Forget the messages held for the list: decrypted plaintext. Logout's purge. */
+export function clearPendingDm17(): void {
+  pendingDms.clear();
+  conversationReads.clear();
+}
+
+function holdPendingDms(self: string, fresh: OpenedDm[]): PendingDm[] {
+  // Removed from this device: the store refuses it, so the early path must too.
+  const rows = fresh.filter((o) => !isRemovedMessageId(o.rumorId));
+  if (rows.length === 0) return [];
+  let held = pendingDms.get(self);
+  if (!held) pendingDms.set(self, (held = new Map()));
+  const out = rows.map((row) => ({ row, clearAt: Infinity }));
+  for (const p of out) held.set(p.row.rumorId, p);
+  for (const listener of freshDmListeners.get(self) ?? []) {
+    try {
+      listener(rows);
+    } catch {
+      // A listener's failure never costs the write.
+    }
+  }
+  return out;
+}
+
+/** `rows` from a read begun at generation `startedAt`, with what it can't hold yet merged in. */
+function withPendingDms(self: string, rows: Dm17ConversationRow[], startedAt: number): Dm17ConversationRow[] {
+  const held = pendingDms.get(self);
+  if (!held) return rows;
+  for (const [id, p] of held) if (p.clearAt <= startedAt) held.delete(id);
+  if (held.size === 0) {
+    pendingDms.delete(self);
+    return rows;
+  }
+  return mergeFreshDm17(rows, [...held.values()].map((p) => p.row), self);
+}
+
+/**
+ * The list with `fresh` messages folded in as its read would fold them: each a
+ * conversation's newest when it is newer, the viewer's own marking it theirs.
+ * `rows` itself when nothing changes.
+ */
+export function mergeFreshDm17(rows: Dm17ConversationRow[], fresh: readonly OpenedDm[], self: string): Dm17ConversationRow[] {
+  let byKey: Map<string, Dm17ConversationRow> | undefined;
+  for (const o of fresh) {
+    if (o.peers.length === 0 || !DM_MESSAGE_KINDS.includes(o.kind) || o.kind === KIND_DM_WEBXDC || isExpired(o.tags)) continue;
+    byKey ??= new Map(rows.map((r) => [r.key, r]));
+    const key = dmConvKey(o.peers);
+    const cur = byKey.get(key);
+    const mineAt = o.author === self ? Math.max(o.createdAt, cur?.mineAt ?? 0) : cur?.mineAt;
+    const newer = !cur || o.createdAt > cur.latest.createdAt;
+    if (!newer && mineAt === cur.mineAt) continue;
+    byKey.set(key, {
+      key,
+      peers: newer ? o.peers : cur.peers,
+      latest: newer ? o : cur.latest,
+      mine: mineAt !== undefined,
+      ...(mineAt !== undefined ? { mineAt } : {}),
+    });
+  }
+  if (!byKey || byKey.size === rows.length && [...byKey.values()].every((r, i) => r === rows[i])) return rows;
+  return [...byKey.values()].sort((a, b) => b.latest.createdAt - a.latest.createdAt);
+}
+
+// Writes from another context (the service worker, another tab) arrive as a `dm` ring.
+onWireScopes((scopes) => {
+  if (scopes.has("dm")) retireConversationReads();
+});
+
+async function readDm17Conversations(
   self: string,
   opts: { limit?: number; signal?: AbortSignal } = {},
 ): Promise<Dm17ConversationRow[]> {
@@ -525,6 +665,7 @@ export async function sweepExpiredDm17Rumors(
   }
 
   if (removed > 0) {
+    retireConversationReads();
     emitWireScopes(["dm", ...[...conversations].map(dmThreadScope)]);
   }
   return removed;

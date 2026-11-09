@@ -81,4 +81,15 @@ describe("recordableSources", () => {
     );
     expect(sources.map((s) => s.track.id)).toEqual(["t-1"]);
   });
+
+  it("records nobody the call doesn't hear, whatever their client keeps sending", () => {
+    const sources = recordableSources(
+      [p("id-me", track("t-me"), true), p("id-ana", track("t-ana")), p("id-ben", track("t-ben"))],
+      resolve,
+      new Set(),
+      titleOf,
+      (pubkey) => pubkey !== "ana",
+    );
+    expect(sources.map((s) => s.key)).toEqual(["me", "ben"]);
+  });
 });

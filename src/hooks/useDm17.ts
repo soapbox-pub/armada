@@ -28,6 +28,7 @@ import { nativeDmCoverage } from "@/lib/nativeNotifications";
 import { mayBulkDecrypt, signerNeedsApproval } from "@/lib/bulkDecryptGate";
 import { getDecryptConsent } from "@/lib/decryptConsent";
 import { isDmSynced, markDmSynced } from "@/lib/dmSynced";
+import { invalidateOnce } from "@/lib/invalidateOnce";
 import { STORE_READ } from "@/lib/storeQuery";
 import { logSync } from "@/lib/syncLog";
 import { markOwnWebPushEvent } from "@/lib/webPushState";
@@ -64,6 +65,8 @@ import {
   DM17_SEEN_CAP,
   drainLiveDmWraps,
   hasBufferedLiveDmWraps,
+  mergeFreshDm17,
+  onFreshDm17,
   queryDm17Conversations,
   queryDm17Rumor,
   queryDm17Thread,
@@ -142,11 +145,22 @@ interface SyncOpts {
   interactive?: boolean;
   /** Rewind every relay through the full NIP-59 backdate window. */
   full?: boolean;
+  /** Called as each relay's page with something new in it has been stored (this pass only). */
+  onPageStored?: () => void;
 }
 
 const lastSyncAt = new Map<string, number>();
 const lastSyncDeclined = new Map<string, boolean>();
-const inflightSync = new Map<string, { pass: Promise<boolean>; full: boolean }>();
+const inflightSync = new Map<string, { pass: Promise<boolean>; full: boolean; firstPage: Promise<void> }>();
+
+/**
+ * Settles once the running inbox pass has stored its first page with anything new in it, or
+ * ended; at once with none running. What the DM list shows first, whichever caller started it.
+ */
+export function whenDm17InboxFirstPage(self: string | undefined): Promise<void> {
+  return (self ? inflightSync.get(self)?.firstPage : undefined) ?? Promise.resolve();
+}
+
 const seenWrapIds = new Map<string, Set<string>>();
 const seenWrapsLoaded = new Map<string, Promise<void>>();
 
@@ -415,8 +429,17 @@ export async function syncDm17Inbox(ctx: SyncCtx, opts?: SyncOpts): Promise<bool
   if (!opts?.force && !retryDeclined && now - last < SYNC_MIN_INTERVAL_MS) return false;
   lastSyncAt.set(ctx.self, now);
 
-  const pass = runInboxSync(ctx, opts, now);
-  inflightSync.set(ctx.self, { pass, full: opts?.full ?? false });
+  let pageStored!: () => void;
+  const firstPage = new Promise<void>((resolve) => (pageStored = resolve));
+  const pass = runInboxSync(ctx, {
+    ...opts,
+    onPageStored: () => {
+      pageStored();
+      opts?.onPageStored?.();
+    },
+  }, now);
+  void pass.finally(() => pageStored()).catch(() => undefined);
+  inflightSync.set(ctx.self, { pass, full: opts?.full ?? false, firstPage });
   try {
     return await pass;
   } finally {
@@ -575,19 +598,42 @@ async function runInboxSync(
           || now - lastFullOf(relay) >= FULL_SCAN_INTERVAL_MS),
     );
     const filterFor = (relay: string) => dm17InboxFilter(ctx.self, cursor, relay, fullRelays.has(relay));
-    const first = await queryWrapsPerRelay(ctx.nostr, scan, filterFor, AbortSignal.timeout(8000));
+    const seen = seenSetFor(ctx.self);
+    // Each relay's new wraps are opened and stored as that relay answers: a message shouldn't
+    // wait on the slowest relay. Claimed here, so a wrap two relays hold opens once.
+    const claimed = new Set<string>();
+    const stores: Promise<boolean>[] = [];
+    const storeNow = (events: NostrEvent[]) => {
+      const mine = events.filter((w) => !seen.has(w.id) && !claimed.has(w.id));
+      for (const w of mine) claimed.add(w.id);
+      if (mine.length === 0) return;
+      const stored = openAndStore(ctx, mine, opts?.interactive ?? false);
+      stores.push(stored);
+      void stored.then((ok) => {
+        if (ok) opts?.onPageStored?.();
+      });
+    };
+    const signal = AbortSignal.timeout(8000);
     // A since-bounded page that came back full is the top of a burst, not all of it.
     const unfinished = new Set<string>();
-    const result: Dm17RelayQueryResult = {
-      failed: first.failed,
-      pages: await Promise.all(first.pages.map(async (page) => {
-        const filter = filterFor(page.url);
-        if (filter.since === undefined) return page;
-        const rest = await pageForwardRest(ctx.nostr, page.url, filter, page.events);
-        if (!rest.complete) unfinished.add(page.url);
-        return { url: page.url, events: rest.events };
-      })),
-    };
+    const result: Dm17RelayQueryResult = { pages: [], failed: [] };
+    await Promise.all(scan.map(async (url) => {
+      const first = await queryWrapsPerRelay(ctx.nostr, [url], filterFor, signal);
+      const page = first.pages[0];
+      if (!page) {
+        result.failed.push(url);
+        return;
+      }
+      const filter = filterFor(url);
+      let events = page.events;
+      if (filter.since !== undefined) {
+        const rest = await pageForwardRest(ctx.nostr, url, filter, page.events);
+        if (!rest.complete) unfinished.add(url);
+        events = rest.events;
+      }
+      result.pages.push({ url, events });
+      storeNow(events);
+    }));
     if (result.pages.length === 0) {
       logSync("dm", `inbox scan failed on all ${scan.length} relay(s)`);
       return false;
@@ -597,10 +643,8 @@ async function runInboxSync(
     }
 
     const wraps = mergeRelayPages(result.pages);
-    const seen = seenSetFor(ctx.self);
-    const fresh = wraps.filter((w) => !seen.has(w.id));
-
-    if (!(await openAndStore(ctx, fresh, opts?.interactive ?? false))) return false; // deferred: retry later
+    // Any relay's wraps deferred (no consent yet): retry the whole pass later.
+    if (!(await Promise.all(stores)).every(Boolean)) return false;
     if (syncHalted()) return false;
     // Only successful, consumed pages advance their watermark; failed relays stay full-scan
     // candidates.
@@ -1723,12 +1767,18 @@ export function useDm17Conversations(opts?: { interactive?: boolean }): {
       const rows = await queryDm17Conversations(self!, { signal });
       if (!ctx) return rows;
 
-      // First sync: an empty store means "not synced yet", so await the pass and re-read.
+      // First sync: an empty store means "not synced yet", so wait for the pass and re-read.
       if (isDmSynced("nip17", self)) {
         void syncDm17Inbox(ctx, { interactive });
         return rows;
       }
-      if (await syncDm17Inbox(ctx, { interactive })) markDmSynced("nip17", self);
+      // Only as far as the first relay with something new, in this pass or one it joined:
+      // the rest arrive through `onFreshDm17`, and a slow relay shouldn't hold the whole list.
+      const pass = syncDm17Inbox(ctx, { interactive });
+      void pass.then((ok) => {
+        if (ok) markDmSynced("nip17", self);
+      });
+      await Promise.race([pass, whenDm17InboxFirstPage(self)]);
       return await queryDm17Conversations(self!, { signal });
     },
     staleTime: 15_000,
@@ -1745,10 +1795,17 @@ export function useDm17Conversations(opts?: { interactive?: boolean }): {
       const silent = !signerNeedsApproval(ctx.method) || getDecryptConsent() === "allowed";
       if (interactive || silent) void openLiveDm17Wraps(ctx, { interactive });
     }
-    if (scopes.has("dm") || scopes.has("dm:wrap")) {
-      void queryClient.invalidateQueries({ queryKey });
-    }
+    // Every mounted copy hears the same ring: one refetch, not one per copy.
+    if (scopes.has("dm") || scopes.has("dm:wrap")) invalidateOnce(queryClient, queryKey);
   });
+
+  // What a write is about to store shows now; the read its commit rings for follows.
+  useEffect(() => {
+    if (!self) return;
+    return onFreshDm17(self, (fresh) => {
+      queryClient.setQueryData<Dm17Conversation[]>(queryKey, (old) => (old ? mergeFreshDm17(old, fresh, self) : old));
+    });
+  }, [self, queryClient, queryKey]);
 
   // Hide a conversation if ANY participant is muted — a group has no per-sender filter.
   const conversations = useMemo(() => {

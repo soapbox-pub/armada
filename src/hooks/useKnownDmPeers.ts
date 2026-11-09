@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
 import { useAcceptedDms } from "@/hooks/useAcceptedDms";
@@ -5,7 +6,10 @@ import {
   useDmConversationIndex,
   useDmConversationIndexReady,
 } from "@/hooks/useDmConversationIndex";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { useEventStore } from "@/hooks/useEventStore";
 import { useFollowList } from "@/hooks/useFollowList";
+import { readCachedContactList } from "@/lib/contactList";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { usePinnedDms } from "@/hooks/usePinnedDms";
 import { dmConvPeers } from "@/lib/nip17/conversation";
@@ -21,6 +25,13 @@ export interface UseKnownDmPeersReturn {
   /** Existing DM semantics hide any group containing one. */
   mutedPeers: string[];
   isLoading: boolean;
+  /**
+   * {@link isLoading} for surfaces that only display, which don't wait on the contact list's
+   * relay read once this device has answered that it holds none: an account that follows
+   * nobody would otherwise wait out the slowest relay on every boot. A list found there later
+   * can move a conversation from the requests into the inbox. Never for recording or pruning.
+   */
+  displayLoading: boolean;
   /** True only when every source can authorize replacing/pruning background state. */
   authoritativeReady: boolean;
   /** Trusted last-good data is sufficient to replace the sealed DM policy. */
@@ -36,6 +47,16 @@ export interface UseKnownDmPeersReturn {
  */
 export function useKnownDmPeers(): UseKnownDmPeersReturn {
   const { data: followData, isLoading: followsLoading } = useFollowList();
+  const self = useCurrentUser().user?.pubkey;
+  const eventStore = useEventStore();
+  // Only asked while the relay read is out: a stored list seeds that query anyway.
+  const { data: storedList } = useQuery({
+    queryKey: ["contact-list-stored", self ?? ""],
+    queryFn: async () => (await readCachedContactList(await eventStore, self!)) ?? null,
+    enabled: !!self && followsLoading,
+    staleTime: Infinity,
+  });
+  const noStoredList = storedList === null;
   const { accepted } = useAcceptedDms();
   const { pinned } = usePinnedDms();
   const indexed = useDmConversationIndex();
@@ -109,6 +130,7 @@ export function useKnownDmPeers(): UseKnownDmPeersReturn {
     knownConversationKeys,
     mutedPeers,
     isLoading: followsLoading || !indexReady || !mutesReady,
+    displayLoading: (followsLoading && !noStoredList) || !indexReady || !mutesReady,
     authoritativeReady: followData?.wireReady === true
       && indexReady
       && mutesWireReady === true,

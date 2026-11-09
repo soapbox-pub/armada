@@ -43,6 +43,8 @@ import {
 import { SettingsOverlayContext, useSettingsOverlayController } from "@/lib/settingsOverlay";
 import { isDesktop } from "@/lib/desktop";
 import { isNativeRuntime } from "@/lib/platform";
+import { markBootPainted } from "@/lib/bootGate";
+import { routeOpensBootGate } from "@/lib/bootGateRoute";
 
 // Route-level code splitting. lazyWithReload turns a stale-chunk fetch after a
 // deploy into a one-time reload instead of a crash.
@@ -310,6 +312,14 @@ function AppRoutes() {
   );
   const settings = useSettingsOverlayController(location, useNavigate());
   const target = useSameEntry(background ?? location);
+
+  // A page with no timeline opens the boot gate on its first frame (see bootGateRoute).
+  const gatePath = target.pathname;
+  useEffect(() => {
+    if (routeOpensBootGate(gatePath)) return;
+    const frame = requestAnimationFrame(() => markBootPainted());
+    return () => cancelAnimationFrame(frame);
+  }, [gatePath]);
 
   // Load-bearing memo: `<Routes>` would otherwise re-render the whole routed tree
   // when only the overlay changes.

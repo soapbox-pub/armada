@@ -29,7 +29,7 @@ import {
   currentControlWriteGroup,
   sealEdition,
 } from "@/concord/lib/control";
-import { buildTimeoutRumor, currentGuestbookGroup, sealGuestbook } from "@/concord/lib/guestbook";
+import { buildJoinRumor, buildTimeoutRumor, currentGuestbookGroup, sealGuestbook } from "@/concord/lib/guestbook";
 import { encryptImageBlob } from "@/concord/lib/image";
 import { openPlaneWraps } from "@/concord/lib/planeSync";
 import { KIND_COMMENT, KIND_COMMUNITY_LIST_FRAG, KIND_REACTION } from "@/concord/lib/kinds";
@@ -44,6 +44,8 @@ import { KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import { queryChannelRumors, readStreamCursor } from "@/concord/lib/rumorStore";
 import { writeFolded } from "@/lib/foldedCache";
 import { appEventStore } from "@/lib/db/mainEventStore";
+import { getArmadaDB } from "@/lib/db/armadaDB";
+import { normalizeRelayUrl } from "@/lib/platform";
 
 import type { OpenedChat } from "@/concord/lib/chat";
 import type { NostrEvent } from "nostr-tools";
@@ -81,8 +83,42 @@ export interface ConcordSeedResult {
   wraps?: NostrEvent[];
 }
 
+export interface ManySeedPayload {
+  /** The viewer's secret key, hex. A member, not the owner, of every community. */
+  sk: string;
+  communities: number;
+  /** Guestbook Joins per community besides the viewer's, each from its own key. */
+  members: number;
+  /** Chat messages per community, in #general, on disk. */
+  messages: number;
+  /**
+   * Newer #general messages per community that exist only as wraps on the relay, sent
+   * while the device was away for `awaySecs`; the wire's cursor is left from before them.
+   */
+  missed?: number;
+  awaySecs?: number;
+  /**
+   * Fewer, sent while the app is closed after a first boot: returned apart, and dated
+   * from `laterInMs` after seeding ends, so the harness boots that first and waits for them.
+   */
+  later?: number;
+  laterInMs?: number;
+  lines: string[];
+}
+
+export interface ManySeedResult {
+  communities: Array<{ communityId: string; channelIds: string[]; chatPks: string[] }>;
+  /** Every Control and Guestbook wrap, and the missed chat, for the harness relay to serve back. */
+  wraps: NostrEvent[];
+  /** The `later` chat wraps. */
+  laterWraps: NostrEvent[];
+  /** When the newest of them is dated (unix ms): not before then may they be "sent". */
+  laterAtMs: number;
+}
+
 declare global {
   interface Window {
+    __armadaSeedConcordMany?: (payload: ManySeedPayload) => Promise<ManySeedResult>;
     __armadaSeedConcord?: (payload: ConcordSeedPayload) => Promise<ConcordSeedResult>;
     __armadaSeedConcordScript?: (payload: ScriptedSeedPayload) => Promise<ScriptedSeedResult>;
     __armadaConcordCoverage?: typeof concordCoverage;
@@ -177,6 +213,114 @@ async function seed(p: ConcordSeedPayload): Promise<ConcordSeedResult> {
 
   await writeMembership(community, sk, self);
   return { communityId: community.idHex, channelIds: channelIds.map(bytesToHex), ...(p.relayHistory ? { wraps } : {}) };
+}
+
+/**
+ * Many communities as a long-time member holds them: each owned by another key, a
+ * Guestbook of `members` Joins, and a stretch of #general. The Control and
+ * Guestbook wraps are returned so the harness relay answers sweeps with them.
+ */
+async function seedMany(p: ManySeedPayload): Promise<ManySeedResult> {
+  const sk = hexToBytes(p.sk);
+  const self = finalizeEvent({ kind: 1, content: "", tags: [], created_at: 0 }, sk).pubkey;
+  const selfSigner = { signEvent: async (t: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(t, sk) };
+  localStorage.setItem(`armada:relay-prompt-shown:${self}`, "1");
+  const minted: Community[] = [];
+  const results: ManySeedResult["communities"] = [];
+  const wraps: NostrEvent[] = [];
+  const laterWraps: NostrEvent[] = [];
+  const laterMakers: Array<(baseMs: number) => Promise<void>> = [];
+  const nowMs = Date.now() - 60_000;
+  const awayMs = (p.awaySecs ?? 7200) * 1000;
+  const span = 60 * 24 * 3600 * 1000;
+  // Local history ends where the device went away.
+  const localEndMs = nowMs - awayMs;
+
+  for (let c = 0; c < p.communities; c++) {
+    const ownerSk = random32();
+    const ownerSigner = { signEvent: async (t: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(t, ownerSk) };
+    const owner = finalizeEvent({ kind: 1, content: "", tags: [], created_at: 0 }, ownerSk).pubkey;
+    const { community, generalChannelId } = mintCommunity(`Harbor ${c}`, owner, ["wss://relay.invalid"]);
+    const control = currentControlWriteGroup(community);
+    const channelIds = [generalChannelId, random32(), random32()];
+    const genesis = [
+      buildMetadataEdition(community.id, { name: community.name, relays: community.relays }, { actorPubkey: owner, version: 1n }),
+      ...channelIds.map((id, i) =>
+        buildChannelEdition(id, { name: i === 0 ? "general" : `channel-${i}`, private: false }, { actorPubkey: owner, version: 1n }),
+      ),
+    ];
+    const controlWraps = await Promise.all(genesis.map((r) => sealEdition(r, control, ownerSigner)));
+    await writeOpened(community.idHex, controlWraps.map((w) => openWrap(w, control)), "control", { refounded: false });
+    wraps.push(...controlWraps);
+
+    const group = currentGuestbookGroup(community);
+    const authors: string[] = [];
+    const memberSks: Uint8Array[] = [];
+    const joins: NostrEvent[] = [await sealGuestbook(buildJoinRumor(self, nowMs - span), group, selfSigner)];
+    for (let i = 0; i < p.members; i++) {
+      const mk = random32();
+      const pk = finalizeEvent({ kind: 1, content: "", tags: [], created_at: 0 }, mk).pubkey;
+      authors.push(pk);
+      memberSks.push(mk);
+      const signer = { signEvent: async (t: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(t, mk) };
+      const join = buildJoinRumor(pk, Math.floor(nowMs - span + (span * i) / p.members));
+      const w = await sealGuestbook(join, group, signer);
+      // Re-signed at the Join's own time, as `seed` does for chat: it arrived then, not now.
+      joins.push(finalizeEvent({ kind: w.kind, content: w.content, tags: w.tags, created_at: join.created_at }, group.sk));
+    }
+    for (let i = 0; i < joins.length; i += 500) {
+      await writeOpened(community.idHex, openPlaneWraps(joins.slice(i, i + 500), [group]), "guestbook");
+    }
+    wraps.push(...joins);
+
+    const channelIdHex = bytesToHex(generalChannelId);
+    const batch: OpenedChat[] = [];
+    for (let i = 0; i < p.messages; i++) {
+      const author = authors[i % Math.max(1, authors.length)] ?? self;
+      const ms = Math.floor(localEndMs - span + (span * i) / p.messages);
+      const content = `${p.lines[(i + c) % p.lines.length]} (#c${c}-${i})`;
+      const rumor = buildRumor({ kind: 9, content, tags: channelBindingTags(channelIdHex, 0n), pubkey: author, ms });
+      batch.push({ rumorId: rumor.id, author, kind: 9, content, tags: rumor.tags, ms, createdAt: rumor.created_at, channelIdHex, epoch: 0n });
+    }
+    for (let i = 0; i < batch.length; i += 500) await writeRumors(community.idHex, batch.slice(i, i + 500));
+
+    const chat = channelGroupKey(community.root, generalChannelId, 0);
+    const chatWrap = async (i: number, ms: number, label: string) => {
+      const k = i % Math.max(1, memberSks.length);
+      const mk = memberSks[k] ?? sk;
+      const author = authors[k] ?? self;
+      const content = `${p.lines[(i + c) % p.lines.length]} (#c${c}-${label}-${i})`;
+      const rumor = buildRumor({ kind: 9, content, tags: channelBindingTags(channelIdHex, 0n), pubkey: author, ms });
+      const signer = { signEvent: async (t: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(t, mk) };
+      const w = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, chat, signer), chat);
+      // Re-signed at the message's own time, as `seed` does: a wrap is never backdated.
+      return finalizeEvent({ kind: w.kind, content: w.content, tags: w.tags, created_at: rumor.created_at }, chat.sk);
+    };
+    for (let i = 0; i < (p.missed ?? 0); i++) {
+      wraps.push(await chatWrap(i, Math.floor(localEndMs + 60_000 + ((awayMs - 120_000) * i) / Math.max(1, (p.missed ?? 1) - 1)), "missed"));
+    }
+    laterMakers.push(async (baseMs) => {
+      for (let i = 0; i < (p.later ?? 0); i++) laterWraps.push(await chatWrap(i, baseMs + i * 1_000, "later"));
+    });
+
+    minted.push(community);
+    results.push({
+      communityId: community.idHex,
+      channelIds: channelIds.map(bytesToHex),
+      chatPks: channelIds.map((id) => channelGroupKey(community.root, id, 0).pk),
+    });
+  }
+
+  await writeMembership(minted, sk, self);
+  // Dated after everything above, as a message sent once the first boot is over would be.
+  const laterBase = Date.now() + (p.laterInMs ?? 45_000);
+  for (const make of laterMakers) await make(laterBase);
+  if (p.missed) {
+    // The wire last read the relay just before the device went away.
+    const relay = normalizeRelayUrl("wss://relay.invalid") ?? "wss://relay.invalid";
+    await getArmadaDB().kv.set(`wire-cursor:${relay}`, Math.floor(localEndMs / 1000));
+  }
+  return { communities: results, wraps, laterWraps, laterAtMs: laterBase + Math.max(0, (p.later ?? 0) - 1) * 1_000 };
 }
 
 /** Per channel: rumors on this device, and whether its history walk reached the bottom. */
@@ -366,5 +510,6 @@ async function seedScripted(p: ScriptedSeedPayload): Promise<ScriptedSeedResult>
 }
 
 window.__armadaSeedConcord = seed;
+window.__armadaSeedConcordMany = seedMany;
 window.__armadaSeedConcordScript = seedScripted;
 window.__armadaConcordCoverage = concordCoverage;

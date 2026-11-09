@@ -5,7 +5,7 @@ import { rolePings, type HeldRoleMention } from "@/concord/lib/roleMentions";
 import { KIND_MESSAGE, KIND_REACTION } from "@/concord/lib/kinds";
 import type { StreamKeyView } from "@/concord/lib/derive";
 import { notePlaneWrapsJunk, notePlaneWrapsSeen, openPlaneWrapsChunked, unseenPlaneWraps } from "@/concord/lib/planeSync";
-import { parkPendingWraps, writeOpened, writeRumors } from "@/concord/lib/rumorStore";
+import { hasFreshChatListener, parkPendingWraps, writeOpened, writeRumors } from "@/concord/lib/rumorStore";
 import { isRelayScoped } from "@/lib/db/relayScope";
 import { bufferLiveDmWraps } from "@/lib/nip17/dm17Store";
 import { bufferLiveInviteWraps } from "@/concord/lib/inviteInbox";
@@ -197,8 +197,10 @@ export async function ingestWireEvents(
     if (freshInviteWraps.length > 0) scopes.add("c2inv:wrap");
   }
 
-  // Concord chat → the owning community's rumor-store tenant.
-  for (const [channel, wraps] of wrapsByChannel) {
+  // Concord chat → the owning community's rumor-store tenant. An open channel first:
+  // each batch decrypts in turn, and a replay can hold dozens.
+  const chatBatches = [...wrapsByChannel].sort(([a], [b]) => Number(hasFreshChatListener(b.idHex)) - Number(hasFreshChatListener(a.idHex)));
+  for (const [channel, wraps] of chatBatches) {
     // Skip wraps already stored (persisted memo); the decode memo is session-only.
     const unseen = await unseenPlaneWraps(wraps);
     if (unseen.length === 0) continue;
@@ -209,19 +211,18 @@ export async function ingestWireEvents(
     const communityIdHex = spec?.concordCommunityByChannel.get(channel.idHex);
     if (!communityIdHex) continue;
     // Memo only wraps that OPENED, after commit (a failed one may need a later
-    // epoch key). Chained, so the scope ring stays prompt.
+    // epoch key). Not awaited: the open timeline is handed the rows at once, and
+    // `writeRumors` rings `c2:` itself once they are readable.
     void writeRumors(communityIdHex, opened).then((stored) => {
       if (stored) notePlaneWrapsSeen(opened.flatMap((o) => o.wrapId ?? []));
     });
-    scopes.add(`c2:${channel.idHex}`);
     // Banned authors are stored (the timeline hides them) but never notify.
     const banned = communityIdHex ? spec?.concordBannedByCommunity.get(communityIdHex) : undefined;
     const roleMentions = spec?.concordRoleMentionsByCommunity.get(communityIdHex);
     const silence = spec?.concordSilenceByChannel.get(channel.idHex);
     // A post its readers collapse rings nobody (CORD-04 §8, Vector `post_silenced`).
-    const ringing = silence
-      ? opened.filter((r) => !silence.sendDenied?.has(r.author) && !(silence.postAuthors && r.kind !== KIND_REACTION && !silence.postAuthors.has(r.author)) && !silence.timeouts?.some((t) => t.pk === r.author && t.until * 1000 > clockNowMs() && r.ms >= t.fromSecs * 1000 && r.ms < t.until * 1000))
-      : opened;
+    const nowMs = clockNowMs();
+    const ringing = silence ? opened.filter((r) => !postSilenced(silence, r.author, r.kind, r.ms, nowMs)) : opened;
     const nicknames = spec?.concordNicknamesByCommunity.get(communityIdHex);
     for (const c of concordCandidates(ringing, channel, communityIdHex, self, banned, roleMentions)) {
       const nick = nicknames?.[c.author];
@@ -354,6 +355,27 @@ export async function ingestWireEvents(
   noteWrapsOpened(openedChatWraps);
 }
 
+type ChannelSilence = NonNullable<ReturnType<WireSpec["concordSilenceByChannel"]["get"]>>;
+
+/** Whether readers collapse a post, so it rings nobody (CORD-04 §8, Vector `post_silenced`). */
+export function postSilenced(silence: ChannelSilence | undefined, author: string, kind: number, ms: number, nowMs: number): boolean {
+  if (!silence) return false;
+  if (silence.sendDenied?.has(author)) return true;
+  if (silence.postAuthors && kind !== KIND_REACTION && !silence.postAuthors.has(author)) return true;
+  return silence.timeouts?.some((t) => t.pk === author && t.until * 1000 > nowMs && ms >= t.fromSecs * 1000 && ms < t.until * 1000) ?? false;
+}
+
+/**
+ * Whether a Concord candidate still rings by `spec` as it stands: one held for its date is
+ * judged again when due, so a ban or Timeout since it arrived silences it.
+ */
+export function concordCandidateRings(spec: WireSpec | undefined, cand: NotifyCandidate, nowMs: number = clockNowMs()): boolean {
+  if (cand.plane !== "c2" || !cand.channelIdHex || !spec) return true;
+  const communityIdHex = spec.concordCommunityByChannel.get(cand.channelIdHex);
+  if (communityIdHex && spec.concordBannedByCommunity.get(communityIdHex)?.has(cand.author)) return false;
+  return !postSilenced(spec.concordSilenceByChannel.get(cand.channelIdHex), cand.author, cand.kind, cand.ms ?? cand.createdAt * 1000, nowMs);
+}
+
 /** Build notify candidates for a batch of decrypted Concord chat rumors. */
 function concordCandidates(
   opened: OpenedChat[],
@@ -384,6 +406,7 @@ function concordCandidates(
         plane: "c2",
         author: r.author,
         createdAt: r.createdAt,
+        ms: r.ms,
         mention: true, // a reaction to your message is directed at you
         reaction: true,
         reactionEmoji: reactionContentKey(r.content),
@@ -403,6 +426,7 @@ function concordCandidates(
       plane: "c2",
       author: r.author,
       createdAt: r.createdAt,
+      ms: r.ms,
       mention: pTagsMe || Boolean(roleMentions && rolePings(r.content, r.tags, roleMentions.held, roleMentions.authors.has(r.author))),
       kind: r.kind,
       body: preview(r.content),

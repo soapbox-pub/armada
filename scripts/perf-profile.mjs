@@ -41,6 +41,24 @@
  *                   its whole history (7200 wraps) on the relay: #general open,
  *                   untouched, while the background history walk reads the rest
  *                   (--walk-sec <s>, 90). Reports how far it got and what it cost
+ *   concord-many    many joined communities (--communities <n>, 20), each owned by
+ *                   another key with a Guestbook of --members <n> (400) Joins, their
+ *                   Control and Guestbook wraps on the relay: a cold boot and a warm
+ *                   reload into one #general, measuring its paint and when the wire
+ *                   first subscribes each community's chat (--window-sec <s>, 45).
+ *                   --missed <n> (30) newer #general messages per community wait only
+ *                   on the relay, sent during a two-hour absence the wire's cursor
+ *                   predates: how soon the open channel shows them, and how many each
+ *                   community has stored by the window's end. --later <n> (10) more
+ *                   reach the relay between the cold boot and the warm reload, which
+ *                   is measured the same way
+ *   dm-many      the seeded account (40 conversations) back after 30 minutes away,
+ *                20 DMs waiting on its two DM relays, one answering 3s late (and also
+ *                one of its own relays, where it keeps no contact list): a cold boot into the DM list, then a
+ *                warm reload into the thread 10 more arrived in while it was closed;
+ *                when the list/thread paints and the newest DM shows (--window-sec, 30)
+ *   routes       a boot into each page with no message timeline (notifications,
+ *                settings, discover, invites, a profile): when the wire starts
  *   discover     /discover idle — the one scenario with real relay traffic
  *   discover-all /discover with "show all communities" on, scrolled 30 times
  *                so every page of listings loads and its cards mount
@@ -352,6 +370,175 @@ await page.routeWebSocket(routed, (ws) => {
   });
   server?.onMessage((msg) => ws.send(msg));
 });
+
+// `concord-many`: when the page SENT each kind-1059 REQ, on the boot timeline's clock; the
+// harness relay's own log lags whenever its answers are backed up. Registered after the
+// route, so it wraps the WebSocket routed sockets are made of as well as the native one.
+await context.addInitScript(() => {
+  for (const proto of new Set([WebSocket.prototype, Object.getPrototypeOf(WebSocket.prototype)])) {
+    const own = Object.getOwnPropertyDescriptor(proto, "send");
+    if (!own || typeof own.value !== "function") continue;
+    const send = own.value;
+    proto.send = function (data) {
+      if (typeof data === "string" && data.startsWith('["REQ"')) {
+        try {
+          const [, , ...filters] = JSON.parse(data);
+          for (const f of filters) {
+            if (f.kinds?.includes(1059) && f.authors) {
+              (window.__armadaReqLog ??= []).push({ t: Math.round(performance.now()), live: f.limit === undefined, authors: f.authors });
+            }
+          }
+        } catch {
+          // not ours to judge
+        }
+      }
+      return send.call(this, data);
+    };
+  }
+});
+
+/**
+ * `concord-many`'s relay: every `*.invalid` socket is answered inside the page from the
+ * events the harness serves at `/__armada-fake-relay.json` (fetched once per page load),
+ * one message per task as a socket delivers them; publishes get an OK. Only while
+ * `perf-inpage-relay` is set, so other scenarios keep the routed relay.
+ */
+function installInPageRelay() {
+  if (localStorage.getItem("perf-inpage-relay") !== "1") return;
+  const SLOW_MS = 3_000;
+  const Native = window.WebSocket;
+  let db;
+  const load = () =>
+    (db ??= fetch("/__armada-fake-relay.json")
+      .then((r) => r.json())
+      .then((events) => {
+        const byAuthor = new Map();
+        for (const e of events) {
+          if (!byAuthor.has(e.pubkey)) byAuthor.set(e.pubkey, []);
+          byAuthor.get(e.pubkey).push(e);
+        }
+        return { events, byAuthor };
+      }));
+  const answer = ({ events, byAuthor }, filters) => {
+    const out = new Map();
+    for (const f of filters) {
+      const pool = f.authors ? f.authors.flatMap((a) => byAuthor.get(a) ?? []) : events;
+      const tags = Object.entries(f).filter(([k]) => k.startsWith("#"));
+      let evs = pool.filter(
+        (e) =>
+          (!f.ids || f.ids.includes(e.id)) &&
+          (!f.kinds || f.kinds.includes(e.kind)) &&
+          (f.since === undefined || e.created_at >= f.since) &&
+          (f.until === undefined || e.created_at <= f.until) &&
+          tags.every(([k, vals]) => e.tags.some((t) => t[0] === k.slice(1) && vals.includes(t[1]))),
+      );
+      evs.sort((a, b) => b.created_at - a.created_at);
+      if (f.limit !== undefined) evs = evs.slice(0, f.limit);
+      for (const e of evs) out.set(e.id, e);
+    }
+    return [...out.values()];
+  };
+  class InPageRelay extends EventTarget {
+    constructor(url) {
+      super();
+      Object.assign(this, { url, readyState: 0, protocol: "", extensions: "", binaryType: "blob", bufferedAmount: 0 });
+      Object.assign(this, { onopen: null, onmessage: null, onclose: null, onerror: null });
+      void load().then(() => {
+        if (this.readyState !== 0) return;
+        this.readyState = 1;
+        this.emit(new Event("open"));
+      });
+    }
+    emit(ev) {
+      this.dispatchEvent(ev);
+      this[`on${ev.type}`]?.call(this, ev);
+    }
+    reply(msg) {
+      // `slow.invalid` answers late, as a distant or loaded relay does.
+      const delay = new URL(this.url).hostname.startsWith("slow.") ? SLOW_MS : 0;
+      setTimeout(() => {
+        if (this.readyState === 1) this.emit(new MessageEvent("message", { data: JSON.stringify(msg) }));
+      }, delay);
+    }
+    send(data) {
+      let msg;
+      try {
+        msg = JSON.parse(data);
+      } catch {
+        return;
+      }
+      if (msg[0] === "REQ") {
+        const [, sub, ...filters] = msg;
+        for (const f of filters) {
+          if (f.kinds?.includes(1059) && f.authors) {
+            (window.__armadaReqLog ??= []).push({ t: Math.round(performance.now()), live: f.limit === undefined, authors: f.authors, since: f.since });
+          }
+        }
+        void load().then((d) => {
+          for (const e of answer(d, filters)) this.reply(["EVENT", sub, e]);
+          this.reply(["EOSE", sub]);
+        });
+      } else if (msg[0] === "EVENT") {
+        this.reply(["OK", msg[1].id, true, ""]);
+      }
+    }
+    close(code = 1000, reason = "") {
+      if (this.readyState >= 2) return;
+      this.readyState = 3;
+      setTimeout(() => this.emit(new CloseEvent("close", { code, reason, wasClean: true })), 0);
+    }
+  }
+  // From the document's start, as a real relay is up before anyone dials it.
+  void load();
+  for (const [k, v] of Object.entries({ CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 })) {
+    InPageRelay[k] = v;
+    InPageRelay.prototype[k] = v;
+  }
+  window.WebSocket = new Proxy(Native, {
+    construct(target, args, newTarget) {
+      try {
+        if (new URL(String(args[0])).hostname.endsWith(".invalid")) return new InPageRelay(String(args[0]));
+      } catch {
+        // not a URL: the native constructor says so
+      }
+      return Reflect.construct(target, args, newTarget);
+    },
+  });
+}
+
+/**
+ * `concord-many`: when text first appears in `<main>`, by a MutationObserver from the
+ * document's start, so the time is the DOM change's own (polling over CDP, or a
+ * watcher installed by `page.evaluate`, arrives late on a busy boot).
+ */
+function installWatch() {
+  const raw = localStorage.getItem("perf-watch");
+  if (!raw) return;
+  const { paint, missed, root = "main" } = JSON.parse(raw);
+  const seen = (window.__armadaSeen = {});
+  const observer = new MutationObserver(() => {
+    const text = document.querySelector(root)?.textContent;
+    if (!text) return;
+    const now = Math.round(performance.now());
+    if (seen.paint === undefined && text.includes(paint)) seen.paint = now;
+    if (missed && seen.missed === undefined && text.includes(missed)) seen.missed = now;
+    // A message that leaves the view once shown is a flicker the reader sees.
+    else if (missed && seen.missed !== undefined && !text.includes(missed) && seen.missedLost === undefined) seen.missedLost = now;
+  });
+  observer.observe(document, { childList: true, subtree: true, characterData: true });
+}
+
+/** What the in-page relay serves (`/__armada-fake-relay.json`). */
+let relayBody = "[]";
+let inPageInstalled = false;
+/** Install the in-page relay and the DOM watcher, once for the run; each acts only while its localStorage flag is set. */
+async function installInPageScripts() {
+  if (inPageInstalled) return;
+  inPageInstalled = true;
+  await page.route("**/__armada-fake-relay.json", (route) => route.fulfill({ contentType: "application/json", body: relayBody }));
+  await context.addInitScript(installInPageRelay);
+  await context.addInitScript(installWatch);
+}
 
 /** Errors raised since `mark` (an index into `errors`). */
 const errorsSince = (mark) => errors.slice(mark);
@@ -1058,6 +1245,226 @@ try {
     }
   }
 
+
+  if (wants("concord-many")) {
+    // Many joined communities with real Guestbooks: how long a boot takes to paint
+    // the open channel, and to subscribe every community's chat on the wire.
+    const MANY = Number(opt("communities", "20"));
+    const MEMBERS = Number(opt("members", "400"));
+    const WINDOW_SEC = Number(opt("window-sec", "45"));
+    const MISSED = Number(opt("missed", "30"));
+    const LATER = Number(opt("later", "10"));
+    await installInPageScripts();
+    // The `.invalid` relay answers inside the page here (see installInPageRelay): through
+    // the routed socket every frame is a CDP round trip, and a few thousand Guestbook
+    // wraps back up everything behind them, the app's catch-up included, by seconds.
+    relayBody = "[]";
+    await page.goto("/e2e/concordSeed.html");
+    await page.evaluate(() => localStorage.setItem("perf-inpage-relay", "1"));
+    await page.waitForFunction(() => Boolean(window.__armadaSeedConcordMany), null, { timeout: 60_000 });
+    const seedAt = Date.now();
+    const many = await page.evaluate((p) => window.__armadaSeedConcordMany(p), {
+      sk: Buffer.from(world.me.sk).toString("hex"),
+      communities: MANY,
+      members: MEMBERS,
+      messages: 200,
+      missed: MISSED,
+      later: LATER,
+      awaySecs: 7200,
+      lines: LINES,
+    });
+    relayBody = JSON.stringify(many.wraps);
+    console.log(`\nseeded ${MANY} communities × ${MEMBERS} members (${many.wraps.length} wraps on the relay) in ${Date.now() - seedAt}ms`);
+    const first = many.communities[0];
+
+    const bootOnce = async (label, newestMissed) => {
+      console.log(`▶ concord-many ${label}`);
+      const mark = errors.length;
+      const t0 = Date.now();
+      // Watched from the new document's start (installWatch), on the boot timeline's clock.
+      await page.evaluate((needles) => localStorage.setItem("perf-watch", JSON.stringify(needles)), { paint: "(#c0-", missed: newestMissed ?? "" });
+      await page.goto(`/c/${first.communityId}/${first.channelIds[0]}`, { waitUntil: "commit" });
+      const painted = await page.waitForFunction(() => window.__armadaSeen?.paint !== undefined, null, { timeout: 90_000 }).then(() => true, () => false);
+      // What storage had done by first paint: whatever the first rows queued behind.
+      const atPaint = painted
+        ? await page.evaluate(() => {
+            const r = JSON.parse(window.__armadaPerf?.json?.() ?? "null");
+            return r?.boot.aggregates.slice(0, 80).map((a) => `${Math.round(a.total)}ms ×${a.count}${a.units !== undefined ? ` ${a.units} ${a.unitName}` : ""} ${a.label}`);
+          }).catch(() => undefined)
+        : undefined;
+      await perfReady(page);
+      await page.evaluate(() => {
+        window.__busy = [];
+        new PerformanceObserver((list) => {
+          for (const e of list.getEntries()) window.__busy.push([Math.round(e.startTime), Math.round(e.duration)]);
+        }).observe({ type: "longtask", buffered: true });
+      });
+      const wait = WINDOW_SEC * 1000 - (Date.now() - t0);
+      if (wait > 0) await page.waitForTimeout(wait);
+      const sent = await page.evaluate(() => window.__armadaReqLog ?? []);
+      /** Per community, ms since page load until a live REQ named its chat streams; null when none did. */
+      const chatSubSent = many.communities.map((c) => {
+        const hit = sent.find((r) => r.live && c.chatPks.some((pk) => r.authors.includes(pk)));
+        return hit ? hit.t : null;
+      });
+      const summarize = (xs) => {
+        const got = xs.filter((x) => x !== null).sort((a, b) => a - b);
+        return { covered: `${got.length}/${xs.length}`, firstMs: got[0] ?? null, medianMs: got[Math.floor(got.length / 2)] ?? null, lastMs: got.at(-1) ?? null };
+      };
+      const busy = await page.evaluate(() => window.__busy);
+      const seen = await page.evaluate(() => window.__armadaSeen ?? {});
+      const paintMs = seen.paint ?? null;
+      const missedShownMs = seen.missed ?? null;
+      const missedLostMs = seen.missedLost ?? null;
+      const rep = await report(page);
+      const wireQuery = (rep.runtime.queries ?? []).filter((q) => /concord-channels|notif-subs/.test(q.family));
+      return {
+        painted,
+        paintMs,
+        missedShownMs,
+        missedLostMs,
+        chatSubSent: summarize(chatSubSent),
+        reqs1059: sent.length,
+        longTasks: {
+          count: busy.length,
+          totalMs: busy.reduce((a, [, d]) => a + d, 0),
+          maxMs: Math.max(0, ...busy.map(([, d]) => d)),
+          // [start, duration] since page load, on the timeline's clock.
+          at: busy.map(([t, d]) => `${t}+${d}`).join(" "),
+        },
+        wireQueries: wireQuery.map((q) => `${q.fetches} fetch / ${q.updates} update: ${q.family}`),
+        topStorage: rep.boot.aggregates.slice(0, 8).map((a) => `${Math.round(a.total)}ms ×${a.count} ${a.label}`),
+        atPaint,
+        // Every storage operation and read shape, for attributing where the time went.
+        aggregates: rep.boot.aggregates.slice(0, 400).map((a) => `${Math.round(a.total)}ms ×${a.count}${a.units !== undefined ? ` ${a.units} ${a.unitName}` : ""} ${a.label}`),
+        // Milestones and live kind-1059 REQs, both since page load.
+        timeline: rep.boot.timeline.map((m) => `${Math.round(m.at)} ${m.label}${m.detail ? ` (${m.detail})` : ""}`),
+        liveReqsSent: sent.filter((r) => r.live).slice(0, 12).map((r) => `${r.t} ${r.authors.length} author(s) since ${r.since}`),
+        errors: errorsSince(mark),
+      };
+    };
+    /** What each community's #general stored beyond `base` rows by the window's end, against `want`. */
+    const storedBeyond = async (base, want) => {
+      await page.goto("/e2e/concordSeed.html");
+      await page.waitForFunction(() => Boolean(window.__armadaConcordCoverage), null, { timeout: 60_000 });
+      const stored = [];
+      for (const c of many.communities) {
+        const [general] = await page.evaluate(([id, ch]) => window.__armadaConcordCoverage(id, [ch]), [c.communityId, c.channelIds[0]]);
+        stored.push(Math.max(0, general.stored - base));
+      }
+      return { complete: `${stored.filter((n) => n >= want).length}/${stored.length}`, perCommunity: stored.join(" ") };
+    };
+    // Cold: two hours away, then the first boot.
+    const cold = await bootOnce("cold (first boot after seeding)", MISSED > 0 ? `(#c0-missed-${MISSED - 1})` : undefined);
+    if (MISSED > 0) cold.missedStored = await storedBeyond(200, MISSED);
+    // Warm: the `later` messages arrive while the app is closed, then a reload.
+    // Not before their date: a wrap from the future is held, not caught up on.
+    const untilLater = many.laterAtMs + 2_000 - Date.now();
+    if (untilLater > 0) await page.waitForTimeout(untilLater);
+    relayBody = JSON.stringify([...many.wraps, ...many.laterWraps]);
+    const warm = await bootOnce("warm (reload)", LATER > 0 ? `(#c0-later-${LATER - 1})` : undefined);
+    if (LATER > 0) warm.missedStored = await storedBeyond(200 + MISSED, LATER);
+    const span = (ws) => (ws.length ? `${Math.min(...ws.map((w) => w.created_at))}..${Math.max(...ws.map((w) => w.created_at))}` : "none");
+    const relaySpans = { later: span(many.laterWraps), planes: span(many.wraps.filter((w) => !many.communities.some((c) => c.chatPks.includes(w.pubkey)))) };
+    save("concord-many", { communities: MANY, members: MEMBERS, windowSec: WINDOW_SEC, relaySpans, cold, warm });
+    await page.evaluate(() => {
+      localStorage.removeItem("perf-inpage-relay");
+      localStorage.removeItem("perf-watch");
+    });
+  }
+
+  if (wants("dm-many")) {
+    // The seeded account (40 conversations) back after 30 minutes away: 20 DMs wait on
+    // its DM relay. A cold boot into the DM list, then 10 more arrive while the app is
+    // closed and a warm reload opens the thread they're in.
+    await installInPageScripts();
+    const MISSED_DMS = 20;
+    const LATER_DMS = 10;
+    const senders = world.peers.slice(1, 11);
+    const wrapDm = (from, i, label, createdAt) => {
+      const rumor = { kind: 14, content: `${LINES[i % LINES.length]} (dm-${label}-${i})`, tags: [["p", world.me.pubkey]], created_at: createdAt, pubkey: from.pubkey };
+      rumor.id = getEventHash(rumor);
+      const seal = finalizeEvent(
+        { kind: 13, content: nip44.encrypt(JSON.stringify(rumor), nip44.getConversationKey(from.sk, world.me.pubkey)), tags: [], created_at: createdAt },
+        from.sk,
+      );
+      const wrapSk = generateSecretKey();
+      return finalizeEvent(
+        { kind: 1059, content: nip44.encrypt(JSON.stringify(seal), nip44.getConversationKey(wrapSk, world.me.pubkey)), tags: [["p", world.me.pubkey]], created_at: createdAt },
+        wrapSk,
+      );
+    };
+    const start = Math.floor(Date.now() / 1000);
+    const missed = Array.from({ length: MISSED_DMS }, (_, i) => wrapDm(senders[i % senders.length], i, "missed", start - 1800 + i * 60));
+    const lastSender = senders[(MISSED_DMS - 1) % senders.length];
+
+    await page.goto("/e2e/screenshotSeed.html");
+    await login(world.me);
+    await page.evaluate((pk) => {
+      const key = `armada:app-config:${pk}`;
+      const cur = JSON.parse(localStorage.getItem(key) ?? "{}");
+      // One of them slow: what a DM shows behind is the point. It is one of the account's own
+      // relays too, so the self-state reads (the contact list, which this account lacks) wait on it.
+      const relays = [...(cur.relayMetadata?.relays ?? []), { url: "wss://slow.invalid", read: true, write: true }];
+      localStorage.setItem(key, JSON.stringify({
+        ...cur,
+        dmRelays: ["wss://dm.invalid", "wss://slow.invalid"],
+        relayMetadata: { relays, updatedAt: Math.floor(Date.now() / 1000), pubkey: pk },
+      }));
+      localStorage.setItem("perf-inpage-relay", "1");
+    }, world.me.pubkey);
+    relayBody = JSON.stringify(missed);
+
+    const bootDm = async (label, path, needles) => {
+      console.log(`▶ dm-many ${label}`);
+      const mark = errors.length;
+      const t0 = Date.now();
+      await page.evaluate((n) => localStorage.setItem("perf-watch", JSON.stringify({ ...n, root: "body" })), needles);
+      await page.goto(path, { waitUntil: "commit" });
+      const painted = await page.waitForFunction(() => window.__armadaSeen?.paint !== undefined, null, { timeout: 90_000 }).then(() => true, () => false);
+      await perfReady(page);
+      const wait = Number(opt("window-sec", "30")) * 1000 - (Date.now() - t0);
+      if (wait > 0) await page.waitForTimeout(wait);
+      const seen = await page.evaluate(() => window.__armadaSeen ?? {});
+      const rep = await report(page);
+      return {
+        painted,
+        paintMs: seen.paint ?? null,
+        missedShownMs: seen.missed ?? null,
+        missedLostMs: seen.missedLost ?? null,
+        timeline: rep.boot.timeline.map((m) => `${Math.round(m.at)} ${m.label}${m.detail ? ` (${m.detail})` : ""}`),
+        topStorage: rep.boot.aggregates.slice(0, 8).map((a) => `${Math.round(a.total)}ms ×${a.count} ${a.label}`),
+        aggregates: rep.boot.aggregates.slice(0, 400).map((a) => `${Math.round(a.total)}ms ×${a.count}${a.units !== undefined ? ` ${a.units} ${a.unitName}` : ""} ${a.label}`),
+        errors: errorsSince(mark),
+      };
+    };
+    // The list paints a conversation's name; the newest missed DM is its preview.
+    const cold = await bootDm("cold (DM list)", "/dm", { paint: "peer3", missed: `(dm-missed-${MISSED_DMS - 1})` });
+    const later = Array.from({ length: LATER_DMS }, (_, i) => wrapDm(lastSender, i, "later", Math.floor(Date.now() / 1000) - LATER_DMS + i));
+    relayBody = JSON.stringify([...missed, ...later]);
+    const warm = await bootDm("warm (the thread)", `/dm/${lastSender.npub}`, { paint: `(dm-missed-${MISSED_DMS - 1})`, missed: `(dm-later-${LATER_DMS - 1})` });
+    save("dm-many", { cold, warm });
+    await page.evaluate(() => {
+      localStorage.removeItem("perf-inpage-relay");
+      localStorage.removeItem("perf-watch");
+    });
+  }
+
+  if (wants("routes")) {
+    // Pages with no message timeline: how long the boot gate holds the wire on each.
+    console.log("\n▶ routes (when the wire starts on pages with no timeline)");
+    const mark = errors.length;
+    const out = {};
+    for (const path of ["/notifications", "/settings", "/discover", "/invites", `/${world.peers[1].npub}`]) {
+      await page.goto(path);
+      await perfReady(page);
+      await page.waitForTimeout(7_000);
+      const rep = await report(page);
+      const at = (label) => rep.boot.timeline.find((m) => m.label === label)?.at;
+      out[path.startsWith("/npub") ? "/<profile>" : path] = { wireMount: at("wire.mount") === undefined ? null : Math.round(at("wire.mount")) };
+    }
+    save("routes", { routes: out, errors: errorsSince(mark) });
+  }
 
   if (wants("concord-walk")) {
     // A community as a fresh device holds it: the newest page of each channel

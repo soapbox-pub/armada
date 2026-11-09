@@ -34,7 +34,7 @@ const fixture = vi.hoisted(() => {
     communities: [],
     legacyDmResult: { conversations: [], isLoading: false },
     dm17Result: { conversations: dm17Conversations, isLoading: false },
-    knownDmResult: { isKnown: () => true, isLoading: false },
+    knownDmResult: { isKnown: () => true, isLoading: false, displayLoading: false },
     closedDmResult: { isClosed: () => false, reopen: vi.fn() },
     searchMessages: vi.fn(async (..._args: unknown[]) => []),
     buildEntries: vi.fn(async () => ({
@@ -177,6 +177,7 @@ afterEach(() => {
   fixture.legacyDmResult.isLoading = false;
   fixture.dm17Result.isLoading = false;
   fixture.knownDmResult.isLoading = false;
+  fixture.knownDmResult.displayLoading = false;
   fixture.dmName = "alice";
   fixture.dmSearchText = "alice";
   vi.clearAllMocks();
@@ -224,7 +225,7 @@ describe("QuickSwitcher direct-message destinations", () => {
     (loading) => {
       if (loading === "legacy") fixture.legacyDmResult.isLoading = true;
       if (loading === "nip17") fixture.dm17Result.isLoading = true;
-      if (loading === "trust") fixture.knownDmResult.isLoading = true;
+      if (loading === "trust") fixture.knownDmResult.displayLoading = true;
       renderSwitcher();
       openSwitcher();
 

@@ -12,6 +12,7 @@ import { queryMentionRumors } from "@/concord/lib/rumorStore";
 import { openedToChatMsg } from "@/concord/hooks/useTransport";
 import type { Channel } from "@/concord/lib/types";
 import type { ChatMsg } from "@/components/chat/transport";
+import { useBootGateOpen } from "@/lib/bootGate";
 import { STORE_READ } from "@/lib/storeQuery";
 import { useWireScopes } from "@/wire/useWireScopes";
 import { concordMentionReadKey, useReadState } from "@/hooks/useReadState";
@@ -60,6 +61,7 @@ export function useConcordMentions(community: Community | undefined, channels: C
   const { user } = useCurrentUser();
   const pubkey = user?.pubkey;
   const queryClient = useQueryClient();
+  const bootGateOpen = useBootGateOpen();
   const { readState, markRead: sharedMarkRead } = useReadState();
   // Passive: ambient callers must never turn this into a per-community control-plane sweep.
   const { data: folded } = useControlFold(community, false);
@@ -106,7 +108,8 @@ export function useConcordMentions(community: Community | undefined, channels: C
         .slice(0, MENTION_LIMIT)
         .map(openedToChatMsg);
     },
-    enabled: !!communityIdHex && !!pubkey && channelIds.length > 0,
+    // After first paint, like useCommunityRumors: the rail asks for every community at once.
+    enabled: bootGateOpen && !!communityIdHex && !!pubkey && channelIds.length > 0,
     // No refetch interval: the `c2:` bus ring below is the live path (polling per
     // joined community was N unaligned scans). `staleTime: 0` keeps a remount catch-up.
     staleTime: 0,

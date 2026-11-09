@@ -84,6 +84,19 @@ async function sample(relay: string, fetcher: DateFetcher): Promise<number | und
   return relayMs - (sent + back) / 2;
 }
 
+/**
+ * The relays the clock is kept by: the account's own NIP-65 and DM relays, never a
+ * Community's, which whoever made it chose and could stack to move every member's clock.
+ */
+export function accountClockRelays(
+  relayMetadata: { relays: readonly { url: string }[]; pubkey?: string },
+  dmRelays: readonly string[],
+  pubkey: string | undefined,
+): string[] {
+  const own = relayMetadata.pubkey === undefined || relayMetadata.pubkey === pubkey ? relayMetadata.relays.map((r) => r.url) : [];
+  return [...new Set([...own, ...dmRelays])].sort();
+}
+
 /** Ask up to eight `relays` for the time and correct the clock by what they agree on; the device's clock otherwise. */
 export async function syncClockWithRelays(relays: readonly string[], fetcher: DateFetcher = defaultFetcher): Promise<void> {
   const samples = (await Promise.all(relays.slice(0, 8).map((r) => sample(r, fetcher)))).filter((s): s is number => s !== undefined);

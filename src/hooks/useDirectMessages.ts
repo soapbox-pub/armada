@@ -16,6 +16,7 @@ import { decryptCached, getRenderedPlaintext, hasRenderedPlaintext, setRenderedP
 import { useDecryptConsent } from "@/hooks/useDecryptConsent";
 import { mayBulkDecrypt, signerNeedsApproval } from "@/lib/bulkDecryptGate";
 import { setDecryptConsent } from "@/lib/decryptConsent";
+import { invalidateOnce } from "@/lib/invalidateOnce";
 import { STORE_READ } from "@/lib/storeQuery";
 import { useWireScopes } from "@/wire/useWireScopes";
 import { dmThreadScope } from "@/wire/bus";
@@ -403,12 +404,18 @@ export async function queryRelaysDmPage(
   cursors: RelayCursors,
   knownPeers: string[],
   signal: AbortSignal,
+  /** Each relay's events as that relay answers, ahead of the merged page. */
+  onRelayEvents?: (events: NostrRumor[]) => void,
 ): Promise<{ events: NostrRumor[]; cursors: RelayCursors }> {
   const byId = new Map<string, NostrRumor>();
   const nextCursors: RelayCursors = {};
 
   const results = await Promise.allSettled(
-    relays.map((url) => queryRelayDmPage(nostr, url, self, cursors[url], knownPeers, signal)),
+    relays.map(async (url) => {
+      const page = await queryRelayDmPage(nostr, url, self, cursors[url], knownPeers, signal);
+      onRelayEvents?.(page.events);
+      return page;
+    }),
   );
   let successfulRelays = 0;
 
@@ -466,7 +473,8 @@ export function useDMConversations(options?: { decryptPreviews?: boolean }) {
   const queryClient = useQueryClient();
   const eventStore = useEventStore();
   const { mutedPubkeys, ready: muteReady } = useMutedPubkeys();
-  const { knownPeers, isLoading: knownPeersLoading } = useKnownDmPeers();
+  // Filters widen when the contact list lands (the roster effect re-runs the query).
+  const { knownPeers, displayLoading: knownPeersLoading } = useKnownDmPeers();
   const { consent } = useDecryptConsent();
   const relays = effectiveDmRelays(config);
   const relayKey = relays.join(",");
@@ -501,7 +509,7 @@ export function useDMConversations(options?: { decryptPreviews?: boolean }) {
     const previous = fetchedKnownPeersRef.current;
     fetchedKnownPeersRef.current = knownPeerKey;
     if (previous !== undefined && previous !== knownPeerKey && user?.pubkey) {
-      void queryClient.invalidateQueries({ queryKey });
+      invalidateOnce(queryClient, queryKey);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.pubkey, relayKey, knownPeerKey, queryClient]);
@@ -529,6 +537,17 @@ export function useDMConversations(options?: { decryptPreviews?: boolean }) {
       ]);
       const prev = queryClient.getQueryData<NostrRumor[]>(queryKey) ?? [];
       const local = mergeDmEvents(prev, cachedEvents);
+
+      // A first sync paints once the first relay answers, not the slowest: legacy DMs are a
+      // sideline beside NIP-17's, and most accounts have none anywhere. Each relay's events
+      // merge in as it answers.
+      let relayAnswered!: () => void;
+      const firstAnswer = new Promise<void>((resolve) => (relayAnswered = resolve));
+      const mergeRelayEvents = (events: NostrRumor[]) => {
+        if (signal.aborted) return;
+        if (events.length > 0) queryClient.setQueryData<NostrRumor[]>(queryKey, (old = []) => mergeDmEvents(old, events));
+        relayAnswered();
+      };
 
       // 2. THROTTLED, un-awaited per-relay refresh that seeds the cursors.
       const pullDue = Date.now() - lastPullRef.current >= PULL_MIN_INTERVAL_MS;
@@ -579,6 +598,7 @@ export function useDMConversations(options?: { decryptPreviews?: boolean }) {
             {}, // first page per relay (no `until`)
             scopedKnownPeers,
             AbortSignal.any([signal, AbortSignal.timeout(8000)]),
+            mergeRelayEvents,
           );
           if (signal.aborted) return;
           cursorsRef.current = cursors;
@@ -597,7 +617,7 @@ export function useDMConversations(options?: { decryptPreviews?: boolean }) {
       // First sync: nothing local, so await the network. Re-read the cache (the
       // pull merges via `setQueryData`) rather than returning pre-pull `local`.
       if (firstSync) {
-        await pull;
+        await Promise.race([pull, firstAnswer]);
         return mergeDmEvents(local, queryClient.getQueryData<NostrRumor[]>(queryKey) ?? []);
       }
 
@@ -652,9 +672,7 @@ export function useDMConversations(options?: { decryptPreviews?: boolean }) {
 
   // Re-read when the wire announces a kind-4 change (the relay pull is throttled separately).
   useWireScopes((scopes) => {
-    if (user?.pubkey && scopes.has("dm")) {
-      void queryClient.invalidateQueries({ queryKey });
-    }
+    if (user?.pubkey && scopes.has("dm")) invalidateOnce(queryClient, queryKey);
   });
 
   const self = user?.pubkey ?? "";

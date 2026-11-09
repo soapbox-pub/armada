@@ -21,6 +21,8 @@ export interface NotifyCandidate {
   plane: "nip29" | "dm" | "c2";
   author: string;
   createdAt: number;
+  /** The rumor's time to the millisecond (`ms`, CORD-02 §4); Concord only. */
+  ms?: number;
   /** Event `p`-tags the user (always implied for DMs). */
   mention: boolean;
   /** A kind-7 reaction `p`-tagging the user's own message. */
@@ -101,6 +103,24 @@ export function dm17NotifyCandidates(opened: OpenedDm[], self: string): NotifyCa
 }
 
 let sink: NotifySink | undefined;
+let recheck: ((candidate: NotifyCandidate) => boolean) | undefined;
+
+/** Register how a held candidate is judged again once due (the wire's spec as it stands). Returns an unregister. */
+export function registerCandidateRecheck(next: (candidate: NotifyCandidate) => boolean): () => void {
+  recheck = next;
+  return () => {
+    if (recheck === next) recheck = undefined;
+  };
+}
+
+/** Whether a held candidate still rings now; with nothing registered, as when it arrived. */
+export function candidateStillRings(candidate: NotifyCandidate): boolean {
+  try {
+    return recheck?.(candidate) ?? true;
+  } catch {
+    return true;
+  }
+}
 
 /** Register the foreground notifier's sink. Returns an unregister. */
 export function registerNotifySink(next: NotifySink): () => void {

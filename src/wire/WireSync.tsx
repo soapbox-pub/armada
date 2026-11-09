@@ -1,8 +1,7 @@
 import { App as CapacitorApp } from "@capacitor/app";
-import { communityNicknames, restrictedPostersIn, runningTimeouts, sendDeniedIn } from "@/concord/lib/channelJudges";
-import { currentGuestbookGroup } from "@/concord/lib/guestbook";
-import { queryPlane, withGuestbookStreams } from "@/concord/lib/rumorStore";
-import { CLOCK_RESYNC_MS, clockNowMs, syncClockWithRelays } from "@/lib/relayClock";
+import { restrictedPostersIn, sendDeniedIn } from "@/concord/lib/channelJudges";
+import { storedGuestbookExtras, type GuestbookExtras } from "@/concord/lib/guestbookExtras";
+import { accountClockRelays, CLOCK_RESYNC_MS, syncClockWithRelays } from "@/lib/relayClock";
 import { drainWrapScrubs, purgeDeletedChannel, queuedWrapScrubs } from "@/concord/lib/channelPurge";
 import { useAccountSecret } from "@/hooks/useAccountSecret";
 import { deleteBlobs } from "@/lib/blossomDelete";
@@ -55,11 +54,11 @@ import { logSync } from "@/lib/syncLog";
 import { perfCount, perfMark } from "@/lib/perf";
 import { emitWireScopes, onWireScopes } from "@/wire/bus";
 import { useWireNip29Groups } from "@/wire/useWireNip29Groups";
-import { ingestWireEvents } from "@/wire/ingest";
-import { registerPushedEventIngest } from "@/wire/notify";
+import { concordCandidateRings, ingestWireEvents } from "@/wire/ingest";
+import { registerCandidateRecheck, registerPushedEventIngest } from "@/wire/notify";
 import { verifyEventOnce } from "@/lib/verifyCache";
 import { bootLedgers, isLedgerFilter, partitionByLedger, recordLedger, type BootLedger } from "@/wire/bootLedger";
-import { PROBE_FILTER, PROBE_TIMEOUT_MS, roundWatch, settleDue } from "@/wire/roundWatch";
+import { filtersWiden, PROBE_FILTER, PROBE_TIMEOUT_MS, roundWatch, settleDue } from "@/wire/roundWatch";
 import { buildWireSpec, stampRoundSince, type WireSpec } from "@/wire/spec";
 import type { GitRepositoryWireInput } from "@/wire/spec";
 
@@ -232,7 +231,9 @@ export async function purgeDeletedChannels(
   }
 }
 
-function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; roleMentions?: HeldRoleMention[]; roleMentionAuthors?: Set<string>; sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[]; nicknames?: Record<string, string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> }> {
+type WireConcordChannel = { relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; roleMentions?: HeldRoleMention[]; roleMentionAuthors?: Set<string>; sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[]; nicknames?: Record<string, string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> };
+
+function useWireConcordChannels(): WireConcordChannel[] {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const secret = useAccountSecret();
@@ -243,26 +244,19 @@ function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; c
   const { isConcordChannelMuted } = useMutes();
   const { concordChannelLevel } = useNotifLevels();
   const entries = useJoinedCommunities();
-  // Keep the clock by the relays the account uses (CORD-03 §3): every relay the pool is
-  // connected to, as Vector asks its client's, now and again hourly.
-  const relaySig = useMemo(
-    () => [...new Set(entries.flatMap((e) => e.current.relays ?? []))].sort().join(" "),
-    [entries],
-  );
+  // Keep the clock by the relays the account uses (CORD-03 §3), now and again hourly;
+  // with none, the device's own clock.
+  const { config } = useAppContext();
+  const relaySig = accountClockRelays(config.relayMetadata, config.dmRelays, user?.pubkey).join(" ");
   useEffect(() => {
-    const sample = () => {
-      const connected = [...(nostr as { relays?: ReadonlyMap<string, unknown> }).relays?.keys() ?? []];
-      const relays = connected.length > 0 ? connected : relaySig ? relaySig.split(" ") : [];
-      if (relays.length > 0) void syncClockWithRelays(relays);
-    };
-    // The pool connects as subscriptions open; a moment after mount it holds the account's relays.
+    const sample = () => void syncClockWithRelays(relaySig ? relaySig.split(" ") : []);
     const first = setTimeout(sample, 5_000);
     const timer = setInterval(sample, CLOCK_RESYNC_MS);
     return () => {
       clearTimeout(first);
       clearInterval(timer);
     };
-  }, [nostr, relaySig]);
+  }, [relaySig]);
   const listSig = useMemo(
     () =>
       entries
@@ -315,7 +309,7 @@ function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; c
     [queryClient],
   );
 
-  const query = useQuery<Array<{ relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; roleMentions?: HeldRoleMention[]; roleMentionAuthors?: Set<string>; sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[]; nicknames?: Record<string, string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> }>>({
+  const query = useQuery<WireConcordChannel[]>({
     queryKey: ["wire", "concord-channels", listSig, activationEpoch],
     enabled: entries.length > 0,
     staleTime: 30_000,
@@ -325,7 +319,7 @@ function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; c
     queryFn: async () => {
       // Deferral flags must be loaded, or a reload skips owed catch-ups.
       await deferredFlags.ready();
-      const out: Array<{ relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; roleMentions?: HeldRoleMention[]; roleMentionAuthors?: Set<string>; sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[]; nicknames?: Record<string, string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> }> = [];
+      const out: WireConcordChannel[] = [];
       for (const entry of entries) {
         const community = rehydrateCommunity(entry);
         if (!community || community.relays.length === 0) continue;
@@ -384,16 +378,6 @@ function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; c
         // The Roles this viewer holds, so a Role mention notifies (CORD-04 §8).
         const roleMentions = folded && user ? heldRoleMentions(folded.roster, user.pubkey) : [];
         const roleMentionAuthorSet = folded && roleMentions.length > 0 ? new Set(roleMentionAuthors(folded.roster, folded.ownerHex)) : undefined;
-        // Silence and names are extras: a failure to read them costs those, never the subs.
-        let timeouts: ReturnType<typeof runningTimeouts> = [];
-        let nicknames: Record<string, string> = {};
-        try {
-          const guestbook = await withGuestbookStreams(community, await queryPlane(community.idHex, "guestbook"));
-          timeouts = runningTimeouts(guestbook, folded, community.id, clockNowMs());
-          nicknames = communityNicknames(guestbook, folded, community.id, currentGuestbookGroup(community).pk, clockNowMs());
-        } catch {
-          // keep none
-        }
         for (const channel of channels) {
           const denied = sendDeniedIn(folded, channel.idHex);
           const posters = restrictedPostersIn(folded, channel.idHex);
@@ -406,8 +390,6 @@ function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; c
             ...(roleMentionAuthorSet ? { roleMentions, roleMentionAuthors: roleMentionAuthorSet } : {}),
             ...(denied.length > 0 ? { sendDenied: new Set(denied) } : {}),
             ...(posters ? { postAuthors: new Set(posters) } : {}),
-            ...(timeouts.length > 0 ? { timeouts } : {}),
-            ...(Object.keys(nicknames).length > 0 ? { nicknames } : {}),
             gitAttachments: channelGitRepositoryAttachments(folded?.channels.get(channel.idHex)?.metadata ?? { name: channel.name, private: channel.isPrivate }),
           });
           keys.push(...signingStreams(channel));
@@ -419,7 +401,42 @@ function useWireConcordChannels(): Array<{ relays: string[]; channel: Channel; c
     },
   });
 
-  return query.data ?? [];
+  // Timeouts and Nicknames only judge what rings, so they never hold the subscriptions
+  // back: read beside them, every community at once, and merged in when they land.
+  // Under the same key prefix, so whatever re-reads the channels re-reads these.
+  const subscribedIds = useMemo(() => [...new Set((query.data ?? []).map((c) => c.communityIdHex))].sort(), [query.data]);
+  const extras = useQuery({
+    queryKey: ["wire", "concord-channels", "guestbook", listSig, subscribedIds.join(",")],
+    enabled: subscribedIds.length > 0,
+    staleTime: 30_000,
+    refetchInterval: 2 * 60_000,
+    refetchIntervalInBackground: false,
+    queryFn: async () => {
+      const byId = new Map(entries.map((e) => [e.community_id.toLowerCase(), e]));
+      const read = await Promise.all(
+        subscribedIds.map(async (idHex) => {
+          const entry = byId.get(idHex);
+          const community = entry ? rehydrateCommunity(entry) : undefined;
+          return [idHex, community ? await storedGuestbookExtras(community, await readControlFold(idHex)) : undefined] as const;
+        }),
+      );
+      return new Map(read.filter((r): r is readonly [string, GuestbookExtras] => r[1] !== undefined));
+    },
+  });
+
+  return useMemo(() => {
+    const channels = query.data ?? [];
+    if (!extras.data) return channels;
+    return channels.map((c) => {
+      const x = extras.data.get(c.communityIdHex);
+      if (!x || (x.timeouts.length === 0 && Object.keys(x.nicknames).length === 0)) return c;
+      return {
+        ...c,
+        ...(x.timeouts.length > 0 ? { timeouts: x.timeouts } : {}),
+        ...(Object.keys(x.nicknames).length > 0 ? { nicknames: x.nicknames } : {}),
+      };
+    });
+  }, [query.data, extras.data]);
 }
 
 /** Newest events scanned per relay for a server's dot (smaller than the rail's 300; misses err safe). */
@@ -677,12 +694,19 @@ function useWireConcordGuestbook(): Array<{
  */
 export function WireSync() {
   // Mount only once the boot gate opens so the replay doesn't compete with
-  // first-paint reads; durable cursors make the later start lossless.
+  // first-paint reads; durable cursors make the later start lossless. Those
+  // three small prefix reads start now, so the first round isn't held on them.
+  useEffect(() => {
+    void cursors.ready();
+    void bootLedgers.ready();
+    void deferredFlags.ready();
+  }, []);
   const bootGateOpen = useBootGateOpen();
   return bootGateOpen ? <WireSyncInner /> : null;
 }
 
 function WireSyncInner() {
+  useEffect(() => perfMark("wire.mount"), []);
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const { config } = useAppContext();
@@ -751,6 +775,7 @@ function WireSyncInner() {
     getSpec: () => specRef.current,
     getSelfPubkey: () => user?.pubkey,
   });
+  useEffect(() => registerCandidateRecheck((cand) => concordCandidateRings(specRef.current, cand)), []);
   sinksRef.current = {
     eventStore,
     getSpec: () => specRef.current,
@@ -763,8 +788,10 @@ function WireSyncInner() {
   const quiet = useSyncExternalStore(onBackgroundQuiet, isBackgroundQuiet, () => false);
   // Relays that never connect are left alone until their cooldown ends (relayHealth.ts).
   const healthVersion = useSyncExternalStore(onRelayHealthChange, relayHealthVersion, () => 0);
-  const loopsRef = useRef(new Map<string, { sig: string; stop: () => void; bump: () => void }>());
+  const loopsRef = useRef(new Map<string, { sig: string; filters: NostrFilter[]; stop: () => void; bump: () => void }>());
   const loopsOwnerRef = useRef<{ nostr: unknown; pubkey?: string } | null>(null);
+  // The filters each relay should carry now, for a loop that starts after a wait.
+  const desiredRef = useRef(new Map<string, NostrFilter[]>());
   // Explicit-`since` filters (git child / CI bootstraps) whose replay reached
   // EOSE this session; later rounds resume from the cursor.
   const bootstrappedRef = useRef(new Set<string>());
@@ -780,8 +807,15 @@ function WireSyncInner() {
   useEffect(() => {
     const loops = loopsRef.current;
 
-    const startRelayLoop = (relay: string, filters: NostrFilter[]) => {
+    const startRelayLoop = (relay: string, initial: NostrFilter[]) => {
       const controller = new AbortController();
+      let filters = initial;
+      const record = {
+        sig: JSON.stringify(initial),
+        filters: initial,
+        stop: () => controller.abort(),
+        bump: () => bumpRound(),
+      };
       // Aborts the current round and skips backoff sleep (reopen/visibility).
       let bumpRound = () => {};
       void (async () => {
@@ -805,6 +839,13 @@ function WireSyncInner() {
           });
         // Wait for KV cursors, or every launch re-ingests the backlog.
         await Promise.all([cursors.ready(), bootLedgers.ready()]);
+        // Nothing sent yet: take the spec as it stands now, rather than restart for it later.
+        const latest = desiredRef.current.get(relay);
+        if (latest && JSON.stringify(latest) !== record.sig) {
+          filters = latest;
+          record.filters = latest;
+          record.sig = JSON.stringify(latest);
+        }
         // Only the first round and anomalies are logged.
         let firstRound = true;
         // Once a round reached EOSE, the DM wrap and Git child filters shrink
@@ -864,6 +905,7 @@ function WireSyncInner() {
             }
           }, WATCHDOG_TICK_MS);
           if (firstRound) {
+            perfMark("wire.round open", `${relay} ${filters.length} filter(s)`);
             logSync("wire", `${relay}: round open (since=${since}, ${filters.length} filter(s))`);
             firstRound = false;
           }
@@ -946,11 +988,7 @@ function WireSyncInner() {
           backoff = Math.min(backoff * 2, 60_000);
         }
       })();
-      return {
-        sig: JSON.stringify(filters),
-        stop: () => controller.abort(),
-        bump: () => bumpRound(),
-      };
+      return record;
     };
 
     if (loopsOwnerRef.current?.nostr !== nostr || loopsOwnerRef.current?.pubkey !== user?.pubkey) {
@@ -967,9 +1005,11 @@ function WireSyncInner() {
         ? spec.subs.filter(({ relay }) => !isRelayUnreachable(relay)).map(({ relay, filters }) => [relay, filters])
         : [],
     );
+    desiredRef.current = desired;
     const now = Date.now();
     const settle = settleRef.current;
     const changed: string[] = [];
+    let widening = true;
     for (const [relay, loop] of loops) {
       const filters = desired.get(relay);
       if (!filters) {
@@ -977,6 +1017,7 @@ function WireSyncInner() {
         loops.delete(relay);
       } else if (JSON.stringify(filters) !== loop.sig) {
         changed.push(relay);
+        widening &&= filtersWiden(filters, loop.filters);
       }
     }
     if (changed.length === 0) {
@@ -984,7 +1025,7 @@ function WireSyncInner() {
       settle.dueAt = undefined;
     } else {
       settle.firstAt ??= now;
-      const due = settleDue(settle.firstAt, settle.dueAt, now);
+      const due = settleDue(settle.firstAt, settle.dueAt, now, widening);
       if (due === true) {
         for (const relay of changed) {
           loops.get(relay)?.stop();

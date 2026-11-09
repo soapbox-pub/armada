@@ -9,6 +9,7 @@ import { openDB } from "idb";
 
 import { perfCount, perfKvWrite, perfMark, perfTime } from "@/lib/perf";
 
+import { installChunkedScans } from "./chunkedScans";
 import { ParsedFilter } from "./ParsedFilter";
 import {
   defaultIndexTags,
@@ -36,6 +37,8 @@ import type {
   TenantOpts,
   TermPolicy,
 } from "./types";
+
+installChunkedScans();
 
 /** Strip the placeholder signature `NIndexedDB` round-trips. */
 function toRumor(event: NostrEvent): NostrRumor {
