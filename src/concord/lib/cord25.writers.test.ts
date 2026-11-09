@@ -90,7 +90,7 @@ describe("posting as a writer in a restricted Channel (Vector fixture)", () => {
     const wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, target.group, signer), target.group);
     const [mine] = await openChatBatch([wrap], general, { remember: false });
     expect(mine.content).toBe("from Armada");
-    const judge = writerJudge(folded, actors.general, community.id, actors.owner)!;
+    const judge = writerJudge(folded, actors.general, community.id)!;
     expect(judge.stands(mine)).toBe(true);
     expect(judge.stands(vectorPost)).toBe(true);
   });

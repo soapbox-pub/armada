@@ -131,15 +131,14 @@ export const ENTRY_SKEW_MS = 10 * 60_000;
  * ledger, at an address that takes it from a writer who hadn't left, or on the
  * Roster, from a member who manages the Channel or may post there and crossed a
  * move of the ledger. `history` is the Guestbook; while it's unread, membership
- * and departures aren't judged. A manager sees the rest collapsed, everyone else not at all.
+ * and departures aren't judged.
  */
 export function writerJudge(
   control: FoldedControl | undefined,
   channelIdHex: string | null,
   communityId: Uint8Array | undefined,
-  readerHex: string | undefined,
   history?: GuestbookHistory,
-): { stands: (m: OpenedChat) => boolean; iManage: boolean } | undefined {
+): { stands: (m: OpenedChat) => boolean } | undefined {
   const ledger = channelIdHex ? control?.writers?.get(channelIdHex) : undefined;
   if (!control || !ledger || !communityId || !channelIdHex) return undefined;
   const owner = control.ownerHex;
@@ -177,5 +176,20 @@ export function writerJudge(
     const wepoch = tag === undefined ? undefined : Number(tag);
     return byLedger(m, wepoch) || vouched(m, wepoch);
   };
-  return { stands, iManage: readerHex !== undefined && manages(readerHex) };
+  return { stands };
+}
+
+/**
+ * The timeline's rules for a Channel: posts the Roster collapses stay openable, and a
+ * restricted Channel's posts its ledger doesn't stand behind are held from every
+ * reader, managers included.
+ */
+export function timelineRules(
+  collapse: ((m: OpenedChat) => boolean) | undefined,
+  judge: { stands: (m: OpenedChat) => boolean } | undefined,
+): { collapse?: (m: OpenedChat) => boolean; hold?: (m: OpenedChat) => boolean } {
+  return {
+    ...(collapse ? { collapse } : {}),
+    ...(judge ? { hold: (m: OpenedChat) => !judge.stands(m) } : {}),
+  };
 }

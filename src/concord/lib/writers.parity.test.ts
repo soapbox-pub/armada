@@ -8,7 +8,7 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it, vi } from "vitest";
 
-import { restrictedPostersIn, writerJudge } from "@/concord/lib/channelJudges";
+import { restrictedPostersIn, timelineRules, writerJudge } from "@/concord/lib/channelJudges";
 import { foldTimeline, type OpenedChat } from "@/concord/lib/chat";
 import { channelsView } from "@/concord/lib/community";
 import { foldControlState } from "@/concord/lib/control";
@@ -65,7 +65,7 @@ describe("who rings at a restricted Channel's read address (CORD-03 §1 Held pos
   it("names the owner and the managers, as the judge vouches for them, and nobody while the read address takes everyone's", () => {
     const { c, ch, admin, folded } = restricted();
     expect(restrictedPostersIn(folded, ch)).toEqual([c.owner, admin].sort());
-    const judge = writerJudge(folded, ch, c.id, undefined)!;
+    const judge = writerJudge(folded, ch, c.id)!;
     // Past the move's skew, where only a vouched post stands at the read address.
     expect(judge.stands(post(hexKey(), ch, T0 + 20 * MIN))).toBe(false);
     expect(judge.stands(post(admin, ch, T0 + 20 * MIN))).toBe(true);
@@ -73,11 +73,26 @@ describe("who rings at a restricted Channel's read address (CORD-03 §1 Held pos
   });
 });
 
+describe("what a restricted Channel's timeline shows", () => {
+  it("holds a lone post the ledger doesn't stand behind from every reader, the owner included", () => {
+    const { c, ch, folded } = restricted();
+    const rules = timelineRules(undefined, writerJudge(folded, ch, c.id));
+    const before = post(hexKey(), ch, T0 - MIN);
+    const stray = post(hexKey(), ch, T0 + 20 * MIN);
+    const mine = post(c.owner, ch, T0 + 21 * MIN, { tags: [["wepoch", "1"]] });
+    for (const self of [c.owner, hexKey()]) {
+      const timeline = foldTimeline([before, stray, mine], undefined, { self, ...rules });
+      expect(timeline.messages.map((m) => m.rumorId)).toEqual([before.rumorId, mine.rumorId]);
+      expect(timeline.quarantined.size).toBe(0);
+    }
+  });
+});
+
 describe("which posts a restricted Channel stands behind", () => {
   it("baseline: a writer's post at the writer address, inside its window, stands", () => {
     const { c, ch, folded } = restricted();
     const writer = hexKey();
-    const judge = writerJudge(folded, ch, c.id, undefined)!;
+    const judge = writerJudge(folded, ch, c.id)!;
     expect(judge.stands(post(writer, ch, T0 + MIN, { tags: [["wepoch", "1"]] }))).toBe(true);
   });
 
@@ -85,7 +100,7 @@ describe("which posts a restricted Channel stands behind", () => {
     const { c, ch, folded } = restricted();
     const writer = hexKey();
     const guestbook = new Map([member(writer, "leave", T0 + MIN)]);
-    const judge = writerJudge(folded, ch, c.id, undefined, guestbook)!;
+    const judge = writerJudge(folded, ch, c.id, guestbook)!;
     expect(judge.stands(post(writer, ch, T0 + 2 * MIN, { tags: [["wepoch", "1"]] }))).toBe(false);
   });
 
@@ -93,7 +108,7 @@ describe("which posts a restricted Channel stands behind", () => {
     const { c, ch, folded } = restricted();
     const writer = hexKey();
     const kicked = new Map([member(writer, "kick", T0 + MIN)]);
-    const judge = writerJudge(folded, ch, c.id, undefined, kicked)!;
+    const judge = writerJudge(folded, ch, c.id, kicked)!;
     expect(judge.stands(post(writer, ch, T0 + 2 * MIN, { tags: [["wepoch", "1"]] }))).toBe(false);
   });
 
@@ -102,36 +117,36 @@ describe("which posts a restricted Channel stands behind", () => {
     const writer = hexKey();
     const entry = (state: CoalescedMember["state"], ms: number) => ({ pubkey: writer, state, ms, rumorId: hexKey(), fromSnapshot: false });
     const history = new Map([[writer, [entry("join", T0 - 10 * MIN), entry("kick", T0 - 5 * MIN), entry("join", T0 + MIN)]]]);
-    const judge = writerJudge(folded, ch, c.id, undefined, history)!;
+    const judge = writerJudge(folded, ch, c.id, history)!;
     expect(judge.stands(post(writer, ch, T0 + 2 * MIN, { tags: [["wepoch", "1"]] }))).toBe(false);
     // A span that closed before the window opened reaches nothing.
     const before = new Map([[writer, [entry("join", T0 - 10 * MIN), entry("kick", T0 - 5 * MIN), entry("join", T0 - MIN)]]]);
-    expect(writerJudge(folded, ch, c.id, undefined, before)!.stands(post(writer, ch, T0 + 2 * MIN, { tags: [["wepoch", "1"]] }))).toBe(true);
+    expect(writerJudge(folded, ch, c.id, before)!.stands(post(writer, ch, T0 + 2 * MIN, { tags: [["wepoch", "1"]] }))).toBe(true);
   });
 
   it("stands a writer-address post while the Channel is open again (CORD-03 §1: 'anyone may post then')", () => {
     const { c, ch, folded } = restricted([{ at: T0 + MIN, open: true }]);
-    const judge = writerJudge(folded, ch, c.id, undefined)!;
+    const judge = writerJudge(folded, ch, c.id)!;
     expect(judge.stands(post(hexKey(), ch, T0 + 2 * MIN, { tags: [["wepoch", "1"]] }))).toBe(true);
   });
 
   it("stands a member's read-address post dated less than ten minutes past the restrict (Vector `crossed_a_move`)", () => {
     const { c, ch, folded } = restricted();
     const author = hexKey();
-    const judge = writerJudge(folded, ch, c.id, undefined, new Map([member(author, "join", T0 - MIN)]))!;
+    const judge = writerJudge(folded, ch, c.id, new Map([member(author, "join", T0 - MIN)]))!;
     expect(judge.stands(post(author, ch, T0 + 5 * MIN))).toBe(true);
   });
 
   it("doesn't stand a manager's post once they've left the Community (CORD-03 §1: 'no writer or manager, whatever a Role still says')", () => {
     const { c, admin, ch, folded } = restricted();
-    const judge = writerJudge(folded, ch, c.id, undefined, new Map([member(admin, "leave", T0 + MIN)]))!;
+    const judge = writerJudge(folded, ch, c.id, new Map([member(admin, "leave", T0 + MIN)]))!;
     expect(judge.stands(post(admin, ch, T0 + 2 * MIN))).toBe(false);
   });
 
   it("undoes an edit a stopped writer makes at the writer address (CORD-03 §1 Take-backs)", () => {
     const writer = point();
     const { c, ch, folded } = restricted([{ at: T0 + 2 * MIN, stop: writer }]);
-    const judge = writerJudge(folded, ch, c.id, undefined)!;
+    const judge = writerJudge(folded, ch, c.id)!;
     const original = post(writer, ch, T0 + MIN, { tags: [["wepoch", "1"]] });
     const edit = post(writer, ch, T0 + 3 * MIN, { kind: KIND_EDIT, content: "rewritten", tags: [["e", original.rumorId], ["wepoch", "1"]] });
     const timeline = foldTimeline([original, edit], undefined, { hold: (m) => !judge.stands(m) });
@@ -141,14 +156,14 @@ describe("which posts a restricted Channel stands behind", () => {
   it("stands a member's reaction at the read address, which never rides a writer address (CORD-03 §1; Vector `stands_by_ledger`, `rides_writer_address`)", () => {
     const { c, ch, folded } = restricted();
     const author = hexKey();
-    const judge = writerJudge(folded, ch, c.id, undefined, new Map([member(author, "join", T0 - MIN)]))!;
+    const judge = writerJudge(folded, ch, c.id, new Map([member(author, "join", T0 - MIN)]))!;
     expect(judge.stands(post(author, ch, T0 + 30 * MIN, { kind: 7, content: "+", tags: [["e", hexKey()]] }))).toBe(true);
   });
 
   it("stands a member's delete of their own post at the read address (CORD-03 §1; Vector `rides_writer_address`)", () => {
     const { c, ch, folded } = restricted();
     const author = hexKey();
-    const judge = writerJudge(folded, ch, c.id, undefined, new Map([member(author, "join", T0 - MIN)]))!;
+    const judge = writerJudge(folded, ch, c.id, new Map([member(author, "join", T0 - MIN)]))!;
     expect(judge.stands(post(author, ch, T0 + 30 * MIN, { kind: 5, content: "", tags: [["e", hexKey()]] }))).toBe(true);
   });
 

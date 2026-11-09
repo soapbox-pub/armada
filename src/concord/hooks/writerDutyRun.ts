@@ -115,7 +115,7 @@ async function publishOnPlane(env: WriterDutyEnv, community: Community, channelI
  */
 async function newestPost(env: WriterDutyEnv, communityIdHex: string, channelIdHex: string): Promise<number | undefined> {
   const { community, folded, history } = env.now();
-  const judge = community ? writerJudge(folded, channelIdHex, community.id, env.user.pubkey, history) : undefined;
+  const judge = community ? writerJudge(folded, channelIdHex, community.id, history) : undefined;
   const rows: OpenedChat[] = await queryChannelRumors(communityIdHex, channelIdHex, { limit: 50 }).catch(() => []);
   let newest: number | undefined;
   for (const r of rows) {

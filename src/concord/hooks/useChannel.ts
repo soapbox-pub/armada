@@ -10,7 +10,7 @@ import { timeoutRunning } from "@/concord/lib/guestbook";
 import { heldRoleMentions, pingableRoles, rolePings } from "@/concord/lib/roleMentions";
 import { canScrub, scrubbedDeleteExpiry, scrubOwnWraps, sendWrapOwner } from "@/concord/lib/wrapScrub";
 import { useAccountSecret } from "@/hooks/useAccountSecret";
-import { mayHideIn, restrictedPostersIn, timelineCollapse, writerJudge as writerJudgeOf } from "@/concord/lib/channelJudges";
+import { mayHideIn, restrictedPostersIn, timelineCollapse, timelineRules, writerJudge as writerJudgeOf } from "@/concord/lib/channelJudges";
 import { persistTimelineSnapshot, prewarmTimelineSnapshot, takeSnapshotSeed } from "@/concord/hooks/timelineSnapshot";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useKeyedMemo } from "@/hooks/useKeyedMemo";
@@ -314,9 +314,10 @@ export function useChannelTimeline(
   const collapse = useMemo(() => timelineCollapse(control, channelIdHex, timeouts, clockNowMs(), publicUntil), [control, channelIdHex, timeouts, publicUntil]);
   // A restricted Channel's posts stand by its Writers ledger (CORD-03 §1).
   const writerJudge = useMemo(
-    () => writerJudgeOf(control, channelIdHex, community?.id, readingUser?.pubkey, history),
-    [control, channelIdHex, community, readingUser?.pubkey, history],
+    () => writerJudgeOf(control, channelIdHex, community?.id, history),
+    [control, channelIdHex, community, history],
   );
+  const rules = useMemo(() => timelineRules(collapse, writerJudge), [collapse, writerJudge]);
   // Cutoffs included: retirement can change without the epoch set changing.
   const epochSig = channel?.streams.map((s) => `${s.epoch}:${s.retiredAt ?? ""}`).join(",") ?? "";
   const queryKey = useMemo(() => channelKey(channelIdHex), [channelIdHex]);
@@ -975,10 +976,7 @@ export function useChannelTimeline(
       ...(firstSeen ? { firstSeen } : {}),
       ...(establishedSinceMs !== undefined ? { establishedSinceMs } : {}),
       ...(pauseSince !== undefined ? { pauseSince } : {}),
-      ...(collapse || writerJudge?.iManage
-        ? { collapse: (m: OpenedChat) => Boolean(collapse?.(m)) || (writerJudge?.iManage === true && !writerJudge.stands(m)) }
-        : {}),
-      ...(writerJudge && !writerJudge.iManage ? { hold: (m: OpenedChat) => !writerJudge.stands(m) } : {}),
+      ...rules,
     });
     // Past sessions' verdicts keep yesterday's wall folded after a refresh.
     const remembered = community?.idHex && channelIdHex
@@ -998,7 +996,7 @@ export function useChannelTimeline(
       return { ...merged, messages: merged.messages.filter((m) => !hidden.has(m.rumorId)) };
     }
     return merged;
-  }, [moderated, moderation, optimisticDeleted, readingUser?.pubkey, firstSeen, establishedSinceMs, pauseSince, collapse, writerJudge, community?.idHex, channelIdHex, memoryRev, revealTick]);
+  }, [moderated, moderation, optimisticDeleted, readingUser?.pubkey, firstSeen, establishedSinceMs, pauseSince, rules, community?.idHex, channelIdHex, memoryRev, revealTick]);
 
   // A removed message's media leaves this device too: a moderator deleting it
   // (abuse, CSAM) shouldn't leave its plaintext in the decrypt cache.
