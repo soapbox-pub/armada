@@ -372,7 +372,7 @@ function MentionItem({
             <DisplayName pubkey={pubkey} name={displayName} tags={profile.event.tags} />
           </div>
           <BotPill metadata={metadata} />
-          <UltraPill metadata={metadata} />
+          <UltraPill metadata={metadata} interactive={false} />
         </div>
         <div className="text-xs text-muted-foreground truncate font-mono text-2xs">
           {identifier}

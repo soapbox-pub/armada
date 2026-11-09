@@ -56,7 +56,7 @@ export function UltraMessage({ self, name, frame, children }: { self: UltraSelf;
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <UltraName name={self.name} style={name} className="text-sm" />
-          <UltraPill force />
+          <UltraPill force interactive={false} />
         </div>
         <p className="text-sm text-foreground/90">
           {children ?? <FormattedMessage id="ultraIllustrations.message" defaultMessage="gm everyone, I'm Ultra now ✨" />}

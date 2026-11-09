@@ -380,7 +380,7 @@ function ProfilePreview({ name, metadata, imeta, photoUrl, look, onPhoto }: {
               </button>
             ) : avatar}
           </span>
-          <UltraPill force className="mb-1" />
+          <UltraPill force interactive={false} className="mb-1" />
         </div>
         <UltraName name={name} style={look.name} className="block text-2xl font-black" />
         <p className="mt-1 text-sm text-foreground/80">

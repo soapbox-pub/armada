@@ -181,7 +181,7 @@ function ProfileRow({
             <DisplayName pubkey={pubkey} name={displayName} tags={profile.event.tags} />
           </div>
           <BotPill metadata={metadata} />
-          <UltraPill metadata={metadata} />
+          <UltraPill metadata={metadata} interactive={false} />
         </div>
         <div className="truncate font-mono text-2xs text-muted-foreground">{identifier}</div>
       </div>

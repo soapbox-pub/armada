@@ -290,7 +290,7 @@ const ConversationRow = memo(function ConversationRow({
                 )}
               </div>
               {!noteToSelf && !group && <BotPill metadata={metadata} />}
-              {!noteToSelf && !group && <UltraPill metadata={metadata} />}
+              {!noteToSelf && !group && <UltraPill metadata={metadata} interactive={false} />}
             </div>
             {(preview || secondLine) && (
               <div className={cn("text-sm truncate", unread ? "text-foreground/80" : "text-muted-foreground")}>
