@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, KeyRound, Loader2, MessagesSquare, Pause } from "lucide-react";
+import { ChevronDown, ChevronUp, KeyRound, Loader2, MessagesSquare, Pause, ShieldOff } from "lucide-react";
 import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -173,28 +173,30 @@ function KeyRotationDivider() {
 /**
  * A run the transport marked as flood (`quarantinedIds`), folded into one
  * openable row — a summary, not a removal, since the heuristic can be wrong.
- * `paused` swaps the copy for a community pause (CORD-04 §8), where flood
- * wording would be a false accusation.
+ * `reason` swaps the copy for a community pause or the community's permissions
+ * (CORD-04 §8), where flood wording would be a false accusation.
  */
 function FloodNotice({
   count,
   authors,
-  paused,
+  reason,
   expanded,
   onToggle,
 }: {
   count: number;
   authors: number;
-  paused: boolean;
+  reason: FoldReason;
   expanded: boolean;
   onToggle: () => void;
 }) {
   const intl = useIntl();
   const label = expanded
-    ? paused
+    ? reason === "paused"
       ? intl.formatMessage({ id: "messageTimeline.flood.hidePaused", defaultMessage: "Hide messages sent while paused" })
-      : intl.formatMessage({ id: "messageTimeline.flood.hideSimilar", defaultMessage: "Hide similar messages" })
-    : paused
+      : reason === "ruled"
+        ? intl.formatMessage({ id: "messageTimeline.flood.hideRuled", defaultMessage: "Hide these messages" })
+        : intl.formatMessage({ id: "messageTimeline.flood.hideSimilar", defaultMessage: "Hide similar messages" })
+    : reason === "paused"
       ? intl.formatMessage(
         {
           id: "messageTimeline.flood.paused",
@@ -202,13 +204,21 @@ function FloodNotice({
         },
         { count },
       )
-      : intl.formatMessage(
-        {
-          id: "messageTimeline.flood.similar",
-          defaultMessage: "{count, plural, one {# similar message} other {# similar messages}} from {authors, plural, one {# account} other {# accounts}}",
-        },
-        { count, authors },
-      );
+      : reason === "ruled"
+        ? intl.formatMessage(
+          {
+            id: "messageTimeline.flood.ruled",
+            defaultMessage: "{count, plural, one {# message} other {# messages}} from members who can't post here",
+          },
+          { count },
+        )
+        : intl.formatMessage(
+          {
+            id: "messageTimeline.flood.similar",
+            defaultMessage: "{count, plural, one {# similar message} other {# similar messages}} from {authors, plural, one {# account} other {# accounts}}",
+          },
+          { count, authors },
+        );
   return (
     <div className="flex items-center gap-3 px-2 py-1 select-none">
       <div className="h-px flex-1 bg-muted-foreground/25" />
@@ -220,18 +230,29 @@ function FloodNotice({
         title={
           expanded
             ? intl.formatMessage({ id: "messageTimeline.flood.foldTitle", defaultMessage: "Fold these back up" })
-            : paused
+            : reason === "paused"
               ? intl.formatMessage({
                 id: "messageTimeline.flood.pausedTitle",
                 defaultMessage: "Posted after a moderator paused the community. Nothing was removed.",
               })
-              : intl.formatMessage({
-                id: "messageTimeline.flood.similarTitle",
-                defaultMessage: "Several accounts posted near-identical messages at once. Nothing was removed.",
-              })
+              : reason === "ruled"
+                ? intl.formatMessage({
+                  id: "messageTimeline.flood.ruledTitle",
+                  defaultMessage: "Posted by someone this channel's permissions or a timeout don't let post here. Nothing was removed.",
+                })
+                : intl.formatMessage({
+                  id: "messageTimeline.flood.similarTitle",
+                  defaultMessage: "Several accounts posted near-identical messages at once. Nothing was removed.",
+                })
         }
       >
-        {paused ? <Pause className="size-3 shrink-0" aria-hidden /> : <MessagesSquare className="size-3 shrink-0" aria-hidden />}
+        {reason === "paused" ? (
+          <Pause className="size-3 shrink-0" aria-hidden />
+        ) : reason === "ruled" ? (
+          <ShieldOff className="size-3 shrink-0" aria-hidden />
+        ) : (
+          <MessagesSquare className="size-3 shrink-0" aria-hidden />
+        )}
         {label}
       </button>
       <div className="h-px flex-1 bg-muted-foreground/25" />
@@ -239,12 +260,15 @@ function FloodNotice({
   );
 }
 
+/** Why a run folded: the flood heuristic, a community pause, or the community's permissions. */
+type FoldReason = "flood" | "paused" | "ruled";
+
 type TimelineItem =
   | { type: "date"; ts: number; key: string }
   | { type: "unread"; key: string }
   | { type: "rotation"; key: string }
   | { type: "message"; msg: ChatMsg; continuation: boolean; key: string }
-  | { type: "flood"; msgs: readonly ChatMsg[]; authors: number; paused: boolean; key: string }
+  | { type: "flood"; msgs: readonly ChatMsg[]; authors: number; reason: FoldReason; key: string }
   | { type: "entry"; entry: NonChatEntry; related?: readonly NonChatEntry[]; key: string };
 
 type NonChatEntry = Exclude<ChannelTimelineEntry, { type: "chat" }>;
@@ -423,6 +447,7 @@ export function MessageTimeline({
     rotationDividerIds,
     quarantinedIds,
     pausedIds,
+    ruledIds,
   } = transport;
 
   // Opened flood rows, keyed by the run's first message id (so they don't leak
@@ -624,23 +649,26 @@ export function MessageTimeline({
       !!quarantinedIds?.has(entry.message.id) &&
       newDividerId !== entry.message.id &&
       !rotationDividerIds?.has(entry.message.id);
+    const byRule = (id: string) => Boolean(pausedIds?.has(id) || ruledIds?.has(id));
 
     for (let i = startIndex; i < endIndex; i++) {
       const entry = timelineEntries[i];
       const prev = timelineEntries[i - 1];
       const newDay = !!prev && !isSameDay(prev.createdAt, entry.createdAt);
 
-      // A run breaks on any other message and on a day boundary.
-      if (floodable(entry)) {
+      // A run breaks on any other message, on a day boundary, and where a
+      // pause or permission collapse meets a flood: those fold even one at a time.
+      if (floodable(entry) && entry.type === "chat") {
+        const ruledHere = byRule(entry.message.id);
         const run: ChatMsg[] = [];
         let j = i;
         for (; j < endIndex; j++) {
           const at = timelineEntries[j];
-          if (!floodable(at) || at.type !== "chat") break;
+          if (!floodable(at) || at.type !== "chat" || byRule(at.message.id) !== ruledHere) break;
           if (j > i && !isSameDay(timelineEntries[j - 1].createdAt, at.createdAt)) break;
           run.push(at.message);
         }
-        if (run.length >= FLOOD_ROW_MIN) {
+        if (run.length >= (ruledHere ? 1 : FLOOD_ROW_MIN)) {
           const headKey = run[0].renderKey ?? run[0].id;
           const key = `flood-${headKey}`;
           if (newDay) out.push({ type: "date", ts: entry.createdAt, key: `date-${headKey}` });
@@ -649,8 +677,8 @@ export function MessageTimeline({
             type: "flood",
             msgs: run,
             authors: new Set(run.map((m) => m.pubkey)).size,
-            // Only when the WHOLE run is pause-collapsed; mixed runs keep the flood copy.
-            paused: run.every((m) => pausedIds?.has(m.id) ?? false),
+            // Pause wording only when the WHOLE run is pause-collapsed.
+            reason: !ruledHere ? "flood" : run.every((m) => pausedIds?.has(m.id) ?? false) ? "paused" : "ruled",
             key,
           });
           i = j - 1;
@@ -688,7 +716,7 @@ export function MessageTimeline({
     // Assigned during render so it never lags the rows by a commit.
     floodRunOfRef.current = runOf;
     return out;
-  }, [timelineEntries, startIndex, endIndex, newDividerId, rotationDividerIds, quarantinedIds, pausedIds]);
+  }, [timelineEntries, startIndex, endIndex, newDividerId, rotationDividerIds, quarantinedIds, pausedIds, ruledIds]);
 
   const captureReadingAnchor = useCallback(() => {
     const scroller = scrollRef.current;
@@ -1250,7 +1278,7 @@ export function MessageTimeline({
                       <FloodNotice
                         count={item.msgs.length}
                         authors={item.authors}
-                        paused={item.paused}
+                        reason={item.reason}
                         expanded={expandedFloods.has(item.key)}
                         onToggle={() => toggleFlood(item.key)}
                       />

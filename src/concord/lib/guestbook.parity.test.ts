@@ -42,6 +42,8 @@ describe("Timeouts (kind 3314)", () => {
     const timeline = foldTimeline([original, edit], undefined, { collapse });
     expect(timeline.messages[0].content).toBe("now abusive");
     expect(timeline.quarantined.has(original.rumorId)).toBe(true);
+    // Marked as the Roster's collapse, so the row folds alone and isn't called a flood.
+    expect([...timeline.ruled]).toEqual([original.rumorId]);
   });
 
   it("collapses a timed-out member's post on a legacy Roster too (Vector `post_silenced` has no Roles v2 gate)", () => {

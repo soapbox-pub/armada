@@ -1026,17 +1026,17 @@ export function useChannelTimeline(
     return () => clearTimeout(t);
   }, [nextRevealMs]);
 
-  // Persist verdicts (merge-only) whose evidence won't reload. PAUSE-collapsed
-  // ids are excluded: a merge-only memory would make a transient pause
-  // permanent (violating CORD-04 §8 "MUST NOT drop").
+  // Persist verdicts (merge-only) whose evidence won't reload. PAUSE- and
+  // Roster-collapsed ids are excluded: a merge-only memory would outlast the
+  // pause, Timeout or permission that collapsed them (CORD-04 §8 "MUST NOT drop").
   useEffect(() => {
     if (!community?.idHex || !channelIdHex || folded.quarantined.size === 0) return;
     const entries: Array<[string, number]> = [];
     for (const m of moderated) {
-      if (folded.quarantined.has(m.rumorId) && !folded.paused.has(m.rumorId)) entries.push([m.rumorId, m.ms]);
+      if (folded.quarantined.has(m.rumorId) && !folded.paused.has(m.rumorId) && !folded.ruled.has(m.rumorId)) entries.push([m.rumorId, m.ms]);
     }
     if (entries.length > 0) rememberQuarantined(community.idHex, channelIdHex, entries);
-  }, [folded.quarantined, folded.paused, moderated, community?.idHex, channelIdHex]);
+  }, [folded.quarantined, folded.paused, folded.ruled, moderated, community?.idHex, channelIdHex]);
 
   // Who this client has seen speak, and since when — the media hold's probation
   // clock (mediaTrust.ts). After the local read, so a channel isn't seeded empty.

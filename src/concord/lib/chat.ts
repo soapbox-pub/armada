@@ -479,6 +479,11 @@ export interface FoldedTimeline {
    * so the row doesn't wrongly call paused traffic spam.
    */
   paused: Set<string>;
+  /**
+   * The subset of {@link quarantined} the Roster collapses (CORD-04 §8): posts inside
+   * their author's Timeout, or by an author who can't send in an open Channel.
+   */
+  ruled: Set<string>;
   /** target rumor id → emoji → tally. */
   reactions: Map<string, Map<string, ReactionEntry>>;
   /** target rumor id → VERIFIED zaps (CORD.md §4; unverified never enter). */
@@ -825,8 +830,13 @@ export function foldTimeline(
     }
   }
 
+  const ruled = new Set<string>();
   if (opts?.collapse) {
-    for (const m of messages) if (m.author !== opts.self && opts.collapse(m)) quarantined.add(m.rumorId);
+    for (const m of messages) {
+      if (m.author === opts.self || !opts.collapse(m)) continue;
+      ruled.add(m.rumorId);
+      quarantined.add(m.rumorId);
+    }
   }
 
   // Last, so the rules above see strict ms order: nudge inline replies after their parents.
@@ -838,6 +848,7 @@ export function foldTimeline(
     quarantined,
     trusted,
     paused,
+    ruled,
     reactions,
     zaps,
     pollVotes,

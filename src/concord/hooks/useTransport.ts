@@ -472,16 +472,22 @@ export function useTransport(
 
   // From the fold, which saw thread replies too (so only ever `has()`, never
   // counted). `undefined` when empty.
-  // With folding off, only a community pause still collapses rows.
+  // With folding off, only a community pause and the Roster still collapse rows.
   const foldSimilar = useContext(AppContext)?.config.foldSimilarMessages ?? true;
   const quarantinedIds = useMemo<ReadonlySet<string> | undefined>(() => {
-    const ids = foldSimilar ? folded.quarantined : folded.paused;
+    const ids = foldSimilar
+      ? folded.quarantined
+      : folded.ruled.size === 0 ? folded.paused : new Set([...folded.paused, ...folded.ruled]);
     return ids.size > 0 ? ids : undefined;
-  }, [foldSimilar, folded.quarantined, folded.paused]);
-  // Which of those a community pause collapsed, so the row can say why (CORD-04 §8).
+  }, [foldSimilar, folded.quarantined, folded.paused, folded.ruled]);
+  // Which of those a community pause or the Roster collapsed, so the row can say why (CORD-04 §8).
   const pausedIds = useMemo<ReadonlySet<string> | undefined>(
     () => (folded.paused.size > 0 ? folded.paused : undefined),
     [folded.paused],
+  );
+  const ruledIds = useMemo<ReadonlySet<string> | undefined>(
+    () => (folded.ruled.size > 0 ? folded.ruled : undefined),
+    [folded.ruled],
   );
 
   // Identity-stable between changes so unchanged calendar rows keep their prop.
@@ -574,6 +580,7 @@ export function useTransport(
       rotationDividerIds,
       quarantinedIds,
       pausedIds,
+      ruledIds,
       loadOlder,
       hasMore,
       isLoadingOlder,
@@ -598,7 +605,7 @@ export function useTransport(
       sendThreadReply,
       canSend,
     }),
-    [timeline, isLoading, canWrite, canModerate, canMentionEveryone, mentionRoles, mentionsEveryone, rotationDividerIds, quarantinedIds, pausedIds, loadOlder, hasMore, isLoadingOlder, hasNewer, loadNewer, isLoadingNewer, returnToPresent, sendStatusFor, retryEvent, discard, deleteEvent, editMessage, replyCountFor, reactionsFor, zapsFor, sendZap, sendOnchainZap, pollFor, sendPoll, calendarFor, threadRepliesFor, sendThreadReply, canSend],
+    [timeline, isLoading, canWrite, canModerate, canMentionEveryone, mentionRoles, mentionsEveryone, rotationDividerIds, quarantinedIds, pausedIds, ruledIds, loadOlder, hasMore, isLoadingOlder, hasNewer, loadNewer, isLoadingNewer, returnToPresent, sendStatusFor, retryEvent, discard, deleteEvent, editMessage, replyCountFor, reactionsFor, zapsFor, sendZap, sendOnchainZap, pollFor, sendPoll, calendarFor, threadRepliesFor, sendThreadReply, canSend],
   );
 
   // From RAW rows: pinning needs the original seal, and edit proofs the consumed Edit rumor.

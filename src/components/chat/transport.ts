@@ -191,6 +191,12 @@ export interface ChatTransport {
    */
   pausedIds?: ReadonlySet<string>;
 
+  /**
+   * Subset of {@link quarantinedIds} the community's permissions or a Timeout
+   * collapsed (CORD-04 §8). Like {@link pausedIds}, folded even one at a time.
+   */
+  ruledIds?: ReadonlySet<string>;
+
   /** Resolves to the number of messages prepended. */
   loadOlder?: () => Promise<number>;
   hasMore?: boolean;

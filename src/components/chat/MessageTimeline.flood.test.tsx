@@ -44,13 +44,20 @@ function flood(n: number, from: number, prefix = "f") {
   );
 }
 
-function renderTimeline(msgs: ChatMsg[], quarantined: string[], newDividerId?: string) {
+function renderTimeline(
+  msgs: ChatMsg[],
+  quarantined: string[],
+  newDividerId?: string,
+  why: { ruled?: string[]; paused?: string[] } = {},
+) {
   const transport: ChatTransport = {
     messages: msgs,
     isLoading: false,
     canWrite: true,
     canModerate: false,
     quarantinedIds: new Set(quarantined),
+    ...(why.ruled ? { ruledIds: new Set(why.ruled) } : {}),
+    ...(why.paused ? { pausedIds: new Set(why.paused) } : {}),
   };
   return render(
     <MutedPubkeysContext.Provider value={{ mutedPubkeys: new Set<string>(), ready: true }}>
@@ -156,5 +163,35 @@ describe("MessageTimeline flood collapse", () => {
 
     expect(await screen.findByText("chat:f0")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /similar messages/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("MessageTimeline permission and pause collapse", () => {
+  it("folds a single post the community's permissions collapse, and gives it back on one click", async () => {
+    const before = message("before", 500, "a".repeat(64));
+    const stray = message("stray", 1000, "s".repeat(64));
+    renderTimeline([before, stray], ["stray"], undefined, { ruled: ["stray"] });
+
+    expect(await screen.findByText("chat:before")).toBeInTheDocument();
+    expect(screen.queryByText("chat:stray")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /1 message from members who can't post here/i }));
+    expect(screen.getByText("chat:stray")).toBeInTheDocument();
+  });
+
+  it("folds a single post sent while the community was paused", async () => {
+    const msgs = [message("p0", 1000, "p".repeat(64))];
+    renderTimeline(msgs, ["p0"], undefined, { paused: ["p0"] });
+
+    expect(await screen.findByRole("button", { name: /1 message sent while the community was paused/i })).toBeInTheDocument();
+    expect(screen.queryByText("chat:p0")).not.toBeInTheDocument();
+  });
+
+  it("keeps a permission collapse and a flood in separate rows", async () => {
+    const spam = flood(4, 1000);
+    const stray = message("stray", 2000, "s".repeat(64));
+    renderTimeline([...spam, stray], [...spam.map((m) => m.id), "stray"], undefined, { ruled: ["stray"] });
+
+    expect(await screen.findByRole("button", { name: /4 similar messages from 4 accounts/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /1 message from members who can't post here/i })).toBeInTheDocument();
   });
 });

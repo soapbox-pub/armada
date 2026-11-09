@@ -36,6 +36,7 @@ const h = vi.hoisted(() => ({
     timerNotices: [],
     quarantined: new Set<string>(),
     paused: new Set<string>(),
+    ruled: new Set<string>(),
   },
   // One object, as the real hook's useMemo returns: a fresh one per call would
   // bust the transport's memos on every re-render and skew the timing.
