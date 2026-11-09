@@ -4,6 +4,25 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.1] - 2026-11-09
+
+Staff of older communities can upgrade their security so only staff can change
+community settings, and the Ultra badge now opens a details popover. Composer
+menus scroll properly on touch, and restricted channels and paused communities
+fold hidden posts more consistently.
+
+### Added
+- Staff of communities created in the older format can upgrade them so only staff can change the community's settings, from a banner or the community menu
+- Tapping the Ultra badge opens a popover with details
+
+### Changed
+- The key rotation dialog and the invite link warning are shorter
+
+### Fixed
+- Mention, emoji and command menus in the composer can be scrolled on touch without picking a row
+- Posts in a restricted channel from members without standing are hidden for managers too
+- A single post hidden by the community's permissions or a pause is folded under its own explanation, even with similar-message folding off
+
 ## [0.69.0] - 2026-11-09
 
 Communities can switch to ranked roles: roles ordered by rank, permissions set
