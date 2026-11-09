@@ -481,6 +481,57 @@ describe("foldVoicePresence (§4)", () => {
     expect([...fold.claims.keys()]).toEqual(["id-1"]);
     expect(foldVoicePresence([entry({ transport: "iroh", ms: now - VOICE_STALE_MS - 1 })], now).otherTransport).toEqual([]);
   });
+
+  describe("a member on both transports (a bot simulcasting to Vector and the SFU)", () => {
+    const iroh = (o: Partial<VoicePresenceEntry>) => entry({ identity: undefined, broker: undefined, transport: "iroh", ...o });
+    const fold = (latest: Map<string, VoicePresenceEntry>, at: number) => foldVoicePresence([...latest.values()], at);
+
+    it("stays present on its SFU identity whichever heartbeat came last", () => {
+      const latest = new Map<string, VoicePresenceEntry>();
+      notePresence(latest, entry({ ms: now - 2000, rumorId: "b1" }), now - 2000);
+      notePresence(latest, iroh({ ms: now - 1000, rumorId: "i1" }), now - 1000);
+      const both = fold(latest, now);
+      expect(verifiedAuthorOf(both, "id-1")).toBe("a".repeat(64));
+      expect(both.present.map((p) => p.author)).toEqual(["a".repeat(64)]);
+      expect(both.otherTransport).toEqual([]);
+    });
+
+    it("renews the brokered half from a joined dated under the iroh one", () => {
+      const latest = new Map<string, VoicePresenceEntry>();
+      notePresence(latest, entry({ ms: now - 60_000, rumorId: "b1" }), now - 60_000);
+      notePresence(latest, iroh({ ms: now - 1000, rumorId: "i1" }), now - 1000);
+      // Sent in the same heartbeat, arriving after the iroh one.
+      expect(notePresence(latest, entry({ ms: now - 1001, rumorId: "b2" }), now)).toBe(true);
+      expect(fold(latest, now + 70_000).present).toHaveLength(1);
+      // Not a stale copy, nor one from before this stay.
+      expect(notePresence(latest, entry({ ms: now - 1001, rumorId: "b2" }), now)).toBe(false);
+      expect(notePresence(latest, entry({ ms: now - 61_000, rumorId: "b0" }), now)).toBe(false);
+    });
+
+    it("falls back to the other transport when its brokered heartbeats stop, and a left ends both", () => {
+      const latest = new Map<string, VoicePresenceEntry>();
+      notePresence(latest, entry({ ms: now - 80_000, rumorId: "b1" }), now - 80_000);
+      notePresence(latest, iroh({ ms: now - 1000, rumorId: "i1" }), now - 1000);
+      const later = fold(latest, now + 20_000);
+      expect(later.present).toEqual([]);
+      expect(later.otherTransport.map((p) => p.author)).toEqual(["a".repeat(64)]);
+
+      notePresence(latest, entry({ ms: now, rumorId: "b2" }), now);
+      notePresence(latest, entry({ status: "left", identity: undefined, ms: now + 1, rumorId: "l" }), now + 1);
+      expect(notePresence(latest, entry({ ms: now - 500, rumorId: "b3" }), now + 2)).toBe(false);
+      expect(fold(latest, now + 2).present).toEqual([]);
+    });
+
+    it("is not a newcomer each time it alternates", () => {
+      const latest = new Map<string, VoicePresenceEntry>();
+      notePresence(latest, entry({ ms: now - 2000, rumorId: "b1" }), now - 2000);
+      const held = () => latest.get("a".repeat(64));
+      expect(isNewcomer(held(), iroh({ ms: now - 1000 }), now - 1000)).toBe(false);
+      notePresence(latest, iroh({ ms: now - 1000, rumorId: "i1" }), now - 1000);
+      expect(isNewcomer(held(), entry({ ms: now }), now)).toBe(false);
+      expect(isNewcomer(held(), entry({ ms: now, identity: "id-2" }), now)).toBe(true);
+    });
+  });
 });
 
 describe("rendezvous (config, not the §5 hint)", () => {

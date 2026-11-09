@@ -253,6 +253,13 @@ export interface VoicePresenceEntry {
    * transport Armada doesn't speak, never dropped.
    */
   transport?: string;
+  /**
+   * On a `joined` naming another transport: the same author's latest brokered `joined`
+   * in this stay. A member on both (a bot simulcasting to Vector and the SFU) sends
+   * both every heartbeat; held apart, latest-wins would unclaim their SFU identity
+   * at every other heartbeat and block their audio.
+   */
+  brokered?: VoicePresenceEntry;
   /** Millisecond ordering basis (CORD-02 §4). */
   ms: number;
   /** The rumor id — the equal-ms tiebreak. */
@@ -479,9 +486,17 @@ export interface VoiceOtherTransport {
 export function notePresence(latest: Map<string, VoicePresenceEntry>, entry: VoicePresenceEntry, nowMs: number): boolean {
   if (entry.ms > nowMs + VOICE_AHEAD_MS || entry.ms < nowMs - VOICE_BEHIND_MS) return false;
   const prev = latest.get(entry.author);
-  if (prev && prev.ms >= entry.ms) return false;
+  if (prev && prev.ms >= entry.ms) {
+    // A brokered `joined` dated under a newer one on another transport still renews the brokered half of that stay.
+    if (entry.status !== "joined" || entry.transport || prev.status !== "joined" || !prev.transport) return false;
+    if (!presenceLive(prev, nowMs) || entry.ms < (prev.sinceMs ?? prev.ms)) return false;
+    if (prev.brokered && prev.brokered.ms >= entry.ms) return false;
+    latest.set(entry.author, { ...prev, brokered: { ...entry, heardAt: nowMs } });
+    return true;
+  }
   // A stay, and the moderation on it, lasts while `joined`s keep arriving; leaving or arriving anew clears it.
   const stays = entry.status === "joined" && prev?.status === "joined" && presenceLive(prev, nowMs);
+  const brokered = stays && entry.transport ? brokeredHalf(prev, nowMs) : undefined;
   latest.set(entry.author, {
     ...entry,
     heardAt: nowMs,
@@ -490,8 +505,15 @@ export function notePresence(latest: Map<string, VoicePresenceEntry>, entry: Voi
     ...(stays
       ? { serverMuted: prev.serverMuted, serverDeafened: prev.serverDeafened, mutedAt: prev.mutedAt, deafenedAt: prev.deafenedAt }
       : {}),
+    ...(brokered ? { brokered } : {}),
   });
   return true;
+}
+
+/** An author's live brokered `joined`: the entry itself, or the one held beside another transport's. */
+function brokeredHalf(e: VoicePresenceEntry, nowMs: number): VoicePresenceEntry | undefined {
+  const half = e.transport ? e.brokered : e;
+  return half?.status === "joined" && half.identity && presenceLive(half, nowMs) ? half : undefined;
 }
 
 /**
@@ -607,7 +629,10 @@ export function applyDirective(latest: Map<string, VoicePresenceEntry>, d: Voice
  */
 export function isNewcomer(prev: VoicePresenceEntry | undefined, entry: VoicePresenceEntry, nowMs: number): boolean {
   if (entry.status !== "joined") return false;
-  return !prev || prev.status !== "joined" || !presenceLive(prev, nowMs) || prev.identity !== entry.identity;
+  if (!prev || prev.status !== "joined" || !presenceLive(prev, nowMs)) return true;
+  // A member on two transports alternates between them; only a new transport or SFU identity is news.
+  if (entry.transport) return Boolean(prev.transport) && prev.transport !== entry.transport;
+  return brokeredHalf(prev, nowMs)?.identity !== entry.identity;
 }
 
 /** How long a member in the call waits to answer a newcomer: 0–1.5 s (Vector `greet`). */
@@ -635,13 +660,17 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
   const present: VoicePresent[] = [];
   const claims = new Map<string, string[]>();
   const otherTransport: VoiceOtherTransport[] = [];
-  for (const e of latest.values()) {
-    if (e.status !== "joined") continue;
-    if (!presenceLive(e, nowMs)) continue;
-    if (e.transport) {
-      otherTransport.push({ author: e.author, transport: e.transport, ms: e.ms });
+  for (const top of latest.values()) {
+    if (top.status !== "joined") continue;
+    if (!presenceLive(top, nowMs)) continue;
+    // On the brokered call as well as another transport: heard here, so present rather than elsewhere.
+    const half = brokeredHalf(top, nowMs);
+    if (top.transport && !half) {
+      otherTransport.push({ author: top.author, transport: top.transport, ms: top.ms });
       continue;
     }
+    // Moderation belongs to the stay, which the newest presence carries.
+    const e = half && half !== top ? { ...half, serverMuted: top.serverMuted, serverDeafened: top.serverDeafened } : top;
     if (!e.identity) continue;
     present.push({
       author: e.author,
