@@ -4862,6 +4862,8 @@
   "voicePresence.muted": "Silenciado",
   "voicePresence.otherTransport": "En la llamada entre pares, a la que Armada aún no puede unirse",
   "voicePresence.streaming": "Transmitiendo",
+  "voicePresence.transport.p2p": "{count, plural, one {# miembro} other {# miembros}} entre pares, como llama Vector",
+  "voicePresence.transport.sfu": "{count, plural, one {# miembro} other {# miembros}} en el servidor LiveKit",
   "voicePresence.watchStream": "Ver transmisión",
   "voiceSettings.autoGain": "Control automático de ganancia",
   "voiceSettings.autoGainDescription": "Equilibra tu volumen automáticamente.",

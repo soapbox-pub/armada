@@ -4862,6 +4862,8 @@
   "voicePresence.muted": "Silenziato",
   "voicePresence.otherTransport": "Nella chiamata peer-to-peer, a cui Armada non può ancora partecipare",
   "voicePresence.streaming": "In streaming",
+  "voicePresence.transport.p2p": "{count, plural, one {# membro} other {# membri}} peer to peer, come chiama Vector",
+  "voicePresence.transport.sfu": "{count, plural, one {# membro} other {# membri}} sul server LiveKit",
   "voicePresence.watchStream": "Guarda lo stream",
   "voiceSettings.autoGain": "Controllo automatico del guadagno",
   "voiceSettings.autoGainDescription": "Uniforma automaticamente il tuo volume.",

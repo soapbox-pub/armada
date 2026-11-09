@@ -4862,6 +4862,8 @@
   "voicePresence.muted": "Gedempt",
   "voicePresence.otherTransport": "Peer-to-peer in het gesprek, waar Armada nog niet aan kan deelnemen",
   "voicePresence.streaming": "Streamt",
+  "voicePresence.transport.p2p": "{count, plural, one {# lid} other {# leden}} peer-to-peer, zoals Vector belt",
+  "voicePresence.transport.sfu": "{count, plural, one {# lid} other {# leden}} op de LiveKit-server",
   "voicePresence.watchStream": "Stream bekijken",
   "voiceSettings.autoGain": "Automatische versterking",
   "voiceSettings.autoGainDescription": "Egaliseert je volume automatisch.",

@@ -4862,6 +4862,8 @@
   "voicePresence.muted": "ミュート中",
   "voicePresence.otherTransport": "ピアツーピアで通話中（Armada はまだ参加できません）",
   "voicePresence.streaming": "配信中",
+  "voicePresence.transport.p2p": "{count, plural, other {#人}}がピアツーピア（Vector の通話方式）",
+  "voicePresence.transport.sfu": "{count, plural, other {#人}}が LiveKit サーバー上",
   "voicePresence.watchStream": "配信を見る",
   "voiceSettings.autoGain": "自動ゲイン調整",
   "voiceSettings.autoGainDescription": "音量を自動的に均一にします。",

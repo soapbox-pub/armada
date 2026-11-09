@@ -260,6 +260,8 @@ export interface VoicePresenceEntry {
    * at every other heartbeat and block their audio.
    */
   brokered?: VoicePresenceEntry;
+  /** On a brokered `joined`: the same author's latest `joined` on another transport in this stay. */
+  other?: OtherHalf;
   /** Millisecond ordering basis (CORD-02 §4). */
   ms: number;
   /** The rumor id — the equal-ms tiebreak. */
@@ -452,6 +454,8 @@ export interface VoicePresent {
   recording: boolean;
   /** Whether this member refuses to be recorded (client ext). */
   noRecord: boolean;
+  /** Another transport this member is in the same call on, at once (e.g. `"iroh"`). */
+  alsoOn?: string;
   ms: number;
 }
 
@@ -487,16 +491,23 @@ export function notePresence(latest: Map<string, VoicePresenceEntry>, entry: Voi
   if (entry.ms > nowMs + VOICE_AHEAD_MS || entry.ms < nowMs - VOICE_BEHIND_MS) return false;
   const prev = latest.get(entry.author);
   if (prev && prev.ms >= entry.ms) {
-    // A brokered `joined` dated under a newer one on another transport still renews the brokered half of that stay.
-    if (entry.status !== "joined" || entry.transport || prev.status !== "joined" || !prev.transport) return false;
+    // A `joined` dated under a newer one on the OTHER side (brokered or not) still renews its own half of that stay.
+    if (entry.status !== "joined" || prev.status !== "joined" || !entry.transport === !prev.transport) return false;
     if (!presenceLive(prev, nowMs) || entry.ms < (prev.sinceMs ?? prev.ms)) return false;
-    if (prev.brokered && prev.brokered.ms >= entry.ms) return false;
-    latest.set(entry.author, { ...prev, brokered: { ...entry, heardAt: nowMs } });
+    const held = entry.transport ? prev.other : prev.brokered;
+    if (held && held.ms >= entry.ms) return false;
+    latest.set(
+      entry.author,
+      entry.transport
+        ? { ...prev, other: { transport: entry.transport, ms: entry.ms, heardAt: nowMs } }
+        : { ...prev, brokered: { ...entry, heardAt: nowMs } },
+    );
     return true;
   }
   // A stay, and the moderation on it, lasts while `joined`s keep arriving; leaving or arriving anew clears it.
   const stays = entry.status === "joined" && prev?.status === "joined" && presenceLive(prev, nowMs);
   const brokered = stays && entry.transport ? brokeredHalf(prev, nowMs) : undefined;
+  const other = stays && !entry.transport ? otherHalf(prev, nowMs) : undefined;
   latest.set(entry.author, {
     ...entry,
     heardAt: nowMs,
@@ -506,14 +517,29 @@ export function notePresence(latest: Map<string, VoicePresenceEntry>, entry: Voi
       ? { serverMuted: prev.serverMuted, serverDeafened: prev.serverDeafened, mutedAt: prev.mutedAt, deafenedAt: prev.deafenedAt }
       : {}),
     ...(brokered ? { brokered } : {}),
+    ...(other ? { other } : {}),
   });
   return true;
+}
+
+/** A `joined` on another transport, held beside a newer brokered one. */
+export interface OtherHalf {
+  transport: string;
+  ms: number;
+  heardAt: number;
 }
 
 /** An author's live brokered `joined`: the entry itself, or the one held beside another transport's. */
 function brokeredHalf(e: VoicePresenceEntry, nowMs: number): VoicePresenceEntry | undefined {
   const half = e.transport ? e.brokered : e;
   return half?.status === "joined" && half.identity && presenceLive(half, nowMs) ? half : undefined;
+}
+
+/** An author's live `joined` on another transport: the entry itself, or the one held beside a brokered one. */
+function otherHalf(e: VoicePresenceEntry, nowMs: number): OtherHalf | undefined {
+  const half: OtherHalf | undefined =
+    e.transport ? { transport: e.transport, ms: e.ms, heardAt: e.heardAt ?? e.ms } : e.other;
+  return e.status === "joined" && half && nowMs - half.heardAt < VOICE_STALE_MS ? half : undefined;
 }
 
 /**
@@ -672,6 +698,7 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
     // Moderation belongs to the stay, which the newest presence carries.
     const e = half && half !== top ? { ...half, serverMuted: top.serverMuted, serverDeafened: top.serverDeafened } : top;
     if (!e.identity) continue;
+    const alsoOn = otherHalf(top, nowMs)?.transport;
     present.push({
       author: e.author,
       identity: e.identity,
@@ -686,6 +713,7 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
       ...(e.camera ? { camera: true } : {}),
       ...(e.serverMuted ? { serverMuted: true } : {}),
       ...(e.serverDeafened ? { serverDeafened: true } : {}),
+      ...(alsoOn ? { alsoOn } : {}),
       ms: e.ms,
     });
     for (const identity of e.identities?.length ? e.identities : [e.identity]) {

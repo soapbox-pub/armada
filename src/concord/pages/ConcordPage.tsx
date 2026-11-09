@@ -47,7 +47,7 @@ import { isGitTimelineEntry, mergeChannelTimeline } from "@/components/chat/chan
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { useVoiceActionsFor } from "@/concord/hooks/useVoiceActions";
 import { VoiceModerationContext } from "@/contexts/VoiceModerationContext";
-import { VoiceParticipantList } from "@/components/VoicePresence";
+import { CallTransportCounts, VoiceParticipantList } from "@/components/VoicePresence";
 import { AddChannelMembersDialog } from "@/concord/components/AddChannelMembersDialog";
 import { ImageLightbox } from "@/concord/components/ImageLightbox";
 import { InviteDialog } from "@/concord/components/InviteDialog";
@@ -586,6 +586,13 @@ export const ChannelRow = memo(function ChannelRow({
     return [...new Set([...voiceRoomPubkeys, ...fold.otherTransport.map((p) => p.author)])];
   }, [inCall, voiceRoomPubkeys, foldedParticipants, fold]);
 
+  // Per transport: the live LiveKit roster while in this call, presence otherwise.
+  const sfuCount = inCall && voiceRoomPubkeys ? voiceRoomPubkeys.length : fold.present.length;
+  const p2pCount = useMemo(
+    () => fold.otherTransport.length + fold.present.filter((p) => p.alsoOn).length,
+    [fold],
+  );
+
   const hasUnread = Boolean(unread);
   const hasMention = Boolean(unread?.mention);
   const callable = channel.view !== "forum";
@@ -630,6 +637,13 @@ export const ChannelRow = memo(function ChannelRow({
                 className={cn("size-4 shrink-0", occupied && !active && "text-success")}
               />
               <span className="truncate flex-1 min-w-0">{channel.name}</span>
+              {occupied && (
+                <CallTransportCounts
+                  sfu={sfuCount}
+                  p2p={p2pCount}
+                  className={cn(active && "[&>span]:text-primary-foreground")}
+                />
+              )}
               {inCall && <Headphones className={cn("size-3.5 shrink-0", !active && "text-success")} />}
               {hasMention ? (
                 <span

@@ -522,6 +522,22 @@ describe("foldVoicePresence (§4)", () => {
       expect(fold(latest, now + 2).present).toEqual([]);
     });
 
+    it("counts on both transports whichever heartbeat came last, in either order of arrival", () => {
+      const latest = new Map<string, VoicePresenceEntry>();
+      notePresence(latest, iroh({ ms: now - 3000, rumorId: "i1" }), now - 3000);
+      notePresence(latest, entry({ ms: now - 2000, rumorId: "b1" }), now - 2000);
+      expect(fold(latest, now).present.map((p) => p.alsoOn)).toEqual(["iroh"]);
+      // Without a renewal the iroh half ages out under the brokered one.
+      expect(fold(latest, now + 87_500).present.map((p) => p.alsoOn)).toEqual([undefined]);
+      // An iroh joined dated under the brokered one renews it.
+      expect(notePresence(latest, iroh({ ms: now - 2500, rumorId: "i2" }), now + 80_000)).toBe(true);
+      expect(fold(latest, now + 85_000).present.map((p) => p.alsoOn)).toEqual(["iroh"]);
+      notePresence(latest, entry({ ms: now + 85_000, rumorId: "b2" }), now + 86_000);
+      expect(fold(latest, now + 86_000).present.map((p) => p.alsoOn)).toEqual(["iroh"]);
+      notePresence(latest, iroh({ ms: now + 86_500, rumorId: "i3" }), now + 87_000);
+      expect(fold(latest, now + 87_000).present.map((p) => p.alsoOn)).toEqual(["iroh"]);
+    });
+
     it("is not a newcomer each time it alternates", () => {
       const latest = new Map<string, VoicePresenceEntry>();
       notePresence(latest, entry({ ms: now - 2000, rumorId: "b1" }), now - 2000);

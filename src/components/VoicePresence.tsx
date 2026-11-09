@@ -1,4 +1,4 @@
-import { Hand, Headphones, MicOff, ScreenShare, Waypoints } from "lucide-react";
+import { Hand, Headphones, MicOff, ScreenShare } from "lucide-react";
 import type { CSSProperties } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
@@ -14,6 +14,7 @@ import { getDisplayName } from "@/lib/getDisplayName";
 import { FormattedMessage, useIntl } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { AvatarInitial } from "@/components/AvatarInitial";
+import { HiveIcon, HubIcon } from "@/components/icons/TransportIcons";
 
 function ParticipantAvatar({ pubkey, className }: { pubkey: string; className?: string }) {
   const author = useAuthor(pubkey);
@@ -195,8 +196,8 @@ function VoiceParticipantRow({
         {isOtherTransport && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Waypoints
-                className="size-3.5 shrink-0 text-muted-foreground"
+              <HiveIcon
+                className="size-3.5 shrink-0 text-success"
                 aria-label={intl.formatMessage({
                   id: "voicePresence.otherTransport",
                   defaultMessage: "In the call peer to peer, which Armada can't join yet",
@@ -232,6 +233,62 @@ function VoiceParticipantRow({
         />
       </div>
     </VoiceUserContextMenu>
+  );
+}
+
+/**
+ * How many are in a call on each transport: the SFU (LiveKit) and peer to peer
+ * (iroh, which Vector uses). A member on both counts on both.
+ */
+export function CallTransportCounts({
+  sfu,
+  p2p,
+  className,
+}: {
+  sfu: number;
+  p2p: number;
+  className?: string;
+}) {
+  const intl = useIntl();
+  const sfuLabel = intl.formatMessage(
+    {
+      id: "voicePresence.transport.sfu",
+      defaultMessage: "{count, plural, one {# member} other {# members}} on the LiveKit server",
+    },
+    { count: sfu },
+  );
+  const p2pLabel = intl.formatMessage(
+    {
+      id: "voicePresence.transport.p2p",
+      defaultMessage: "{count, plural, one {# member} other {# members}} peer to peer, as Vector calls",
+    },
+    { count: p2p },
+  );
+  return (
+    <span className={cn("flex shrink-0 items-center gap-1.5 text-3xs font-semibold tabular-nums", className)}>
+      {sfu > 0 && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex items-center gap-0.5 text-warning" aria-label={sfuLabel}>
+              <HubIcon className="size-3.5" aria-hidden />
+              {sfu}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{sfuLabel}</TooltipContent>
+        </Tooltip>
+      )}
+      {p2p > 0 && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex items-center gap-0.5 text-success" aria-label={p2pLabel}>
+              <HiveIcon className="size-3.5" aria-hidden />
+              {p2p}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{p2pLabel}</TooltipContent>
+        </Tooltip>
+      )}
+    </span>
   );
 }
 

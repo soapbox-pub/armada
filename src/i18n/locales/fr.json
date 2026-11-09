@@ -4862,6 +4862,8 @@
   "voicePresence.muted": "Micro coupé",
   "voicePresence.otherTransport": "Dans l'appel en pair à pair, qu'Armada ne peut pas encore rejoindre",
   "voicePresence.streaming": "En diffusion",
+  "voicePresence.transport.p2p": "{count, plural, one {# membre} other {# membres}} en pair à pair, comme appelle Vector",
+  "voicePresence.transport.sfu": "{count, plural, one {# membre} other {# membres}} sur le serveur LiveKit",
   "voicePresence.watchStream": "Regarder le stream",
   "voiceSettings.autoGain": "Contrôle automatique du gain",
   "voiceSettings.autoGainDescription": "Équilibre automatiquement votre volume.",

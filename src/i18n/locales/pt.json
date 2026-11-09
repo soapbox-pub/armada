@@ -4862,6 +4862,8 @@
   "voicePresence.muted": "Silenciado",
   "voicePresence.otherTransport": "Na chamada ponto a ponto, na qual o Armada ainda não consegue entrar",
   "voicePresence.streaming": "Transmitindo",
+  "voicePresence.transport.p2p": "{count, plural, one {# membro} other {# membros}} ponto a ponto, como o Vector chama",
+  "voicePresence.transport.sfu": "{count, plural, one {# membro} other {# membros}} no servidor LiveKit",
   "voicePresence.watchStream": "Assistir transmissão",
   "voiceSettings.autoGain": "Controle automático de ganho",
   "voiceSettings.autoGainDescription": "Equilibra seu volume automaticamente.",

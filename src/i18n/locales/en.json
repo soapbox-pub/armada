@@ -4862,6 +4862,8 @@
   "voicePresence.muted": "Muted",
   "voicePresence.otherTransport": "In the call peer to peer, which Armada can't join yet",
   "voicePresence.streaming": "Streaming",
+  "voicePresence.transport.p2p": "{count, plural, one {# member} other {# members}} peer to peer, as Vector calls",
+  "voicePresence.transport.sfu": "{count, plural, one {# member} other {# members}} on the LiveKit server",
   "voicePresence.watchStream": "Watch stream",
   "voiceSettings.autoGain": "Auto gain control",
   "voiceSettings.autoGainDescription": "Even out your volume automatically.",
