@@ -51,6 +51,6 @@ describe("RotateKeysDialog upgrade framing", () => {
 
   it("still warns about other members' links", () => {
     render(<RotateKeysDialog {...props} upgrade strandsForeignLinks onConfirm={async () => {}} />);
-    expect(screen.getByText(/Invite links created by other members/)).toBeInTheDocument();
+    expect(screen.getByText(/Other members' invite links/)).toBeInTheDocument();
   });
 });

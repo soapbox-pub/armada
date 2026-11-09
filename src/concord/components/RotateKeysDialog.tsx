@@ -101,8 +101,8 @@ export function RotateKeysDialog({
           }
         />
 
-        <ul className="mt-5 space-y-1 text-sm text-muted-foreground">
-          {!upgrade && (
+        {!upgrade && (
+          <ul className="mt-5 space-y-1 text-sm text-muted-foreground">
             <li>
               <FormattedMessage
                 id="rotateKeysDialog.members"
@@ -110,29 +110,23 @@ export function RotateKeysDialog({
                 values={{ count: memberCount }}
               />
             </li>
-          )}
-          {!upgrade && privateChannelCount > 0 && (
-            <li>
-              <FormattedMessage
-                id="rotateKeysDialog.privateChannels"
-                defaultMessage="{count, plural, one {# private channel is rekeyed alongside it.} other {# private channels are rekeyed alongside it.}}"
-                values={{ count: privateChannelCount }}
-              />
-            </li>
-          )}
-          <li>
-            <FormattedMessage
-              id="rotateKeysDialog.offline"
-              defaultMessage="Anyone offline stays out until their app picks up the new keys. Someone who never picks them up needs a fresh invite."
-            />
-          </li>
-        </ul>
+            {privateChannelCount > 0 && (
+              <li>
+                <FormattedMessage
+                  id="rotateKeysDialog.privateChannels"
+                  defaultMessage="{count, plural, one {# private channel is rekeyed alongside it.} other {# private channels are rekeyed alongside it.}}"
+                  values={{ count: privateChannelCount }}
+                />
+              </li>
+            )}
+          </ul>
+        )}
 
         {strandsForeignLinks && (
           <p className="mt-3 text-sm text-destructive">
             <FormattedMessage
               id="rotateKeysDialog.foreignLinks"
-              defaultMessage="Invite links created by other members will hand out dead keys until those members next open the app. Only their creator can refresh them."
+              defaultMessage="Other members' invite links will stop working until they next open the app."
             />
           </p>
         )}
