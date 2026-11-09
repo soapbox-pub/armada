@@ -1,4 +1,4 @@
-import { KeyRound, Loader2 } from "lucide-react";
+import { KeyRound, Loader2, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ interface RotateKeysDialogProps {
   privateChannelCount: number;
   /** A live invite link belongs to someone else (it goes stale). */
   strandsForeignLinks: boolean;
+  /** Framed as the legacy upgrade (CORD-06 §3): the same Refounding, which mints the split Control Plane. */
+  upgrade?: boolean;
   onClose: () => void;
   onConfirm: () => Promise<void>;
 }
@@ -21,6 +23,7 @@ export function RotateKeysDialog({
   memberCount,
   privateChannelCount,
   strandsForeignLinks,
+  upgrade = false,
   onClose,
   onConfirm,
 }: RotateKeysDialogProps) {
@@ -69,18 +72,34 @@ export function RotateKeysDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => !next && close()}>
       <ChromeDialogContent
-        title={intl.formatMessage({ id: "rotateKeysDialog.title", defaultMessage: "Rotate this community's keys?" })}
+        title={
+          upgrade
+            ? intl.formatMessage({ id: "rotateKeysDialog.upgradeTitle", defaultMessage: "Upgrade this community's security?" })
+            : intl.formatMessage({ id: "rotateKeysDialog.title", defaultMessage: "Rotate this community's keys?" })
+        }
         className="sm:max-w-sm"
       >
         <ChromeDialogHeader
-          icon={KeyRound}
+          icon={upgrade ? ShieldCheck : KeyRound}
           tone="warning"
-          title={intl.formatMessage({ id: "rotateKeysDialog.heading", defaultMessage: "rotate keys?" })}
-          description={intl.formatMessage({
-            id: "rotateKeysDialog.description",
-            defaultMessage:
-              "New messages are encrypted to new keys. Old keys still read the history they already unlocked, and nothing after.",
-          })}
+          title={
+            upgrade
+              ? intl.formatMessage({ id: "rotateKeysDialog.upgradeHeading", defaultMessage: "upgrade security?" })
+              : intl.formatMessage({ id: "rotateKeysDialog.heading", defaultMessage: "rotate keys?" })
+          }
+          description={
+            upgrade
+              ? intl.formatMessage({
+                  id: "rotateKeysDialog.upgradeDescription",
+                  defaultMessage:
+                    "This community uses an older format in which any member can write to its settings stream. Upgrading rotates its keys so only staff can.",
+                })
+              : intl.formatMessage({
+                  id: "rotateKeysDialog.description",
+                  defaultMessage:
+                    "New messages are encrypted to new keys. Old keys still read the history they already unlocked, and nothing after.",
+                })
+          }
         />
 
         <ul className="mt-5 space-y-1 text-sm text-muted-foreground">
@@ -132,9 +151,15 @@ export function RotateKeysDialog({
             {busy && stuck ? <FormattedMessage {...common.close} /> : <FormattedMessage {...common.cancel} />}
           </Button>
           <Button type="button" variant="destructive" onClick={run} disabled={busy}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
+            {busy ? <Loader2 className="size-4 animate-spin" /> : upgrade ? <ShieldCheck className="size-4" /> : <KeyRound className="size-4" />}
             {busy ? (
-              <FormattedMessage id="rotateKeysDialog.rotating" defaultMessage="Rotating" />
+              upgrade ? (
+                <FormattedMessage id="rotateKeysDialog.upgrading" defaultMessage="Upgrading" />
+              ) : (
+                <FormattedMessage id="rotateKeysDialog.rotating" defaultMessage="Rotating" />
+              )
+            ) : upgrade ? (
+              <FormattedMessage id="rotateKeysDialog.upgradeConfirm" defaultMessage="Upgrade" />
             ) : (
               <FormattedMessage id="rotateKeysDialog.confirm" defaultMessage="Rotate keys" />
             )}
