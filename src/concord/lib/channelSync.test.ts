@@ -210,7 +210,8 @@ describe("channelSync — the c2: topic handler", () => {
     const now = Math.floor(Date.now() / 1000);
     const relay = new FakeRelay();
     relay.events = await Promise.all([0, 1, 2].map((i) => wrapChatAt(m, channel, alice, `old-${i}`, now - 86_400 + i)));
-    await m.updateStreamCursor(channel.idHex, { newest: now - 3_600, oldest: now - 90_000, exhausted: true });
+    await m.updateStreamCursor(channel.idHex, { newest: now - 3_600, oldest: now - 90_000, exhausted: true, streams: m.streamSetSig(channel) });
+    m._trustCursorForTests(channel.idHex);
     const community = { idHex: CID, relays: [RELAY] } as unknown as Community;
     m.setChannelSyncContext(channel.idHex, { nostr: makePool({ [RELAY]: relay }), community, channel });
 
@@ -220,6 +221,45 @@ describe("channelSync — the c2: topic handler", () => {
     expect(relay.asked).toHaveLength(1);
     expect(relay.asked[0].since).toBe(now - 3_600 - 600);
     expect(relay.asked[0].until).toBeUndefined();
+    release();
+  });
+
+  it("reads again what a cursor claimed when the store holds none of it, past the seen-wrap memo", { timeout: 30_000 }, async () => {
+    const m = await freshModules();
+    const channel = makeChannel(m);
+    const alice = signer();
+    const now = Math.floor(Date.now() / 1000);
+    const relay = new FakeRelay();
+    relay.events = await Promise.all([0, 1, 2].map((i) => wrapChatAt(m, channel, alice, `kept-${i}`, now - 86_400 + i)));
+    // A complete cursor and a memo vouching for every wrap, but no rows: storage lost them.
+    await m.updateStreamCursor(channel.idHex, { newest: now - 3_600, oldest: now - 90_000, exhausted: true, streams: m.streamSetSig(channel) });
+    const planeSync = await import("./planeSync");
+    planeSync.notePlaneWrapsSeen(relay.events.map((e) => e.id));
+    const community = { idHex: CID, relays: [RELAY] } as unknown as Community;
+    m.setChannelSyncContext(channel.idHex, { nostr: makePool({ [RELAY]: relay }), community, channel });
+
+    const release = m.want(`c2:${channel.idHex}`);
+    await vi.waitFor(async () => expect(await m.queryChannelRumors(CID, channel.idHex, { limit: 10 })).toHaveLength(3), { timeout: 15_000 });
+    release();
+  });
+
+  it("starts over when the channel's stream addresses changed since its cursor was read", { timeout: 30_000 }, async () => {
+    const m = await freshModules();
+    const channel = makeChannel(m);
+    const now = Math.floor(Date.now() / 1000);
+    const relay = new FakeRelay();
+    relay.events = [await wrapChatAt(m, channel, signer(), "hi", now - 86_400)];
+    await m.updateStreamCursor(channel.idHex, { newest: now - 3_600, oldest: now - 90_000, exhausted: true, streams: "an-older-set" });
+    m._trustCursorForTests(channel.idHex);
+    const community = { idHex: CID, relays: [RELAY] } as unknown as Community;
+    m.setChannelSyncContext(channel.idHex, { nostr: makePool({ [RELAY]: relay }), community, channel });
+
+    const topic = `c2:${channel.idHex}`;
+    const release = m.want(topic);
+    await vi.waitFor(() => expect(m.syncState(topic).status).toBe("settled"), { timeout: 15_000 });
+    // A first round again: the newest page unbounded below, not a since-bounded ask.
+    expect(relay.asked[0].since).toBeUndefined();
+    expect((await m.readStreamCursor(channel.idHex))?.streams).toBe(m.streamSetSig(channel));
     release();
   });
 
@@ -237,7 +277,8 @@ describe("channelSync — the c2: topic handler", () => {
       r.events = history;
       return [u, r];
     }));
-    await m.updateStreamCursor(channel.idHex, { newest: now - 3_600, oldest: now - 199_700 });
+    await m.updateStreamCursor(channel.idHex, { newest: now - 3_600, oldest: now - 199_700, streams: m.streamSetSig(channel) });
+    m._trustCursorForTests(channel.idHex);
     const community = { idHex: CID, relays: urls } as unknown as Community;
     m.setChannelSyncContext(channel.idHex, { nostr: makePool(relays), community, channel });
 
@@ -381,7 +422,8 @@ describe("history coverage", () => {
     const t0 = now - 10_000;
     const relay = new FakeRelay();
     relay.events = await Promise.all(Array.from({ length: 200 }, (_, i) => wrapChatAt(m, channel, alice, `g${i}`, t0 + 1 + i)));
-    await m.updateStreamCursor(channel.idHex, { newest: t0, oldest: t0 - 1_000, exhausted: true });
+    await m.updateStreamCursor(channel.idHex, { newest: t0, oldest: t0 - 1_000, exhausted: true, streams: m.streamSetSig(channel) });
+    m._trustCursorForTests(channel.idHex);
     const community = { idHex: CID, relays: [RELAY] } as unknown as Community;
     const ctx = { nostr: makePool({ [RELAY]: relay }), community, channel };
     const tiny = { bridgePages: 1, olderPages: 0 };

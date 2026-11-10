@@ -1386,6 +1386,12 @@ export interface StreamCursor {
    * re-reading its top every time.
    */
   bridge?: StreamBridge;
+  /**
+   * The stream addresses `newest`..`oldest` was read over (a channel's, as
+   * `streamSetSig`). A cursor knows nothing of an address added since, so a changed
+   * set starts the read over; absent on cursors older than the field.
+   */
+  streams?: string;
 }
 
 export interface StreamBridge {
@@ -1443,10 +1449,20 @@ export function updateStreamCursor(
           : (prev?.oldest ?? 0),
       exhausted: patch.exhausted ?? prev?.exhausted ?? false,
     };
+    const streams = patch.streams ?? prev?.streams;
+    if (streams !== undefined) next.streams = streams;
     const bridge = patch.bridge === null ? undefined : (patch.bridge ?? prev?.bridge);
     if (bridge && next.newest > 0 && bridge.until > next.newest) next.bridge = bridge;
     await writeFolded(cursorKey(scope), next);
   });
+}
+
+/**
+ * Start a scope's read over from the top, over `streams`: what the cursor claimed to
+ * have read can't be trusted (its address set changed, or the store lost the rows).
+ */
+export function resetStreamCursor(scope: string, streams: string): Promise<void> {
+  return withCursorLock(scope, () => writeFolded(cursorKey(scope), { newest: 0, oldest: 0, exhausted: false, streams } satisfies StreamCursor));
 }
 
 /** Clear the exhausted flag (e.g. after a rekey catch-up unlocks older history). */

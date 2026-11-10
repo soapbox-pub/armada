@@ -8,12 +8,17 @@
  * registered first via {@link setChannelSyncContext}; a run without it fails loudly
  * so the scheduler retries. Results reach the UI via `writeRumors`' bus ring.
  */
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+
 import { openChatBatch } from "@/concord/lib/chat";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { notePlaneWrapsSeen, unseenPlaneWraps, whenAuthSettled } from "@/concord/lib/planeSync";
 import {
   clearStreamExhausted,
+  queryChannelRumors,
   readStreamCursor,
+  resetStreamCursor,
   updateStreamCursor,
   writeRumors,
   type StreamBridge,
@@ -394,6 +399,20 @@ export interface RoundOutcome {
   mostlyUnopened: boolean;
 }
 
+/** Channels whose store was checked against their cursor this session. */
+const storeChecked = new Set<string>();
+
+/** Tests only: a cursor seeded without rows in the store is taken at its word. */
+export function _trustCursorForTests(idHex: string): void {
+  storeChecked.add(idHex);
+}
+
+/** A channel's stream addresses, order-free: what its cursor was read over. */
+export function streamSetSig(channel: Channel): string {
+  const pks = [...new Set(channel.streams.map((s) => s.group.pk))].sort();
+  return bytesToHex(sha256(new TextEncoder().encode(pks.join(","))));
+}
+
 const ABORTED: RoundOutcome = { more: true, progressed: false, failed: false, mostlyUnopened: false };
 
 /**
@@ -420,6 +439,26 @@ export async function syncChannelRound(
       saved = { ...saved, exhausted: false };
       void clearStreamExhausted(idHex);
     }
+    // What the cursor read is only true of the addresses it read and the rows the
+    // store still holds. A changed address set (a writer window, a rekey, a cursor from
+    // before the field) or a store with none of the channel's rows starts the read
+    // over, the second also past the seen-wrap memo, which vouches for rows that are gone.
+    const streams = streamSetSig(channel);
+    let ignoreSeen = false;
+    if (saved && saved.streams !== streams) {
+      saved = undefined;
+      await resetStreamCursor(idHex, streams);
+    } else if (saved && !storeChecked.has(idHex)) {
+      storeChecked.add(idHex);
+      const rows = await queryChannelRumors(community.idHex, idHex, { limit: 1, signal }).catch(() => undefined);
+      if (rows?.length === 0) {
+        saved = undefined;
+        ignoreSeen = true;
+        await resetStreamCursor(idHex, streams);
+      }
+    }
+    if (!saved) await updateStreamCursor(idHex, { streams });
+    if (signal.aborted) return ABORTED;
 
     // Retired-epoch freeze: once history reached bottom, retired stream addresses
     // leave every REQ (an ejected keyholder can sign wraps there forever). A rekey
@@ -443,6 +482,8 @@ export async function syncChannelRound(
     let writeFailed = false;
     // Wraps fetched that failed to open: a round of nothing else is no reason to requeue.
     let unopened = 0;
+    // Wraps actually tried: those the memo skipped are stored already, not undecryptable.
+    let tried = 0;
     /**
      * Writes a page and returns the newest `created_at` among its wraps that are
      * KNOWN good — opened now or earlier. Wrap signatures are never checked, so an
@@ -451,7 +492,7 @@ export async function syncChannelRound(
     const writePage = async (events: NostrEvent[], ring?: ThrottledRing): Promise<number | undefined> => {
       if (signal.aborted) return undefined;
       // Skip wraps whose rumors are already stored (the wire's persisted memo).
-      const fresh = await unseenPlaneWraps(events);
+      const fresh = ignoreSeen ? events : await unseenPlaneWraps(events);
       if (signal.aborted) return undefined;
       const freshIds = new Set(fresh.map((w) => w.id));
       let top: number | undefined;
@@ -462,6 +503,7 @@ export async function syncChannelRound(
       };
       for (const ev of events) if (!freshIds.has(ev.id)) consider(ev.created_at);
       if (fresh.length === 0) return top;
+      tried += fresh.length;
       const opened = await openChatBatch(fresh, channel, { signal, remember: !budget.background });
       // Logout's purge aborts the round: nothing decrypted may land after it.
       if (signal.aborted) return undefined;
@@ -503,7 +545,6 @@ export async function syncChannelRound(
     // too big for the budget is recorded as `bridge` and resumed below its read
     // span next round, so every round makes progress into it.
     const since0 = saved?.newest || undefined;
-    let bridgeCount = 0;
     let bridgeFailed = false;
     let complete = false;
     let bridgeRecord: StreamBridge | undefined;
@@ -527,7 +568,6 @@ export async function syncChannelRound(
             },
           });
           pages -= r.pages;
-          bridgeCount += r.count;
           if (r.failed) bridgeFailed = true;
           return r;
         };
@@ -600,9 +640,8 @@ export async function syncChannelRound(
 
     // A round that pulled wraps and opened none marks a decode dead end; any opened
     // rumor clears it.
-    const fetched = newest.count + bridgeCount + older.count;
     if (synced > 0) decodeDeadEnds.delete(idHex);
-    else if (fetched > 0) decodeDeadEnds.add(idHex);
+    else if (tried > 0) decodeDeadEnds.add(idHex);
 
     // Ring once the cursor lands, even with nothing decrypted, so a stale scroll-up
     // affordance updates. On `c2cur:`, not `c2:`: only the timeline reads the
