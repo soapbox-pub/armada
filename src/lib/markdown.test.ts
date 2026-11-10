@@ -112,6 +112,18 @@ describe("parseInline escapes and emphasis guards", () => {
     expect(parseInline("**a\\*b**")).toEqual([{ type: "strong", children: [{ type: "text", value: "a*b" }] }]);
   });
 
+  it("keeps a shrug's backslash, and reads Discord's escaped shrug as the same face", () => {
+    const shrug = "\u00af\\_(\u30c4)_/\u00af";
+    expect(parseInline(shrug)).toEqual([{ type: "text", value: shrug }]);
+    expect(parseInline("\u00af\\\\_(\u30c4)_/\u00af")).toEqual([{ type: "text", value: shrug }]);
+    expect(parseInline(`I give up ${shrug}`)).toEqual([{ type: "text", value: `I give up ${shrug}` }]);
+    expect(parseInline(`**ok ${shrug}**`)).toEqual([{ type: "strong", children: [{ type: "text", value: `ok ${shrug}` }] }]);
+    expect(parseInline(`${shrug} _yes_`)).toEqual([
+      { type: "text", value: `${shrug} ` },
+      { type: "em", children: [{ type: "text", value: "yes" }] },
+    ]);
+  });
+
   it("round-trips a literal private-use placeholder character", () => {
     expect(parseInline("x\uE000*y*")).toEqual([
       { type: "text", value: "x\uE000" },

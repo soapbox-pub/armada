@@ -29,6 +29,14 @@ describe("highlightRuns", () => {
     expect(flagsAt("**a *b* c**", "b")).toBe(HL.BOLD | HL.ITALIC);
   });
 
+  it("leaves a shrug unformatted, its backslash undimmed", () => {
+    for (const text of ["meh \u00af\\_(\u30c4)_/\u00af", "meh \u00af\\\\_(\u30c4)_/\u00af"]) {
+      expect(flagsAt(text, "\\")).toBe(0);
+      expect(flagsAt(text, "\u30c4")).toBe(0);
+    }
+    expect(flagsAt("**ok \u00af\\_(\u30c4)_/\u00af**", "\u30c4")).toBe(HL.BOLD);
+  });
+
   it("leaves code, links and fenced blocks unformatted inside", () => {
     expect(flagsAt("`**x**`", "x")).toBe(HL.CODE);
     expect(flagsAt("https://e.com/a_b_c", "b")).toBe(HL.LINK);

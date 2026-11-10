@@ -26,6 +26,7 @@ vi.mock("@/hooks/useCustomEmojis", () => ({
 }));
 
 import { ChatContent } from "@/components/chat/ChatContent";
+import { findSlashCommand, type SlashCommandContext } from "@/lib/slashCommands";
 
 afterEach(cleanup);
 
@@ -187,5 +188,13 @@ describe("ChatContent chat markdown", () => {
     const { container } = renderContent("\\*not italic\\*");
     expect(container.querySelector("em")).toBeNull();
     expect(container.textContent).toBe("*not italic*");
+  });
+
+  it("renders /shrug's output as the face, backslash included", () => {
+    const sent = findSlashCommand("shrug")!.run("I give up", {} as SlashCommandContext);
+    if (sent.type !== "send") throw new Error(sent.type);
+    const { container } = renderContent(sent.text);
+    expect(container.querySelector("em")).toBeNull();
+    expect(container.textContent).toBe("I give up \u00af\\_(\u30c4)_/\u00af");
   });
 });

@@ -36,6 +36,8 @@ const INLINE_CODE_RE = /(?<=(?:^|[^\\])(?:\\\\)*)`([^`\n]+)`/g;
 // Stops where ChatContent's link does: at `|` and before trailing punctuation.
 const URL_RE = /\b(?:https?|wss?):\/\/[^\s<>|]*[^\s<>|.,;:!?)\]*_~]/g;
 const ESCAPE_RE = /\\[\\`*_~|#>\-+=.!()[\]]/g;
+// A shrug is a face, not an escape and emphasis, as in markdown.ts.
+const SHRUG_RE = /\u00af\\{1,2}_\(\u30c4\)_\/\u00af/g;
 
 // Mirrors `INLINE_PATTERNS` in markdown.ts, minus the cross-atom bookkeeping.
 const INLINE: ReadonlyArray<{ flag: number; size: number; re: RegExp }> = [
@@ -59,6 +61,7 @@ function highlightLine(line: string, flags: number[], base: number, lineFlags: n
   for (let i = 0; i < line.length; i++) {
     if (flags[base + i] & (HL.MENTION | HL.EMOJI)) work = work.slice(0, i) + ATOM + work.slice(i + 1);
   }
+  for (const m of work.matchAll(SHRUG_RE)) atom(m.index, m.index + m[0].length);
   for (const m of work.matchAll(ESCAPE_RE)) {
     mark(flags, base + m.index, base + m.index + 1, HL.MARKER);
     atom(m.index, m.index + 2);

@@ -480,8 +480,14 @@ const INLINE_PATTERNS: ReadonlyArray<{
  * delimiters are matched: neither a word character nor whitespace.
  */
 const ATOM = "\uE000";
-/** `\*` etc.: the markdown punctuation a backslash makes literal. */
-const ESCAPE_RE = /\\([\\`*_~|#>\-+=.!()[\]])|\uE000/g;
+/** The shrug as `/shrug` sends it. */
+const SHRUG = "\u00af\\_(\u30c4)_/\u00af";
+/**
+ * `\*` etc.: the markdown punctuation a backslash makes literal. A shrug, also
+ * Discord's `¯\\_(ツ)_/¯`, is a face rather than an escape and emphasis, as in
+ * Vector's `shrugExtension`.
+ */
+const ESCAPE_RE = /(\u00af\\{1,2}_\(\u30c4\)_\/\u00af)|\\([\\`*_~|#>\-+=.!()[\]])|\uE000/g;
 
 export type InlineAtom<A> = { atom: A };
 
@@ -500,8 +506,8 @@ export function parseInlineRun<A>(parts: ReadonlyArray<string | InlineAtom<A>>):
       src += ATOM;
       continue;
     }
-    src += part.replace(ESCAPE_RE, (m: string, ch: string | undefined) => {
-      slots.push({ text: ch ?? m });
+    src += part.replace(ESCAPE_RE, (m: string, shrug: string | undefined, ch: string | undefined) => {
+      slots.push({ text: shrug ? SHRUG : ch ?? m });
       return ATOM;
     });
   }
