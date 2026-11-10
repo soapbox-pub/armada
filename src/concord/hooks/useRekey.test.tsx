@@ -27,6 +27,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import { mintCommunity } from "@/concord/lib/community";
+import { rehydrateCommunity } from "@/concord/lib/communityList";
+import { refoundJournal, refoundJournalReady, writeRefoundJournal } from "@/concord/lib/refoundJournal";
 import { buildGrantEdition, buildRoleEdition, currentControlWriteGroup, sealEdition } from "@/concord/lib/control";
 import { adminRole, Permissions, type Role } from "@/concord/lib/roles";
 import {
@@ -65,7 +67,7 @@ import type { Community, PrivateChannelKey } from "@/concord/lib/types";
 import { openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
 import { readChannelContent } from "@/concord/lib/control";
 
-import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefound, useRekeyWatch } from "./useRekey";
+import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefound, useRekeyWatch, useRotationConvergence } from "./useRekey";
 
 import type { NUser } from "@nostrify/react/login";
 
@@ -131,6 +133,8 @@ class FakeRelay {
   queries: Filter[] = [];
   /** Reject any publish whose author matches — a relay refusing one step. */
   refuseAuthor: string | undefined;
+  /** Reject whatever this says to: a relay going away partway through. */
+  refuse: ((ev: NostrEvent) => boolean) | undefined;
 
   async query(filters: Filter[]): Promise<NostrEvent[]> {
     this.queries.push(...filters);
@@ -150,6 +154,7 @@ class FakeRelay {
 
   async event(ev: NostrEvent): Promise<void> {
     if (this.refuseAuthor && ev.pubkey === this.refuseAuthor) throw new Error("relay refused");
+    if (this.refuse?.(ev)) throw new Error("relay refused");
     this.published.push(ev);
     this.events.push(ev);
   }
@@ -1143,6 +1148,86 @@ describe("useChannelRekey (standalone channel rotation, channel-access revoke)",
     },
   );
 
+  it(
+    "never merges into an earlier rotation of mine that handed the cut member a key: it steps past it",
+    { timeout: 30_000 },
+    async () => {
+      const owner = member();
+      const alice = member();
+      const mallory = member();
+      const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+      const ch: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "sec" };
+      const community: Community = { ...base, privateChannels: [ch] };
+
+      // A rotation of mine to epoch 1 planned on a roster that still had Mallory
+      // (a duty, another tab), already out.
+      const staleKey = random32();
+      const relay = new FakeRelay();
+      relay.events = await channelRotationWraps(owner, community.root, ch, staleKey, [owner.pubkey, alice.pubkey, mallory.pubkey], Date.now() - 1000);
+      h.pool = { relay: () => relay, query: async () => [] };
+      h.user = asNUser(owner);
+      h.folded = foldedFor(owner.pubkey);
+      h.updateList = vi.fn(async () => {});
+      const jm = jmOf(community, owner.pubkey);
+      h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+
+      const { result } = renderHook(() => useChannelRekey(community), { wrapper: makeWrapper().wrapper });
+      await act(async () => {
+        await result.current.rekeyChannel({ channelIdHex: bytesToHex(ch.id), keepRecipients: [alice.pubkey], removedTargets: [mallory.pubkey] });
+      });
+
+      // Nothing new at epoch 1, where it would have merged with Mallory's blob…
+      const at1 = channelRekeyGroupKey(community.root, ch.id, 1n);
+      expect(relay.published.some((e) => e.pubkey === at1.pk)).toBe(false);
+      // …a rotation from the stale set's key to epoch 2, without her…
+      const at2 = channelRekeyGroupKey(community.root, ch.id, 2n);
+      const [rotation] = groupRotations(relay.published.filter((e) => e.pubkey === at2.pk).map((w) => parseRekey(openWrap(w, at2))));
+      expect(rotation?.complete).toBe(true);
+      expect(rotation.prevCommit).toBe(bytesToHex(epochKeyCommitment(1n, staleKey)));
+      expect(findBlob(rotation, myLocator(owner.pubkey, alice.pubkey, bytesToHex(ch.id), 2n))).toBeDefined();
+      expect(findBlob(rotation, myLocator(owner.pubkey, mallory.pubkey, bytesToHex(ch.id), 2n))).toBeUndefined();
+      // …and both keys kept, so history at epoch 1 stays readable.
+      expect(h.updateList).toHaveBeenCalledWith(expect.objectContaining({
+        type: "refresh-channels",
+        channels: [expect.objectContaining({
+          epoch: 2,
+          priors: [expect.objectContaining({ key: bytesToHex(staleKey), epoch: 1 }), expect.objectContaining({ key: bytesToHex(ch.key), epoch: 0 })],
+        })],
+      }));
+    },
+  );
+
+  it(
+    "an earlier rotation of mine that already left the cut member out is joined, not stepped past",
+    { timeout: 30_000 },
+    async () => {
+      const owner = member();
+      const mallory = member();
+      const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+      const ch: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "sec" };
+      const community: Community = { ...base, privateChannels: [ch] };
+      const relay = new FakeRelay();
+      const earlierKey = random32();
+      relay.events = await channelRotationWraps(owner, community.root, ch, earlierKey, [owner.pubkey], Date.now() - 1000);
+      h.pool = { relay: () => relay, query: async () => [] };
+      h.user = asNUser(owner);
+      h.folded = foldedFor(owner.pubkey);
+      h.updateList = vi.fn(async () => {});
+      const jm = jmOf(community, owner.pubkey);
+      h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+
+      const { result } = renderHook(() => useChannelRekey(community), { wrapper: makeWrapper().wrapper });
+      await act(async () => {
+        await result.current.rekeyChannel({ channelIdHex: bytesToHex(ch.id), keepRecipients: [], removedTargets: [mallory.pubkey] });
+      });
+      expect(relay.published.some((e) => e.pubkey === channelRekeyGroupKey(community.root, ch.id, 2n).pk)).toBe(false);
+      // At its key, not a second one minted here for the same epoch.
+      expect(h.updateList).toHaveBeenCalledWith(expect.objectContaining({
+        channels: [expect.objectContaining({ epoch: 1, key: bytesToHex(earlierKey) })],
+      }));
+    },
+  );
+
   it("seals the channel's details again under the key it just minted, on ranked roles (Vector `reseal_rotated`)", async () => {
     const owner = member();
     const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
@@ -1612,4 +1697,236 @@ describe("useRefound (CORD-06 §3 channel rotations)", () => {
       );
     },
   );
+});
+
+// ── A Refounding cut short finishes at its own epoch ──
+
+describe("useRefound resumes what it committed", () => {
+  /** The community as this device holds it once the roll's epoch was recorded (step 1a). */
+  function adoptedFrom(updateList: ReturnType<typeof vi.fn>, communityIdHex: string): { community: Community; entry: CommunityListEntry } {
+    const call = updateList.mock.calls.map((c) => c[0] as { type: string; current?: JoinMaterial }).find((a) => a.type === "refresh-current");
+    expect(call?.current, "the roll's epoch must have been recorded").toBeDefined();
+    const entry = { community_id: communityIdHex, seed: call!.current!, current: call!.current!, added_at: 1 } satisfies CommunityListEntry;
+    return { community: rehydrateCommunity(entry)!, entry };
+  }
+
+  it(
+    "a run cut off at a channel rotation finishes it on the next attempt, without rolling a second epoch",
+    { timeout: 30_000 },
+    async () => {
+      const owner = member();
+      const alice = member();
+      const mallory = member();
+      const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+      const ch: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "sec" };
+      const community: Community = { ...base, privateChannels: [ch] };
+      const priorRoot = community.root;
+
+      const relay = new FakeRelay();
+      relay.events.push(...(await channelAccessEditions(community, owner, ch.id, [alice.pubkey])));
+      relay.refuseAuthor = channelRekeyGroupKey(priorRoot, ch.id, 1n).pk;
+      h.pool = { relay: () => relay, query: async () => [] };
+      h.user = asNUser(owner);
+      h.folded = foldedFor(owner.pubkey);
+      const updateList = vi.fn(async () => {});
+      h.updateList = updateList;
+      const jm = jmOf(community, owner.pubkey);
+      h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+
+      const first = renderHook(() => useRefound(community), { wrapper: makeWrapper().wrapper });
+      await act(async () => {
+        await expect(first.result.current.refound({ keep: [alice.pubkey], exclude: [mallory.pubkey] })).rejects.toThrow();
+      });
+      await refoundJournalReady();
+      expect(refoundJournal(owner.pubkey, community.idHex)?.carried, "the state was carried before the channel failed").toBe(true);
+
+      // Reopened: the device is at epoch 1, and the relay takes the channel now.
+      const { community: adopted, entry } = adoptedFrom(updateList, community.idHex);
+      expect(adopted.rootEpoch).toBe(1n);
+      relay.refuseAuthor = undefined;
+      h.entry = entry;
+      updateList.mockClear();
+      const second = renderHook(() => useRefound(adopted), { wrapper: makeWrapper().wrapper });
+      await act(async () => {
+        await second.result.current.refound({ keep: [alice.pubkey], exclude: [mallory.pubkey] });
+      });
+
+      // No second roll off the new root…
+      expect(relay.published.some((e) => e.pubkey === baseRekeyGroupKey(adopted.root, community.id, 2n).pk)).toBe(false);
+      // …the channel rotated under the PRIOR root, without Mallory…
+      const chAddress = channelRekeyGroupKey(priorRoot, ch.id, 1n);
+      const [rotation] = groupRotations(relay.published.filter((e) => e.pubkey === chAddress.pk).map((w) => parseRekey(openWrap(w, chAddress))));
+      expect(rotation?.complete).toBe(true);
+      expect(findBlob(rotation, myLocator(owner.pubkey, alice.pubkey, bytesToHex(ch.id), 1n))).toBeDefined();
+      expect(findBlob(rotation, myLocator(owner.pubkey, mallory.pubkey, bytesToHex(ch.id), 1n))).toBeUndefined();
+      // …the list moved forward at epoch 1 with the channel rotated, and the journal is spent.
+      expect(updateList).toHaveBeenCalledWith(expect.objectContaining({
+        type: "refresh-current",
+        current: expect.objectContaining({ root_epoch: 1, channels: [expect.objectContaining({ id: bytesToHex(ch.id), epoch: 1 })] }),
+      }));
+      expect(refoundJournal(owner.pubkey, community.idHex)).toBeUndefined();
+    },
+  );
+
+  it(
+    "a run cut off while carrying the community's state carries it on the next attempt",
+    { timeout: 30_000 },
+    async () => {
+      const owner = member();
+      const alice = member();
+      const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+      const ch: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "sec" };
+      const community: Community = { ...base, privateChannels: [ch] };
+
+      const relay = new FakeRelay();
+      relay.events.push(...(await channelAccessEditions(community, owner, ch.id, [alice.pubkey])));
+      // The relay goes away right after the roll.
+      const rollPk = baseRekeyGroupKey(community.root, community.id, 1n).pk;
+      relay.refuse = (ev) => ev.pubkey !== rollPk;
+      h.pool = { relay: () => relay, query: async () => [] };
+      h.user = asNUser(owner);
+      h.folded = foldedFor(owner.pubkey);
+      const updateList = vi.fn(async () => {});
+      h.updateList = updateList;
+      const jm = jmOf(community, owner.pubkey);
+      h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+
+      const first = renderHook(() => useRefound(community), { wrapper: makeWrapper().wrapper });
+      await act(async () => {
+        await expect(first.result.current.refound({ keep: [alice.pubkey], exclude: [] })).rejects.toThrow();
+      });
+
+      const { community: adopted, entry } = adoptedFrom(updateList, community.idHex);
+      expect(adopted.controlPk).toBeDefined();
+      // Nothing reached the new Control address: every keeper's fold would wait on it.
+      expect(relay.published.some((e) => e.pubkey === adopted.controlPk)).toBe(false);
+
+      // Reopened with no fold to render (the new epoch holds no state yet).
+      relay.refuse = undefined;
+      h.entry = entry;
+      h.folded = undefined;
+      const second = renderHook(() => useRefound(adopted), { wrapper: makeWrapper().wrapper });
+      await act(async () => {
+        await second.result.current.refound({ keep: [alice.pubkey], exclude: [] });
+      });
+      expect(relay.published.filter((e) => e.pubkey === adopted.controlPk).length).toBeGreaterThan(0);
+      expect(relay.published.some((e) => e.pubkey === baseRekeyGroupKey(adopted.root, community.id, 2n).pk)).toBe(false);
+      expect(refoundJournal(owner.pubkey, community.idHex)).toBeUndefined();
+    },
+  );
+
+  it(
+    "finishing an earlier run doesn't count as removing someone it never named",
+    { timeout: 30_000 },
+    async () => {
+      const owner = member();
+      const alice = member();
+      const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+      const ch: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "sec" };
+      const community: Community = { ...base, privateChannels: [ch] };
+      const relay = new FakeRelay();
+      relay.refuseAuthor = channelRekeyGroupKey(community.root, ch.id, 1n).pk;
+      h.pool = { relay: () => relay, query: async () => [] };
+      h.user = asNUser(owner);
+      h.folded = foldedFor(owner.pubkey);
+      const updateList = vi.fn(async () => {});
+      h.updateList = updateList;
+      const jm = jmOf(community, owner.pubkey);
+      h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+
+      const first = renderHook(() => useRefound(community), { wrapper: makeWrapper().wrapper });
+      await act(async () => {
+        await expect(first.result.current.refound({ keep: [alice.pubkey], exclude: [] })).rejects.toThrow();
+      });
+      const { community: adopted, entry } = adoptedFrom(updateList, community.idHex);
+      relay.refuseAuthor = undefined;
+      h.entry = entry;
+      const second = renderHook(() => useRefound(adopted), { wrapper: makeWrapper().wrapper });
+      await act(async () => {
+        await expect(second.result.current.refound({ keep: [], exclude: [alice.pubkey] })).rejects.toThrow(/earlier key rotation/);
+      });
+      expect(refoundJournal(owner.pubkey, community.idHex)).toBeUndefined();
+    },
+  );
+});
+
+// ── Racing Refoundings converge on the lowest key (CORD-06 §3) ──
+
+describe("useRotationConvergence", () => {
+  async function race() {
+    const owner = member();
+    const admin = member();
+    const me = member();
+    const { community } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+    const { fold, citation } = peerAdminsFold(owner.pubkey, community.id, admin.pubkey, member().pubkey);
+    const [low, high] = [random32(), random32()].sort((a, b) => (bytesToHex(a) < bytesToHex(b) ? -1 : 1));
+    const now = Date.now();
+    const relay = new FakeRelay();
+    relay.events = [
+      ...(await rotationWraps(owner, community, high, [owner.pubkey, admin.pubkey, me.pubkey], now)),
+      ...(await rotationWraps(admin, community, low, [owner.pubkey, admin.pubkey, me.pubkey], now + 1, citation)),
+    ];
+    h.pool = { relay: () => relay, query: async () => [] };
+    h.folded = fold;
+    h.updateList = vi.fn(async () => {});
+    return { owner, admin, me, community, low, high };
+  }
+
+  /** `c` as a device holds it after adopting `key` at epoch 1. */
+  function onKey(c: Community, key: Uint8Array, refounder: string, ownerPk: string) {
+    const adopted: Community = {
+      ...c,
+      root: key,
+      rootEpoch: 1n,
+      heldRoots: [
+        { epoch: 1n, key, refounder },
+        ...c.heldRoots.map((r) => (r.epoch === 0n ? { ...r, retiredAt: nowSecs() } : r)),
+      ],
+      refounder,
+    };
+    const jm = jmOf(adopted, ownerPk);
+    h.entry = { community_id: c.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+    return adopted;
+  }
+
+  it("a member that adopted the higher key steps down to the lower one at the same epoch", { timeout: 30_000 }, async () => {
+    const { owner, me, community, low, high } = await race();
+    h.user = asNUser(me);
+    const adopted = onKey(community, high, owner.pubkey, owner.pubkey);
+    renderHook(() => useRotationConvergence(adopted), { wrapper: makeWrapper().wrapper });
+    await waitFor(() =>
+      expect(h.updateList).toHaveBeenCalledWith(expect.objectContaining({
+        type: "refresh-current",
+        current: expect.objectContaining({ root_epoch: 1, community_root: bytesToHex(low) }),
+      })),
+      { timeout: 10_000 },
+    );
+  });
+
+  it("the losing rotator steps down too, and drops its unfinished carry", { timeout: 30_000 }, async () => {
+    const { owner, community, low, high } = await race();
+    h.user = asNUser(owner);
+    const adopted = onKey(community, high, owner.pubkey, owner.pubkey);
+    await refoundJournalReady();
+    writeRefoundJournal(owner.pubkey, community.idHex, {
+      newEpoch: "1", priorEpoch: "0", recipients: [owner.pubkey], exclude: [], rotatedAtMs: Date.now(), channelBase: {}, channels: [],
+    });
+    renderHook(() => useRotationConvergence(adopted), { wrapper: makeWrapper().wrapper });
+    await waitFor(() =>
+      expect(h.updateList).toHaveBeenCalledWith(expect.objectContaining({
+        current: expect.objectContaining({ community_root: bytesToHex(low) }),
+      })),
+      { timeout: 10_000 },
+    );
+    expect(refoundJournal(owner.pubkey, community.idHex)).toBeUndefined();
+  });
+
+  it("the winner stays where it is", { timeout: 30_000 }, async () => {
+    const { owner, me, community, low } = await race();
+    h.user = asNUser(me);
+    const adopted = onKey(community, low, owner.pubkey, owner.pubkey);
+    renderHook(() => useRotationConvergence(adopted), { wrapper: makeWrapper().wrapper });
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(h.updateList).not.toHaveBeenCalled();
+  });
 });

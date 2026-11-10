@@ -177,7 +177,7 @@ import { scheduleExpiredSweep } from "@/concord/lib/rumorStore";
 import { useDecryptedImage } from "@/concord/hooks/useDecryptedImage";
 import { useCarryMyNickname, useGuestbook, useHealBanDepartures, useMemberStanding, useRestoreJoin } from "@/concord/hooks/useGuestbook";
 import { useModeration, useReadCutRetry } from "@/concord/hooks/useModeration";
-import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRekeyWatch } from "@/concord/hooks/useRekey";
+import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefoundResume, useRekeyWatch, useRotationConvergence } from "@/concord/hooks/useRekey";
 import { useCanPost } from "@/concord/hooks/useWriterAccess";
 import { clockNowMs } from "@/lib/relayClock";
 import { CommunityNicknamesContext } from "@/contexts/CommunityNicknamesContext";
@@ -1347,6 +1347,8 @@ function ConcordCommunityPage() {
 
   // Base-rekey rotations. `stranded`: a stale invite left us on a superseded epoch.
   const { stranded } = useRekeyWatch(baseCommunity);
+  // A racing Refounding at the epoch I'm on: step down to the lower key (CORD-06 §3).
+  useRotationConvergence(baseCommunity);
   // Per-private-channel rotations (CORD-06 §2).
   useChannelRekeyWatch(baseCommunity);
   // Key, history and writer collection and the duties run in the background (`CommunityDuties`).
@@ -1362,6 +1364,8 @@ function ConcordCommunityPage() {
   useLinkFreshnessWatch(baseCommunity);
   // Durable read-cut: finish a rotating ban dropped by a relay outage. Mounted ONCE here.
   useReadCutRetry(baseCommunity);
+  // An interrupted Refounding of mine: finished at its own epoch. Mounted ONCE here.
+  useRefoundResume(baseCommunity);
   // Stranded self-heal: re-resolve our invite link until its bundle is refreshed.
   const { canRecover, checking: recoveryChecking, checkNow: recoveryCheckNow } = useStrandedRecovery(baseCommunity, stranded);
 
