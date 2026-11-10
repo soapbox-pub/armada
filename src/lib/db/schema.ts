@@ -16,8 +16,10 @@ import { getArmadaDB } from "./armadaDB";
  * 3 — NIP-29 moves from `main` to per-relay tenants; `provenance:` KV dropped.
  * 4 — a Guestbook rumor's address is a key of its own (`c2gbaddr:`), not an id in a per-address array (`c2gbpk:`).
  * 5 — likewise a Control snapshot entry (`c2snap:<community>:<address>:<rumor>`), not an id in `c2snap:<community>:<address>`.
+ * 6 — the plane sweeps' wrap memos and Guestbook cursors start over: builds before
+ *     the Guestbook took Timeouts and Nicknames (v0.69.0) memoized and read past them.
  */
-export const ARMADA_DB_VERSION = 5;
+export const ARMADA_DB_VERSION = 6;
 
 export const SCHEMA_VERSION_KEY = "db:version";
 
@@ -70,6 +72,34 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       }
     },
   },
+  {
+    to: 6,
+    label: "Plane sweep memos",
+    needed: async () => {
+      const kv = getArmadaDB().kv;
+      for (const prefix of SWEEP_MEMO_PREFIXES) if ((await kv.list({ prefix }, { limit: 1 })).length > 0) return true;
+      return false;
+    },
+    async run() {
+      // The memo says "stored", and the cursor "read up to here", of wraps whose rumors
+      // the old rules dropped: both go, so the next sweep reads and files them again.
+      // The chat planes' memo entries go too; their rows are skipped at the store instead.
+      const kv = getArmadaDB().kv;
+      for (const prefix of SWEEP_MEMO_PREFIXES) {
+        for (const { key } of await kv.list({ prefix })) await kv.delete(key);
+      }
+    },
+  },
+];
+
+/** What v6 clears: the seen/junk wrap logs and their legacy values, the complete floors, and Guestbook cursors. */
+const SWEEP_MEMO_PREFIXES = [
+  "plane-seen-wraps:",
+  "plane-junk-wraps:",
+  "folded:plane-seen-wraps",
+  "folded:plane-junk-wraps",
+  "folded:plane-complete-floors",
+  "folded:concord2-cursor:guestbook:",
 ];
 
 /** The `c2snap:<community>:<address>` id arrays, which the per-entry keys sharing their prefix never are. */
