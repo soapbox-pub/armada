@@ -45,6 +45,7 @@ import { useVoiceIdentity, VoiceIdentityContext, type VoiceIdentityResolver } fr
 import { ServerScopeProvider } from "@/components/ServerScopeProvider";
 import { random32, voiceSenderKey } from "@/concord/lib/derive";
 import {
+  bridgedTransports,
   canonicalOrigin,
   fetchAvToken,
   fetchAvTokenFromAny,
@@ -1786,9 +1787,13 @@ function ConcordVoiceRoom({
     });
   }, [strandedFrom, elsewhereOrigin, communityBrokers, ctx, joinConcordCall]);
 
-  // CORD-07 §4: a member on a transport we don't speak is in the call, just not one we can hear.
+  // CORD-07 §4: a member on a transport we don't speak is in the call, just not one we can hear —
+  // unless a member on both bridges it here.
   const warnedOtherTransport = useRef(false);
-  const otherTransportCount = fold.otherTransport.length;
+  const otherTransportCount = useMemo(() => {
+    const bridged = bridgedTransports(fold);
+    return fold.otherTransport.filter((p) => !bridged.has(p.transport)).length;
+  }, [fold]);
   useEffect(() => {
     if (warnedOtherTransport.current || !tokenData || otherTransportCount === 0) return;
     warnedOtherTransport.current = true;

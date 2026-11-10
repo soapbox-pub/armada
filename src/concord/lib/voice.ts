@@ -262,6 +262,20 @@ export interface VoicePresenceEntry {
   brokered?: VoicePresenceEntry;
   /** On a brokered `joined`: the same author's latest `joined` on another transport in this stay. */
   other?: OtherHalf;
+  /**
+   * Relays the call on this other transport into the brokered one (joined only) — an
+   * ARMADA EXTENSION: additive `["bridge", "<transport>"]` on the brokered `joined`, so
+   * the members there are heard here. Counts only while its author is on that transport.
+   */
+  bridge?: string;
+  /**
+   * The one side of a two-transport stay a `left` ends — an ARMADA EXTENSION: the
+   * `transport` it names, or the brokered side when it names the `identity` it held.
+   * A bare `left` ends the whole stay, as CORD-07 §4 has it.
+   */
+  leaves?: { transport: string } | { identity: string };
+  /** When a `left` ended one side of this stay: a `joined` on that side dated no later is a replay. */
+  leftMs?: number;
   /** Millisecond ordering basis (CORD-02 §4). */
   ms: number;
   /** The rumor id — the equal-ms tiebreak. */
@@ -382,6 +396,10 @@ export function parsePresence(opened: OpenedEvent): VoicePresenceEntry | null {
   const transport = status === "joined" ? otherTransport(opened.tags) : undefined;
   if (transport === null) return null;
   if (status === "joined" && !identity && !transport) return null;
+  const leaves = status === "left" ? leftSide(opened.tags, identities[0]) : undefined;
+  if (leaves === null) return null;
+  const rawBridge = status === "joined" && !transport ? uniqueTag(opened.tags, "bridge") : undefined;
+  const bridge = typeof rawBridge === "string" && rawBridge.length > 0 ? [...rawBridge].slice(0, 32).join("") : undefined;
   const broker =
     status === "joined" && typeof rawBroker === "string" && rawBroker.length <= 512
       ? canonicalOrigin(rawBroker) ?? undefined
@@ -407,9 +425,20 @@ export function parsePresence(opened: OpenedEvent): VoicePresenceEntry | null {
     ...(video("screen") ? { screen: true } : {}),
     ...(video("camera") ? { camera: true } : {}),
     ...(transport ? { transport } : {}),
+    ...(bridge ? { bridge } : {}),
+    ...(leaves ? { leaves } : {}),
     ms: opened.ms,
     rumorId: opened.rumorId,
   };
+}
+
+/** The side a `left` names (see `leaves`): null when its `transport` repeats or has no value, which Vector drops. */
+function leftSide(tags: string[][], identity: string | undefined): VoicePresenceEntry["leaves"] | null {
+  if (tags.some((t) => t[0] === "transport" && t.length < 2)) return null;
+  const transport = uniqueTag(tags, "transport");
+  if (transport === null) return null;
+  if (transport) return { transport: [...transport].slice(0, 32).join("") };
+  return identity ? { identity } : undefined;
 }
 
 /**
@@ -456,6 +485,8 @@ export interface VoicePresent {
   noRecord: boolean;
   /** Another transport this member is in the same call on, at once (e.g. `"iroh"`). */
   alsoOn?: string;
+  /** `alsoOn`, when this member says they relay it into the brokered call (client ext). */
+  bridge?: string;
   ms: number;
 }
 
@@ -490,6 +521,19 @@ export interface VoiceOtherTransport {
 export function notePresence(latest: Map<string, VoicePresenceEntry>, entry: VoicePresenceEntry, nowMs: number): boolean {
   if (entry.ms > nowMs + VOICE_AHEAD_MS || entry.ms < nowMs - VOICE_BEHIND_MS) return false;
   const prev = latest.get(entry.author);
+  const live = prev?.status === "joined" && presenceLive(prev, nowMs) ? prev : undefined;
+  if (entry.status === "left" && entry.leaves && live) {
+    const kept = leaveOneSide(live, entry, nowMs);
+    if (kept === null) return false;
+    if (kept) {
+      latest.set(entry.author, kept);
+      return true;
+    }
+  }
+  if (entry.status === "joined" && live?.leftMs !== undefined && entry.ms <= live.leftMs) {
+    const held = entry.transport ? otherHalf(live, nowMs) : brokeredHalf(live, nowMs);
+    if (!held) return false;
+  }
   if (prev && prev.ms >= entry.ms) {
     // A `joined` dated under a newer one on the OTHER side (brokered or not) still renews its own half of that stay.
     if (entry.status !== "joined" || prev.status !== "joined" || !entry.transport === !prev.transport) return false;
@@ -514,12 +558,52 @@ export function notePresence(latest: Map<string, VoicePresenceEntry>, entry: Voi
     sinceMs: stays ? prev.sinceMs ?? prev.ms : entry.ms,
     sinceHeard: stays ? prev.sinceHeard ?? prev.heardAt ?? nowMs : nowMs,
     ...(stays
-      ? { serverMuted: prev.serverMuted, serverDeafened: prev.serverDeafened, mutedAt: prev.mutedAt, deafenedAt: prev.deafenedAt }
+      ? { serverMuted: prev.serverMuted, serverDeafened: prev.serverDeafened, mutedAt: prev.mutedAt, deafenedAt: prev.deafenedAt, leftMs: prev.leftMs }
       : {}),
     ...(brokered ? { brokered } : {}),
     ...(other ? { other } : {}),
   });
   return true;
+}
+
+/**
+ * A `left` naming one side of a live stay (see `leaves`): the other side, keeping the stay
+ * and its moderation; null when it ends no side held, or no later than that side's `joined`;
+ * undefined when that side is all the stay holds, so it ends the stay.
+ */
+function leaveOneSide(prev: VoicePresenceEntry, left: VoicePresenceEntry, nowMs: number): VoicePresenceEntry | null | undefined {
+  const brokered = brokeredHalf(prev, nowMs);
+  const other = otherHalf(prev, nowMs);
+  const leaves = left.leaves!;
+  const endsOther = "transport" in leaves;
+  const ended = endsOther
+    ? other?.transport === leaves.transport ? other : undefined
+    : brokered?.identity === leaves.identity ? brokered : undefined;
+  if (!ended || left.ms <= ended.ms) return null;
+  const stay = {
+    sinceMs: prev.sinceMs,
+    sinceHeard: prev.sinceHeard,
+    serverMuted: prev.serverMuted,
+    serverDeafened: prev.serverDeafened,
+    mutedAt: prev.mutedAt,
+    deafenedAt: prev.deafenedAt,
+    leftMs: left.ms,
+  };
+  if (endsOther) {
+    if (!brokered) return undefined;
+    const { other: _other, brokered: _brokered, ...rest } = brokered;
+    return { ...rest, ...stay };
+  }
+  if (!other) return undefined;
+  return {
+    author: prev.author,
+    status: "joined",
+    transport: other.transport,
+    ms: other.ms,
+    heardAt: other.heardAt,
+    rumorId: prev.rumorId,
+    ...stay,
+  };
 }
 
 /** A `joined` on another transport, held beside a newer brokered one. */
@@ -714,6 +798,7 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
       ...(e.serverMuted ? { serverMuted: true } : {}),
       ...(e.serverDeafened ? { serverDeafened: true } : {}),
       ...(alsoOn ? { alsoOn } : {}),
+      ...(alsoOn && e.bridge === alsoOn ? { bridge: alsoOn } : {}),
       ms: e.ms,
     });
     for (const identity of e.identities?.length ? e.identities : [e.identity]) {
@@ -725,6 +810,23 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
   present.sort((a, b) => a.ms - b.ms || (a.author < b.author ? -1 : 1));
   otherTransport.sort((a, b) => a.ms - b.ms || (a.author < b.author ? -1 : 1));
   return { present, claims, otherTransport };
+}
+
+/** The transports a present member bridges into the brokered call, whose members are heard here. */
+export function bridgedTransports(fold: VoicePresenceFold): Set<string> {
+  return new Set(fold.present.flatMap((p) => (p.bridge ? [p.bridge] : [])));
+}
+
+/** How a roster row is in the call beyond the SFU (CORD-07 §4 Transports). */
+export type VoiceRowTransport = "other" | "bridged" | "both" | "bridge";
+
+/** Per author, the transport marker their roster row carries; members on the SFU alone have none. */
+export function voiceRowTransports(fold: VoicePresenceFold): Map<string, VoiceRowTransport> {
+  const bridged = bridgedTransports(fold);
+  const out = new Map<string, VoiceRowTransport>();
+  for (const p of fold.otherTransport) out.set(p.author, bridged.has(p.transport) ? "bridged" : "other");
+  for (const p of fold.present) if (p.alsoOn) out.set(p.author, p.bridge ? "bridge" : "both");
+  return out;
 }
 
 /** The author behind an SFU identity, or undefined if unclaimed or contested. */

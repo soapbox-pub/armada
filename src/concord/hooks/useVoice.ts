@@ -178,6 +178,7 @@ export function useVoicePresence(
               p.serverMuted === next.present[i].serverMuted &&
               p.serverDeafened === next.present[i].serverDeafened &&
               p.alsoOn === next.present[i].alsoOn &&
+              p.bridge === next.present[i].bridge &&
               p.screenShareIdentities.join("\0") ===
                 next.present[i].screenShareIdentities.join("\0"),
           ) &&

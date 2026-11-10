@@ -19,6 +19,13 @@
  *   --video              Publish Chromium's fake camera pattern
  *   --reactions          Float a random emoji from a random bot every ~15s
  *   --hands              Bots raise/lower their hand now and then
+ *   --dual               Also announce an iroh `joined` (§4 Transports) beside the brokered one,
+ *                        as a bot simulcasting to Vector would, and now and then leave and rejoin
+ *                        that side with a `left` naming `["transport","iroh"]`. The endpoint is
+ *                        random and nothing listens on it, so Vector peers can't actually dial it
+ *   --bridge             With --dual, tag the brokered `joined` `["bridge","iroh"]` (an Armada
+ *                        extension: the bot claims to relay the peer-to-peer call into the SFU).
+ *                        Presence only; no audio is relayed
  *   --headed             Show the Chromium window
  *
  * Needs Playwright's Chromium (`npx playwright install chromium`). Stop: Ctrl-C.
@@ -73,7 +80,7 @@ const voiceSenderKey = (mediaKey, identity) =>
   hkdf32(mediaKey, buildInfo("concord/voice-sender", sha256(te.encode(identity))));
 
 function parseArgs(argv) {
-  const opts = { count: 4, channel: "general", broker: null, audio: false, video: false, reactions: false, hands: false, headed: false };
+  const opts = { count: 4, channel: "general", broker: null, audio: false, video: false, reactions: false, hands: false, dual: false, bridge: false, headed: false };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -84,12 +91,15 @@ function parseArgs(argv) {
     else if (a === "--video") opts.video = true;
     else if (a === "--reactions") opts.reactions = true;
     else if (a === "--hands") opts.hands = true;
+    else if (a === "--dual") opts.dual = true;
+    else if (a === "--bridge") opts.bridge = true;
     else if (a === "--headed") opts.headed = true;
     else rest.push(a);
   }
   opts.invite = rest[0] ?? process.env.ARMADA_INVITE;
   if (!opts.invite) throw new Error("usage: node scripts/voicebots.mjs <invite-url> [--count n] [--channel name]");
   if (!Number.isInteger(opts.count) || opts.count < 1) throw new Error("--count must be a positive integer");
+  if (opts.bridge && !opts.dual) throw new Error("--bridge needs --dual");
   return opts;
 }
 
@@ -144,13 +154,20 @@ async function fetchAvTokenFromAny(origins, voice) {
   throw lastError ?? new Error("no broker");
 }
 
+const IROH_RELAY = "https://use1-1.relay.n0.iroh.iroh.link./";
+
+/** The tags a brokered `joined` carries beyond the binding. */
+function brokeredTags(bot) {
+  const tags = [["identity", bot.av.identity], ["broker", bot.av.origin]];
+  if (bot.hand) tags.push(["hand", "1"]);
+  if (bot.bridge && bot.iroh) tags.push(["bridge", "iroh"]);
+  return tags;
+}
+
 /** §4 presence: kind-23313 rumor, sealed by the bot, in an ephemeral 21059 wrap at the channel address. */
-function presenceWrap(bot, ctx, status, extra = []) {
+function presenceWrap(bot, ctx, status, extra = [], side = brokeredTags) {
   const tags = [["channel", ctx.channel.id], ["epoch", String(ctx.epoch)]];
-  if (status === "joined") {
-    tags.push(["identity", bot.av.identity], ["broker", bot.av.origin]);
-    if (bot.hand) tags.push(["hand", "1"]);
-  }
+  if (status === "joined") tags.push(...side(bot));
   tags.push(...extra);
   const rumor = buildRumor({ kind: KIND_VOICE_PRESENCE, content: status, tags, pubkey: bot.pk, ms: Date.now() });
   const seal = finalizeEvent(
@@ -173,11 +190,23 @@ function presenceWrap(bot, ctx, status, extra = []) {
   );
 }
 
-async function announce(pool, ctx, bot, status, extra) {
-  const res = await pool.publishToAny(ctx.relays, presenceWrap(bot, ctx, status, extra));
+async function announce(pool, ctx, bot, status, extra, side) {
+  const res = await pool.publishToAny(ctx.relays, presenceWrap(bot, ctx, status, extra, side));
   if (!res.ok) log(`${bot.name}: presence ${status} rejected: ${res.message}`);
   return res.ok;
 }
+
+/** The iroh side of a dual bot: a `joined` naming its endpoint, or a `left` naming the transport alone. */
+function announceIroh(pool, ctx, bot, status) {
+  if (status === "left") return announce(pool, ctx, bot, "left", [["transport", "iroh"]]);
+  return announce(pool, ctx, bot, "joined", [], (b) => [
+    ["transport", "iroh"],
+    ["endpoint", b.iroh.endpoint],
+    ["relay", IROH_RELAY],
+  ]);
+}
+
+const freshIroh = () => ({ endpoint: bytesToHex(generateSecretKey()) });
 
 // ---------------------------------------------------------------------------
 // Headless media client
@@ -332,7 +361,14 @@ async function main() {
   const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
   for (let i = 0; i < opts.count; i++) {
     const sk = generateSecretKey();
-    bots.push({ sk, pk: getPublicKey(sk), name: `${names[i % names.length]} (bot)`, hand: false });
+    bots.push({
+      sk,
+      pk: getPublicKey(sk),
+      name: `${names[i % names.length]} (bot)`,
+      hand: false,
+      iroh: opts.dual ? freshIroh() : null,
+      bridge: opts.bridge,
+    });
   }
 
   await Promise.all(
@@ -362,6 +398,7 @@ async function main() {
       await bot.page.goto(base);
       // Announce before connecting so the client verifies the tile from the first frame.
       await announce(pool, ctx, bot, "joined");
+      if (bot.iroh) await announceIroh(pool, ctx, bot, "joined");
       await bot.page.evaluate((args) => window.joinBot(args), {
         url: bot.av.url,
         token: bot.av.token,
@@ -370,12 +407,13 @@ async function main() {
         audio: opts.audio,
         video: opts.video,
       });
-      log(`${bot.name} joined (npub pk ${bot.pk.slice(0, 12)}…, sfu identity ${bot.av.identity})`);
+      log(`${bot.name} joined (npub pk ${bot.pk.slice(0, 12)}…, sfu identity ${bot.av.identity}${bot.iroh ? ", also on iroh" : ""})`);
 
-      // §4 heartbeat at 80–100% of 30s.
+      // §4 heartbeat at 80–100% of 30s, each side's.
       const beat = async () => {
         if (shuttingDown) return;
         await announce(pool, ctx, bot, "joined").catch((e) => log(`${bot.name}: heartbeat error ${e.message}`));
+        if (bot.iroh) await announceIroh(pool, ctx, bot, "joined").catch((e) => log(`${bot.name}: iroh heartbeat error ${e.message}`));
         setTimeout(beat, 30_000 * (0.8 + Math.random() * 0.2));
       };
       setTimeout(beat, 30_000 * (0.8 + Math.random() * 0.2));
@@ -395,6 +433,20 @@ async function main() {
       bot.hand = !bot.hand;
       log(`${bot.name} ${bot.hand ? "raised" : "lowered"} their hand`);
       await announce(pool, ctx, bot, "joined").catch(() => {});
+    }
+    if (opts.dual && Math.random() < 0.3) {
+      const bot = pick(bots);
+      if (bot.iroh) {
+        bot.iroh = null;
+        log(`${bot.name} left the iroh side`);
+        await announceIroh(pool, ctx, bot, "left").catch(() => {});
+      } else {
+        bot.iroh = freshIroh();
+        log(`${bot.name} rejoined the iroh side`);
+        await announceIroh(pool, ctx, bot, "joined").catch(() => {});
+      }
+      // The bridge tag rides the brokered side, so it follows the change at once.
+      if (bot.bridge) await announce(pool, ctx, bot, "joined").catch(() => {});
     }
   }
 }

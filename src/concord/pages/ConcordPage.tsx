@@ -204,7 +204,7 @@ import { EMPTY_SEARCH_FILTERS, resolveTypedTokens, searchText, type SearchFilter
 import { useConcordThreads, type ConcordThread } from "@/concord/hooks/useConcordThreads";
 import { useTyping, useTypingPublisher } from "@/concord/hooks/useTyping";
 import { resolveVoiceBroker, useVoiceBroker, useVoicePresence } from "@/concord/hooks/useVoice";
-import { communityAvBrokers } from "@/concord/lib/voice";
+import { communityAvBrokers, voiceRowTransports } from "@/concord/lib/voice";
 import { useRegisterChannelStreamKeys } from "@/concord/hooks/useStreamAuth";
 import { completeMemberlist, timeoutRunning } from "@/concord/lib/guestbook";
 import { badgeOf, byDisplayOrder, canActOnMember, canActOnPosition, channelPermissions, isAuthorized, isAuthorizedIn, MAX_ROLES_PER_MEMBER, Permissions, stockTierOf, tierMoves } from "@/concord/lib/roles";
@@ -574,7 +574,7 @@ export const ChannelRow = memo(function ChannelRow({
     () => new Set(fold.present.filter((p) => p.noRecord).map((p) => p.author)),
     [fold],
   );
-  const otherTransportVoice = useMemo(() => new Set(fold.otherTransport.map((p) => p.author)), [fold]);
+  const voiceTransports = useMemo(() => voiceRowTransports(fold), [fold]);
   // A moderator acts on a call's participants from the roster too, joined or not (CORD-07 §7).
   const voiceActionsFor = useVoiceActionsFor(community, channel, fold.present);
   // Off the presence flags (CORD-07 §4) outside the call; a moderator's mute shows either way.
@@ -720,7 +720,7 @@ export const ChannelRow = memo(function ChannelRow({
                 raised={raisedVoice}
                 recording={recordingVoice}
                 refusing={refusingVoice}
-                otherTransport={otherTransportVoice}
+                transports={voiceTransports}
               />
             </VoiceModerationContext.Provider>
           )}

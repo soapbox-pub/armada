@@ -7,6 +7,7 @@ import type { OpenedEvent } from "@/concord/lib/stream";
 import { MAX_COMMUNITY_AV_BROKERS } from "@/concord/lib/types";
 import {
   directivesToReassert,
+  bridgedTransports,
   brokerRank,
   canonicalOrigin,
   communityAvBrokers,
@@ -32,6 +33,7 @@ import {
   occupantsElsewhere,
   signAvGrant,
   verifiedAuthorOf,
+  voiceRowTransports,
   VOICE_HEARTBEAT_MS,
   VOICE_BEHIND_MS,
   VOICE_STALE_MS,
@@ -546,6 +548,67 @@ describe("foldVoicePresence (§4)", () => {
       notePresence(latest, iroh({ ms: now - 1000, rumorId: "i1" }), now - 1000);
       expect(isNewcomer(held(), entry({ ms: now }), now)).toBe(false);
       expect(isNewcomer(held(), entry({ ms: now, identity: "id-2" }), now)).toBe(true);
+    });
+
+    const left = (leaves: VoicePresenceEntry["leaves"], ms: number) =>
+      entry({ status: "left", identity: undefined, broker: undefined, leaves, ms, rumorId: `l${ms}` });
+
+    it("reads the side a left names: its transport, else the identity it held", () => {
+      const leaving = (tags: string[][]) => parsePresence(openedPresence({ content: "left", tags }))?.leaves;
+      expect(leaving([["transport", "iroh"]])).toEqual({ transport: "iroh" });
+      expect(leaving([["identity", "id-1"]])).toEqual({ identity: "id-1" });
+      expect(leaving([])).toBeUndefined();
+      expect(parsePresence(openedPresence({ content: "left", tags: [["transport", "iroh"], ["transport", "x"]] }))).toBeNull();
+    });
+
+    it("a left naming the other transport keeps it present on the SFU, moderation and all", () => {
+      const latest = new Map<string, VoicePresenceEntry>();
+      notePresence(latest, entry({ ms: now - 2000, rumorId: "b1" }), now - 2000);
+      notePresence(latest, iroh({ ms: now - 1000, rumorId: "i1" }), now - 1000);
+      applyDirective(latest, { author: "m".repeat(64), target: "a".repeat(64), verb: "mute", ms: now - 900 }, now - 900);
+      expect(notePresence(latest, left({ transport: "iroh" }, now), now)).toBe(true);
+      const after = fold(latest, now);
+      expect(after.present.map((p) => [p.author, p.alsoOn, p.serverMuted])).toEqual([["a".repeat(64), undefined, true]]);
+      expect(verifiedAuthorOf(after, "id-1")).toBe("a".repeat(64));
+      expect(after.otherTransport).toEqual([]);
+      // A replay of the iroh joined it ended doesn't bring that side back; a new one does.
+      expect(notePresence(latest, iroh({ ms: now - 1000, rumorId: "i1" }), now + 1)).toBe(false);
+      expect(notePresence(latest, iroh({ ms: now + 5000, rumorId: "i2" }), now + 5000)).toBe(true);
+      expect(fold(latest, now + 5000).present.map((p) => p.alsoOn)).toEqual(["iroh"]);
+    });
+
+    it("a left naming its SFU identity leaves it on the other transport", () => {
+      const latest = new Map<string, VoicePresenceEntry>();
+      notePresence(latest, iroh({ ms: now - 2000, rumorId: "i1" }), now - 2000);
+      notePresence(latest, entry({ ms: now - 1000, rumorId: "b1" }), now - 1000);
+      expect(notePresence(latest, left({ identity: "id-1" }, now), now)).toBe(true);
+      const after = fold(latest, now);
+      expect(after.present).toEqual([]);
+      expect(after.otherTransport.map((p) => [p.author, p.transport])).toEqual([["a".repeat(64), "iroh"]]);
+      expect(notePresence(latest, entry({ ms: now - 1000, rumorId: "b1" }), now + 1)).toBe(false);
+    });
+
+    it("a left naming a side not held changes nothing, and one naming the only side ends the stay", () => {
+      const latest = new Map<string, VoicePresenceEntry>();
+      notePresence(latest, entry({ ms: now - 2000, rumorId: "b1" }), now - 2000);
+      expect(notePresence(latest, left({ transport: "iroh" }, now), now)).toBe(false);
+      expect(notePresence(latest, left({ identity: "id-old" }, now), now)).toBe(false);
+      expect(fold(latest, now).present).toHaveLength(1);
+      expect(notePresence(latest, left({ identity: "id-1" }, now), now)).toBe(true);
+      expect(fold(latest, now).present).toEqual([]);
+    });
+
+    it("counts a bridge only while its author is on the transport it names", () => {
+      const latest = new Map<string, VoicePresenceEntry>();
+      notePresence(latest, entry({ ms: now - 2000, rumorId: "b1", bridge: "iroh" }), now - 2000);
+      notePresence(latest, iroh({ author: "c".repeat(64), ms: now - 2000, rumorId: "c1" }), now - 2000);
+      expect(bridgedTransports(fold(latest, now))).toEqual(new Set());
+      expect(voiceRowTransports(fold(latest, now)).get("c".repeat(64))).toBe("other");
+      notePresence(latest, iroh({ ms: now - 1000, rumorId: "i1" }), now - 1000);
+      const bridged = fold(latest, now);
+      expect(bridgedTransports(bridged)).toEqual(new Set(["iroh"]));
+      expect(Object.fromEntries(voiceRowTransports(bridged))).toEqual({ ["a".repeat(64)]: "bridge", ["c".repeat(64)]: "bridged" });
+      expect(parsePresence(openedPresence({ tags: [["identity", "id-1"], ["bridge", "iroh"]] }))?.bridge).toBe("iroh");
     });
   });
 });

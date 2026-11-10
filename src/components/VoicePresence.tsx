@@ -11,7 +11,8 @@ import { useCall } from "@/hooks/useCall";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { getAvatarShape, shapedAvatarSpeakingStyle } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
-import { FormattedMessage, useIntl } from "@/i18n";
+import { defineMessage, FormattedMessage, useIntl, type MessageDescriptor } from "@/i18n";
+import type { VoiceRowTransport } from "@/concord/lib/voice";
 import { cn } from "@/lib/utils";
 import { AvatarInitial } from "@/components/AvatarInitial";
 import { HiveIcon, HubIcon } from "@/components/icons/TransportIcons";
@@ -93,7 +94,7 @@ export function VoiceParticipantList({
   raised,
   recording,
   refusing,
-  otherTransport,
+  transports,
   canWatch = true,
   className,
 }: {
@@ -107,8 +108,8 @@ export function VoiceParticipantList({
   /** Pubkeys recording the call, and refusing to be recorded (Concord calls only). */
   recording?: ReadonlySet<string>;
   refusing?: ReadonlySet<string>;
-  /** Pubkeys in the call on a transport Armada doesn't speak (CORD-07 §4). */
-  otherTransport?: ReadonlySet<string>;
+  /** How each member is in the call beyond the SFU (CORD-07 §4 Transports). */
+  transports?: ReadonlyMap<string, VoiceRowTransport>;
   /** Whether a streaming row opens the stream: only from inside the call. */
   canWatch?: boolean;
   className?: string;
@@ -129,7 +130,7 @@ export function VoiceParticipantList({
           isRaised={raised?.has(pk) ?? false}
           isRecording={recording?.has(pk) ?? false}
           isRefusing={refusing?.has(pk) ?? false}
-          isOtherTransport={otherTransport?.has(pk) ?? false}
+          transport={transports?.get(pk)}
           canWatch={canWatch}
         />
       ))}
@@ -146,7 +147,7 @@ function VoiceParticipantRow({
   isRaised,
   isRecording = false,
   isRefusing = false,
-  isOtherTransport = false,
+  transport,
   canWatch = true,
 }: {
   pubkey: string;
@@ -156,7 +157,7 @@ function VoiceParticipantRow({
   isRaised?: boolean;
   isRecording?: boolean;
   isRefusing?: boolean;
-  isOtherTransport?: boolean;
+  transport?: VoiceRowTransport;
   canWatch?: boolean;
 }) {
   const intl = useIntl();
@@ -193,25 +194,7 @@ function VoiceParticipantRow({
         </span>
         {isStreaming && (isSelf || !canWatch ? <LiveBadge /> : <WatchableLiveBadge pubkey={pubkey} />)}
         <RecordingFlagIcons recording={isRecording} refusing={isRefusing} className="size-3.5" />
-        {isOtherTransport && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <HiveIcon
-                className="size-3.5 shrink-0 text-success"
-                aria-label={intl.formatMessage({
-                  id: "voicePresence.otherTransport",
-                  defaultMessage: "In the call peer to peer, which Armada can't join yet",
-                })}
-              />
-            </TooltipTrigger>
-            <TooltipContent>
-              <FormattedMessage
-                id="voicePresence.otherTransport"
-                defaultMessage="In the call peer to peer, which Armada can't join yet"
-              />
-            </TooltipContent>
-          </Tooltip>
-        )}
+        {transport && <TransportMarker transport={transport} />}
         {isRaised && (
           <Hand
             className="size-3.5 shrink-0 text-warning"
@@ -233,6 +216,42 @@ function VoiceParticipantRow({
         />
       </div>
     </VoiceUserContextMenu>
+  );
+}
+
+const TRANSPORT_LABELS = {
+  other: defineMessage({
+    id: "voicePresence.otherTransport",
+    defaultMessage: "In the call peer to peer, which Armada can't join yet",
+  }),
+  bridged: defineMessage({
+    id: "voicePresence.bridgedTransport",
+    defaultMessage: "In the call peer to peer, heard here through a bridge",
+  }),
+  both: defineMessage({
+    id: "voicePresence.bothTransports",
+    defaultMessage: "In the call on the LiveKit server and peer to peer",
+  }),
+  bridge: defineMessage({
+    id: "voicePresence.bridge",
+    defaultMessage: "Bridging the peer-to-peer call into this one",
+  }),
+} satisfies Record<VoiceRowTransport, MessageDescriptor>;
+
+/** A roster row's peer-to-peer marker, dimmed where the member can't be heard here. */
+function TransportMarker({ transport }: { transport: VoiceRowTransport }) {
+  const intl = useIntl();
+  const label = intl.formatMessage(TRANSPORT_LABELS[transport]);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <HiveIcon
+          className={cn("size-3.5 shrink-0", transport === "other" ? "text-muted-foreground" : "text-success")}
+          aria-label={label}
+        />
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
