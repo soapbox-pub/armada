@@ -370,12 +370,42 @@ function splitHeadingListBlocks(src: string, document: boolean, budget: TableBud
 
 export type MdLinkSegment =
   | { type: "text"; value: string }
-  | { type: "link"; text: string; url: string };
+  | { type: "link"; text: string; url: string }
+  /** A link whose label names another host: shown as its literal source, never masked. */
+  | { type: "spoof"; text: string; url: string };
 
 /** `[text](url)` / `![alt](url)`, http(s) only so pseudo-scheme URLs stay literal. */
 const MD_LINK_RE = /(!?)\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
 
-/** Split on markdown links. `![alt](url)` yields the bare URL so it embeds like a pasted image. */
+/** A domain-like token, with or without a scheme, in any script and with fullwidth/ideographic dots. */
+const LABEL_DOMAIN_RE = /(?:https?:\/\/)?((?:[\p{L}\p{N}-]+[.．。｡])+\p{L}{2,})/giu;
+
+function hostOf(url: string): string | undefined {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a link label names a host other than the link's own, so masking it
+ * would show one destination and open another.
+ */
+export function linkLabelSpoofs(text: string, url: string): boolean {
+  const real = hostOf(url);
+  if (!real) return true;
+  for (const m of text.matchAll(LABEL_DOMAIN_RE)) {
+    if (hostOf(`http://${m[1]}`) !== real) return true;
+  }
+  return false;
+}
+
+/**
+ * Split on markdown links. `![alt](url)` yields the bare URL so it embeds like a
+ * pasted image. A link whose label names another host is a `spoof`, rendered as
+ * its source so every URL in it is linked to where it says.
+ */
 export function splitMarkdownLinks(src: string): MdLinkSegment[] {
   const out: MdLinkSegment[] = [];
   let last = 0;
@@ -384,6 +414,7 @@ export function splitMarkdownLinks(src: string): MdLinkSegment[] {
   while ((m = MD_LINK_RE.exec(src)) !== null) {
     if (m.index > last) out.push({ type: "text", value: src.slice(last, m.index) });
     if (m[1]) out.push({ type: "text", value: m[3] });
+    else if (linkLabelSpoofs(m[2], m[3])) out.push({ type: "spoof", text: m[2], url: m[3] });
     else out.push({ type: "link", text: m[2], url: m[3] });
     last = m.index + m[0].length;
   }

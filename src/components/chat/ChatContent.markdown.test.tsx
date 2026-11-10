@@ -123,14 +123,38 @@ describe("ChatContent chat markdown", () => {
     expect(container.textContent).not.toContain("**");
   });
 
-  it("renders a [text](url) link in a chat message, showing a spoofed host", () => {
-    const { container } = renderContent("see [the docs](https://example.com/docs) and [github.com](https://evil.example/x)");
+  it("renders a [text](url) link in a chat message", () => {
+    const { container } = renderContent("see [the docs](https://example.com/docs) and [github.com/x](https://github.com/x)");
     const links = Array.from(container.querySelectorAll("a"));
-    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.com/docs", "https://evil.example/x"]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.com/docs", "https://github.com/x"]);
     expect(links[0].textContent).toBe("the docs (example.com)");
     expect(links[0].querySelector(".touch\\:inline")?.textContent).toBe(" (example.com)");
-    expect(links[1].textContent).toBe("github.com (evil.example)");
+    expect(links[1].textContent).toBe("github.com/x");
     expect(container.textContent).not.toContain("](");
+  });
+
+  it("keeps a link literal when its label names another host, linking each URL to itself", () => {
+    const src = "[https://claim.example/free/nitro](https://nyan.cat/)";
+    const { container } = renderContent(src);
+    const links = Array.from(container.querySelectorAll("a"));
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://claim.example/free/nitro", "https://nyan.cat/"]);
+    for (const a of links) expect(a.textContent).toBe(a.getAttribute("href"));
+    expect(container.textContent).toBe(src);
+  });
+
+  it("keeps a spoof of the app's own origin literal, with the real link visible", () => {
+    const { container } = renderContent("[https://armada.buzz/free/nitro/claim](https://nyan.cat/)");
+    const nyan = Array.from(container.querySelectorAll("a")).find((a) => a.getAttribute("href") === "https://nyan.cat/");
+    expect(nyan?.textContent).toBe("https://nyan.cat/");
+    expect(container.textContent).toContain("](https://nyan.cat/)");
+    expect(container.querySelector(".animate-pulse")).toBeNull();
+  });
+
+  it("keeps a bare-domain spoof literal", () => {
+    const { container } = renderContent("[github.com](https://evil.example/x)");
+    const links = Array.from(container.querySelectorAll("a"));
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://evil.example/x"]);
+    expect(container.textContent).toBe("[github.com](https://evil.example/x)");
   });
 
   it("shows a [text](url) link's full URL in a tooltip on focus", async () => {

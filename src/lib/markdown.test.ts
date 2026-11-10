@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseInline, parseInlineRun, splitInlineCode, splitMarkdownBlocks, splitMarkdownLinks, withoutCode } from "./markdown";
+import { linkLabelSpoofs, parseInline, parseInlineRun, splitInlineCode, splitMarkdownBlocks, splitMarkdownLinks, withoutCode } from "./markdown";
 
 describe("splitMarkdownBlocks", () => {
   it("passes plain text through as one block", () => {
@@ -476,6 +476,37 @@ describe("splitMarkdownLinks", () => {
     expect(splitMarkdownLinks("[x](javascript:alert(1))")).toEqual([
       { type: "text", value: "[x](javascript:alert(1))" },
     ]);
+  });
+
+  it("leaves a link literal when its label names another host", () => {
+    const src = "[https://armada.buzz/free/nitro/claim](https://nyan.cat/)";
+    expect(splitMarkdownLinks(`go ${src}`)).toEqual([
+      { type: "text", value: "go " },
+      { type: "spoof", text: "https://armada.buzz/free/nitro/claim", url: "https://nyan.cat/" },
+    ]);
+  });
+});
+
+describe("linkLabelSpoofs", () => {
+  it("allows plain words and the link's own host", () => {
+    expect(linkLabelSpoofs("the docs", "https://example.com/docs")).toBe(false);
+    expect(linkLabelSpoofs("github.com/foo", "https://github.com/foo")).toBe(false);
+    expect(linkLabelSpoofs("www.GitHub.com", "https://github.com/x")).toBe(false);
+    expect(linkLabelSpoofs("see https://example.com/a", "https://www.example.com/b")).toBe(false);
+  });
+
+  it("refuses a label naming another host anywhere in it", () => {
+    expect(linkLabelSpoofs("https://armada.buzz/free/nitro/claim", "https://nyan.cat/")).toBe(true);
+    expect(linkLabelSpoofs("github.com", "https://evil.example/x")).toBe(true);
+    expect(linkLabelSpoofs("claim it at armada.buzz now", "https://nyan.cat/")).toBe(true);
+    expect(linkLabelSpoofs("evil.github.com", "https://github.com/")).toBe(true);
+    expect(linkLabelSpoofs("armada.buzz and nyan.cat", "https://nyan.cat/")).toBe(true);
+  });
+
+  it("refuses lookalike scripts and compares fullwidth dots as dots", () => {
+    expect(linkLabelSpoofs("\u0430rmada.buzz", "https://armada.buzz/")).toBe(true);
+    expect(linkLabelSpoofs("armada\uFF0Ebuzz", "https://nyan.cat/")).toBe(true);
+    expect(linkLabelSpoofs("armada\uFF0Ebuzz", "https://armada.buzz/")).toBe(false);
   });
 });
 

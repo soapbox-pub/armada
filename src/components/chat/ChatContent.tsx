@@ -844,6 +844,15 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         for (const part of splitMarkdownLinks(seg.value)) {
           if (part.type === "link") {
             out.push({ type: "md-link", text: part.text, url: cleanUrl(part.url) });
+          } else if (part.type === "spoof") {
+            // Its source, with each URL an inline link: the label is tokenized apart so a
+            // URL in it can't run on into `](`, and nothing in it unfurls into a card.
+            out.push({ type: "text", value: "[" });
+            for (const t of tokenizeSegment(part.text)) {
+              const url = t.type.endsWith("-embed") && "url" in t ? t.url : undefined;
+              out.push(url ? { type: "inline-link", url } : t);
+            }
+            out.push({ type: "text", value: "](" }, { type: "inline-link", url: cleanUrl(part.url) }, { type: "text", value: ")" });
           } else {
             out.push(...tokenizeSegment(part.value));
           }
@@ -1677,10 +1686,9 @@ function CollapsibleContent({ children }: { children: ReactNode }) {
  * tooltip on hover/focus, and touch (no hover) shows the host unless the text names it.
  */
 function MdLink({ text, href }: { text: string; href: string }) {
-  // Anti-spoof: [github.com/x](https://evil.example) shows the real host everywhere.
-  const spoofedHost = mdLinkSpoofHost(text, href);
+  // A label naming another host never reaches here (splitMarkdownLinks keeps it literal).
   const host = displayHost(href);
-  const touchHost = !spoofedHost && !text.toLowerCase().includes(host.toLowerCase());
+  const touchHost = !text.toLowerCase().includes(host.toLowerCase());
   return (
     <TooltipProvider delayDuration={300}>
       <Tooltip>
@@ -1694,7 +1702,6 @@ function MdLink({ text, href }: { text: string; href: string }) {
             onClick={(e) => e.stopPropagation()}
           >
             <span className="font-medium">{text}</span>
-            {spoofedHost && <span className="text-muted-foreground"> ({spoofedHost})</span>}
             {touchHost && <span className="hidden text-muted-foreground touch:inline"> ({host})</span>}
           </a>
         </TooltipTrigger>
@@ -1702,19 +1709,6 @@ function MdLink({ text, href }: { text: string; href: string }) {
       </Tooltip>
     </TooltipProvider>
   );
-}
-
-/** The real host when a markdown link's TEXT reads as a different URL/domain. */
-function mdLinkSpoofHost(text: string, href: string): string | undefined {
-  const match = text.trim().toLowerCase().match(/^(?:https?:\/\/)?((?:[\w-]+\.)+[a-z]{2,})(?:[/:?#]|$)/i);
-  const textHost = match?.[1]?.replace(/^www\./, "");
-  if (!textHost) return undefined;
-  try {
-    const realHost = new URL(href).hostname.toLowerCase().replace(/^www\./, "");
-    return realHost === textHost ? undefined : realHost;
-  } catch {
-    return undefined;
-  }
 }
 
 /** In-app link label: the path with opaque segments shortened. Full URL in `title`. */
