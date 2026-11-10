@@ -1,6 +1,7 @@
 import { useNostr } from "@nostrify/react";
 import {
   useInfiniteQuery,
+  useMutation,
   useQuery,
   useQueryClient,
   type InfiniteData,
@@ -15,6 +16,7 @@ import { useDebounce } from "@/hooks/useDebounce";
 import { useFollowList } from "@/hooks/useFollowList";
 import { KIND_EMOJI_SET, emojiPackEntries, emojiPackName } from "@/hooks/useEmojiPacks";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
+import { useNostrPublish } from "@/hooks/useNostrPublish";
 import { resolveBundle } from "@/concord/hooks/useCommunityActions";
 import {
   activityByLinkSigner,
@@ -39,10 +41,25 @@ import {
   curationFilter,
   curationKey,
   isCurationEvent,
-  resolveDiscoverCuration,
+  discoverEveryoneAllowed,
+  resolveDiscoverCurations,
   resolveDiscoverRelays,
   type DiscoverCuration,
+  type DiscoverCurationSet,
+  type DiscoverSource,
 } from "@/lib/discoverSource";
+import {
+  DISCOVER_BOOST,
+  DISCOVER_LABEL_NAMESPACE,
+  LABEL_KIND,
+  boostFloor,
+  buildBoostLabel,
+  buildBoostWithdrawal,
+  foldBoosts,
+  type Boost,
+  type BoostsByListing,
+} from "@/lib/discoverBoost";
+import { isStoreInstall } from "@/lib/storeInstall";
 import { normalizeRelayUrl } from "@/lib/platform";
 import { THEME_DEFINITION_KIND, isAdoptedTheme, parseDittoTheme } from "@/lib/themeEvent";
 
@@ -94,8 +111,28 @@ async function queryEachRelay(
   return answers;
 }
 
-/** One filter set per author chunk; none at all for no authors, so nothing is sent. */
-function chunkedSets(authors: string[], build: (authors: string[]) => NostrFilter[]): NostrFilter[][] {
+/**
+ * An author allow-list, or `null` for EVERYONE: the `none` switch, read unvetted.
+ * Never an empty array standing for everyone: some relays read empty `authors` as no filter.
+ */
+type DiscoverAuthors = string[] | null;
+
+/** Whether a feed has anyone to read: everyone, or a non-empty allow-list. */
+const readsAnyone = (authors: DiscoverAuthors) => authors === null || authors.length > 0;
+
+/** Whether an event's author passes the allow-list (everyone passes `null`). */
+function allowedBy(authors: DiscoverAuthors): (pubkey: string) => boolean {
+  if (authors === null) return () => true;
+  const set = new Set(authors);
+  return (pubkey) => set.has(pubkey);
+}
+
+/**
+ * One filter set per author chunk; none at all for no authors, so nothing is sent;
+ * a single author-less set for everyone.
+ */
+function chunkedSets(authors: DiscoverAuthors, build: (authors?: string[]) => NostrFilter[]): NostrFilter[][] {
+  if (authors === null) return [build(undefined)];
   return chunkAuthors(authors).map(build);
 }
 
@@ -166,13 +203,31 @@ function packSeedKey(curation: DiscoverCuration): string {
   return `${PACK_SEED_KV}:${curationKey(curation)}`;
 }
 
+/** One seed per SET of sources; a single source keeps the key it always had. */
+function packSetSeedKey(sources: DiscoverSource[]): string {
+  return `${PACK_SEED_KV}:${sources.map(curationKey).join("+")}`;
+}
+
 /**
  * The curation source in effect: the user's override or the build default (Armada
  * team follow pack, kind 39089). Its members seed the authorship of every Discover feed.
  */
-export function useDiscoverCuration(): DiscoverCuration {
+export function useDiscoverCuration(): DiscoverCurationSet {
   const { config } = useAppContext();
-  return useMemo(() => resolveDiscoverCuration(config.discoverCuration ?? ""), [config.discoverCuration]);
+  const { user } = useCurrentUser();
+  // Signed out, Discover is never unvetted.
+  const unfiltered = useDiscoverEveryoneAllowed() && !!user && config.discoverUnfiltered;
+  return useMemo(
+    () => resolveDiscoverCurations(config.discoverCuration ?? "", unfiltered),
+    [config.discoverCuration, unfiltered],
+  );
+}
+
+/** Whether this install may turn Discover's vetting off (never a store install). */
+export function useDiscoverEveryoneAllowed(): boolean {
+  // Until the install is known, as a store one: an unvetted feed never paints there, even briefly.
+  const store = useQuery({ queryKey: ["store-install"], queryFn: isStoreInstall, staleTime: Infinity }).data ?? true;
+  return discoverEveryoneAllowed(store);
 }
 
 /** Relays named only by the curation source's hints, read for the list event alone. */
@@ -211,13 +266,13 @@ export async function fetchDiscoverPage(
   relays: string[],
   kind: number,
   query: string,
-  authors: string[],
+  authors: DiscoverAuthors,
   signal: AbortSignal,
   until: number | undefined,
 ): Promise<DiscoverFeedPage> {
-  // Every filter names its authors: Discover never reads anyone off a relay unvetted.
+  // Every filter names its authors unless the user switched vetting off (`null`).
   const sets = chunkedSets(authors, (chunk) => {
-    const base: NostrFilter = { kinds: [kind], authors: chunk, limit: FETCH_LIMIT };
+    const base: NostrFilter = { kinds: [kind], limit: FETCH_LIMIT, ...(chunk ? { authors: chunk } : {}) };
     if (until !== undefined) base.until = until;
     return query ? [base, { ...base, search: query }] : [base];
   });
@@ -253,8 +308,8 @@ export function useListingRelays(): string[] {
   return useDiscoverRelays();
 }
 
-function packQueryKey(relays: string[], curation: DiscoverCuration): QueryKey {
-  return ["discover", "follow-pack", curationKey(curation), relays];
+function packQueryKey(relays: string[], sources: DiscoverSource[]): QueryKey {
+  return ["discover", "follow-pack", sources.map(curationKey).join("+"), relays];
 }
 
 async function fetchFollowPack(
@@ -283,6 +338,60 @@ async function fetchFollowPack(
   }
   writeSeed(packSeedKey(curation), pubkeys);
   return pubkeys;
+}
+
+type SeedSource = Extract<DiscoverSource, { type: "follows" }>;
+
+/**
+ * Every seed's members: the seed and its follows, in one batched read. `found` is
+ * false when no follow list answered: a probable miss, not empty follows.
+ */
+async function fetchSeeds(
+  nostr: ReturnType<typeof useNostr>["nostr"],
+  relays: string[],
+  seeds: SeedSource[],
+  signal: AbortSignal,
+): Promise<{ members: string[]; found: boolean }> {
+  if (seeds.length === 0) return { members: [], found: true };
+  const hinted = [...new Set(seeds.flatMap((seed) => extraCurationRelays(seed, relays)))];
+  const sets = chunkAuthors(seeds.map((seed) => seed.pubkey)).map((chunk) => [
+    { kinds: [3], authors: chunk, limit: chunk.length },
+  ]);
+  const answers = await queryEachRelay(nostr, [...relays, ...hinted], sets, signal);
+  let found = false;
+  const members: string[] = [];
+  for (const seed of seeds) {
+    const follows = curationMembers(seed, answers);
+    if (follows.length > 0) found = true;
+    members.push(seed.pubkey, ...follows);
+  }
+  return { members, found };
+}
+
+/**
+ * Every curator's members, deduped. Seeds fall back to the last good read when no
+ * follow list answered.
+ */
+export async function fetchFollowPacks(
+  nostr: ReturnType<typeof useNostr>["nostr"],
+  relays: string[],
+  sources: DiscoverSource[],
+  signal: AbortSignal,
+): Promise<string[]> {
+  const seeds = sources.filter((source): source is SeedSource => source.type === "follows");
+  const lists = sources.filter((source) => source.type !== "follows");
+  const [packs, seeded] = await Promise.all([
+    Promise.all(lists.map((source) => fetchFollowPack(nostr, relays, source, signal))),
+    fetchSeeds(nostr, relays, seeds, signal),
+  ]);
+  const key = packSetSeedKey(sources);
+  if (!seeded.found) {
+    const stored = await getArmadaDB().kv.get<string[]>(key).catch(() => undefined);
+    if (stored && stored.length > 0) return stored;
+  }
+  const members = [...new Set([...packs.flat(), ...seeded.members])];
+  writeSeed(key, members);
+  return members;
 }
 
 /**
@@ -320,35 +429,96 @@ const DELETION_ID_CHUNK = 150;
 export async function fetchCommunityAnnouncements(
   nostr: ReturnType<typeof useNostr>["nostr"],
   relays: string[],
-  authors: string[],
+  authors: DiscoverAuthors,
   signal: AbortSignal,
   until?: number,
 ): Promise<{ invites: DiscoveredInvite[]; cursor: number | undefined; found: number }> {
   const sets = chunkedSets(authors, (chunk) => {
-    const filter: NostrFilter = { kinds: [KIND_COMMUNITY_ANNOUNCEMENT], authors: chunk, limit: FETCH_LIMIT };
+    const filter: NostrFilter = { kinds: [KIND_COMMUNITY_ANNOUNCEMENT], limit: FETCH_LIMIT, ...(chunk ? { authors: chunk } : {}) };
     if (until !== undefined) filter.until = until;
     return [filter];
   });
   if (sets.length === 0) return { invites: [], cursor: undefined, found: 0 };
   const answers = await queryEachRelay(nostr, relays, sets, signal);
-  const allowed = new Set(authors);
+  const allowed = allowedBy(authors);
   const cursor = windowFloor(answers, isAnnouncement);
   const anns = mergeAnswers(answers).filter(
-    (e) => isAnnouncement(e) && allowed.has(e.pubkey) && (cursor === undefined || e.created_at >= cursor),
+    (e) => isAnnouncement(e) && allowed(e.pubkey) && (cursor === undefined || e.created_at >= cursor),
   );
   if (anns.length === 0) return { invites: [], cursor, found: 0 };
+  const dels = await fetchDeletionsOf(nostr, relays, anns, signal);
+  return { invites: foldAnnouncements(anns, dels), cursor, found: anns.length };
+}
 
+/** The kind 5s by each event's own author naming it, read by `#e` in chunks. */
+async function fetchDeletionsOf(
+  nostr: ReturnType<typeof useNostr>["nostr"],
+  relays: string[],
+  events: NostrRumor[],
+  signal: AbortSignal,
+): Promise<NostrRumor[]> {
   const delSets: NostrFilter[][] = [];
-  for (let i = 0; i < anns.length; i += DELETION_ID_CHUNK) {
-    const slice = anns.slice(i, i + DELETION_ID_CHUNK);
+  for (let i = 0; i < events.length; i += DELETION_ID_CHUNK) {
+    const slice = events.slice(i, i + DELETION_ID_CHUNK);
     delSets.push([{
       kinds: [5],
       authors: [...new Set(slice.map((e) => e.pubkey))],
       "#e": slice.map((e) => e.id),
     }]);
   }
-  const dels = mergeAnswers(await queryEachRelay(nostr, relays, delSets, signal));
-  return { invites: foldAnnouncements(anns, dels), cursor, found: anns.length };
+  if (delSets.length === 0) return [];
+  return mergeAnswers(await queryEachRelay(nostr, relays, delSets, signal)).filter((e) => e.kind === 5);
+}
+
+/** Boost labels read per relay: the newest window's, every community's. */
+const BOOST_LIMIT = 1000;
+
+const boostFilter = (extra: NostrFilter = {}): NostrFilter => ({
+  kinds: [LABEL_KIND],
+  "#L": [DISCOVER_LABEL_NAMESPACE],
+  "#l": [DISCOVER_BOOST],
+  since: boostFloor(),
+  limit: BOOST_LIMIT,
+  ...extra,
+});
+
+/**
+ * Boosts still counting ({@link foldBoosts}): by `authors` (`null` = anyone,
+ * unfiltered), or every boost on `listings` already shown.
+ */
+export async function fetchDiscoverBoosts(
+  nostr: ReturnType<typeof useNostr>["nostr"],
+  relays: string[],
+  signal: AbortSignal,
+  by: { authors: DiscoverAuthors } | { listings: string[] },
+): Promise<{ boosts: BoostsByListing; labels: NostrRumor[]; deletions: NostrRumor[] }> {
+  const sets = "listings" in by
+    ? chunkAuthors(by.listings).map((chunk) => [boostFilter({ "#e": chunk })])
+    : chunkedSets(by.authors, (chunk) => [boostFilter(chunk ? { authors: chunk } : {})]);
+  if (sets.length === 0) return { boosts: new Map(), labels: [], deletions: [] };
+  const labels = mergeAnswers(await queryEachRelay(nostr, relays, sets, signal)).filter(
+    (e) => e.kind === LABEL_KIND,
+  );
+  if (labels.length === 0) return { boosts: new Map(), labels, deletions: [] };
+  const deletions = await fetchDeletionsOf(nostr, relays, labels, signal);
+  return { boosts: foldBoosts([...labels, ...deletions]), labels, deletions };
+}
+
+/** Listings by id (the boosted ones), minus their authors' un-publishes. */
+export async function fetchAnnouncementsById(
+  nostr: ReturnType<typeof useNostr>["nostr"],
+  relays: string[],
+  ids: string[],
+  signal: AbortSignal,
+): Promise<DiscoveredInvite[]> {
+  const wanted = new Set(ids);
+  const sets = chunkAuthors(ids).map((chunk) => [{ kinds: [KIND_COMMUNITY_ANNOUNCEMENT], ids: chunk }]);
+  if (sets.length === 0) return [];
+  const anns = mergeAnswers(await queryEachRelay(nostr, relays, sets, signal)).filter(
+    (e) => isAnnouncement(e) && wanted.has(e.id),
+  );
+  if (anns.length === 0) return [];
+  return foldAnnouncements(anns, await fetchDeletionsOf(nostr, relays, anns, signal));
 }
 
 interface CommunitiesPage {
@@ -364,7 +534,7 @@ interface CommunitiesSeed {
 async function fetchCommunitiesPage(
   nostr: ReturnType<typeof useNostr>["nostr"],
   relays: string[],
-  authors: string[],
+  authors: DiscoverAuthors,
   until: number | undefined,
   signal: AbortSignal,
 ): Promise<CommunitiesPage> {
@@ -412,7 +582,7 @@ export async function forgetDiscoverAnnouncements(
 }
 
 /** By the allow-list it was read under. */
-function directoryInfiniteKey(relays: string[], authors: string[]): QueryKey {
+function directoryInfiniteKey(relays: string[], authors: DiscoverAuthors): QueryKey {
   return ["discover", "directory-infinite", relays, authors];
 }
 
@@ -420,7 +590,7 @@ function directoryInfiniteKey(relays: string[], authors: string[]): QueryKey {
 function communitiesInfiniteOptions(
   nostr: ReturnType<typeof useNostr>["nostr"],
   relays: string[],
-  authors: string[],
+  authors: DiscoverAuthors,
 ) {
   return {
     queryKey: directoryInfiniteKey(relays, authors),
@@ -448,7 +618,7 @@ async function fetchDiscoverNetwork(
   follows: string[],
   signal: AbortSignal,
 ): Promise<string[]> {
-  const sets = chunkedSets(follows, (chunk) => [{ kinds: [3], authors: chunk, limit: chunk.length }]);
+  const sets = chunkAuthors(follows).map((chunk) => [{ kinds: [3], authors: chunk, limit: chunk.length }]);
   const answers = await queryEachRelay(nostr, relays, sets, signal, { timeout: 20_000, graceMs: 8000 });
   const lists = mergeAnswers(answers);
   // A relay outage must not be cached for a day as a tiny network.
@@ -505,15 +675,15 @@ function useDiscoverNetwork(build: boolean): string[] {
  * ("you"), the viewer and their follows ("friends"), or ("network") the curated
  * list's members plus both plus one hop of the viewer's follows' follows.
  * Signed out, "you" and "friends" have nobody in them and read as "network",
- * which is then the curated list alone. There is deliberately no unfiltered
- * mode: empty means show nothing, and callers must NOT query when empty (some
- * relays treat empty `authors` as no filter).
+ * which is then the curated list alone. Empty means show nothing, and callers
+ * must NOT query when empty (some relays treat empty `authors` as no filter).
+ * `null` is "network" under the user's `none` switch, where allowed: everyone.
  */
 export function useDiscoverAuthors(
   requested: DiscoverScope,
   { buildNetwork = true }: { buildNetwork?: boolean } = {},
 ): {
-  authors: string[];
+  authors: DiscoverAuthors;
   /** The curated list's members alone, for ranking. */
   packAuthors: string[];
   /** The viewer and their follows, for ranking. */
@@ -528,17 +698,18 @@ export function useDiscoverAuthors(
 
   const curation = useDiscoverCuration();
   const scope = user ? requested : "network";
-  const usesPack = scope === "network" && curation.type !== "none";
-  const network = useDiscoverNetwork(scope === "network" && buildNetwork);
+  const everyone = scope === "network" && curation.everyone;
+  const usesPack = scope === "network" && !everyone && curation.sources.length > 0;
+  const network = useDiscoverNetwork(scope === "network" && !everyone && buildNetwork);
 
-  const packKey = packQueryKey(relays, curation);
-  useKvQuerySeed<string[]>(packSeedKey(curation), usesPack ? packKey : undefined);
+  const packKey = packQueryKey(relays, curation.sources);
+  useKvQuerySeed<string[]>(packSetSeedKey(curation.sources), usesPack ? packKey : undefined);
 
   const pack = useQuery<string[]>({
     queryKey: packKey,
     enabled: relays.length > 0 && usesPack,
     staleTime: 60 * 60 * 1000,
-    queryFn: ({ signal }) => fetchFollowPack(nostr, relays, curation, signal),
+    queryFn: ({ signal }) => fetchFollowPacks(nostr, relays, curation.sources, signal),
   });
 
   const trustedAuthors = useMemo(() => {
@@ -548,7 +719,8 @@ export function useDiscoverAuthors(
     return [...set].sort();
   }, [user, followList.data, mutedPubkeys]);
 
-  const authors = useMemo(() => {
+  const authors = useMemo<DiscoverAuthors>(() => {
+    if (everyone) return null;
     if (scope === "you") return user ? [user.pubkey] : NO_AUTHORS;
     const set = new Set<string>(trustedAuthors);
     if (scope === "network") {
@@ -558,7 +730,7 @@ export function useDiscoverAuthors(
     for (const pk of mutedPubkeys) set.delete(pk);
     // Sorted for a stable react-query key.
     return [...set].sort();
-  }, [scope, usesPack, pack.data, network, user, trustedAuthors, mutedPubkeys]);
+  }, [everyone, scope, usesPack, pack.data, network, user, trustedAuthors, mutedPubkeys]);
 
   return {
     authors,
@@ -578,16 +750,23 @@ export function useDiscoverAuthors(
 export function useDiscoverCommunities(scope: DiscoverScope): DiscoverFeed<DiscoveredInvite> & {
   packAuthors: string[];
   trustedAuthors: string[];
+  /** Every boost still counting on the listings shown, by listing. */
+  boosts: BoostsByListing;
+  /** Whose boost surfaces a stranger's listing: the feed's web of trust; `null` is anyone (unfiltered). */
+  vouchers: ReadonlySet<string> | null;
+  /** Listings here only for a boost: shown once a voucher other than the owner is confirmed. */
+  boostOnly: ReadonlySet<string>;
 } {
   const { nostr } = useNostr();
   const { mutedPubkeys } = useMutedPubkeys();
   const relays = useDiscoverRelays();
   const queryClient = useQueryClient();
   const { authors, packAuthors, trustedAuthors, isLoading: authorsLoading } = useDiscoverAuthors(scope);
+  const { vouchedBoosts, vouchers, boostedInvites } = useDiscoverBoosts(authors, authorsLoading);
 
   // Warm load: seed last session's listings as the (stale) first page.
   useEffect(() => {
-    if (relays.length === 0 || authors.length === 0) return;
+    if (relays.length === 0 || !readsAnyone(authors)) return;
     const key = directoryInfiniteKey(relays, authors);
     let cancelled = false;
     void (async () => {
@@ -611,7 +790,7 @@ export function useDiscoverCommunities(scope: DiscoverScope): DiscoverFeed<Disco
 
   const result = useInfiniteQuery({
     ...communitiesInfiniteOptions(nostr, relays, authors),
-    enabled: relays.length > 0 && !authorsLoading && authors.length > 0,
+    enabled: relays.length > 0 && !authorsLoading && readsAnyone(authors),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
@@ -619,20 +798,40 @@ export function useDiscoverCommunities(scope: DiscoverScope): DiscoverFeed<Disco
   const data = useMemo(() => {
     if (!result.data) return undefined;
     // The read is already by the allow-list; a seed or a held-over page may not be.
-    const allowed = new Set(authors);
+    const allowed = allowedBy(authors);
     const byLinkSigner = new Map<string, DiscoveredInvite>();
     const invites = result.data.pages.flatMap((p) => p.invites);
     for (const invite of invites.sort((a, b) => b.source.created_at - a.source.created_at)) {
       if (mutedPubkeys.has(invite.source.pubkey)) continue;
-      if (!allowed.has(invite.source.pubkey)) continue;
+      if (!allowed(invite.source.pubkey)) continue;
       if (!byLinkSigner.has(invite.linkSigner)) byLinkSigner.set(invite.linkSigner, invite);
     }
-    return [...byLinkSigner.values()];
-  }, [result.data, authors, mutedPubkeys]);
+    const boostOnly = new Set<string>();
+    for (const invite of boostedInvites) {
+      if (mutedPubkeys.has(invite.source.pubkey) || byLinkSigner.has(invite.linkSigner)) continue;
+      byLinkSigner.set(invite.linkSigner, invite);
+      boostOnly.add(invite.linkSigner);
+    }
+    return { invites: [...byLinkSigner.values()], boostOnly };
+  }, [result.data, authors, mutedPubkeys, boostedInvites]);
+
+  // Once a listing is on screen, every boost on it counts toward its total.
+  const shownIds = useMemo(() => (data?.invites ?? NO_INVITES).map((i) => i.source.id).sort(), [data]);
+  const shownBoosts = useQuery<BoostsByListing>({
+    queryKey: ["discover", "shown-boosts", relays, shownIds],
+    enabled: relays.length > 0 && shownIds.length > 0,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
+    queryFn: async ({ signal }) => (await fetchDiscoverBoosts(nostr, relays, signal, { listings: shownIds })).boosts,
+  });
+  const boosts = shownBoosts.data ?? vouchedBoosts;
 
   // Error only when there is nothing painted to show.
   return {
-    data,
+    data: data?.invites,
+    boosts,
+    vouchers,
+    boostOnly: data?.boostOnly ?? NO_LINKS,
     packAuthors,
     trustedAuthors,
     isLoading: result.isLoading || authorsLoading,
@@ -643,6 +842,112 @@ export function useDiscoverCommunities(scope: DiscoverScope): DiscoverFeed<Disco
     pageCount: result.data?.pages.length,
   };
 }
+
+const NO_LINKS: ReadonlySet<string> = new Set();
+const NO_BOOSTS: BoostsByListing = new Map();
+const NO_INVITES: DiscoveredInvite[] = [];
+
+/**
+ * Boosts by `authors` (Discover's web of trust) and the listings they name. A
+ * stranger's boost fetches nothing, so nobody boosts their own listing into view.
+ */
+function useDiscoverBoosts(
+  authors: DiscoverAuthors,
+  authorsLoading: boolean,
+): { vouchedBoosts: BoostsByListing; vouchers: ReadonlySet<string> | null; boostedInvites: DiscoveredInvite[] } {
+  const { nostr } = useNostr();
+  const relays = useDiscoverRelays();
+  const { mutedPubkeys } = useMutedPubkeys();
+  const vouchers = useMemo(() => {
+    if (authors === null) return null;
+    const set = new Set(authors);
+    for (const pk of mutedPubkeys) set.delete(pk);
+    return set;
+  }, [authors, mutedPubkeys]);
+  const voucherList = useMemo(() => (vouchers ? [...vouchers].sort() : null), [vouchers]);
+
+  const read = useQuery<BoostsByListing>({
+    queryKey: ["discover", "boosts", relays, voucherList],
+    enabled: relays.length > 0 && !authorsLoading && readsAnyone(voucherList),
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
+    queryFn: async ({ signal }) => (await fetchDiscoverBoosts(nostr, relays, signal, { authors: voucherList })).boosts,
+  });
+  const ids = useMemo(() => [...(read.data ?? NO_BOOSTS).keys()].sort(), [read.data]);
+  const listings = useQuery<DiscoveredInvite[]>({
+    queryKey: ["discover", "boosted-listings", relays, ids],
+    enabled: relays.length > 0 && ids.length > 0,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
+    queryFn: ({ signal }) => fetchAnnouncementsById(nostr, relays, ids, signal),
+  });
+  return {
+    vouchedBoosts: readsAnyone(voucherList) ? read.data ?? NO_BOOSTS : NO_BOOSTS,
+    vouchers,
+    boostedInvites: ids.length > 0 ? listings.data ?? NO_INVITES : NO_INVITES,
+  };
+}
+
+/**
+ * One community's boosts: all of its listings', the viewer's own, and boost/unboost.
+ */
+export function useCommunityBoosts(listingIds: readonly string[], { enabled = true }: { enabled?: boolean } = {}) {
+  const { nostr } = useNostr();
+  const relays = useDiscoverRelays();
+  const { user } = useCurrentUser();
+  const queryClient = useQueryClient();
+  const { mutateAsync: publishEvent } = useNostrPublish();
+  const ids = useMemo(() => [...new Set(listingIds)].sort(), [listingIds]);
+
+  const read = useQuery({
+    queryKey: ["discover", "community-boosts", relays, ids],
+    enabled: enabled && relays.length > 0 && ids.length > 0,
+    staleTime: 60_000,
+    queryFn: async ({ signal }) => {
+      const { labels, deletions } = await fetchDiscoverBoosts(nostr, relays, signal, { listings: ids });
+      return { events: [...labels, ...deletions] };
+    },
+  });
+  const { boosts, mine } = useMemo(() => {
+    const events = read.data?.events ?? NO_INVITES_EVENTS;
+    const folded = foldBoosts(events);
+    const byBooster = new Map<string, Boost>();
+    for (const id of ids) {
+      for (const boost of folded.get(id) ?? []) {
+        const prev = byBooster.get(boost.pubkey);
+        if (!prev || boost.event.created_at > prev.event.created_at) byBooster.set(boost.pubkey, boost);
+      }
+    }
+    const boosts = [...byBooster.values()].sort((a, b) => a.event.created_at - b.event.created_at);
+    return { boosts, mine: user ? byBooster.get(user.pubkey) : undefined };
+  }, [read.data, ids, user]);
+
+  const settle = () => {
+    void queryClient.invalidateQueries({ queryKey: ["discover", "community-boosts"] });
+    void queryClient.invalidateQueries({ queryKey: ["discover", "boosts"] });
+  };
+  const boost = useMutation({
+    mutationFn: async () => {
+      if (ids.length === 0) throw new Error("Nothing listed to boost");
+      await publishEvent(buildBoostLabel(ids));
+    },
+    onSettled: settle,
+  });
+  const unboost = useMutation({
+    mutationFn: async () => {
+      // Every standing label of the viewer's on these listings, so none keeps counting.
+      const labels = (read.data?.events ?? []).filter(
+        (e) => e.kind === LABEL_KIND && e.pubkey === user?.pubkey,
+      );
+      if (labels.length > 0) await publishEvent(buildBoostWithdrawal(labels.map((e) => e.id)));
+    },
+    onSettled: settle,
+  });
+
+  return { boosts, mine, isLoading: read.isLoading, boost, unboost };
+}
+
+const NO_INVITES_EVENTS: NostrRumor[] = [];
 
 /** Chunk warmup fires at 3s. */
 const WARM_DELAY_MS = 3500;
@@ -658,7 +963,7 @@ export function useWarmDiscover(): void {
   const queryClient = useQueryClient();
   // A stored network is used, but boot never builds one: that waits for the page.
   const { authors, packAuthors, isLoading: authorsLoading } = useDiscoverAuthors("network", { buildNetwork: false });
-  const ready = relays.length > 0 && !authorsLoading && authors.length > 0;
+  const ready = relays.length > 0 && !authorsLoading && readsAnyone(authors);
 
   useEffect(() => {
     if (!ready) return;
@@ -770,7 +1075,7 @@ export function useDiscoverEmojiPacks(query: string, scope: DiscoverScope): Disc
 
   const result = useInfiniteQuery({
     queryKey: ["discover", "emoji-packs", relays, authors, q],
-    enabled: relays.length > 0 && !authorsLoading && authors.length > 0,
+    enabled: relays.length > 0 && !authorsLoading && readsAnyone(authors),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
     initialPageParam: undefined as number | undefined,
@@ -791,8 +1096,8 @@ export function useDiscoverEmojiPacks(query: string, scope: DiscoverScope): Disc
       });
     }
     // A held-over page (`placeholderData`) may predate the current allow-list.
-    const allowed = new Set(authors);
-    return usable.filter((e) => allowed.has(e.pubkey) && !mutedPubkeys.has(e.pubkey));
+    const allowed = allowedBy(authors);
+    return usable.filter((e) => allowed(e.pubkey) && !mutedPubkeys.has(e.pubkey));
   }, [result.data, q, authors, mutedPubkeys]);
 
   return {
@@ -817,7 +1122,7 @@ export function useDiscoverThemes(query: string, scope: DiscoverScope): Discover
 
   const result = useInfiniteQuery({
     queryKey: ["discover", "themes", relays, authors, q],
-    enabled: relays.length > 0 && !authorsLoading && authors.length > 0,
+    enabled: relays.length > 0 && !authorsLoading && readsAnyone(authors),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
     initialPageParam: undefined as number | undefined,
@@ -836,8 +1141,8 @@ export function useDiscoverThemes(query: string, scope: DiscoverScope): Discover
       usable = usable.filter((e) => parseDittoTheme(e)?.title.toLowerCase().includes(needle));
     }
     // A held-over page (`placeholderData`) may predate the current allow-list.
-    const allowed = new Set(authors);
-    return usable.filter((e) => allowed.has(e.pubkey) && !mutedPubkeys.has(e.pubkey));
+    const allowed = allowedBy(authors);
+    return usable.filter((e) => allowed(e.pubkey) && !mutedPubkeys.has(e.pubkey));
   }, [result.data, q, authors, mutedPubkeys]);
 
   return {

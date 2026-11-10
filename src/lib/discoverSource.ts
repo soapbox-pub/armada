@@ -10,22 +10,33 @@ import type { NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
 
 /**
- * Discover's curation source and relays. Feeds are gated on an author
- * allow-list: ONE curation source's `p` tags plus the viewer and their follows.
- * The build default ({@link BUILD_DISCOVER_CURATION}) is user-overridable
- * (`AppConfig.discoverCuration`). A source is an `naddr` (any `p`-tagged list),
- * an `npub`/`nprofile`/hex pubkey (their kind-3 follows), or `none`.
+ * Discover's curators and relays. Feeds are gated on an author allow-list: the
+ * curators' members plus the viewer's network. Curators are comma-separated: an
+ * `naddr` (any `p`-tagged list), an `npub`/`nprofile`/hex seed (that account and
+ * its follows), or {@link ARMADA_DEVELOPERS_ENTRY}; `none` means none.
+ *
+ * Unfiltered (`AppConfig.discoverUnfiltered`) applies only with `none`, and only
+ * where {@link discoverEveryoneAllowed}.
  */
 
-/** The Armada team follow pack (kind 39089 by Soapbox); the default source. */
-export const ARMADA_FOLLOW_PACK =
-  "naddr1qvzqqqyckypzpyexz3t34l966ngh5xg7u2q788hthdqmj0av3lv8s2tz9t43zt6dqqxxkdrsx4mnqm3jxfeh2ess5pyrw";
+/** The curators the default names, as one entry. */
+export const ARMADA_DEVELOPERS_ENTRY = "armada-developers";
+export const ARMADA_DEVELOPERS: readonly string[] = [
+  // Team Soapbox (soapbox.pub's `_`)
+  "781a1527055f74c1f70230f10384609b34548f8ab6a0a6caa74025827f9fdae5",
+  // Armada (armada.buzz's `_`)
+  "0ddf6c35f61eb040316d01f68ded4d38b579c17423d26715fd489105a981910a",
+  // Alex Gleason (alex@soapbox.pub)
+  "0461fcbecc4c3374439932d6b8f11269ccdb7cc973ad7a50ae362db135a474dd",
+  // Chad Curtis (chad@chadwick.site)
+  "86184109eae937d8d6f980b4a0b46da4ef0d983eade403ee1b4c0b6bde238b47",
+];
 
 export const DISCOVER_CURATION_NONE = "none";
 
-/** This build's source via `DISCOVER_CURATION` (empty = none). */
+/** This build's curators via `DISCOVER_CURATION` (empty = none). */
 export const BUILD_DISCOVER_CURATION: string =
-  (config("DISCOVER_CURATION") ?? ARMADA_FOLLOW_PACK).trim() || DISCOVER_CURATION_NONE;
+  (config("DISCOVER_CURATION") ?? ARMADA_DEVELOPERS_ENTRY).trim() || DISCOVER_CURATION_NONE;
 
 export type DiscoverCuration =
   | {
@@ -38,6 +49,19 @@ export type DiscoverCuration =
     }
   | { type: "follows"; pubkey: string; relays: string[] }
   | { type: "none" };
+
+/** A curation source proper: a list or someone's follows. */
+export type DiscoverSource = Exclude<DiscoverCuration, { type: "none" }>;
+
+/** The curation in effect: its sources, or everyone (the `none` switch, where allowed). */
+export interface DiscoverCurationSet {
+  sources: DiscoverSource[];
+  everyone: boolean;
+}
+
+export type ParsedCurations =
+  | { ok: true; sources: DiscoverSource[]; none: boolean }
+  | { ok: false; error: string };
 
 export type ParsedCuration =
   | { ok: true; curation: DiscoverCuration }
@@ -89,20 +113,66 @@ export function parseDiscoverCuration(input: string): ParsedCuration {
   }
 }
 
-/**
- * The source in effect: override, else build default. An unparseable override
- * resolves to none, never silently back to the default.
- */
-export function resolveDiscoverCuration(
-  override: string,
-  buildDefault: string = BUILD_DISCOVER_CURATION,
-): DiscoverCuration {
-  if (override.trim()) {
-    const parsed = parseDiscoverCuration(override);
-    return parsed.ok ? parsed.curation : NONE;
+/** The entries of a curator list, as stored or typed: separated by commas or spaces. */
+export function curationEntries(input: string): string[] {
+  return input.split(/[\s,]+/).map((e) => e.trim()).filter(Boolean);
+}
+
+export const isDevelopersEntry = (entry: string) => entry.toLowerCase() === ARMADA_DEVELOPERS_ENTRY;
+
+/** A curator list as stored: its entries, or `none` for no curators at all. */
+export function storeCurationEntries(entries: readonly string[]): string {
+  return entries.length > 0 ? entries.join(", ") : DISCOVER_CURATION_NONE;
+}
+
+/** Parse the field: `none` alone, or one or more curators separated by commas or spaces. */
+export function parseDiscoverCurations(input: string): ParsedCurations {
+  const entries = curationEntries(input);
+  if (entries.length === 0) return { ok: false, error: t({ id: "discoverSource.empty", defaultMessage: "Enter an naddr, npub, or hex pubkey." }) };
+  const isNone = (e: string) => e.replace(/^nostr:/i, "").toLowerCase() === DISCOVER_CURATION_NONE;
+  if (entries.length === 1 && isNone(entries[0])) return { ok: true, sources: [], none: true };
+  if (entries.some(isNone)) {
+    return { ok: false, error: t({ id: "discoverSource.noneAlone", defaultMessage: "“none” can't be combined with lists." }) };
   }
-  const parsed = parseDiscoverCuration(buildDefault);
-  return parsed.ok ? parsed.curation : NONE;
+  const sources = new Map<string, DiscoverSource>();
+  for (const entry of entries) {
+    if (isDevelopersEntry(entry)) {
+      for (const pubkey of ARMADA_DEVELOPERS) sources.set(`3:${pubkey}`, { type: "follows", pubkey, relays: [] });
+      continue;
+    }
+    const parsed = parseDiscoverCuration(entry);
+    if (!parsed.ok) return parsed;
+    if (parsed.curation.type !== "none") sources.set(curationKey(parsed.curation), parsed.curation);
+  }
+  return { ok: true, sources: [...sources.values()], none: false };
+}
+
+/**
+ * The curation in effect: the override, else the build default. Everyone is the step
+ * below no curators: only a user's own `none`, with this device's switch on
+ * (`unfiltered`, already gated on {@link discoverEveryoneAllowed}). An unparseable
+ * override resolves to no sources, never silently back to the default.
+ */
+export function resolveDiscoverCurations(
+  override: string,
+  unfiltered: boolean,
+  buildDefault: string = BUILD_DISCOVER_CURATION,
+): DiscoverCurationSet {
+  if (override.trim()) {
+    const parsed = parseDiscoverCurations(override);
+    if (!parsed.ok) return { sources: [], everyone: false };
+    return { sources: parsed.sources, everyone: parsed.none && unfiltered };
+  }
+  const parsed = parseDiscoverCurations(buildDefault);
+  return { sources: parsed.ok ? parsed.sources : [], everyone: false };
+}
+
+/**
+ * Whether this install may read Discover unvetted: never in an app-store install
+ * (`storeInstall`), nor where the deployment sets `DISCOVER_UNFILTERED` to `off`.
+ */
+export function discoverEveryoneAllowed(storeInstall: boolean): boolean {
+  return !storeInstall && config("DISCOVER_UNFILTERED")?.trim().toLowerCase() !== "off";
 }
 
 /** Discover relays: app relays then the user's NIP-65 relays, normalized and deduped. */

@@ -93,7 +93,11 @@ export async function fetchLinkAnnouncements(
  * Discover listings carrying any of `linkSigners` (deep for `authors`, plus the
  * recent page). Empty signers answer empty without a read.
  */
-export function useLinkAnnouncements(linkSigners: readonly string[], authors: readonly string[] = []) {
+export function useLinkAnnouncements(
+  linkSigners: readonly string[],
+  authors: readonly string[] = [],
+  { enabled = true }: { enabled?: boolean } = {},
+) {
   const { nostr } = useNostr();
   const relays = useListingRelays();
   const sorted = useMemo(() => [...new Set(linkSigners)].sort(), [linkSigners]);
@@ -101,7 +105,7 @@ export function useLinkAnnouncements(linkSigners: readonly string[], authors: re
 
   return useQuery({
     queryKey: ["discover", "link-announcements", relays, sorted, sortedAuthors],
-    enabled: relays.length > 0 && sorted.length > 0,
+    enabled: enabled && relays.length > 0 && sorted.length > 0,
     staleTime: 30_000,
     queryFn: ({ signal }) =>
       fetchLinkAnnouncements(nostr, relays, new Set(sorted), {
@@ -120,6 +124,7 @@ export function useLinkAnnouncements(linkSigners: readonly string[], authors: re
 export function useCommunityDiscoverListings(
   community: Community | undefined,
   extraSigners: Iterable<string> = [],
+  { enabled = true }: { enabled?: boolean } = {},
 ) {
   const { data: folded } = useControlFold(community);
   const { user } = useCurrentUser();
@@ -136,7 +141,7 @@ export function useCommunityDiscoverListings(
     if (user) authors.add(user.pubkey);
     return { signers: [...signers], creatorOf, authors: [...authors] };
   }, [folded, extra, user]);
-  const query = useLinkAnnouncements(signers, authors);
+  const query = useLinkAnnouncements(signers, authors, { enabled });
   return { ...query, listings: query.data ?? [], creatorOf };
 }
 

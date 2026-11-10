@@ -1,5 +1,9 @@
 package buzz.armada.app;
 
+import android.content.pm.PackageManager;
+import android.os.Build;
+
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -40,5 +44,28 @@ public class WebReadyPlugin extends Plugin {
     public void signalDeepLinkNavigated(PluginCall call) {
         deepLinkNavCount++;
         call.resolve();
+    }
+
+    /**
+     * The package that installed this app, or null for a sideload. The APK and the
+     * Play AAB share one web bundle, so store installs are told apart at runtime.
+     */
+    @PluginMethod
+    public void installSource(PluginCall call) {
+        String installer = null;
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            String pkg = getContext().getPackageName();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                installer = pm.getInstallSourceInfo(pkg).getInstallingPackageName();
+            } else {
+                installer = pm.getInstallerPackageName(pkg);
+            }
+        } catch (Exception ignored) {
+            // unknown: treated as a sideload
+        }
+        JSObject out = new JSObject();
+        out.put("installer", installer);
+        call.resolve(out);
     }
 }

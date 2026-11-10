@@ -121,10 +121,15 @@ export async function finalizePowEvent(template: EventTemplate, sk: Uint8Array):
   return finalizeEvent(await minePow(template, getPublicKey(sk)), sk);
 }
 
-/** Mines `template` for `pubkey` unless its kind is never published as an event. */
+/**
+ * Mines `template` for `pubkey` unless its kind is never published as an event.
+ * A `nonce` tag already on it asks for at least its target (`["nonce", "", "18"]`),
+ * for events whose work is the point, like a Discover boost.
+ */
 export function minePowFor<T extends EventTemplate>(template: T, pubkey: string): Promise<T> {
   if (POW_EXEMPT_KINDS.has(template.kind)) return Promise.resolve(template);
-  return minePow(template, pubkey);
+  const asked = parsePowDifficulty(template.tags.find(([name]) => name === "nonce")?.[2]) ?? 0;
+  return minePow(template, pubkey, Math.max(powDifficulty(), asked));
 }
 
 /** An {@link NSecSigner} whose every signature carries proof of work. */

@@ -1,7 +1,7 @@
 import { channelDisplayName } from "@/concord/lib/community";
 import { observedAuthors } from "@/concord/lib/observedAuthors";
 import { useCommunityRumors } from "@/concord/hooks/useCommunityRumors";
-import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Bell, BellOff, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, MessageSquareText, MessagesSquare, Pause, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
+import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Bell, BellOff, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, Gem, MessageSquareText, MessagesSquare, Pause, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigationType, useSearchParams } from "react-router-dom";
 
@@ -16,6 +16,8 @@ import { useConcordReplyParents } from "@/concord/hooks/useReplyParents";
 import { LoginArea } from "@/components/auth/LoginArea";
 import { JoinButton } from "@/components/auth/JoinButton";
 import { MemberList } from "@/components/chat/MemberList";
+import { CommunityBoosters } from "@/concord/components/CommunityBoosters";
+import { useCommunityDiscoverListings } from "@/concord/hooks/useDiscoverListings";
 import type { RolePickerOption } from "@/components/chat/RolePickerItems";
 import { ProfileRelayHints } from "@/components/ProfileRelayHints";
 import { ChannelCategoryHeading } from "@/concord/components/ChannelCategoryHeading";
@@ -55,6 +57,7 @@ import { AddChannelMembersDialog } from "@/concord/components/AddChannelMembersD
 import { ImageLightbox } from "@/concord/components/ImageLightbox";
 import { InviteDialog } from "@/concord/components/InviteDialog";
 import { ShareToDiscoverDialog } from "@/concord/components/ShareToDiscoverDialog";
+import { CommunityDiscoverDialog } from "@/concord/components/CommunityDiscoverDialog";
 import { ModerationView } from "@/concord/components/ModerationView";
 import {
   MODERATION_TABS,
@@ -1137,6 +1140,9 @@ function TimerNotice({ author, seconds, self }: { author: string; seconds: numbe
  * {@link CommunityBlocked} for one on the blocklist, checked before the
  * community page mounts so none of its hooks read, sync or announce anything.
  */
+/** No extra link signers: the community menu reads only its registry's. */
+const NO_SIGNERS: string[] = [];
+
 export function ConcordPage() {
   const { pathname } = useLocation();
   const isBlocked = useIsBlocked();
@@ -2067,6 +2073,7 @@ function ConcordCommunityPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [addMembersOpen, setAddMembersOpen] = useState(false);
   const [shareDiscoverOpen, setShareDiscoverOpen] = useState(false);
+  const [communityDiscoverOpen, setCommunityDiscoverOpen] = useState(false);
   const [banTarget, setBanTarget] = useState<string | null>(null);
   const [kickTarget, setKickTarget] = useState<string | null>(null);
   const [nicknameTarget, setNicknameTarget] = useState<string | null>(null);
@@ -2338,6 +2345,12 @@ function ConcordCommunityPage() {
     `${communityId ?? ""}|${channel?.idHex ?? ""}`,
     channelsOpen,
   );
+  // Read only while something shows it: the menu (Boost appears only for a listed
+  // community), the member list's booster badges, or the boost dialog.
+  const discoverListingsWanted = !!user && !dissolved
+    && (communityMenuOpen || communityDiscoverOpen || membersVisible || membersOpen);
+  const { listings: discoverListings } = useCommunityDiscoverListings(community, NO_SIGNERS, { enabled: discoverListingsWanted });
+  const discoverListed = discoverListings.length > 0;
 
   const newChannelCategories = useMemo(
     () => (folded?.rankedRoster ? categoryOrder(folded).map((c) => ({ idHex: c.idHex, name: c.name })) : []),
@@ -3196,6 +3209,13 @@ function ConcordCommunityPage() {
                     icon: <UserPlus className="size-4" />,
                     label: intl.formatMessage({ id: "concordPage.communityMenu.invitePeople", defaultMessage: "Invite people" }),
                     onClick: () => setInviteOpen(true),
+                  },
+                  {
+                    // Only a listed community has anything to boost.
+                    show: !!user && !dissolved && discoverListed,
+                    icon: <Gem className="size-4" />,
+                    label: intl.formatMessage({ id: "concordPage.communityMenu.boost", defaultMessage: "Boost" }),
+                    onClick: () => setCommunityDiscoverOpen(true),
                   },
                   {
                     // Listing publishes the secret link, so owner/admin only.
@@ -4274,6 +4294,7 @@ function ConcordCommunityPage() {
               >
                 <div aria-hidden className="absolute inset-0 -z-10 bg-background sidebar:hidden" />
                 {membersVisible && <PaneResizeHandle pane="member" />}
+                <CommunityBoosters listings={discoverListings} members={memberSet} enabled={membersVisible || membersOpen}>
                 <MemberList
                   admins={panelAdmins}
                   members={panelMembers}
@@ -4284,6 +4305,7 @@ function ConcordCommunityPage() {
                   onAddMembers={addableChannelRoles.length > 0 ? openAddMembers : undefined}
                   onClose={closeMembers}
                 />
+                </CommunityBoosters>
               </div>
             </div>
           </div>
@@ -4308,6 +4330,14 @@ function ConcordCommunityPage() {
           />
         </MountWhenOpened>
       )}
+      <MountWhenOpened open={communityDiscoverOpen}>
+        <CommunityDiscoverDialog
+          open={communityDiscoverOpen}
+          onOpenChange={setCommunityDiscoverOpen}
+          community={community}
+          members={memberSet}
+        />
+      </MountWhenOpened>
       <MountWhenOpened open={shareDiscoverOpen}>
         <ShareToDiscoverDialog
           open={shareDiscoverOpen}

@@ -8,7 +8,9 @@
  * it can join, so publishing is always an explicit user action.
  */
 
-import { parseInviteLink } from "@/concord/lib/invite";
+import { nip19 } from "nostr-tools";
+
+import { parseInviteLink, type InviteBundle } from "@/concord/lib/invite";
 
 import type { EventTemplate } from "@/hooks/useNostrPublish";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -57,6 +59,25 @@ export function announcementFromEvent(event: NostrRumor): DiscoveredInvite | nul
   const parsed = parseInviteLink(url);
   if (!parsed) return null;
   return { inviteUrl: url, linkSigner: parsed.linkSigner, source: event };
+}
+
+/**
+ * Whether the sharer may list this link: the community's owner, or the link's
+ * creator (`creator_npub`, writable only by the link signer's holder).
+ */
+export function listingAuthorized(bundle: Pick<InviteBundle, "owner" | "creator_npub">, sharer: string): boolean {
+  if (sharer === bundle.owner) return true;
+  return !!bundle.creator_npub && creatorHex(bundle.creator_npub) === sharer;
+}
+
+function creatorHex(creator: string): string | undefined {
+  if (/^[0-9a-f]{64}$/.test(creator)) return creator;
+  try {
+    const decoded = nip19.decode(creator);
+    return decoded.type === "npub" ? decoded.data : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Build the "share to Discover" announcement; null if the URL isn't a valid invite link. */

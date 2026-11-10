@@ -151,6 +151,7 @@ export const AppConfigSchema = z.object({
   mutedWords: z.array(z.string()).catch([]),
   showRecentRailDms: z.boolean().catch(defaultConfig.showRecentRailDms),
   discoverCuration: z.string().catch(defaultConfig.discoverCuration),
+  discoverUnfiltered: z.boolean().catch(defaultConfig.discoverUnfiltered),
   stripTrackingParams: z.boolean().catch(defaultConfig.stripTrackingParams),
   mediaProxies: z.array(z.string()).catch(defaultConfig.mediaProxies),
   communityMediaAutoload: z.enum(["always", "trusted", "never"]).catch(defaultConfig.communityMediaAutoload),

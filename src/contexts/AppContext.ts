@@ -213,9 +213,16 @@ export interface AppConfig {
   showRecentRailDms: boolean;
   /**
    * Override for Discover's curated author source (`BUILD_DISCOVER_CURATION`):
-   * an `naddr` list, an npub/hex (their follows), or `none`. Empty = build default. Synced.
+   * curators, comma-separated: `naddr` lists, npub/hex seeds (the account and its
+   * follows), `armada-developers`, or `none` (only the viewer's network). Empty =
+   * build default. Synced.
    */
   discoverCuration: string;
+  /**
+   * Read Discover unvetted (`lib/discoverSource.ts`), turned on behind a warning.
+   * Per-device, and ignored in store installs.
+   */
+  discoverUnfiltered: boolean;
   /**
    * Strip tracking parameters (`si=`, `fbclid`, `utm_*`…) from sent and rendered
    * links (default on); see `lib/trackingParams.ts`. Synced.
@@ -411,6 +418,7 @@ export const PER_DEVICE_CONFIG_KEYS = [
   "meshEnabled",
   "androidBackLeavesApp",
   "powDifficulty",
+  "discoverUnfiltered",
 ] as const satisfies ReadonlyArray<keyof AppConfig>;
 
 export const defaultConfig: AppConfig = {
@@ -447,6 +455,7 @@ export const defaultConfig: AppConfig = {
   mutedWords: [],
   showRecentRailDms: true,
   discoverCuration: "",
+  discoverUnfiltered: false,
   stripTrackingParams: true,
   mediaProxies: [],
   communityMediaAutoload: "trusted",

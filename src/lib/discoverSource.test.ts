@@ -2,13 +2,17 @@ import { nip19 } from "nostr-tools";
 import { describe, expect, it } from "vitest";
 
 import {
-  ARMADA_FOLLOW_PACK,
+  ARMADA_DEVELOPERS,
+  ARMADA_DEVELOPERS_ENTRY,
+  BUILD_DISCOVER_CURATION,
   curatedPubkeys,
   curationFilter,
   curationKey,
   isCurationEvent,
+  storeCurationEntries,
   parseDiscoverCuration,
-  resolveDiscoverCuration,
+  parseDiscoverCurations,
+  resolveDiscoverCurations,
   resolveDiscoverRelays,
   type DiscoverCuration,
 } from "./discoverSource";
@@ -17,7 +21,11 @@ import type { NostrRumor } from "@/lib/nostrRumor";
 
 const PK = "a".repeat(64);
 const OTHER = "b".repeat(64);
-const SOAPBOX = "932614571afcbad4d17a191ee281e39eebbb41b93fac8fd87829622aeb112f4d";
+const MK = "932614571afcbad4d17a191ee281e39eebbb41b93fac8fd87829622aeb112f4d";
+const SOAPBOX = "781a1527055f74c1f70230f10384609b34548f8ab6a0a6caa74025827f9fdae5";
+/** A kind-39089 follow pack. */
+const TEAM_PACK =
+  "naddr1qvzqqqyckypzpyexz3t34l966ngh5xg7u2q788hthdqmj0av3lv8s2tz9t43zt6dqqxxkdrsx4mnqm3jxfeh2ess5pyrw";
 
 function rumor(partial: Partial<NostrRumor>): NostrRumor {
   return { id: "0".repeat(64), pubkey: PK, created_at: 1, kind: 1, tags: [], content: "", ...partial };
@@ -30,11 +38,23 @@ function ok(input: string): DiscoverCuration {
 }
 
 describe("parseDiscoverCuration", () => {
-  it("reads the Armada follow pack naddr as a kind-39089 list", () => {
-    expect(ok(ARMADA_FOLLOW_PACK)).toEqual({
+  it("defaults to the Armada Developers, as seeds", () => {
+    expect(BUILD_DISCOVER_CURATION).toBe(ARMADA_DEVELOPERS_ENTRY);
+    expect(ARMADA_DEVELOPERS).toEqual([
+      SOAPBOX,
+      "0ddf6c35f61eb040316d01f68ded4d38b579c17423d26715fd489105a981910a",
+      "0461fcbecc4c3374439932d6b8f11269ccdb7cc973ad7a50ae362db135a474dd",
+      "86184109eae937d8d6f980b4a0b46da4ef0d983eade403ee1b4c0b6bde238b47",
+    ]);
+    const parsed = parseDiscoverCurations(ARMADA_DEVELOPERS_ENTRY);
+    expect(parsed.ok && parsed.sources).toEqual(ARMADA_DEVELOPERS.map((pubkey) => ({ type: "follows", pubkey, relays: [] })));
+  });
+
+  it("reads a follow pack naddr as a kind-39089 list", () => {
+    expect(ok(TEAM_PACK)).toEqual({
       type: "list",
       kind: 39089,
-      pubkey: SOAPBOX,
+      pubkey: MK,
       identifier: "k4p5w0n22suf",
       relays: [],
     });
@@ -57,7 +77,7 @@ describe("parseDiscoverCuration", () => {
   });
 
   it("accepts a nostr: prefix and surrounding whitespace", () => {
-    expect(ok(`  nostr:${ARMADA_FOLLOW_PACK}\n`)).toMatchObject({ type: "list", kind: 39089 });
+    expect(ok(`  nostr:${TEAM_PACK}\n`)).toMatchObject({ type: "list", kind: 39089 });
   });
 
   it("reads an npub, an nprofile and a hex pubkey as that person's follow list", () => {
@@ -96,29 +116,66 @@ describe("parseDiscoverCuration", () => {
   });
 });
 
-describe("resolveDiscoverCuration", () => {
+describe("parseDiscoverCurations", () => {
+  const npub = nip19.npubEncode(PK);
+  const other = nip19.npubEncode(OTHER);
+
+  it("takes several sources separated by commas or spaces, deduped", () => {
+    const parsed = parseDiscoverCurations(`${npub}, ${other}\n${TEAM_PACK} ${npub}`);
+    expect(parsed.ok && parsed.sources.map((s) => s.type)).toEqual(["follows", "follows", "list"]);
+    expect(parsed.ok && parsed.none).toBe(false);
+  });
+
+  it("takes none only on its own", () => {
+    expect(parseDiscoverCurations(" None ")).toEqual({ ok: true, sources: [], none: true });
+    expect(parseDiscoverCurations(`none, ${npub}`).ok).toBe(false);
+  });
+
+  it("takes as many curators as given, the developers among them", () => {
+    const many = Array.from({ length: 40 }, (_, i) => i.toString(16).padStart(64, "0"));
+    const parsed = parseDiscoverCurations([ARMADA_DEVELOPERS_ENTRY, ...many].join(", "));
+    expect(parsed.ok && parsed.sources).toHaveLength(44);
+  });
+
+  it("stores no curators as none", () => {
+    expect(storeCurationEntries([])).toBe("none");
+    expect(storeCurationEntries([ARMADA_DEVELOPERS_ENTRY, npub])).toBe(`${ARMADA_DEVELOPERS_ENTRY}, ${npub}`);
+  });
+
+  it("refuses an empty field or a bad entry", () => {
+    expect(parseDiscoverCurations(" , ").ok).toBe(false);
+    expect(parseDiscoverCurations(`${npub}, garbage`).ok).toBe(false);
+  });
+});
+
+describe("resolveDiscoverCurations", () => {
   it("uses the build default when there is no override", () => {
-    expect(resolveDiscoverCuration("", ARMADA_FOLLOW_PACK)).toMatchObject({ type: "list", pubkey: SOAPBOX });
-    expect(resolveDiscoverCuration("   ", ARMADA_FOLLOW_PACK)).toMatchObject({ type: "list", pubkey: SOAPBOX });
+    const set = resolveDiscoverCurations("   ", false, TEAM_PACK);
+    expect(set.everyone).toBe(false);
+    expect(set.sources).toEqual([expect.objectContaining({ type: "list", pubkey: MK })]);
   });
 
   it("uses the override over the build default", () => {
-    expect(resolveDiscoverCuration(nip19.npubEncode(PK), ARMADA_FOLLOW_PACK)).toEqual({
-      type: "follows",
-      pubkey: PK,
-      relays: [],
+    expect(resolveDiscoverCurations(nip19.npubEncode(PK), false, TEAM_PACK)).toEqual({
+      sources: [{ type: "follows", pubkey: PK, relays: [] }],
+      everyone: false,
     });
-    expect(resolveDiscoverCuration("none", ARMADA_FOLLOW_PACK)).toEqual({ type: "none" });
+  });
+
+  it("reads none as only the network, never as everyone", () => {
+    expect(resolveDiscoverCurations("none", false, TEAM_PACK)).toEqual({ sources: [], everyone: false });
+    expect(resolveDiscoverCurations("", false, "none")).toEqual({ sources: [], everyone: false });
+  });
+
+  it("reads everyone only below no curators, with the device's switch on", () => {
+    expect(resolveDiscoverCurations("none", true, TEAM_PACK)).toEqual({ sources: [], everyone: true });
+    expect(resolveDiscoverCurations("", true, TEAM_PACK).everyone).toBe(false);
+    expect(resolveDiscoverCurations("", true, "none").everyone).toBe(false);
+    expect(resolveDiscoverCurations(nip19.npubEncode(PK), true, TEAM_PACK).everyone).toBe(false);
   });
 
   it("resolves an unparseable override to no list, never back to the build default", () => {
-    expect(resolveDiscoverCuration("garbage", ARMADA_FOLLOW_PACK)).toEqual({ type: "none" });
-  });
-
-  it("honours a build that sets no list, or one it can't parse", () => {
-    expect(resolveDiscoverCuration("", "none")).toEqual({ type: "none" });
-    expect(resolveDiscoverCuration("", "garbage")).toEqual({ type: "none" });
-    expect(resolveDiscoverCuration(PK, "none")).toMatchObject({ type: "follows", pubkey: PK });
+    expect(resolveDiscoverCurations("garbage", false, TEAM_PACK)).toEqual({ sources: [], everyone: false });
   });
 });
 
@@ -139,13 +196,13 @@ describe("resolveDiscoverRelays", () => {
 });
 
 describe("reading a source's list", () => {
-  const pack = ok(ARMADA_FOLLOW_PACK);
+  const pack = ok(TEAM_PACK);
   const follows = ok(PK);
 
   it("builds a filter per source type", () => {
     expect(curationFilter(pack)).toEqual({
       kinds: [39089],
-      authors: [SOAPBOX],
+      authors: [MK],
       "#d": ["k4p5w0n22suf"],
       limit: 1,
     });
@@ -158,7 +215,7 @@ describe("reading a source's list", () => {
   });
 
   it("matches only the source's own list event", () => {
-    const packEvent = rumor({ kind: 39089, pubkey: SOAPBOX, tags: [["d", "k4p5w0n22suf"]] });
+    const packEvent = rumor({ kind: 39089, pubkey: MK, tags: [["d", "k4p5w0n22suf"]] });
     expect(isCurationEvent(pack, packEvent)).toBe(true);
     expect(isCurationEvent(pack, { ...packEvent, tags: [["d", "other"]] })).toBe(false);
     expect(isCurationEvent(pack, { ...packEvent, pubkey: PK })).toBe(false);

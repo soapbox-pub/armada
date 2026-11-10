@@ -342,7 +342,9 @@ reads prefs and opens sockets long before the app is opened), so it carries
   `collapsedChannelCategories`, `memberListVisible`, `lastChannelByServer`
   (syncing it makes two open clients yank each other's channel selection
   around), and `meshEnabled` / `meshIncognito` (they gate a Bluetooth foreground
-  service and must never be flipped on remotely).
+  service and must never be flipped on remotely), and `discoverUnfiltered` (a
+  device's "suit yourself" Discover switch, which a store install must never
+  pick up from another device).
 - **Lists with a canonical home**: `searchRelays` (10007), `dmRelays` (10050),
   `relayMetadata` (10002), `blossomServerMetadata` (10063). AppConfig keeps
   local mirrors; the standard events own them. The metadata schema still

@@ -1,3 +1,4 @@
+import { nip19 } from "nostr-tools";
 import { describe, expect, it } from "vitest";
 
 import { buildInviteUrl, parseInviteLink } from "@/concord/lib/invite";
@@ -6,6 +7,7 @@ import {
   KIND_COMMUNITY_ANNOUNCEMENT,
   announcementsForLinks,
   buildAnnouncementDeletion,
+  listingAuthorized,
 } from "@/concord/lib/inviteDiscovery";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -70,5 +72,26 @@ describe("announcementsForLinks", () => {
       "k",
       String(KIND_COMMUNITY_ANNOUNCEMENT),
     ]);
+  });
+});
+
+describe("listingAuthorized", () => {
+  const owner = "a".repeat(64);
+  const creator = "b".repeat(64);
+  const holder = "c".repeat(64);
+
+  it("lets the owner list any link", () => {
+    expect(listingAuthorized({ owner }, owner)).toBe(true);
+  });
+
+  it("lets the link's own creator list it, by hex or npub", () => {
+    expect(listingAuthorized({ owner, creator_npub: creator }, creator)).toBe(true);
+    expect(listingAuthorized({ owner, creator_npub: nip19.npubEncode(creator) }, creator)).toBe(true);
+  });
+
+  it("refuses someone who merely holds the link", () => {
+    expect(listingAuthorized({ owner, creator_npub: creator }, holder)).toBe(false);
+    expect(listingAuthorized({ owner }, holder)).toBe(false);
+    expect(listingAuthorized({ owner, creator_npub: "garbage" }, holder)).toBe(false);
   });
 });

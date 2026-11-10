@@ -1,7 +1,8 @@
-import { AtSign, Bot, ChevronDown, Copy, Crown, IdCard, MessageSquareText, MoreVertical, Music, Shield, Smile, UserCog, UserPlus, X } from "lucide-react";
+import { AtSign, Bot, ChevronDown, Copy, Crown, Gem, IdCard, MessageSquareText, MoreVertical, Music, Shield, Smile, UserCog, UserPlus, X } from "lucide-react";
 
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
 
+import { BoostersContext } from "@/components/chat/boostersContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BotPill } from "@/components/BotPill";
 import { UltraPill } from "@/components/UltraPill";
@@ -163,6 +164,7 @@ const MemberRow = memo(function MemberRow({
   const musicStatus = isStatusExpired(rawMusicStatus) ? undefined : rawMusicStatus;
   const [statusOpen, setStatusOpen] = useState(false);
   const moderation = useUserModeration(pubkey);
+  const boosting = useContext(BoostersContext).has(pubkey);
 
   const roleSet = new Set((roles ?? []).map((r) => r.toLowerCase()));
   const isOwner = roleSet.has(ROLE_OWNER);
@@ -280,6 +282,16 @@ const MemberRow = memo(function MemberRow({
             style={color ? { color } : nameStyleCss(ultra?.name)}
           >
             <DisplayName pubkey={pubkey} name={displayName} />
+            {boosting && (
+              <span
+                role="img"
+                title={intl.formatMessage({ id: "memberList.booster", defaultMessage: "Boosting this community" })}
+                aria-label={intl.formatMessage({ id: "memberList.booster", defaultMessage: "Boosting this community" })}
+                className="ml-1 inline-flex align-[-0.125em] text-[#ff73fa]"
+              >
+                <Gem className="size-3" aria-hidden />
+              </span>
+            )}
           </span>
           {status?.content && (
             <span

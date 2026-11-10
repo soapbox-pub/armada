@@ -100,6 +100,17 @@ describe("signers", () => {
     }
   });
 
+  it("mines to a difficulty the event asks for, above the user's", async () => {
+    setPowDifficulty(0);
+    const signer = new AppSigner(new NSecSigner(sk), pubkey);
+    const boost = await signer.signEvent(template(1985, [["nonce", "", "8"]]));
+    expect(getPow(boost.id)).toBeGreaterThanOrEqual(8);
+    expect(boost.tags.filter(([name]) => name === "nonce")).toHaveLength(1);
+
+    setPowDifficulty(10);
+    expect(getPow((await signer.signEvent(template(1985, [["nonce", "", "4"]]))).id)).toBeGreaterThanOrEqual(10);
+  });
+
   it("PowNSecSigner mines", async () => {
     setPowDifficulty(6);
     const event = await new PowNSecSigner(sk).signEvent(template(30078, [["d", "x"]]));

@@ -1,10 +1,12 @@
 import { useNostr } from "@nostrify/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Check, Copy, Loader2, MoreHorizontal, ShieldCheck, Skull, Trash2 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { DisplayName } from "@/components/DisplayName";
+import { BoostedBy } from "@/components/discover/BoostedBy";
+import { DiscoverBoostsContext } from "@/components/discover/discoverBoosts";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -31,6 +33,7 @@ import {
 } from "@/concord/lib/discoverControlPeek";
 import {
   inviteUrlToLocalRoute,
+  listingAuthorized,
   type DiscoveredInvite,
 } from "@/concord/lib/inviteDiscovery";
 import { parseInviteLink } from "@/concord/lib/invite";
@@ -41,6 +44,7 @@ import { defineMessage, FormattedMessage, t, useIntl } from "@/i18n";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { useIsBlocked } from "@/lib/blocklistStore";
 import { writeClipboardText } from "@/lib/clipboard";
+import { boostsFor, vouchingBoosts, type Boost } from "@/lib/discoverBoost";
 import { shortTimeAgoPhrase } from "@/lib/formatTime";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { cn } from "@/lib/utils";
@@ -51,6 +55,8 @@ interface CommunityListingCardProps {
   className?: string;
   /** Matched against the RESOLVED name, since the announcement has no metadata. Non-matches render nothing. */
   filter?: string;
+  /** Here only for a boost (a stranger's listing): rendered only once a voucher other than the owner is confirmed. */
+  needsBoost?: boolean;
   /**
    * Reports the bundle's self-certified `community_id` and verified `owner`, so
    * the grid can dedupe links to the same community and rank by owner. The
@@ -107,6 +113,7 @@ export function CommunityListingCard({
   invite,
   className,
   filter,
+  needsBoost = false,
   onResolved,
   onActivityTarget,
   lastActiveAt,
@@ -162,12 +169,20 @@ export function CommunityListingCard({
 
   const isBlocked = useIsBlocked();
   const blocked = !!bundle?.community_id && isBlocked(bundle.community_id);
+  const { boosts: boostsByListing, vouchers } = useContext(DiscoverBoostsContext);
+  const boosts = useMemo(() => boostsFor(boostsByListing, [invite.source.id]), [boostsByListing, invite.source.id]);
+  // An owner boosting their own community vouches for nothing.
+  const vouched = useMemo(
+    () => (bundle ? vouchingBoosts(boosts, vouchers, bundle.owner) : NO_BOOSTS),
+    [boosts, vouchers, bundle],
+  );
+  const authorized = !!bundle && listingAuthorized(bundle, invite.source.pubkey) && (!needsBoost || vouched.length > 0);
 
   // Dissolved communities' links keep resolving, so check the dissolved address
   // (derived from community_id, so non-members can check it too).
   const { data: dissolvedAtMs, isPending: dissolvedPending } = useQuery({
     queryKey: ["discover", "dissolved", bundle?.community_id],
-    enabled: !!bundle?.community_id && !!bundle.owner && !blocked,
+    enabled: !!bundle?.community_id && !!bundle.owner && !blocked && authorized,
     staleTime: 10 * 60_000,
     retry: false,
     queryFn: async () =>
@@ -179,7 +194,7 @@ export function CommunityListingCard({
   });
   const dissolved = dissolvedAtMs != null;
   // Hold the skeleton until answered so a dissolved card never paints then vanishes.
-  const dissolvedChecking = !!bundle?.community_id && !!bundle.owner && !blocked && dissolvedPending;
+  const dissolvedChecking = !!bundle?.community_id && !!bundle.owner && !blocked && authorized && dissolvedPending;
 
   // NIP-09 deletes only count from the event's author.
   const { user } = useCurrentUser();
@@ -274,8 +289,9 @@ export function CommunityListingCard({
   }, [folded, controlPeek?.publicChannelIdHexes]);
 
   useEffect(() => {
-    if (bundle?.community_id) onResolved?.(invite.linkSigner, bundle.community_id, bundle.owner);
-  }, [bundle?.community_id, bundle?.owner, invite.linkSigner, onResolved]);
+    // An unauthorized copy must not win the dedupe over the owner's own listing.
+    if (bundle?.community_id && authorized) onResolved?.(invite.linkSigner, bundle.community_id, bundle.owner);
+  }, [bundle?.community_id, bundle?.owner, authorized, invite.linkSigner, onResolved]);
 
   // Unlisted cards must stop being probed, or the REQ keeps asking about them.
   const needle = filter?.trim().toLowerCase();
@@ -287,6 +303,7 @@ export function CommunityListingCard({
     && !dissolvedChecking
     && !dissolved
     && !blocked
+    && authorized
     && (!needle || name.toLowerCase().includes(needle));
   // A dissolved community stays visible to its listing author as a remove-only husk.
   const husk =
@@ -465,6 +482,8 @@ export function CommunityListingCard({
           </button>
         </ProfilePreviewCard>
 
+        {boosts.length > 0 && <BoostedBy boosts={boosts} named={vouched} />}
+
         <div className="mt-auto flex gap-2">
           {husk ? (
             <Button variant="secondary" className="min-w-0 flex-1 clip-corner-lg" disabled>
@@ -552,3 +571,5 @@ function useSeenOnScreen(el: Element | null): boolean {
 
   return seen;
 }
+
+const NO_BOOSTS: Boost[] = [];

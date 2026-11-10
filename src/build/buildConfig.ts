@@ -18,8 +18,10 @@ export const CONFIG_NAMES = [
   // Comma-separated Blossom servers, the first preferred for uploads. Unset = Armada's public servers.
   "BLOSSOM_SERVERS",
   "CONCORD_AV_SERVERS",
-  // Discover's curated author list: an naddr, npub/hex pubkey, or empty/"none". Unset = Armada's follow pack.
+  // Discover's curators, comma-separated: naddr lists, npub/hex seeds, "armada-developers", or empty/"none". Unset = Armada Developers.
   "DISCOVER_CURATION",
+  // "off" keeps a user's "none" from reading Discover unvetted (app-store installs never do). Unset = allowed.
+  "DISCOVER_UNFILTERED",
   "NIP85_STATS_PUBKEY",
   "NSITE_GATEWAY",
   "DEFAULT_NOISE_SUPPRESSION",

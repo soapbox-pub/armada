@@ -19,6 +19,7 @@ import {
   CommunityListingCardSkeleton,
 } from "@/components/discover/CommunityListingCard";
 import { CreateCommunityCard } from "@/components/discover/CreateCommunityCard";
+import { DiscoverBoostsContext } from "@/components/discover/discoverBoosts";
 import { ThemeDiscoverCard } from "@/components/discover/ThemeDiscoverCard";
 import { DeferredRow } from "@/components/DeferredRow";
 import { EmojiPackCard } from "@/components/chat/EmojiPackCard";
@@ -30,6 +31,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DiscoverActivityTarget } from "@/concord/lib/discoverActivity";
 import type { DiscoveredInvite } from "@/concord/lib/inviteDiscovery";
+import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import {
   useDiscoverCommunities,
@@ -40,6 +42,7 @@ import {
   type DiscoverScope,
 } from "@/hooks/useDiscover";
 import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
+import { vouchingBoosts } from "@/lib/discoverBoost";
 import { SettingsOverlayContext } from "@/lib/settingsOverlay";
 import { cn } from "@/lib/utils";
 import { defineMessages, FormattedMessage, useIntl, type MessageDescriptor } from "@/i18n";
@@ -61,6 +64,10 @@ const ThemeCreatorDialog = lazy(() =>
 type DiscoverTab = "communities" | "emojis" | "themes";
 
 const m = defineMessages({
+  unfiltered: {
+    id: "discoverPage.hint.everyone",
+    defaultMessage: "Showing anyone's picks, unfiltered, on this device.",
+  },
   communities: { id: "discoverPage.tab.communities", defaultMessage: "Communities" },
   communitiesPlaceholder: { id: "discoverPage.tab.communitiesPlaceholder", defaultMessage: "Search communities…" },
   communitiesBlurb: {
@@ -157,6 +164,8 @@ export function DiscoverPage() {
   const [chosenScope, setScope] = useState<DiscoverScope>("network");
   // "You" and "Friends" have nobody in them signed out.
   const scope = user ? chosenScope : "network";
+  const { updateConfig } = useAppContext();
+  const unfiltered = useDiscoverCuration().everyone && scope === "network";
   const query = queries[tab];
   const setQuery = (v: string) => setQueries((prev) => ({ ...prev, [tab]: v }));
   const active = TAB_DEFS.find((t) => t.id === tab)!;
@@ -255,6 +264,19 @@ export function DiscoverPage() {
               )}
             </div>
           </div>
+
+          {unfiltered && (
+            <p className="mt-3 px-1 text-xs text-muted-foreground">
+              <FormattedMessage {...m.unfiltered} />{" "}
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={() => updateConfig((current) => ({ ...current, discoverUnfiltered: false }))}
+              >
+                <FormattedMessage id="discoverPage.unfilteredOff" defaultMessage="Turn off" />
+              </button>
+            </p>
+          )}
 
           {/* Top spacing is a MARGIN so the gap stays put while the grid scrolls. */}
           <div className="flex-1 min-h-0 overflow-y-auto scrollbar-stable mt-3 sm:mt-4 pb-8">
@@ -364,8 +386,9 @@ function useDiscoverScopeHint(scope: DiscoverScope, signedIn: boolean): string {
       defaultMessage: "Showing only what you and people you follow have shared.",
     });
   }
+  if (scope === "network" && curation.everyone) return intl.formatMessage(m.unfiltered);
   if (!signedIn) {
-    return curation.type !== "none"
+    return curation.sources.length > 0
       ? intl.formatMessage({
         id: "discoverPage.hint.curatedSignedOut",
         defaultMessage: "Showing picks from a curated list. Sign in to also see what people you follow have shared.",
@@ -375,7 +398,7 @@ function useDiscoverScopeHint(scope: DiscoverScope, signedIn: boolean): string {
         defaultMessage: "Sign in to see picks from people you follow.",
       });
   }
-  return curation.type !== "none"
+  return curation.sources.length > 0
     ? intl.formatMessage({
       id: "discoverPage.hint.networkCurated",
       defaultMessage: "Showing picks from a curated list, from people you follow, and from people they follow. Nothing from anyone else is shown.",
@@ -517,6 +540,9 @@ function TabState({ icon: Icon, children }: { icon: typeof Users; children: Reac
 function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope }) {
   const {
     data,
+    boosts,
+    vouchers,
+    boostOnly,
     packAuthors,
     trustedAuthors,
     isLoading,
@@ -584,20 +610,29 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
   const activityTargetList = useMemo(() => Object.values(activityTargets), [activityTargets]);
   const lastActiveBySigner = useDiscoverCommunityActivity(activityTargetList);
 
-  // Order: curated-list owners, then the viewer and their follows, then the
-  // rest of the network; newest-first within tiers. Until a bundle
-  // resolves, the announcement author stands in for its owner.
+  // Order: communities boosted by someone the viewer trusts (most boosts first),
+  // then curated-list owners, then the viewer and their follows, then the rest of
+  // the network; newest-first otherwise. Until a bundle resolves, the announcement
+  // author stands in for its owner.
   const ordered = useMemo(() => {
     if (!data) return data;
     const pack = new Set(packAuthors);
     const trusted = new Set(trustedAuthors);
-    const tiers: [DiscoveredInvite[], DiscoveredInvite[], DiscoveredInvite[]] = [[], [], []];
+    const boosted: Array<{ invite: DiscoveredInvite; count: number }> = [];
+    const tiers: DiscoveredInvite[][] = [[], [], []];
     for (const invite of data) {
       const owner = resolved[invite.linkSigner]?.owner ?? invite.source.pubkey;
+      const listingBoosts = boosts.get(invite.source.id) ?? [];
+      if (vouchingBoosts(listingBoosts, vouchers, owner).length > 0) {
+        boosted.push({ invite, count: listingBoosts.length });
+        continue;
+      }
       tiers[pack.has(owner) ? 0 : trusted.has(owner) ? 1 : 2].push(invite);
     }
-    return tiers.flat();
-  }, [data, resolved, packAuthors, trustedAuthors]);
+    boosted.sort((a, b) => b.count - a.count);
+    return [...boosted.map((b) => b.invite), ...tiers.flat()];
+  }, [data, resolved, boosts, vouchers, packAuthors, trustedAuthors]);
+  const boostContext = useMemo(() => ({ boosts, vouchers }), [boosts, vouchers]);
 
   // Drop later links resolving to an already-seen community (display order,
   // so pack-owned cards win).
@@ -654,7 +689,7 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
     );
   }
   return (
-    <>
+    <DiscoverBoostsContext.Provider value={boostContext}>
     <div className={GRID}>
       <CreateCommunityCard />
       {/* Search matches each card's RESOLVED name; misses render nothing. */}
@@ -665,6 +700,7 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
             key={invite.linkSigner}
             invite={invite}
             query={query}
+            needsBoost={boostOnly.has(invite.linkSigner)}
             onResolved={onResolved}
             onActivityTarget={onActivityTarget}
             lastActiveAt={lastActiveBySigner[invite.linkSigner]}
@@ -672,7 +708,7 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
         ))}
     </div>
     <LoadMore sentinelRef={sentinelRef} loading={isFetchingNextPage} />
-    </>
+    </DiscoverBoostsContext.Provider>
   );
 }
 
@@ -683,12 +719,14 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
 const CommunityRow = memo(function CommunityRow({
   invite,
   query,
+  needsBoost,
   onResolved,
   onActivityTarget,
   lastActiveAt,
 }: {
   invite: DiscoveredInvite;
   query: string;
+  needsBoost: boolean;
   onResolved: (linkSigner: string, communityId: string, owner: string) => void;
   onActivityTarget: (linkSigner: string, target: DiscoverActivityTarget | null) => void;
   lastActiveAt: number | undefined;
@@ -700,6 +738,7 @@ const CommunityRow = memo(function CommunityRow({
       <CommunityListingCard
         invite={invite}
         filter={query}
+        needsBoost={needsBoost}
         onResolved={onResolved}
         onActivityTarget={onActivityTarget}
         lastActiveAt={lastActiveAt}
