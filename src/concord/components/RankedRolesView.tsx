@@ -303,6 +303,7 @@ export function RankedRolesSwitch({ community }: { community: Community }) {
         <ChromeDialogContent
           title={intl.formatMessage({ id: "rankedRolesView.switchTitle", defaultMessage: "Switch to ranked roles?" })}
           className="sm:max-w-sm"
+          hideClose={isActivating}
         >
           <ChromeDialogHeader
             icon={Layers}
@@ -489,7 +490,8 @@ function RankedRoleEditor({
         </Button>
       </div>
 
-      <Dialog open={confirmDelete} onOpenChange={(next) => !saving && setConfirmDelete(next)}>
+      {/* Closing mid-delete only hides the dialog; the delete finishes and toasts on its own. */}
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <ChromeDialogContent
           title={intl.formatMessage({ id: "rankedRolesView.deleteTitle", defaultMessage: "Delete {name}?" }, { name: initial.name })}
           className="sm:max-w-sm"
