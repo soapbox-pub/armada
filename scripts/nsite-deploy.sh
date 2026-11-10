@@ -185,7 +185,7 @@ for attempt in $(seq 1 "$attempts"); do
   # repo publishes has hundreds — so it means nsyte was pointed at the wrong
   # directory and published nothing while exiting 0. Not retried: it is a
   # configuration error, not a network one.
-  if grep -qE "0 files included|No files to upload after ignore rules" "$log"; then
+  if grep -qE "(^|[^0-9])0 files included|No files to upload after ignore rules" "$log"; then
     echo "nsite-deploy: nsyte scanned 0 files from $dir; refusing a no-op deploy." >&2
     exit 1
   fi
