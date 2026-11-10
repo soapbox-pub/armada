@@ -5,7 +5,7 @@ import { useControlFold } from "@/concord/hooks/useControlPlane";
 import { useVoiceModeration } from "@/concord/hooks/useVoice";
 import { channelsView } from "@/concord/lib/community";
 import type { Channel, Community } from "@/concord/lib/types";
-import type { VoiceDirectiveVerb, VoicePresent } from "@/concord/lib/voice";
+import type { VoiceDirectiveVerb } from "@/concord/lib/voice";
 import type { MemberActionItem } from "@/contexts/MemberActionsContext";
 import { toast } from "@/hooks/useToast";
 import { t, useIntl } from "@/i18n";
@@ -13,11 +13,12 @@ import { t, useIntl } from "@/i18n";
 /**
  * A moderator's directives against each participant of one Channel's call (CORD-07 §7),
  * for the call's tile menus and the sidebar roster alike: being in the call isn't needed.
+ * `present` takes members on any transport, since a directive names a member, not a transport.
  */
 export function useVoiceActionsFor(
   community: Community | undefined,
   channel: Channel | undefined,
-  present: readonly VoicePresent[],
+  present: readonly { author: string; serverMuted?: boolean; serverDeafened?: boolean }[],
 ): (pubkey: string) => MemberActionItem[] {
   const intl = useIntl();
   const { data: folded } = useControlFold(community, false);

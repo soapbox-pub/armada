@@ -598,6 +598,23 @@ describe("foldVoicePresence (§4)", () => {
       expect(fold(latest, now).present).toEqual([]);
     });
 
+    it("a moderator's mute reaches a member on the other transport alone, and outlasts their SFU side leaving", () => {
+      const mod = "m".repeat(64);
+      const latest = new Map<string, VoicePresenceEntry>();
+      notePresence(latest, iroh({ ms: now - 2000, rumorId: "i1", muted: true }), now - 2000);
+      expect(applyDirective(latest, { author: mod, target: "a".repeat(64), verb: "deafen", ms: now - 1500 }, now - 1500)).toBe(true);
+      expect(fold(latest, now).otherTransport).toEqual([
+        { author: "a".repeat(64), transport: "iroh", muted: true, serverDeafened: true, ms: now - 2000 },
+      ]);
+
+      notePresence(latest, entry({ ms: now - 1000, rumorId: "b1" }), now - 1000);
+      applyDirective(latest, { author: mod, target: "a".repeat(64), verb: "mute", ms: now - 900 }, now - 900);
+      notePresence(latest, left({ identity: "id-1" }, now), now);
+      expect(fold(latest, now).otherTransport).toEqual([
+        { author: "a".repeat(64), transport: "iroh", muted: true, serverMuted: true, serverDeafened: true, ms: now - 2000 },
+      ]);
+    });
+
     it("counts a bridge only while its author is on the transport it names", () => {
       const latest = new Map<string, VoicePresenceEntry>();
       notePresence(latest, entry({ ms: now - 2000, rumorId: "b1", bridge: "iroh" }), now - 2000);

@@ -1208,7 +1208,8 @@ function ConcordVoiceRoom({
   const obey = useRef({ folded, communityBrokers, onLeave, joinConcordCall, ctx });
   obey.current = { folded, communityBrokers, onLeave, joinConcordCall, ctx };
   // A moderator's directives against a participant (CORD-07 §7), for the call's tile menus.
-  const voiceActionsFor = useVoiceActionsFor(community, channel, present);
+  const voiceMembers = useMemo(() => [...fold.present, ...fold.otherTransport], [fold]);
+  const voiceActionsFor = useVoiceActionsFor(community, channel, voiceMembers);
 
   const channelPk = channel.current.group.pk;
   useEffect(() => {

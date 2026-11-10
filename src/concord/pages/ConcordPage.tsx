@@ -576,12 +576,17 @@ export const ChannelRow = memo(function ChannelRow({
   );
   const voiceTransports = useMemo(() => voiceRowTransports(fold), [fold]);
   // A moderator acts on a call's participants from the roster too, joined or not (CORD-07 §7).
-  const voiceActionsFor = useVoiceActionsFor(community, channel, fold.present);
+  const voiceMembers = useMemo(() => [...fold.present, ...fold.otherTransport], [fold]);
+  const voiceActionsFor = useVoiceActionsFor(community, channel, voiceMembers);
   // Off the presence flags (CORD-07 §4) outside the call; a moderator's mute shows either way.
+  // LiveKit's live state doesn't cover a member it can't see, so peer-to-peer ones always read presence.
   const rosterMuted = useMemo(() => {
     const out = new Set<string>(inCall ? mutedVoice ?? [] : []);
     for (const p of fold.present) {
       if (p.serverMuted || p.serverDeafened || (!inCall && (p.muted || p.deafened))) out.add(p.author);
+    }
+    for (const p of fold.otherTransport) {
+      if (p.serverMuted || p.serverDeafened || p.muted || p.deafened) out.add(p.author);
     }
     return out;
   }, [fold, inCall, mutedVoice]);

@@ -266,6 +266,8 @@ export interface VoicePresenceEntry {
    * Relays the call on this other transport into the brokered one (joined only) — an
    * ARMADA EXTENSION: additive `["bridge", "<transport>"]` on the brokered `joined`, so
    * the members there are heard here. Counts only while its author is on that transport.
+   * What it relays plays as the bridge's own track, so receivers can't gate those members:
+   * the bridge must apply SPEAK, Timeouts, bans and §7 directives to them itself.
    */
   bridge?: string;
   /**
@@ -510,6 +512,11 @@ export interface VoicePresenceFold {
 export interface VoiceOtherTransport {
   author: string;
   transport: string;
+  /** Their own flags, and a moderator's on this stay: directives name a member, not a transport (CORD-07 §7). */
+  muted?: boolean;
+  deafened?: boolean;
+  serverMuted?: boolean;
+  serverDeafened?: boolean;
   ms: number;
 }
 
@@ -543,7 +550,7 @@ export function notePresence(latest: Map<string, VoicePresenceEntry>, entry: Voi
     latest.set(
       entry.author,
       entry.transport
-        ? { ...prev, other: { transport: entry.transport, ms: entry.ms, heardAt: nowMs } }
+        ? { ...prev, other: otherHalfOf(entry, nowMs) }
         : { ...prev, brokered: { ...entry, heardAt: nowMs } },
     );
     return true;
@@ -599,6 +606,8 @@ function leaveOneSide(prev: VoicePresenceEntry, left: VoicePresenceEntry, nowMs:
     author: prev.author,
     status: "joined",
     transport: other.transport,
+    ...(other.muted ? { muted: true } : {}),
+    ...(other.deafened ? { deafened: true } : {}),
     ms: other.ms,
     heardAt: other.heardAt,
     rumorId: prev.rumorId,
@@ -609,8 +618,20 @@ function leaveOneSide(prev: VoicePresenceEntry, left: VoicePresenceEntry, nowMs:
 /** A `joined` on another transport, held beside a newer brokered one. */
 export interface OtherHalf {
   transport: string;
+  muted?: boolean;
+  deafened?: boolean;
   ms: number;
   heardAt: number;
+}
+
+function otherHalfOf(e: VoicePresenceEntry, heardAt: number): OtherHalf {
+  return {
+    transport: e.transport!,
+    ...(e.muted ? { muted: true } : {}),
+    ...(e.deafened ? { deafened: true } : {}),
+    ms: e.ms,
+    heardAt,
+  };
 }
 
 /** An author's live brokered `joined`: the entry itself, or the one held beside another transport's. */
@@ -622,7 +643,7 @@ function brokeredHalf(e: VoicePresenceEntry, nowMs: number): VoicePresenceEntry 
 /** An author's live `joined` on another transport: the entry itself, or the one held beside a brokered one. */
 function otherHalf(e: VoicePresenceEntry, nowMs: number): OtherHalf | undefined {
   const half: OtherHalf | undefined =
-    e.transport ? { transport: e.transport, ms: e.ms, heardAt: e.heardAt ?? e.ms } : e.other;
+    e.transport ? otherHalfOf(e, e.heardAt ?? e.ms) : e.other;
   return e.status === "joined" && half && nowMs - half.heardAt < VOICE_STALE_MS ? half : undefined;
 }
 
@@ -776,7 +797,15 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
     // On the brokered call as well as another transport: heard here, so present rather than elsewhere.
     const half = brokeredHalf(top, nowMs);
     if (top.transport && !half) {
-      otherTransport.push({ author: top.author, transport: top.transport, ms: top.ms });
+      otherTransport.push({
+        author: top.author,
+        transport: top.transport,
+        ...(top.muted ? { muted: true } : {}),
+        ...(top.deafened ? { deafened: true } : {}),
+        ...(top.serverMuted ? { serverMuted: true } : {}),
+        ...(top.serverDeafened ? { serverDeafened: true } : {}),
+        ms: top.ms,
+      });
       continue;
     }
     // Moderation belongs to the stay, which the newest presence carries.

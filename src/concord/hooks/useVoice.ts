@@ -185,7 +185,13 @@ export function useVoicePresence(
           sameClaims(prev.claims, next.claims) &&
           prev.otherTransport.length === next.otherTransport.length &&
           prev.otherTransport.every(
-            (p, i) => p.author === next.otherTransport[i].author && p.transport === next.otherTransport[i].transport,
+            (p, i) =>
+              p.author === next.otherTransport[i].author &&
+              p.transport === next.otherTransport[i].transport &&
+              p.muted === next.otherTransport[i].muted &&
+              p.deafened === next.otherTransport[i].deafened &&
+              p.serverMuted === next.otherTransport[i].serverMuted &&
+              p.serverDeafened === next.otherTransport[i].serverDeafened,
           )
         ) {
           return prev;
