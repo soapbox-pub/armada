@@ -912,7 +912,8 @@ function selectAuthorized(cands: Cands, communityId: Uint8Array, ownerHex: strin
       nextHeads.set(eid, { eid, edition: list[j].p, rebased });
       const grant = list[j].grant!;
       const ids = grant.roleIds.filter((rid) => rid !== everyoneHex && standing.role(rid) !== undefined);
-      if (ids.length > 0) next.grants.push({ member: grant.member, roleIds: ids });
+      // The staff write key rides the Grant; its recipient adopts it off the fold (CORD-04 §3).
+      if (ids.length > 0) next.grants.push({ member: grant.member, roleIds: ids, ...(grant.controlWrap !== undefined ? { controlWrap: grant.controlWrap } : {}) });
     }
 
     const sameHeads = nextHeads.size === heads.size && [...nextHeads].every(([k, h]) => {

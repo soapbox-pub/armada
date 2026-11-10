@@ -31,8 +31,10 @@ import {
   encodeWrappedKey,
 } from "@/concord/lib/rekey";
 import { grantFromJSON, grantToJSON, isStaff, rolesMakeStaff, Permissions, STAFF_MASK, type CommunityRoles } from "@/concord/lib/roles";
+import { foldRankedRoster } from "@/concord/lib/roster";
 import { openWrap, StreamError, wrapSeal } from "@/concord/lib/stream";
 import type { Community } from "@/concord/lib/types";
+import { rankedCommunity } from "@/test/concordEditions";
 
 function member(sk = generateSecretKey()) {
   return {
@@ -223,6 +225,13 @@ describe("the Grant's control_wrap (CORD-04 §3)", () => {
     // An oversize wrap is dropped, not carried.
     const bloated = JSON.stringify({ member: "ab".repeat(32), role_ids: [], control_wrap: "x".repeat(2000) });
     expect(grantFromJSON(bloated)!.controlWrap).toBeUndefined();
+  });
+
+  it("the ranked Roster's folded Grant keeps its control_wrap, where the recipient reads it", () => {
+    const { c, admin, adminRole, everyone, role } = rankedCommunity(Permissions.MANAGE_ROLES);
+    const grant = c.grant(admin, [adminRole], { content: { member: admin, role_ids: [adminRole], control_wrap: "aGVsbG8=" } });
+    const folded = foldRankedRoster([everyone, role, grant], c.id, c.owner, new Map());
+    expect(folded.roles.grants.find((g) => g.member === admin)?.controlWrap).toBe("aGVsbG8=");
   });
 });
 
