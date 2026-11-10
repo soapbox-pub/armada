@@ -11,6 +11,7 @@ import type { NostrEvent } from "@nostrify/nostrify";
 
 import { dmTimerSeconds, expirationOf, isExpired } from "@/lib/nip17/protocol";
 import { formatDisappearingDuration } from "@/lib/nip17/disappearing";
+import { clockNowMs } from "@/lib/relayClock";
 import { KIND_DELETE, KIND_SEAL_ENCRYPTED, KIND_TIMER_NOTICE } from "@/concord/lib/kinds";
 import { writeRumors } from "@/concord/lib/rumorStore";
 import { buildRumor, channelBindingTags, sealRumor, wrapSeal, type StreamSigner } from "@/concord/lib/stream";
@@ -135,7 +136,7 @@ export async function publishTimerNotices(
   actorPubkey: string,
   seconds: number,
 ): Promise<void> {
-  const ms = Date.now();
+  const ms = clockNowMs();
   const timer = String(Math.max(0, Math.floor(seconds)));
   const opened: OpenedChat[] = [];
   const wraps: NostrEvent[] = [];

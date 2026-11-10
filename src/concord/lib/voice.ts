@@ -22,6 +22,7 @@ import { uniqueTag } from "@/concord/lib/strictJson";
 import type { OpenedEvent } from "@/concord/lib/stream";
 import { MAX_COMMUNITY_AV_BROKERS, type CommunityMetadata } from "@/concord/lib/types";
 import { t } from "@/i18n/intl";
+import { nowSecs } from "@/lib/relayClock";
 
 // Protocol constants (CORD-07)
 /** NIP-98-style HTTP-auth event kind — the token grant's carrier (§2). */
@@ -141,7 +142,7 @@ export function signAvGrant(voice: GroupKey, url: string): string {
         ["method", "GET"],
         ["nonce", bytesToHex(random32())],
       ],
-      created_at: Math.floor(Date.now() / 1000),
+      created_at: nowSecs(),
     },
     voice.sk,
   );

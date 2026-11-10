@@ -21,6 +21,7 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { generateSecretKey } from "nostr-tools";
 
 import { PowNSecSigner } from "@/lib/pow";
+import { clockNowMs } from "@/lib/relayClock";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/types";
 import type { NappSubscription } from "@/lib/nappPush";
@@ -106,7 +107,7 @@ export class NostrPush2Client {
     this.#relays = opts.relays;
     this.#signer = new PowNSecSigner(opts.secretKey);
     this.#pool = opts.pool;
-    this.#now = opts.now ?? (() => Date.now());
+    this.#now = opts.now ?? clockNowMs;
     this.#timeoutMs = opts.timeoutMs ?? RPC_TIMEOUT_MS;
   }
 

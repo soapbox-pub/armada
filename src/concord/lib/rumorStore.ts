@@ -49,6 +49,7 @@ import type { OpenedChat } from "@/concord/lib/chat";
 import { currentGuestbookGroup, guestbookGroups } from "@/concord/lib/guestbook";
 import type { Community } from "@/concord/lib/types";
 import { confirmOutgoing } from "@/concord/lib/outgoing";
+import { nowSecs } from "@/lib/relayClock";
 
 /** The chat plane's channel binding (CORD-03 §3) — the tag chat reads index. */
 const TAG_CHANNEL = "channel";
@@ -338,7 +339,7 @@ const SPEECH_KINDS = [9, 1068, 1111];
  * this, since {@link sweepExpiredCommunityRumors} only removes them eventually.
  */
 function notExpired(events: NostrRumor[]): NostrRumor[] {
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   return events.filter((ev) => !isExpired(ev.tags, now));
 }
 
@@ -1114,7 +1115,7 @@ export function writeRumors(
   // or a channel key-holder could inject a kind-3308 that {@link queryPlane} serves
   // as a control edition. A denylist, so new chat kinds aren't silently dropped.
   // Already-expired rumors are refused at ingest (CORD-08 §3).
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   const chat = withoutBannedChat(opened.filter((o) => !PLANE_KINDS.has(o.kind) && !isExpired(o.tags, now)));
   if (chat.length === 0) return Promise.resolve(true);
   const channels = new Set(chat.map((o) => o.channelIdHex).filter(Boolean));
@@ -1207,7 +1208,7 @@ export async function sweepExpiredCommunityRumors(
   lastSweepAt.set(communityIdHex, Date.now());
 
   const s = rumorStore(communityIdHex);
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   // WebXDC state rides outside CHAT_KINDS but expires with the plane.
   const kinds = [...CHAT_KINDS, KIND_WEBXDC];
   let until: number | undefined;

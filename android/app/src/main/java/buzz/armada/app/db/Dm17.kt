@@ -242,4 +242,36 @@ internal object Dm17 {
         if (isExpired(rumor.tags, now)) return false
         return peersOf(rumor, self) != null
     }
+
+    /**
+     * KV prefix of the arrival facts, `dm17at:<self>:<rumorId>` — the port of
+     * `DM_ARRIVAL_PREFIX`. A message that arrived live is ordered, counted unread
+     * and notified by when it arrived, where its sender's clock put it more than
+     * [ARRIVAL_SKEW_SECS] away; the WebView reads the fact this service writes.
+     */
+    const val ARRIVAL_PREFIX = "dm17at:"
+
+    /** A gap within this is latency, not a clock. The port of `ARRIVAL_SKEW_SECS`. */
+    const val ARRIVAL_SKEW_SECS = 2L
+
+    /** Whether a message that arrived at [at] keeps that as its time. The port of `arrivalCounts`. */
+    fun arrivalCounts(kind: Int, createdAt: Long, at: Long): Boolean =
+        kind in MESSAGE_KINDS && kotlin.math.abs(at - createdAt) > ARRIVAL_SKEW_SECS
+
+    fun arrivalKey(self: String, rumorId: String): String = "$ARRIVAL_PREFIX$self:$rumorId"
+
+    /**
+     * The fact recorded for [rumor] arriving at [at], or null where none is:
+     * `{ at, sent, conv, in }`, the shape `Dm17Arrival` reads.
+     */
+    fun arrivalFact(self: String, rumor: Rumor, at: Long): String? {
+        if (!arrivalCounts(rumor.kind, rumor.createdAt, at)) return null
+        val peers = peersOf(rumor, self) ?: return null
+        return org.json.JSONObject()
+            .put("at", at)
+            .put("sent", rumor.createdAt)
+            .put("conv", convKey(peers))
+            .put("in", rumor.pubkey != self)
+            .toString()
+    }
 }

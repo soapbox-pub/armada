@@ -184,7 +184,7 @@ import { useCarryMyNickname, useGuestbook, useHealBanDepartures, useMemberStandi
 import { useModeration, useReadCutRetry } from "@/concord/hooks/useModeration";
 import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefoundResume, useRekeyWatch, type RefoundProgress } from "@/concord/hooks/useRekey";
 import { useCanPost } from "@/concord/hooks/useWriterAccess";
-import { clockNowMs } from "@/lib/relayClock";
+import { clockNowMs, nowSecs } from "@/lib/relayClock";
 import { CommunityNicknamesContext } from "@/contexts/CommunityNicknamesContext";
 import { useInviteActions } from "@/concord/hooks/useInvites";
 import { channelsHingingOn, isEntitled } from "@/concord/lib/channelAccess";
@@ -3713,7 +3713,7 @@ function ConcordCommunityPage() {
                                   setPaused.mutate(
                                     d.secs === undefined
                                       ? {}
-                                      : { untilSecs: Math.floor(Date.now() / 1000) + d.secs },
+                                      : { untilSecs: nowSecs() + d.secs },
                                   )
                                 }
                               >

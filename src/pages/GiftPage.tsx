@@ -47,6 +47,7 @@ import { parseGiftSegment } from "@/lib/ultraGift";
 import { cn } from "@/lib/utils";
 
 import type { NostrMetadata } from "@nostrify/nostrify";
+import { nowSecs } from "@/lib/relayClock";
 
 /** How long the box rattles before the lid comes off. */
 const SHAKE_MS = 550;
@@ -157,7 +158,7 @@ function GiftBody({ gifter }: { gifter: string }) {
       const work = (async () => {
         let picture: UltraPicture | undefined;
         if (photo) picture = await upload(photo.file);
-        await publish({ since: Math.floor(Date.now() / 1000), ...look }, { picture });
+        await publish({ since: nowSecs(), ...look }, { picture });
       })();
       await Promise.all([work, new Promise((resolve) => setTimeout(resolve, CLAIM_MS))]);
     } catch (error) {

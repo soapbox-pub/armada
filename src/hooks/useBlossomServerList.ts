@@ -15,6 +15,7 @@ import { queryExplicitRelays, queryExplicitRelaysWithStatus } from "@/lib/nip65"
 
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /** BUD-03 Blossom server list kind: `server` tags in a replaceable event. */
 export const KIND_BLOSSOM_SERVERS = 10063;
@@ -114,8 +115,8 @@ export function useBlossomServerList() {
         ...urls.map((url) => ["server", url]),
       ];
       const createdAt = prev
-        ? Math.max(Math.floor(Date.now() / 1000), prev.created_at + 1)
-        : Math.floor(Date.now() / 1000);
+        ? Math.max(nowSecs(), prev.created_at + 1)
+        : nowSecs();
 
       await publishEvent({
         kind: KIND_BLOSSOM_SERVERS,

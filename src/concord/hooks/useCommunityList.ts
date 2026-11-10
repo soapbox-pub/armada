@@ -57,6 +57,7 @@ import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import type { NUser } from "@nostrify/react/login";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * The user's Concord Community List — kind-33302 fragment events, NIP-44
@@ -555,7 +556,7 @@ async function publishFragments(
   }
   const publishNostr: PublishingNostr = nostr;
   const frags = fragment(list);
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   const unchanged = (index: number, frag: FragList): boolean => {
     const old = readFrags.get(index);
     return old !== undefined && serializeFragList(old) === serializeFragList(frag);
@@ -694,7 +695,7 @@ export async function signCommunityListSnapshot(
     ...frags.map((_, index) => index),
     ...(previous ? previous.createdAt.keys() : []),
   ]);
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   const events: NostrEvent[] = [];
   for (const index of [...indices].sort((a, b) => b - a)) {
     const frag = frags[index] ?? emptyFragList(frags.length);
@@ -948,7 +949,7 @@ export async function syncCommunityList(
     && queryClient.isMutating({ mutationKey: LIST_MUTATION_KEY }) === 0) {
     try {
       const rebuilt = fragment(merged);
-      const nowSec = Math.floor(Date.now() / 1000);
+      const nowSec = nowSecs();
       const newestEdition = Math.max(0, ...set.createdAt.values());
       const lastPublish = reconcilePublishes.get(user.pubkey)?.at ?? 0;
       const stale = relayWireDiffers(rebuilt, read.readFragsByRelay, read.answered);

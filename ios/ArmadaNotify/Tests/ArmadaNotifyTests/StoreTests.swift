@@ -69,6 +69,23 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(stored[0]["content"] as? String, "hi")
     }
 
+    func testRecordsTheArrivalOfAMessageFromAnOffClock() throws {
+        // The key and fact `readDm17Arrivals` reads (dm17Store.ts).
+        try store.writeDm(dm(), self: self_, now: now, arrivedAt: now + 120)
+        let key = "dm17at:\(self_):\(String(repeating: "1", count: 64))"
+        let raw = try XCTUnwrap(store.kvGet(key))
+        let fact = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+        XCTAssertEqual(fact["at"] as? Int, now + 120)
+        XCTAssertEqual(fact["sent"] as? Int, now)
+        XCTAssertEqual(fact["conv"] as? String, peer)
+        XCTAssertEqual(fact["in"] as? Bool, true)
+    }
+
+    func testRecordsNoArrivalWithinTheSkew() throws {
+        try store.writeDm(dm(), self: self_, now: now, arrivedAt: now + 2)
+        XCTAssertNil(store.kvGet("dm17at:\(self_):\(String(repeating: "1", count: 64))"))
+    }
+
     func testStoresTheRumorAndNothingBesideIt() throws {
         // Its tags are the bytes its id commits to, so a provenance tag written
         // in here would make the row something the sender never signed — and

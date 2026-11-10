@@ -21,6 +21,7 @@ import {
 
 import type { NostrEvent } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 export interface SearchRelayListQuery extends SearchRelayList {
   event: NostrRumor | null;
@@ -137,8 +138,8 @@ throw new Error(t({ id: "useSearchRelayList.unconfirmed", defaultMessage: "Could
         ? await user.signer.nip44!.encrypt(user.pubkey, JSON.stringify(privateTags))
         : "";
       const createdAt = prev
-        ? Math.max(Math.floor(Date.now() / 1000), prev.created_at + 1)
-        : Math.floor(Date.now() / 1000);
+        ? Math.max(nowSecs(), prev.created_at + 1)
+        : nowSecs();
 
       let signed: NostrEvent | null = null;
       await publishEvent({

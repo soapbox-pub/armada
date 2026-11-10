@@ -15,6 +15,7 @@ import { KIND_GROUP_CHAT } from "@/lib/nip29";
 import { dmRouteParam } from "@/lib/dmConversation";
 import { searchDm17Rumors } from "@/lib/nip17/dm17Store";
 import { dmConvKey, dmConvPeers } from "@/lib/nip17/conversation";
+import { dmAt } from "@/lib/nip17/protocol";
 import { relayToRouteParam, routeParamToRelay } from "@/lib/platform";
 import { chatRoute, parseChatRoute } from "@/lib/routes";
 
@@ -273,15 +274,15 @@ export function buildDmSwitcherEntries(
       byKey.set(row.key, {
         key: row.key,
         peers: row.peers.slice(),
-        createdAt: row.latest.createdAt,
+        createdAt: dmAt(row.latest),
         mine: row.mine,
       });
       continue;
     }
     current.mine ||= row.mine;
     // Legacy wins a timestamp tie, matching the DMs page's merge.
-    if (row.latest.createdAt > current.createdAt) {
-      current.createdAt = row.latest.createdAt;
+    if (dmAt(row.latest) > current.createdAt) {
+      current.createdAt = dmAt(row.latest);
       current.peers = row.peers.slice();
     }
   }

@@ -8,7 +8,8 @@ import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useEncryptedSettings } from "@/hooks/useEncryptedSettings";
 import { useSettingsDoc } from "@/hooks/useSettingsDoc";
-import { planReadStatePublish } from "@/lib/readStateSync";
+import { capReadStamp, capReadStamps, planReadStatePublish } from "@/lib/readStateSync";
+import { nowSecs } from "@/lib/relayClock";
 
 const EMPTY: ReadStateMap = {};
 
@@ -21,7 +22,7 @@ function loadLocal(pubkey: string): ReadStateMap {
     const raw = localStorage.getItem(storageKey(pubkey));
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? (parsed as ReadStateMap) : {};
+    return parsed && typeof parsed === "object" ? capReadStamps(parsed as ReadStateMap, nowSecs()) : {};
   } catch {
     return {};
   }
@@ -35,7 +36,7 @@ function saveLocal(pubkey: string, map: ReadStateMap): void {
 
 function mergeReadState(a: ReadStateMap, b: ReadStateMap): ReadStateMap {
   const out: ReadStateMap = { ...a };
-  for (const [key, ts] of Object.entries(b)) {
+  for (const [key, ts] of Object.entries(capReadStamps(b, nowSecs()))) {
     if (!out[key] || ts > out[key]) out[key] = ts;
   }
   return out;
@@ -150,8 +151,9 @@ export function ReadStateProvider({ children }: { children: React.ReactNode }) {
   );
 
   const markRead = useCallback(
-    (key: string, timestamp: number) => {
+    (key: string, stamp: number) => {
       if (!pubkey) return;
+      const timestamp = capReadStamp(stamp, nowSecs());
       setReadState((prev) => {
         if ((prev[key] ?? 0) >= timestamp) return prev;
         const next = { ...prev, [key]: timestamp };

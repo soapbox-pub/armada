@@ -1,3 +1,4 @@
+import { nowSecs } from "@/lib/relayClock";
 /**
  * Last-known-good DM conversation list in its FINAL rendered form. The list
  * depends on four slow async sources, and partial views produce a wrong order
@@ -82,7 +83,7 @@ export function readDmListSnapshot(self: string | undefined): DmListSnapshotRow[
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return undefined;
     // Expired previews drop their text/emoji; the row stays so it doesn't blink.
-    const now = Math.floor(Date.now() / 1000);
+    const now = nowSecs();
     const rows = parsed
       .filter(isRow)
       .map((row) =>

@@ -30,6 +30,7 @@ import {
   dmPeersOf,
 } from "@/lib/nip17/conversation";
 import {
+  dmAt,
   DM_RUMOR_KINDS,
   DM_THREAD_KINDS,
   isExpired,
@@ -41,6 +42,7 @@ import {
   type OpenedDm,
 } from "@/lib/nip17/protocol";
 import { dmThreadScope, emitWireScopes, onWireScopes } from "@/wire/bus";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * The opened-DM store for one account, bound to its conversation term policy
@@ -123,12 +125,13 @@ export async function writeDm17Rumors(self: string, opened: OpenedDm[]): Promise
   const pending = holdPendingDms(self, fresh);
   const s = dm17Store(self);
   try {
-    await Promise.all(
-      fresh.map((o) =>
+    await Promise.all([
+      ...fresh.map((o) =>
         s.event(dm17ToStored(o)).catch(() => {
         }),
       ),
-    );
+      noteArrivals(self, fresh).catch(() => undefined),
+    ]);
   } finally {
     retireConversationReads();
     // Held until a list read begun after this commit lands; that read holds them, or they failed.
@@ -153,17 +156,27 @@ export async function queryDm17Thread(
   opts: { limit: number; before?: number; signal?: AbortSignal },
 ): Promise<OpenedDm[]> {
   const key = dmConvKey(peers);
-  const events = await dm17Store(self).query(
+  const store = dm17Store(self);
+  const events = await store.query(
     conversationFilters(self, peers, { limit: opts.limit, before: opts.before }),
     { signal: opts.signal },
   );
-  return events
+  // A full newest window can miss a message that arrived inside it dated below it (a slow clock).
+  if (opts.before === undefined && events.length >= opts.limit) {
+    const floor = Math.min(...events.map((ev) => ev.created_at));
+    const held = new Set(events.map((ev) => ev.id));
+    const late = [...(await readDm17Arrivals(self))]
+      .filter(([id, fact]) => fact.conv === key && fact.at >= floor && fact.sent < floor && !held.has(id))
+      .map(([id]) => id);
+    if (late.length > 0) events.push(...await store.query([{ ids: late, kinds: DM_THREAD_KINDS }], { signal: opts.signal }));
+  }
+  return withDm17Arrivals(self, events
     .filter((ev) => !isExpired(ev.tags) && dmConvKeyOf(ev, self) === key)
-    .map((ev) => storedToDm17(ev, self));
+    .map((ev) => storedToDm17(ev, self)));
 }
 
 /**
- * Count incoming chat/file rumors after the read stamp (`created_at > lastRead`).
+ * Count incoming chat/file rumors after the read stamp (`dmAt > lastRead`).
  * Note to Self never has unread.
  */
 export async function countUnreadDm17Messages(
@@ -180,8 +193,16 @@ export async function countUnreadDm17Messages(
     authors: incomingAuthors,
     since: Math.max(0, Math.floor(lastRead) + 1),
   }));
-  const { count } = await dm17Store(self).count(filters, opts);
-  return count;
+  const store = dm17Store(self);
+  const { count } = await store.count(filters, opts);
+  // The index counts by `created_at`; a recorded arrival on the other side of the stamp moves it.
+  const key = dmConvKey(peers);
+  const moved = [...(await readDm17Arrivals(self))].filter(([, f]) => f.in && f.conv === key && (f.sent > lastRead) !== (f.at > lastRead));
+  if (moved.length === 0) return count;
+  const stored = new Set((await store.query([{ ids: moved.map(([id]) => id), kinds: [...DM_MESSAGE_KINDS] }], opts)).map((ev) => ev.id));
+  let adjusted = count;
+  for (const [id, f] of moved) if (stored.has(id)) adjusted += f.at > lastRead ? 1 : -1;
+  return Math.max(0, adjusted);
 }
 
 /**
@@ -201,7 +222,8 @@ export async function queryDm17Rumor(
   const event = events.find((ev) => ev.id === rumorId);
   if (!event || isExpired(event.tags)) return undefined;
   const opened = storedToDm17(event, self);
-  return dmConvKey(opened.peers) === dmConvKey(peers) ? opened : undefined;
+  if (dmConvKey(opened.peers) !== dmConvKey(peers)) return undefined;
+  return (await withDm17Arrivals(self, [opened]))[0];
 }
 
 /**
@@ -225,7 +247,7 @@ export async function queryDm17Messages(
     .filter((opened) => dmConvKey(opened.peers) === key);
   if (rows.length === 0) return [];
   const deleted = await authorDeleted(store, rows, opts.signal);
-  return rows.filter((r) => !deleted.has(r.rumorId));
+  return withDm17Arrivals(self, rows.filter((r) => !deleted.has(r.rumorId)));
 }
 
 /**
@@ -416,6 +438,8 @@ export function onFreshDm17(self: string, listener: (fresh: OpenedDm[]) => void)
 export function clearPendingDm17(): void {
   pendingDms.clear();
   conversationReads.clear();
+  forgetDm17Arrivals();
+  liveWrapArrivals.clear();
 }
 
 function holdPendingDms(self: string, fresh: OpenedDm[]): PendingDm[] {
@@ -461,7 +485,7 @@ export function mergeFreshDm17(rows: Dm17ConversationRow[], fresh: readonly Open
     const key = dmConvKey(o.peers);
     const cur = byKey.get(key);
     const mineAt = o.author === self ? Math.max(o.createdAt, cur?.mineAt ?? 0) : cur?.mineAt;
-    const newer = !cur || o.createdAt > cur.latest.createdAt;
+    const newer = !cur || dmAt(o) > dmAt(cur.latest);
     if (!newer && mineAt === cur.mineAt) continue;
     byKey.set(key, {
       key,
@@ -472,7 +496,7 @@ export function mergeFreshDm17(rows: Dm17ConversationRow[], fresh: readonly Open
     });
   }
   if (!byKey || byKey.size === rows.length && [...byKey.values()].every((r, i) => r === rows[i])) return rows;
-  return [...byKey.values()].sort((a, b) => b.latest.createdAt - a.latest.createdAt);
+  return [...byKey.values()].sort((a, b) => dmAt(b.latest) - dmAt(a.latest));
 }
 
 // Writes from another context (the service worker, another tab) arrive as a `dm` ring.
@@ -564,6 +588,29 @@ async function readDm17Conversations(
     for (const ev of retry) fold(ev);
   }
 
+  // The collapse picks each head by `created_at`; one that arrived later than that, dated
+  // below it by a slow clock, is the newest message all the same.
+  const known = await readDm17Arrivals(self);
+  if (known.size > 0) {
+    for (const [key, latest] of byConversation) byConversation.set(key, withArrival(latest, known.get(latest.rumorId)?.at));
+    const later = [...known].filter(([id, f]) => {
+      const head = byConversation.get(f.conv);
+      return head !== undefined && head.rumorId !== id && f.at > dmAt(head);
+    });
+    if (later.length > 0) {
+      const rows = (await store.query([{ ids: later.map(([id]) => id), kinds: [KIND_DM_CHAT, KIND_DM_FILE] }], { signal: opts.signal }))
+        .filter((ev) => !isExpired(ev.tags))
+        .map((ev) => withArrival(storedToDm17(ev, self), known.get(ev.id)?.at));
+      const deleted = await authorDeleted(store, rows, opts.signal);
+      for (const row of rows) {
+        if (deleted.has(row.rumorId) || row.peers.length === 0) continue;
+        const key = dmConvKey(row.peers);
+        const head = byConversation.get(key);
+        if (head && dmAt(row) > dmAt(head)) byConversation.set(key, row);
+      }
+    }
+  }
+
   return [...byConversation.entries()]
     .map(([key, latest]) => ({
       key,
@@ -572,7 +619,7 @@ async function readDm17Conversations(
       mine: mine.has(key),
       mineAt: mine.get(key),
     }))
-    .sort((a, b) => b.latest.createdAt - a.latest.createdAt);
+    .sort((a, b) => dmAt(b.latest) - dmAt(a.latest));
 }
 
 /**
@@ -633,7 +680,7 @@ export async function sweepExpiredDm17Rumors(
   opts: { signal?: AbortSignal } = {},
 ): Promise<number> {
   const s = dm17Store(self);
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   let until: number | undefined;
   let removed = 0;
   const conversations = new Set<string>();
@@ -837,10 +884,13 @@ function rememberLiveWrap(id: string): void {
   liveWrapSeen.add(id);
 }
 
-/** Stash live DM wraps; returns only those not seen this session (gate doorbell/notifications on these). */
-export function bufferLiveDmWraps(wraps: NostrEvent[]): NostrEvent[] {
+/**
+ * Stash live DM wraps; returns only those not seen this session (gate doorbell/notifications
+ * on these). `live` (delivered as it was published, not replayed) also notes when each arrived.
+ */
+export function bufferLiveDmWraps(wraps: NostrEvent[], opts?: { live?: boolean }): NostrEvent[] {
   const fresh: NostrEvent[] = [];
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   for (const w of wraps) {
     // Drop expired wraps on arrival so they can't notify for a message that no longer exists.
     if (isExpired(w.tags, now)) continue;
@@ -848,6 +898,7 @@ export function bufferLiveDmWraps(wraps: NostrEvent[]): NostrEvent[] {
     if (liveWraps.size >= LIVE_WRAP_CAP) continue;
     rememberLiveWrap(w.id);
     liveWraps.set(w.id, w);
+    if (opts?.live) noteLiveWrapArrival(w.id, now);
     fresh.push(w);
   }
   return fresh;
@@ -877,4 +928,115 @@ export function drainLiveDmWraps(): NostrEvent[] {
 export function resetLiveDmWraps(): void {
   liveWraps.clear();
   liveWrapSeen.clear();
+  liveWrapArrivals.clear();
+}
+
+// Arrival times. A rumor is dated by its sender's clock, and a clock minutes slow
+// files a reply above the message it answers and under the reader's read stamp, so
+// it is never counted unread or notified. A message that arrived LIVE is therefore
+// ordered, counted and notified by when it arrived here, where that differs from its
+// own date by more than ARRIVAL_SKEW_SECS. That is a fact about this device, not the
+// rumor, so it is kept beside it: one KV key per rumor, written by every writer of
+// this tenant (the Android service, the iOS extension and the service worker too).
+
+/** KV prefix of the arrival facts; `dm17at:<self>:<rumorId>`. */
+export const DM_ARRIVAL_PREFIX = "dm17at:";
+/** A gap within this is latency, not a clock: such a message keeps its own date. */
+export const ARRIVAL_SKEW_SECS = 2;
+
+/** One arrival fact. `sent` and `conv` let the unread count and the list use it without reading the rumor. */
+export interface Dm17Arrival {
+  /** Unix seconds by this device's (corrected) clock. */
+  at: number;
+  /** The rumor's own `created_at`. */
+  sent: number;
+  /** Its conversation key (`dmConvKey`). */
+  conv: string;
+  /** Written by someone other than the viewer. */
+  in: boolean;
+}
+
+const arrivalKey = (self: string, rumorId: string) => `${DM_ARRIVAL_PREFIX}${self}:${rumorId}`;
+
+/** Whether a message that arrived at `at` keeps that as its time. */
+export function arrivalCounts(kind: number, createdAt: number, at: number): boolean {
+  return DM_MESSAGE_KINDS.includes(kind) && Math.abs(at - createdAt) > ARRIVAL_SKEW_SECS;
+}
+
+/** `opened`, stamped with when it arrived where that counts (see {@link arrivalCounts}). */
+export function withArrival(opened: OpenedDm, at: number | undefined): OpenedDm {
+  if (at === undefined || opened.arrivedAt !== undefined || !arrivalCounts(opened.kind, opened.createdAt, at)) return opened;
+  return { ...opened, arrivedAt: at };
+}
+
+/** When each live wrap arrived, until it is opened. Session-only, bounded like the buffer. */
+const liveWrapArrivals = new Map<string, number>();
+
+function noteLiveWrapArrival(wrapId: string, at: number): void {
+  if (liveWrapArrivals.size >= LIVE_SEEN_CAP) liveWrapArrivals.delete(liveWrapArrivals.keys().next().value!);
+  liveWrapArrivals.set(wrapId, at);
+}
+
+/** When a live wrap arrived, once: the caller is opening it. */
+export function takeLiveWrapArrival(wrapId: string): number | undefined {
+  const at = liveWrapArrivals.get(wrapId);
+  liveWrapArrivals.delete(wrapId);
+  return at;
+}
+
+/** Per account, every recorded arrival by rumor id: read from KV once, then kept current by every write. */
+const arrivals = new Map<string, Promise<Map<string, Dm17Arrival>>>();
+
+/** The arrivals recorded for `self`'s messages. */
+export function readDm17Arrivals(self: string): Promise<Map<string, Dm17Arrival>> {
+  let loaded = arrivals.get(self);
+  if (!loaded) {
+    const prefix = `${DM_ARRIVAL_PREFIX}${self}:`;
+    const load = getArmadaDB().kv.list<Dm17Arrival>({ prefix }).then((entries) => {
+      const map = new Map<string, Dm17Arrival>();
+      for (const { key, value } of entries) {
+        if (value && typeof value.at === "number" && typeof value.sent === "number" && typeof value.conv === "string") {
+          map.set(key.slice(prefix.length), value);
+        }
+      }
+      return map;
+    });
+    // A failed read is retried by the next caller rather than remembered as empty.
+    load.catch(() => {
+      if (arrivals.get(self) === load) arrivals.delete(self);
+    });
+    arrivals.set(self, load);
+    loaded = load;
+  }
+  return loaded.catch(() => new Map());
+}
+
+/** Drop the memo, for a writer elsewhere (the Android service while the WebView slept) and logout. */
+export function forgetDm17Arrivals(): void {
+  arrivals.clear();
+}
+
+async function noteArrivals(self: string, opened: readonly OpenedDm[]): Promise<void> {
+  const arrived = opened.filter((o) => o.arrivedAt !== undefined && o.peers.length > 0);
+  if (arrived.length === 0) return;
+  const known = await readDm17Arrivals(self);
+  const fresh = arrived.filter((o) => !known.has(o.rumorId));
+  if (fresh.length === 0) return;
+  const kv = getArmadaDB().kv;
+  await Promise.all(fresh.map((o) => {
+    const fact: Dm17Arrival = { at: o.arrivedAt!, sent: o.createdAt, conv: dmConvKey(o.peers), in: o.author !== self };
+    known.set(o.rumorId, fact);
+    return kv.set(arrivalKey(self, o.rumorId), fact).catch(() => undefined);
+  }));
+}
+
+/** `rows` with the arrivals recorded for them. */
+export async function withDm17Arrivals(self: string, rows: OpenedDm[]): Promise<OpenedDm[]> {
+  if (rows.length === 0) return rows;
+  const known = await readDm17Arrivals(self);
+  if (known.size === 0) return rows;
+  return rows.map((row) => {
+    const fact = known.get(row.rumorId);
+    return fact && row.arrivedAt === undefined ? { ...row, arrivedAt: fact.at } : row;
+  });
 }

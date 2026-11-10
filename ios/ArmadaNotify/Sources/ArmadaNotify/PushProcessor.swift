@@ -300,7 +300,8 @@ struct PushProcessor {
         }
 
         // Persist first: a DM exists nowhere else once it is read off the relay.
-        try? store?.writeDm(opened, self: config.selfPubkey, now: now)
+        // A push is delivered as the message is published, so `now` is its arrival.
+        try? store?.writeDm(opened, self: config.selfPubkey, now: now, arrivedAt: now)
 
         // Our own sent copy is addressed to us too, and is not news.
         if opened.author == config.selfPubkey { return dropped }

@@ -23,6 +23,7 @@ import { validateBundle, type InviteBundle } from "@/concord/lib/invite";
 import { KIND_DIRECT_INVITE, KIND_WRAP } from "@/concord/lib/kinds";
 import { t } from "@/i18n/intl";
 import { finalizePowEvent } from "@/lib/pow";
+import { nowSecs } from "@/lib/relayClock";
 
 /** The standard NIP-59 seal kind (classic giftwrap — not a CORD-01 seal). */
 export const KIND_NIP59_SEAL = 13;
@@ -31,7 +32,7 @@ export const KIND_NIP59_SEAL = 13;
 const MAX_BACKDATE_SECS = 2 * 24 * 60 * 60;
 
 function tweakedPast(): number {
-  return Math.floor(Date.now() / 1000) - Math.floor(Math.random() * MAX_BACKDATE_SECS);
+  return nowSecs() - Math.floor(Math.random() * MAX_BACKDATE_SECS);
 }
 
 /** The signer surface a Direct Invite send needs (every Concord-capable login). */
@@ -58,7 +59,7 @@ export function buildDirectInviteRumor(bundle: InviteBundle, inviterPubkey: stri
     kind: KIND_DIRECT_INVITE,
     content: JSON.stringify(bundle),
     tags: [],
-    created_at: Math.floor(Date.now() / 1000),
+    created_at: nowSecs(),
     pubkey: inviterPubkey,
   };
 }

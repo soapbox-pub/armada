@@ -130,7 +130,7 @@ import { tryNpubEncode } from "@/lib/safeNip19";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { useProfilesPending } from "@/lib/profileLoading";
 import { DISAPPEARING_PRESETS, disappearingNotice, formatDisappearingDuration } from "@/lib/nip17/disappearing";
-import { expirationOf, KIND_DM_CHAT, KIND_DM_FILE } from "@/lib/nip17/protocol";
+import { dmAt, expirationOf, KIND_DM_CHAT, KIND_DM_FILE } from "@/lib/nip17/protocol";
 import { dmConvKey, dmConvPeers } from "@/lib/nip17/conversation";
 import { pickEmojiTags, readDmListSnapshot, writeDmListSnapshot } from "@/lib/dmListSnapshot";
 import { resolvePubkey } from "@/lib/resolvePubkey";
@@ -685,7 +685,7 @@ const Conversation = memo(function Conversation({
       ? route.messageId
       : undefined;
   }, [location.pathname, conversation]);
-  const { transport, entries, syncing, disappearingTimer, resolveDisappearingTimer, setDisappearingTimer, encryptedIds, dm17Ids, dm17Enabled, legacyPinned, decryptVisible, decryptOne, decryptAll, decryptDeclined, hasEncrypted, send } =
+  const { transport, entries, latestAt, syncing, disappearingTimer, resolveDisappearingTimer, setDisappearingTimer, encryptedIds, dm17Ids, dm17Enabled, legacyPinned, decryptVisible, decryptOne, decryptAll, decryptDeclined, hasEncrypted, send } =
     useDmTransport(conversation, peers, focusedRumorId);
   const { messages } = transport;
 
@@ -909,7 +909,7 @@ const Conversation = memo(function Conversation({
 
   useEffect(() => {
     if (messages.length === 0 || covered) return;
-    const latest = messages[messages.length - 1]?.created_at ?? 0;
+    const latest = latestAt;
     if (latest <= 0) return;
     const stamp = () => {
       if (document.visibilityState === "visible") markRead(dmReadKey(conversation), latest);
@@ -917,7 +917,7 @@ const Conversation = memo(function Conversation({
     stamp();
     document.addEventListener("visibilitychange", stamp);
     return () => document.removeEventListener("visibilitychange", stamp);
-  }, [messages, conversation, markRead, covered]);
+  }, [messages, latestAt, conversation, markRead, covered]);
 
   const handleSubmit = useCallback(
     async (text: string, tags: string[][]) => {
@@ -2032,7 +2032,8 @@ function dm17LatestRumor(latest: Dm17Conversation["latest"]): NostrRumor {
     rumor = {
       id: latest.rumorId,
       pubkey: latest.author,
-      created_at: latest.createdAt,
+      // Its arrival where recorded, so the list orders and counts it as the thread does.
+      created_at: dmAt(latest),
       kind: latest.kind,
       content: latest.content,
       tags: latest.tags,
@@ -2674,7 +2675,7 @@ export function DMsPage() {
       const existing = byConversation.get(c.key);
       // Participation is sticky across planes.
       const mine = (existing?.mine ?? false) || c.mine;
-      if (existing?.latest && existing.latest.created_at >= c.latest.createdAt) {
+      if (existing?.latest && existing.latest.created_at >= dmAt(c.latest)) {
         existing.mine = mine;
         continue;
       }
@@ -2955,7 +2956,7 @@ export function DMsPage() {
     }
     for (const c of dm17Conversations) {
       if (c.latest.author !== user.pubkey && c.peers.every((peer) => isKnown(peer, c.mine))) {
-        markRead(dmReadKey(c.key), c.latest.createdAt);
+        markRead(dmReadKey(c.key), dmAt(c.latest));
       }
     }
   }, [user, conversations, dm17Conversations, isKnown, markRead]);

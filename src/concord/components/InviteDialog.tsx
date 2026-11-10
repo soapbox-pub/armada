@@ -23,6 +23,7 @@ import { canShare, share } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
 import type { Community } from "@/concord/lib/types";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * Invite people (CORD-05): a direct gift-wrapped key handoff (community stays
@@ -152,7 +153,7 @@ function InviteBody({ community, canCreateLink }: { community: Community | undef
 
   /** Newest joinable link, reused so each tap doesn't mint another door to revoke. */
   const liveLink = (() => {
-    const now = Math.floor(Date.now() / 1000);
+    const now = nowSecs();
     return (
       [...myLinks]
         .filter((e) => !e.expires_at || e.expires_at > now)

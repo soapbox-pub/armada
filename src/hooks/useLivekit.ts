@@ -9,6 +9,7 @@ import { relayToHttpUrl } from "@/lib/platform";
 import type { NostrEvent } from "@nostrify/nostrify";
 import type { NostrSigner } from "@nostrify/types";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /** NIP-98 HTTP Auth event kind. */
 const KIND_HTTP_AUTH = 27235;
@@ -61,7 +62,7 @@ async function fetchLivekitToken(
       ["u", endpointUrl],
       ["method", "GET"],
     ],
-    created_at: Math.floor(Date.now() / 1000),
+    created_at: nowSecs(),
   });
 
   const res = await fetch(endpointUrl, {
@@ -137,7 +138,7 @@ export function useLivekitParticipants(relayUrl: string | undefined, groupId: st
     (async () => {
       try {
         for await (const msg of nostr.relay(relayUrl).req(
-          [{ kinds: [KIND_GROUP_PARTICIPANTS], "#d": [groupId], since: Math.floor(Date.now() / 1000) }],
+          [{ kinds: [KIND_GROUP_PARTICIPANTS], "#d": [groupId], since: nowSecs() }],
           { signal: controller.signal },
         )) {
           if (msg[0] === "EVENT") {

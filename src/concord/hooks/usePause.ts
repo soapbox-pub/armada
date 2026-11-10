@@ -11,6 +11,7 @@ import { isAuthorized, Permissions } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 import { toast } from "@/hooks/useToast";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /** `setTimeout`'s ceiling — anything larger fires immediately, so long waits re-arm. */
 const MAX_TIMEOUT_MS = 2_147_483_647;
@@ -54,7 +55,7 @@ export const PAUSE_DURATIONS: ReadonlyArray<{ label: string; secs?: number }> = 
 export function useActivePause(community: Community | undefined): ActivePause | undefined {
   const { data: folded } = useControlFold(community);
   const [tick, setTick] = useState(0);
-  const pause = activePause(folded, Math.floor(Date.now() / 1000));
+  const pause = activePause(folded, nowSecs());
   const until = pause?.until;
 
   useEffect(() => {

@@ -15,6 +15,7 @@ import { Permissions, isAuthorized } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { KvPrefixCache } from "@/lib/db/kvCache";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * Watchdog lookback. Also bounds a false positive: authority is judged as of
@@ -135,7 +136,7 @@ export function useSuspiciousActivity(
     // But a short read (or no quorum) forbids NAMING anyone: we can't tell
     // "roleless" from "grant not yet read", and this alert is one click from a ban.
     const nameable = !short && controlSweepQuorum(community);
-    const since = Math.max(dismissed.at, Math.floor(Date.now() / 1000) - WINDOW_SECONDS);
+    const since = Math.max(dismissed.at, nowSecs() - WINDOW_SECONDS);
     return {
       flooded: short,
       actors: nameable
@@ -159,7 +160,7 @@ export function useSuspiciousActivity(
   }, [unreadable, flooded, dismissed, me, idHex]);
 
   const dismiss = useCallback(() => {
-    const next: Dismissal = { at: Math.floor(Date.now() / 1000), unreadable, flooded };
+    const next: Dismissal = { at: nowSecs(), unreadable, flooded };
     writeDismissal(me, idHex, next);
     setDismissed(next);
   }, [me, idHex, unreadable, flooded]);

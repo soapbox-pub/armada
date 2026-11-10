@@ -1,7 +1,7 @@
 import { App as CapacitorApp } from "@capacitor/app";
 import { restrictedPostersIn, sendDeniedIn } from "@/concord/lib/channelJudges";
 import { storedGuestbookExtras, type GuestbookExtras } from "@/concord/lib/guestbookExtras";
-import { accountClockRelays, CLOCK_RESYNC_MS, syncClockWithRelays } from "@/lib/relayClock";
+import { accountClockRelays, CLOCK_RESYNC_MS, nowSecs, syncClock } from "@/lib/relayClock";
 import { drainWrapScrubs, purgeDeletedChannel, queuedWrapScrubs } from "@/concord/lib/channelPurge";
 import { useAccountSecret } from "@/hooks/useAccountSecret";
 import { deleteBlobs } from "@/lib/blossomDelete";
@@ -47,6 +47,7 @@ import { KvPrefixCache } from "@/lib/db/kvCache";
 import { appEventStore } from "@/lib/db/mainEventStore";
 import { onFoldedWrite } from "@/lib/foldedCache";
 import { ArmadaNotification } from "@/lib/nativeNotifications";
+import { forgetDm17Arrivals } from "@/lib/nip17/dm17Store";
 import { NIP29_PAGE_SIZE } from "@/lib/nip29Sync";
 import { hasNativeNotificationService, normalizeRelayUrl } from "@/lib/platform";
 import { onRelayReopened } from "@/lib/relayReopen";
@@ -100,7 +101,7 @@ function readCursor(relay: string): number | undefined {
 function writeCursor(relay: string, createdAt: number): void {
   // Clamp to now: a future-stamped event would push `since > now` and make the
   // relay durably deaf.
-  const next = Math.min(createdAt, Math.floor(Date.now() / 1000));
+  const next = Math.min(createdAt, nowSecs());
   const prev = readCursor(relay) ?? 0;
   if (next > prev) cursors.set(relay, next);
 }
@@ -249,7 +250,7 @@ function useWireConcordChannels(): WireConcordChannel[] {
   const { config } = useAppContext();
   const relaySig = accountClockRelays(config.relayMetadata, config.dmRelays, user?.pubkey).join(" ");
   useEffect(() => {
-    const sample = () => void syncClockWithRelays(relaySig ? relaySig.split(" ") : []);
+    const sample = () => void syncClock(relaySig ? relaySig.split(" ") : []);
     const first = setTimeout(sample, 5_000);
     const timer = setInterval(sample, CLOCK_RESYNC_MS);
     return () => {
@@ -338,7 +339,7 @@ function useWireConcordChannels(): WireConcordChannel[] {
         const scope = concordScope(community.idHex);
         const wasDeferred = (deferredFlags.get(scope) ?? deferredFlags.get(community.idHex) ?? 0) > 0;
         const defer = () => {
-          if (!wasDeferred) deferredFlags.set(scope, Math.floor(Date.now() / 1000));
+          if (!wasDeferred) deferredFlags.set(scope, nowSecs());
         };
         const clearFlag = () => {
           deferredFlags.delete(scope);
@@ -349,7 +350,7 @@ function useWireConcordChannels(): WireConcordChannel[] {
         // lift the pause first); control stays subscribed so the lift lands.
         // `readLivePause` reads the CURRENT pause, not a possibly stale fold.
         // `defer()` makes the resume a catch-up.
-        if (await readLivePause(community, Math.floor(Date.now() / 1000))) {
+        if (await readLivePause(community, nowSecs())) {
           defer();
           continue;
         }
@@ -579,7 +580,7 @@ function useWireNip29Deferral(
             catchUpNip29Server(nostr, relay, ids);
           }
         } else if (await nip29ServerDotted(store, relay, ids, dotCtxRef.current)) {
-          if (!wasDeferred) deferredFlags.set(scope, Math.floor(Date.now() / 1000));
+          if (!wasDeferred) deferredFlags.set(scope, nowSecs());
           continue;
         } else if (wasDeferred) {
           // Dot cleared remotely: pin live for the session.
@@ -855,7 +856,7 @@ function WireSyncInner() {
         let replayDone = replayedRelays.has(relay) || readCursor(relay) !== undefined;
         while (!controller.signal.aborted) {
           const started = Date.now();
-          const now = Math.floor(Date.now() / 1000);
+          const now = nowSecs();
           const cursor = readCursor(relay);
           const floor = now - MAX_CURSOR_AGE_SECONDS;
           const since = Math.max(
@@ -945,7 +946,7 @@ function WireSyncInner() {
                   // Marked only at EOSE, so a torn-down replay retries.
                   for (const f of pending) bootstrappedRef.current.add(bootKey(f));
                   // Every EOSE advances this session's marks; KV only on a real step.
-                  const at = Math.floor(Date.now() / 1000);
+                  const at = nowSecs();
                   const session = recordLedger(ledgerNow(), ledgered, now, at, 0);
                   if (session) sessionLedgersRef.current.set(relay, session);
                   const durable = recordLedger(bootLedgers.get(relay), ledgered, now, at);
@@ -1099,6 +1100,8 @@ function WireSyncInner() {
       if (draining) return; // resume + mount can overlap; pages are sequential
       draining = true;
       try {
+        // The service recorded DM arrivals while this page slept.
+        forgetDm17Arrivals();
         while (!cancelled) {
           const { events, ids, relay } = await ArmadaNotification.drainEvents();
           if (events.length === 0) break;

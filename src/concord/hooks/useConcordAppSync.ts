@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useControlFold } from "@/concord/hooks/useControlPlane";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { clockNowMs } from "@/lib/relayClock";
 import { chatExpiresAt, messageExpirationOf } from "@/concord/lib/disappearing";
 import { KIND_SEAL_ENCRYPTED, KIND_WEBXDC } from "@/concord/lib/kinds";
 import {
@@ -153,7 +154,7 @@ export function useConcordAppSync(
   const publish = useCallback(
     async (content: string, extraTags: string[][]) => {
       if (!community || !channel || !user) return;
-      const ms = Date.now();
+      const ms = clockNowMs();
       const expiresAt = chatExpiresAt(KIND_WEBXDC, ms, timerSecs);
       const rumor = buildRumor({
         kind: KIND_WEBXDC,

@@ -15,6 +15,7 @@ import { nextQuickReactionTags, parseQuickReactions, type QuickReaction } from "
 import { KIND_QUICK_REACTIONS } from "@/lib/selfSyncKinds";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 export interface QuickReactionListQuery {
   event: NostrRumor | null;
@@ -104,7 +105,7 @@ export function usePublishQuickReactions() {
         throw new QuickReactionsChangedError();
       }
 
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowSecs();
       await publishEvent({
         kind: KIND_QUICK_REACTIONS,
         content: prev?.content ?? "",

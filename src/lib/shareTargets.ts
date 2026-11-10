@@ -8,6 +8,7 @@
 
 import { KvPrefixCache } from "@/lib/db/kvCache";
 import { chatRoute, parseChatRoute } from "@/lib/routes";
+import { nowSecs } from "@/lib/relayClock";
 
 /** One room the viewer has sent to. */
 export interface LastSentEntry {
@@ -51,7 +52,7 @@ export function recordSent(
   meta?: { label?: string; iconUrl?: string },
 ): void {
   if (!self || !route) return;
-  const entry: LastSentEntry = { sentAt: Math.floor(Date.now() / 1000) };
+  const entry: LastSentEntry = { sentAt: nowSecs() };
   if (meta?.label) entry.label = meta.label;
   if (meta?.iconUrl) entry.iconUrl = meta.iconUrl;
   cache.set(entryId(self, route), entry);

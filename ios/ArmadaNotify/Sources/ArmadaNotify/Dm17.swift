@@ -31,6 +31,38 @@ enum Dm17 {
     /// Rumors claiming to be further in the future than this are refused.
     private static let maxFutureSkewSecs = 3600
 
+    /// KV prefix of the arrival facts, `dm17at:<self>:<rumorId>` — the port of
+    /// `DM_ARRIVAL_PREFIX`. A message that arrived live is ordered, counted unread
+    /// and notified by when it arrived, where its sender's clock put it more than
+    /// `arrivalSkewSecs` away; the app reads the fact this extension writes.
+    static let arrivalPrefix = "dm17at:"
+
+    /// A gap within this is latency, not a clock. The port of `ARRIVAL_SKEW_SECS`.
+    static let arrivalSkewSecs = 2
+
+    /// Whether a message that arrived at `at` keeps that as its time. The port of `arrivalCounts`.
+    static func arrivalCounts(kind: Int, createdAt: Int, at: Int) -> Bool {
+        (kind == kindChat || kind == kindFile) && abs(at - createdAt) > arrivalSkewSecs
+    }
+
+    static func arrivalKey(self selfPubkey: String, rumorId: String) -> String {
+        "\(arrivalPrefix)\(selfPubkey):\(rumorId)"
+    }
+
+    /// The fact recorded for `opened` arriving at `at`, or nil where none is:
+    /// `{ at, sent, conv, in }`, the shape `Dm17Arrival` reads.
+    static func arrivalFact(_ opened: OpenedDm, self selfPubkey: String, at: Int) -> String? {
+        guard arrivalCounts(kind: opened.kind, createdAt: opened.createdAt, at: at), !opened.peers.isEmpty else { return nil }
+        let fact: [String: Any] = [
+            "at": at,
+            "sent": opened.createdAt,
+            "conv": opened.peers.joined(separator: ","),
+            "in": opened.author != selfPubkey,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: fact, options: [.sortedKeys]) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+
     /// Open a kind-1059 wrap addressed to `self`, or nil for anything the
     /// decryptor cannot open, that is malformed, or that has already expired.
     ///

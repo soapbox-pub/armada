@@ -1944,6 +1944,21 @@ function installIpc() {
       },
     }),
   );
+  // A relay's clock (CORD-03 §3): only its `Date` and `Age` go back, never the body.
+  handleFromMainWindow("armada:http-date", async (_event, url) => {
+    const href = typeof url === "string" ? url : "";
+    if (!href.startsWith("https://")) return null;
+    try {
+      const res = await session.defaultSession.fetch(href, {
+        headers: { Accept: "application/nostr+json", "Cache-Control": "no-cache" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      void res.body?.cancel().catch(() => {});
+      return { date: res.headers.get("date"), age: res.headers.get("age") };
+    } catch {
+      return null;
+    }
+  });
   // Chromium's HTTP cache, for Settings › Storage.
   handleFromMainWindow("armada:web-cache-size", () => session.defaultSession.getCacheSize());
   handleFromMainWindow("armada:clear-web-cache", () => session.defaultSession.clearCache());

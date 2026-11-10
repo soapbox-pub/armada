@@ -15,6 +15,7 @@ import { t } from "@/i18n";
 
 import type { NostrEvent } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { isPlausiblyLive, liveSignalSince } from "@/lib/liveSignal";
 
 /**
  * Edit via kind-40003 (content = FULL replacement, `e`-tagged at the original).
@@ -114,12 +115,13 @@ export function useBuzzTyping(
     void (async () => {
       try {
         for await (const msg of nostr.relay(relayUrl).req(
-          [{ kinds: [KIND_TYPING_INDICATOR], "#h": [channelId], since: Math.floor(Date.now() / 1000) }],
+          [{ kinds: [KIND_TYPING_INDICATOR], "#h": [channelId], since: liveSignalSince() }],
           { signal: controller.signal },
         )) {
           if (msg[0] !== "EVENT") continue;
           const ev = msg[2] as NostrEvent;
           if (user && ev.pubkey === user.pubkey) continue;
+          if (!isPlausiblyLive(ev.created_at * 1000)) continue;
           seen.current.set(ev.pubkey, Date.now());
           recompute();
         }

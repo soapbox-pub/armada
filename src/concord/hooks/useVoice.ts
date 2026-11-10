@@ -1,4 +1,5 @@
 import { useNostr } from "@nostrify/react";
+import { isPlausiblyLive } from "@/lib/liveSignal";
 import { clockNowMs } from "@/lib/relayClock";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -567,15 +568,15 @@ export function useVoiceReactions(
         checkChannelBinding(opened, channelIdHex, epoch);
         const entry = parseReaction(opened);
         if (!entry) return;
-        // Fire once per nonce; drop replays and anything already expired.
+        // Fire once per nonce; drop replays, and float it from arrival (a sender's clock may be off).
         if (seen.current.has(entry.nonce)) return;
-        if (Date.now() - entry.ms > REACTION_TTL_MS) return;
+        if (!isPlausiblyLive(entry.ms)) return;
         seen.current.add(entry.nonce);
         // Bound the dedup memory over a long call.
         if (seen.current.size > 512) {
           seen.current = new Set([...seen.current].slice(-256));
         }
-        setReactions((prev) => [...prev, entry]);
+        setReactions((prev) => [...prev, { ...entry, ms: Date.now() }]);
       } catch {
         // not ours / malformed / a plain heartbeat
       }

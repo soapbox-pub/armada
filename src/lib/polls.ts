@@ -5,6 +5,7 @@
  */
 
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /** NIP-88 poll kind (the poll itself; renders as a timeline message). */
 export const KIND_POLL = 1068;
@@ -107,7 +108,7 @@ export function buildPollTags(
   for (const opt of options) tags.push(["option", opt.id, opt.label.trim()]);
   tags.push(["polltype", pollType]);
   if (durationDays > 0) {
-    tags.push(["endsAt", String(Math.floor(Date.now() / 1000) + durationDays * 86_400)]);
+    tags.push(["endsAt", String(nowSecs() + durationDays * 86_400)]);
   }
   tags.push(["alt", `Poll: ${question}`]);
   return tags;
@@ -115,12 +116,12 @@ export function buildPollTags(
 
 /** Whether a poll with this `endsAt` (unix seconds) has closed. */
 export function isPollEnded(endsAt: number | undefined): boolean {
-  return endsAt !== undefined && endsAt < Math.floor(Date.now() / 1000);
+  return endsAt !== undefined && endsAt < nowSecs();
 }
 
 /** Format an `endsAt` timestamp as a short relative string ("in 3d"). */
 export function formatEndsAt(endsAt: number): string {
-  const diff = endsAt - Math.floor(Date.now() / 1000);
+  const diff = endsAt - nowSecs();
   if (diff < 3600) return t({ id: "polls.endsInMinutes", defaultMessage: "in {count}m" }, { count: Math.max(1, Math.floor(diff / 60)) });
   if (diff < 86400) return t({ id: "polls.endsInHours", defaultMessage: "in {count}h" }, { count: Math.floor(diff / 3600) });
   return t({ id: "polls.endsInDays", defaultMessage: "in {count}d" }, { count: Math.floor(diff / 86400) });

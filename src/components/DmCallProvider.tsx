@@ -63,6 +63,7 @@ import { hasNativeNotificationService, RESCUE_RELAYS } from "@/lib/platform";
 
 import type { DmVoiceContext } from "@/contexts/CallContext";
 import type { NostrEvent } from "@nostrify/nostrify";
+import { clockNowMs, nowSecs } from "@/lib/relayClock";
 
 /** Minimum gap between two receipts to one peer, so a burst of offers can't farm signatures. */
 const RECEIPT_PEER_INTERVAL_MS = 3_000;
@@ -207,7 +208,7 @@ export function DmCallProvider({ children }: { children: React.ReactNode }) {
       if (incomingTimeoutRef.current) clearTimeout(incomingTimeoutRef.current);
       incomingTimeoutRef.current = setTimeout(() => {
         clearIncoming();
-      }, Math.max(0, signal.createdAtMs + DM_CALL_RING_MS - Date.now()));
+      }, Math.max(0, signal.createdAtMs + DM_CALL_RING_MS - clockNowMs()));
     },
     [clearIncoming],
   );
@@ -312,7 +313,7 @@ export function DmCallProvider({ children }: { children: React.ReactNode }) {
       void (async () => {
         try {
           for await (const msg of nostr.relay(url).req(
-            [{ kinds: [KIND_DM_WRAP_EPHEMERAL], "#p": [self], since: Math.floor(Date.now() / 1000) }],
+            [{ kinds: [KIND_DM_WRAP_EPHEMERAL], "#p": [self], since: nowSecs() }],
             { signal: controller.signal },
           )) {
             if (msg[0] !== "EVENT") continue;
@@ -614,7 +615,7 @@ export function DmCallProvider({ children }: { children: React.ReactNode }) {
           if (
             sibling &&
             sibling.peer === signal.author &&
-            Date.now() - sibling.createdAtMs <= DM_CALL_RING_MS
+            clockNowMs() - sibling.createdAtMs <= DM_CALL_RING_MS
           ) {
             return;
           }
@@ -772,7 +773,7 @@ export function DmCallProvider({ children }: { children: React.ReactNode }) {
 
     if (token && HEX64.test(token)) {
       void consumeNativeCallAnswer(wanted, token).then((ticket) => {
-        const offer = ticket && ticketOffer(ticket, wanted, self, Date.now());
+        const offer = ticket && ticketOffer(ticket, wanted, self, clockNowMs());
         // Busy check: joining would drop the active call.
         if (!offer || activeCallRef.current) return;
         clearIncoming();

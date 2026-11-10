@@ -26,12 +26,13 @@ import type { Community } from "@/concord/lib/types";
 import { finalizePowEvent } from "@/lib/pow";
 import { buildReportTags, KIND_REPORT, type ReportReason, type ReportTarget } from "@/lib/report";
 import { t } from "@/i18n/intl";
+import { nowSecs } from "@/lib/relayClock";
 
 /** NIP-59: outer timestamps are tweaked into the past, up to two days. */
 const MAX_BACKDATE_SECS = 2 * 24 * 60 * 60;
 
 function tweakedPast(): number {
-  return Math.floor(Date.now() / 1000) - Math.floor(Math.random() * MAX_BACKDATE_SECS);
+  return nowSecs() - Math.floor(Math.random() * MAX_BACKDATE_SECS);
 }
 
 /** The signer surface a report send needs (every Concord-capable login). */
@@ -62,7 +63,7 @@ export function buildReportRumor(
     kind: KIND_REPORT,
     content: comment,
     tags: buildReportTags(target, reason),
-    created_at: Math.floor(Date.now() / 1000),
+    created_at: nowSecs(),
     pubkey: reporterPubkey,
   };
 }

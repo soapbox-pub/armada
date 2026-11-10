@@ -1,6 +1,6 @@
 import { t } from "@/i18n/intl";
 import { firstImetaMime, isThreadReply, notificationMessages } from "@/lib/notificationPreview";
-import { KIND_DM_CHAT, KIND_DM_FILE, type OpenedDm } from "@/lib/nip17/protocol";
+import { dmAt, KIND_DM_CHAT, KIND_DM_FILE, type OpenedDm } from "@/lib/nip17/protocol";
 import { dmConvKey } from "@/lib/nip17/conversation";
 import { chatRoute } from "@/lib/routes";
 
@@ -85,7 +85,8 @@ export function dm17NotifyCandidates(opened: OpenedDm[], self: string): NotifyCa
     return [{
       plane: "dm" as const,
       author: dm.author,
-      createdAt: dm.createdAt,
+      // When it arrived, where its sender's clock was off: judged against read stamps and the session start.
+      createdAt: dmAt(dm),
       mention: true,
       kind: dm.kind,
       body: dm.kind === KIND_DM_FILE ? t(notificationMessages.sentFile) : dm.content,

@@ -17,6 +17,7 @@ import { leadingZeroBits } from "@/lib/pow";
 
 import type { EventTemplate } from "@/hooks/useNostrPublish";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 export const LABEL_KIND = 1985;
 export const DISCOVER_LABEL_NAMESPACE = "armada.discover";
@@ -62,7 +63,7 @@ export interface Boost {
 export type BoostsByListing = Map<string, Boost[]>;
 
 /** Earliest `created_at` a boost still counts from. */
-export function boostFloor(nowSeconds: number = Math.floor(Date.now() / 1000)): number {
+export function boostFloor(nowSeconds: number = nowSecs()): number {
   return nowSeconds - BOOST_WINDOW_SECONDS;
 }
 

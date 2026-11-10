@@ -47,7 +47,10 @@ struct NotifyStore {
     /// The user's OWN sent copy is written like any other — it is how the other
     /// device's half of a conversation reaches this one at all — even though it
     /// is dropped from the notification.
-    func writeDm(_ opened: OpenedDm, self selfPubkey: String, now: Int) throws {
+    ///
+    /// `arrivedAt` is when a push delivered it, recorded where the sender's
+    /// clock put it elsewhere (`Dm17.arrivalFact`).
+    func writeDm(_ opened: OpenedDm, self selfPubkey: String, now: Int, arrivedAt: Int? = nil) throws {
         guard !Nip40.isExpired(opened.tags, now: now) else { return }
         let rumor: [String: Any] = [
             "id": opened.rumorId,
@@ -58,6 +61,9 @@ struct NotifyStore {
             "content": opened.content,
         ]
         try write(tenant: Self.dmTenant(self: selfPubkey), rumors: [rumor])
+        if let arrivedAt, let fact = Dm17.arrivalFact(opened, self: selfPubkey, at: arrivedAt) {
+            try bridge.kvSet(key: Dm17.arrivalKey(self: selfPubkey, rumorId: opened.rumorId), value: fact)
+        }
     }
 
     /// Persist an opened Concord chat rumor.

@@ -87,6 +87,7 @@ import {
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 const PUBLISH_TIMEOUT_MS = 8_000;
 const MAX_PORTABLE_TOPIC_SHARDS = 512;
@@ -449,7 +450,7 @@ export async function mirrorPortableStateBeforeRelayChange(
         content: await user.signer.nip44.encrypt(user.pubkey, JSON.stringify(complete)),
         tags: [],
         created_at: Math.max(
-          Math.floor(Date.now() / 1000),
+          nowSecs(),
           invite.newestCreatedAt + 1,
           (persistedInvites?.newestCreatedAt ?? 0) + 1,
         ),
@@ -532,7 +533,7 @@ async function signedPortableRumor(
 }
 
 function nextCreatedAt(prev: NostrRumor | undefined): number {
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   return prev ? Math.max(now, prev.created_at + 1) : now;
 }
 

@@ -32,6 +32,7 @@ import { invalidateSyncTopic, registerSyncTopic } from "@/sync/syncManager";
 import { emitWireScopes } from "@/wire/bus";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
+import { nowSecs } from "@/lib/relayClock";
 
 /** Minimal relay-capable Nostr client the round needs (batcher-backed). */
 interface NostrLike {
@@ -497,7 +498,7 @@ export async function syncChannelRound(
       const freshIds = new Set(fresh.map((w) => w.id));
       let top: number | undefined;
       const consider = (createdAt: number) => {
-        if (createdAt <= Math.floor(Date.now() / 1000) + MAX_CURSOR_AHEAD_SECS && (top === undefined || createdAt > top)) {
+        if (createdAt <= nowSecs() + MAX_CURSOR_AHEAD_SECS && (top === undefined || createdAt > top)) {
           top = createdAt;
         }
       };

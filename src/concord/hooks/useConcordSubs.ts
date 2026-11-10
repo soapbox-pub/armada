@@ -14,6 +14,7 @@ import { buildConcordSubs, type ConcordSub } from "@/concord/lib/concordNotifica
 import { readControlFold } from "@/concord/lib/control";
 import { registerStreamKeys } from "@/concord/lib/streamAuth";
 import { onWireScopes } from "@/wire/bus";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * Concord native-notification subscriptions for EVERY live community: per
@@ -127,7 +128,7 @@ export function useConcordSubsState(): ConcordSubsState {
         // service too, staff included. `readLivePause` reads the CURRENT pause (the fold
         // may be hours stale). The control plane stays subscribed so the lift lands;
         // the missed window is caught up via the same IOU WireSync uses.
-        if (await readLivePause(community, Math.floor(Date.now() / 1000))) return { foldReady };
+        if (await readLivePause(community, nowSecs())) return { foldReady };
         const { timeouts, nicknames } = await storedGuestbookExtras(community, folded);
         const out = buildConcordSubs(community, folded, entry.added_at, viewer, timeouts, nicknames);
         // NIP-42, scoped per relay: the native service bridges AUTH challenges to the

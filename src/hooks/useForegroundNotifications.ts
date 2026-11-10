@@ -1,5 +1,5 @@
 import { useNostr } from "@nostrify/react";
-import { clockNowMs } from "@/lib/relayClock";
+import { clockNowMs, nowSecs } from "@/lib/relayClock";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -387,7 +387,7 @@ export function useForegroundNotifications(): void {
   };
 
   // Session floor: a fresh login backfilling history must stay silent.
-  const sessionFloor = useRef(Math.floor(Date.now() / 1000));
+  const sessionFloor = useRef(nowSecs());
   // Per-room high-water mark so overlapping transports / re-ingests don't double-alert.
   const lastNotified = useRef(new Map<string, number>());
   const notifiedEvents = useRef(new Set<string>());

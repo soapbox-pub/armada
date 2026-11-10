@@ -8,6 +8,8 @@
 
 import { N64 } from "@nostrify/nostrify/utils";
 
+import { clockNowMs } from "@/lib/relayClock";
+
 import type { NostrSigner } from "@nostrify/nostrify";
 
 /** Lowercased hosts (e.g. "soapbox.communities.buzz.xyz") known to be Buzz. */
@@ -92,7 +94,7 @@ const mintInFlight = new Map<string, Promise<string>>();
 let tokenGeneration = 0;
 
 async function mintGetToken(signer: NostrSigner, host: string): Promise<string> {
-  const now = Date.now();
+  const now = clockNowMs();
   const generation = tokenGeneration;
   const event = await signer.signEvent({
     kind: 24242,

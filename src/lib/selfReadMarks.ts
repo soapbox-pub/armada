@@ -10,6 +10,7 @@ import { readFolded, writeFolded } from "@/lib/foldedCache";
 import { verifyEventOnce } from "@/lib/verifyCache";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
+import { nowSecs } from "@/lib/relayClock";
 
 const KEY = "self-sync-read-marks";
 /** A mark this old is dropped, as the native service drops its self-state cursor. */
@@ -24,7 +25,7 @@ let persistTimer: ReturnType<typeof setTimeout> | undefined;
 export function loadSelfReadMarks(): Promise<void> {
   loaded ??= readFolded<Record<string, number>>(KEY)
     .then((stored) => {
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowSecs();
       for (const [readKey, at] of Object.entries(stored ?? {})) {
         // A future mark (clock moved back) would skip documents written meanwhile.
         if (!Number.isFinite(at) || at > now || now - at > MAX_AGE_SECS) continue;

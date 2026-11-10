@@ -27,6 +27,8 @@ import { markOwnWebPushEvent } from "@/lib/webPushState";
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { shareById } from "@/lib/shareRows";
+import { nowSecs } from "@/lib/relayClock";
+import { dmAt } from "@/lib/nip17/protocol";
 
 /** NIP-04 encrypted direct message kind. */
 export const KIND_DM = 4;
@@ -128,7 +130,7 @@ export function initialThreadCursors(
   rows: readonly { pubkey: string; created_at: number }[],
   self: string,
 ): { sent: number; received: number } {
-  const top = rows.length > 0 ? rows[0].created_at - 1 : Math.floor(Date.now() / 1000);
+  const top = rows.length > 0 ? rows[0].created_at - 1 : nowSecs();
   const oldestOf = (mine: boolean) => {
     const own = rows.filter((r) => (r.pubkey === self) === mine);
     return own.length > 0 ? Math.min(...own.map((r) => r.created_at)) - 1 : top;
@@ -554,7 +556,7 @@ export function useDMConversations(options?: { decryptPreviews?: boolean }) {
       if (pullDue) lastPullRef.current = Date.now();
       const pull = (async () => {
         if (!pullDue || signal.aborted || relays.length === 0) return;
-        const startedAt = Math.floor(Date.now() / 1000);
+        const startedAt = nowSecs();
         // After the first full page, top up with `since` (NIP-04 timestamps are
         // real) instead of re-downloading the first page every minute.
         // Stored, so a cold start and the hook's other mount (same query key)
@@ -795,7 +797,7 @@ export function hasUnreadDmConversations(
       // A group is in the inbox only when EVERY participant is known.
       c.peers.every((peer) => isKnown(peer, c.mine)) &&
       c.latest.author !== self &&
-      c.latest.createdAt > getLastRead(dmReadKey(c.key)),
+      dmAt(c.latest) > getLastRead(dmReadKey(c.key)),
   );
 }
 
@@ -836,7 +838,7 @@ export function useDmPeerUnread(peer: string | undefined): boolean {
     }
     const dm17 = dm17Conversations.find((c) => c.key === peer);
     return Boolean(
-      dm17 && dm17.latest.author !== user.pubkey && dm17.latest.createdAt > lastRead,
+      dm17 && dm17.latest.author !== user.pubkey && dmAt(dm17.latest) > lastRead,
     );
   }, [user, peer, conversations, dm17Conversations, getLastRead]);
 }
@@ -1101,7 +1103,7 @@ export function useDirectMessages(peer: string | undefined) {
       const signer = user.signer;
       const self = user.pubkey;
       const tempId = `pending:${crypto.randomUUID()}`;
-      const createdAt = Math.floor(Date.now() / 1000);
+      const createdAt = nowSecs();
 
       // Render queued messages immediately, in order.
       queryClient.setQueryData<DecryptedDM[]>(queryKey, (old = []) =>

@@ -19,6 +19,7 @@ import { queryExplicitRelaysWithStatus, uniqueRelayUrls } from "@/lib/nip65";
 import type { NostrEvent } from "@nostrify/nostrify";
 import type { NUser } from "@nostrify/react/login";
 import { t, useIntl } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * NIP-51 mute list. Items may be public (`tags`) and/or private (NIP-44 to self in `.content`).
@@ -342,7 +343,7 @@ function serializeMuteListWrite<T>(write: () => Promise<T>): Promise<T> {
  * increasing created_at for rapid consecutive edits.
  */
 function nextCreatedAt(prev: NostrEvent | null): number {
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   return prev ? Math.max(now, prev.created_at + 1) : now;
 }
 

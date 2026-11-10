@@ -245,6 +245,10 @@ object ServiceStore {
         return Dm17.convKey(peers)
     }
 
+    /** Whether a DM that arrived at [at] keeps that as its time — [Dm17.arrivalCounts] for Java. */
+    @JvmStatic
+    fun dm17ArrivalCounts(kind: Int, createdAt: Long, at: Long): Boolean = Dm17.arrivalCounts(kind, createdAt, at)
+
     /** The participants a conversation key names — [Dm17.convPeers] for Java. */
     @JvmStatic
     fun dm17ConvPeers(convKey: String): List<String> = Dm17.convPeers(convKey)
@@ -378,12 +382,17 @@ object ServiceStore {
      * hash of its own contents rather than one the sender chose.
      */
     @JvmStatic
-    fun storeDm17Rumor(context: Context, self: String, rumor: JSONObject) {
+    @JvmOverloads
+    fun storeDm17Rumor(context: Context, self: String, rumor: JSONObject, arrivedAtSec: Long? = null) {
         val opened = Rumor.parse(rumor) ?: return
         if (!Dm17.storable(self, opened, System.currentTimeMillis() / 1000)) return
 
         profiled("db.storeDm17Rumor") { try {
-            ArmadaDb.get(context).event(Dm17.tenant(self), opened)
+            val db = ArmadaDb.get(context)
+            db.event(Dm17.tenant(self), opened)
+            // Delivered live: record when, where the sender's clock was off (Dm17.ARRIVAL_PREFIX).
+            val fact = arrivedAtSec?.let { Dm17.arrivalFact(self, opened, it) }
+            if (fact != null) db.kvSet(Dm17.arrivalKey(self, opened.id), fact)
         } catch (error: Throwable) {
             Log.w(TAG, "dm rumor write failed", error)
         } }

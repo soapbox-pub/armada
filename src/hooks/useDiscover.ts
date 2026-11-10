@@ -65,6 +65,7 @@ import { THEME_DEFINITION_KIND, isAdoptedTheme, parseDittoTheme } from "@/lib/th
 
 import type { NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * Discover feeds: public community listings, NIP-30 emoji packs and themes.
@@ -1038,7 +1039,7 @@ export function useDiscoverCommunityActivity(
     placeholderData: (prev) => prev,
     queryFn: async ({ signal }) => {
       const parsed = JSON.parse(debouncedTargetsKey) as DiscoverActivityTarget[];
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowSecs();
       const batches = discoverActivityBatches(parsed, now);
       if (batches.length === 0) return {};
       // Per relay, so the first to answer can't cut off one holding a newer wrap.

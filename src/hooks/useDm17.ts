@@ -35,6 +35,7 @@ import { markOwnWebPushEvent } from "@/lib/webPushState";
 import {
   buildDmEditRumors,
   buildDmRumor,
+  dmAt,
   DM_RUMOR_KINDS,
   dmChatTags,
   dmDeleteTags,
@@ -77,6 +78,8 @@ import {
   sweepExpiredDm17Rumors,
   updateDm17Cursor,
   writeDm17Rumors,
+  takeLiveWrapArrival,
+  withArrival,
   writeDm17SeenWrapIds,
   type Dm17ConversationRow,
   type Dm17Cursor,
@@ -95,6 +98,7 @@ import type { SendStatus } from "@/hooks/useSendStatusMap";
 import { shareByRumorId } from "@/lib/shareRows";
 import type { NostrEvent, NostrFilter, NostrSigner } from "@nostrify/nostrify";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 const SYNC_MIN_INTERVAL_MS = 30_000;
 /** Wraps are backdated ≤ 2 days; a FULL scan re-reads this far behind the cursor. */
@@ -320,9 +324,11 @@ async function openAndStore(
   for (let i = 0; i < wraps.length; i += DECRYPT_WAVE) {
     await Promise.all(
       wraps.slice(i, i + DECRYPT_WAVE).map(async (wrap) => {
-        const dm = await openDmWrap(wrap, ctx.signer as Dm17Signer, ctx.self, remember ? undefined : { cache: false });
+        const arrivedAt = takeLiveWrapArrival(wrap.id);
+        const unwrapped = await openDmWrap(wrap, ctx.signer as Dm17Signer, ctx.self, remember ? undefined : { cache: false });
         if (remember) seen.add(wrap.id);
-        if (!dm) return;
+        if (!unwrapped) return;
+        const dm = withArrival(unwrapped, arrivedAt);
         openedWrapIds.push(wrap.id);
         if (opts?.stats) opts.stats.opened++;
         // Peer signals are live routing, not history: dispatched, not stored.
@@ -1124,7 +1130,7 @@ export function useDm17Thread(
       }
       if (ctx) void syncDm17Inbox(ctx, { interactive: true });
       sweepExpiredSoon(self!);
-      return rows.sort((a, b) => a.createdAt - b.createdAt || (a.rumorId < b.rumorId ? -1 : 1));
+      return rows.sort((a, b) => dmAt(a) - dmAt(b) || (a.rumorId < b.rumorId ? -1 : 1));
     },
     staleTime: 10_000,
     refetchInterval: 60_000,
@@ -1178,7 +1184,7 @@ export function useDm17Thread(
 
   // Store + optimistic rows deduped by id, deletes applied, expired dropped.
   const { messages, reactionsByTarget, timerChanges, nextExpiry } = useMemo(() => {
-    const now = Math.floor(Date.now() / 1000);
+    const now = nowSecs();
     const byId = new Map<string, OpenedDm>();
     for (const r of query.data ?? []) byId.set(r.rumorId, r);
     if (focusedQuery.data) byId.set(focusedQuery.data.rumorId, focusedQuery.data);
@@ -1218,7 +1224,7 @@ export function useDm17Thread(
         timerChanges.push(r);
       }
     }
-    messages.sort((a, b) => a.createdAt - b.createdAt || (a.rumorId < b.rumorId ? -1 : 1));
+    messages.sort((a, b) => dmAt(a) - dmAt(b) || (a.rumorId < b.rumorId ? -1 : 1));
     timerChanges.sort((a, b) => a.createdAt - b.createdAt || (a.rumorId < b.rumorId ? -1 : 1));
     return { messages, reactionsByTarget, timerChanges, nextExpiry };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1411,7 +1417,7 @@ export function useDm17Thread(
   /** The NIP-40 deadline for something sent now, or undefined when off. */
   const resolveExpiry = useCallback(async (): Promise<number | undefined> => {
     const seconds = await resolveTimer();
-    return seconds > 0 ? Math.floor(Date.now() / 1000) + seconds : undefined;
+    return seconds > 0 ? nowSecs() + seconds : undefined;
   }, [resolveTimer]);
 
   const send = useCallback(
@@ -1616,7 +1622,7 @@ export function useDm17Thread(
       // A focus hit must not move this cursor.
       const until =
         oldestRef.current ??
-        (before.length > 0 ? before[0].createdAt : Math.floor(Date.now() / 1000));
+        (before.length > 0 ? Math.min(...before.map((row) => row.createdAt)) : nowSecs());
       // A relay the history walk read to an empty page is already wholly in the
       // store, so a thread page there can only re-read it.
       const cursor = await readDm17Cursor(self);
@@ -1637,7 +1643,7 @@ export function useDm17Thread(
       // Out of history only when relays are exhausted AND the store had nothing older.
       if (exhausted && added === 0) setHasMore(false);
       queryClient.setQueryData<OpenedDm[]>(queryKey, after.sort(
-        (a, b) => a.createdAt - b.createdAt || (a.rumorId < b.rumorId ? -1 : 1),
+        (a, b) => dmAt(a) - dmAt(b) || (a.rumorId < b.rumorId ? -1 : 1),
       ));
       return added;
     } catch {
@@ -1714,7 +1720,7 @@ export function useDm17Backfill(): Dm17Backfill {
       const cursor = oldestRef.current === undefined ? await readDm17Cursor(self) : undefined;
       const until =
         oldestRef.current ??
-        (cursor?.oldest ? cursor.oldest - 1 : Math.floor(Date.now() / 1000));
+        (cursor?.oldest ? cursor.oldest - 1 : nowSecs());
       const before = await queryDm17Conversations(self);
       const known = new Set(before.map((c) => c.key));
       const { oldest, exhausted } = await pageOlderDmWraps(ctx, until, true);

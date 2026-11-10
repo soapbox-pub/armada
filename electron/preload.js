@@ -164,6 +164,8 @@ contextBridge.exposeInMainWorld("armadaDesktop", {
   /** Linux WebRTC encoder policy. Changes take effect after an app restart. */
   /** `{ type, data }` of a public https image the page can't read for want of CORS, or null. */
   fetchImage: (url) => ipcRenderer.invoke("armada:fetch-image", String(url)),
+  /** `{ date, age }` headers of an https answer, which the page can't read cross-origin, or null. */
+  httpDate: (url) => ipcRenderer.invoke("armada:http-date", String(url)),
   /** Bytes in Chromium's HTTP cache, and clearing it. */
   getWebCacheSize: () => ipcRenderer.invoke("armada:web-cache-size"),
   clearWebCache: () => ipcRenderer.invoke("armada:clear-web-cache"),

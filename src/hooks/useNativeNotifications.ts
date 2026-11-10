@@ -45,6 +45,7 @@ import {
   type NativeNotificationEnablement,
 } from "@/lib/nativeNotificationConfig";
 import { getLanguage, useIntl, languageOf } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 const NATIVE_INTENT_KEY = "armada:native-notif-intent";
 
@@ -647,7 +648,7 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
             ["relay", relayUrl],
             ["challenge", challenge],
           ],
-          created_at: Math.floor(Date.now() / 1000),
+          created_at: nowSecs(),
         });
         await ArmadaNotification.submitAuth({ relayUrl, event });
       } catch (err) {

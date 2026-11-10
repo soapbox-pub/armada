@@ -22,6 +22,7 @@ import { queueSignedEvent, removeQueuedPublish } from "@/lib/publishOutbox";
 import { publishTimeoutMs } from "@/lib/publishTimeout";
 import { emitWireScopes } from "@/wire/bus";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 export interface GitWorkItemRepository {
   address: GitRepositoryAddress;
@@ -55,7 +56,7 @@ export function useGitWorkItemActions() {
       kind: template.kind,
       content: template.content,
       tags,
-      created_at: createdAt ?? Math.floor(Date.now() / 1000),
+      created_at: createdAt ?? nowSecs(),
     });
     if (event.pubkey !== user.pubkey) {
       throw new Error(t({ id: "useGitWorkItemActions.wrongAccount", defaultMessage: "Signed event pubkey does not match the currently selected account." }));

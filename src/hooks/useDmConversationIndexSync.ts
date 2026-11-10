@@ -41,6 +41,8 @@ import { publishSelfStateEvent } from "@/lib/selfStatePublish";
 import { derivedDocOf, type DerivedDoc, type SettingsKeyring } from "@/lib/settingsKeys";
 import type { SettingsKeys } from "@/lib/settingsRootStore";
 import { queryRelayStrict } from "@/lib/strictRelayQuery";
+import { nowSecs } from "@/lib/relayClock";
+import { dmAt } from "@/lib/nip17/protocol";
 
 export const DM_CONVERSATION_INDEX_PUBLISH_DEBOUNCE_MS = 60_000;
 export const DM_CONVERSATION_INDEX_RETRY_MS = 5 * 60_000;
@@ -217,7 +219,7 @@ export async function signDmConversationIndexBucket(
     kind: DM_CONVERSATIONS_EVENT_KIND,
     content: await doc.signer.nip44!.encrypt(doc.pubkey, JSON.stringify(bucket)),
     tags: [["d", doc.d]],
-    created_at: Math.max(Math.floor(Date.now() / 1000), (previousCreatedAt ?? 0) + 1),
+    created_at: Math.max(nowSecs(), (previousCreatedAt ?? 0) + 1),
   });
 }
 
@@ -280,7 +282,7 @@ export function useRecordDmConversationIndex(): void {
         conversation.peers.every((peer) => isKnown(peer, conversation.mine)) ? [{
           key: conversation.key,
           latest: {
-            createdAt: conversation.latest.createdAt,
+            createdAt: dmAt(conversation.latest),
             id: conversation.latest.rumorId,
           },
           mine: conversation.mine,
@@ -347,7 +349,7 @@ export function useDmConversationIndexSync(): void {
         // Strict: a CLOSED REQ must not read as "no index there".
         Promise.allSettled(relays.map(async (relay) => {
           // Resumed: what an earlier pull read is in the store (stored below and by NostrSync).
-          const requestedAt = Math.floor(Date.now() / 1000);
+          const requestedAt = nowSecs();
           const events = await queryRelayStrict(nostr.relay(relay), sinceSelfRead(filters, readKeyFor(relay)), { signal: deadline });
           await storeSelfReadEvents(store, filters, events);
           noteSelfRead(readKeyFor(relay), requestedAt);

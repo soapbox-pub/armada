@@ -19,6 +19,7 @@ import { KIND_INVITE_BUNDLE, VSK_INVITE_LIVE, VSK_INVITE_REVOKED } from "@/conco
 import { RELAY_DICTIONARY, STOCK_RELAYS } from "@/concord/lib/stockRelays";
 import { MAX_BUNDLE_CHANNELS, capRelays, type ImagePointer } from "@/concord/lib/types";
 import { finalizePowEvent } from "@/lib/pow";
+import { nowSecs } from "@/lib/relayClock";
 
 /** The link's unlock token: 16 random bytes (CORD-05 §2). */
 export const TOKEN_BYTES = 16;
@@ -147,7 +148,7 @@ export function buildBundleEvent(bundle: InviteBundle, token: Uint8Array, linkSi
         ["d", ""],
         ["vsk", VSK_INVITE_LIVE],
       ],
-      created_at: Math.floor(Date.now() / 1000),
+      created_at: nowSecs(),
     },
     linkSignerSk,
   );
@@ -163,7 +164,7 @@ export function buildRevocationEvent(linkSignerSk: Uint8Array): Promise<NostrEve
         ["d", ""],
         ["vsk", VSK_INVITE_REVOKED],
       ],
-      created_at: Math.floor(Date.now() / 1000),
+      created_at: nowSecs(),
     },
     linkSignerSk,
   );

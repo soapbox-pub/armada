@@ -26,6 +26,7 @@ import { isRemovedMessageId } from "@/lib/removedMessages";
 import type { NostrRumor } from "@/lib/nostrRumor";
 
 import { dmPeersOf } from "./conversation";
+import { nowSecs } from "@/lib/relayClock";
 
 /** NIP-17 chat message rumor. */
 export const KIND_DM_CHAT = 14;
@@ -103,7 +104,7 @@ export const MAX_WRAP_BACKDATE_SECS = 2 * 24 * 60 * 60;
 const NIP44_MAX_PLAINTEXT = 65_535;
 
 function tweakedPast(): number {
-  return Math.floor(Date.now() / 1000) - Math.floor(Math.random() * MAX_WRAP_BACKDATE_SECS);
+  return nowSecs() - Math.floor(Math.random() * MAX_WRAP_BACKDATE_SECS);
 }
 
 /** NIP-40 deadline (unix seconds), or undefined. Malformed values count as absent so garbage can't hide a message. */
@@ -115,9 +116,9 @@ export function expirationOf(tags: readonly string[][]): number | undefined {
 }
 
 /** Whether these tags carry a NIP-40 deadline that has already passed. */
-export function isExpired(tags: readonly string[][], nowSecs = Math.floor(Date.now() / 1000)): boolean {
+export function isExpired(tags: readonly string[][], now = nowSecs()): boolean {
   const at = expirationOf(tags);
-  return at !== undefined && at <= nowSecs;
+  return at !== undefined && at <= now;
 }
 
 /** Append a NIP-40 `expiration` tag when `expiresAt` is set (else pass through). */
@@ -147,7 +148,7 @@ export function buildDmRumor(opts: {
     kind: opts.kind,
     content: opts.content,
     tags: opts.tags,
-    created_at: opts.createdAt ?? Math.floor(Date.now() / 1000),
+    created_at: opts.createdAt ?? nowSecs(),
     pubkey: opts.pubkey,
   };
   return { ...unsigned, id: getEventHash(unsigned) };
@@ -235,7 +236,7 @@ export function buildDmEditRumors(
   original: NostrRumor,
   peers: readonly string[],
   content: string,
-  editedAt = Math.floor(Date.now() / 1000),
+  editedAt = nowSecs(),
 ): DmEditRumors {
   if (original.kind !== KIND_DM_CHAT) throw new Error("Only NIP-17 chat messages can be edited");
 
@@ -343,7 +344,7 @@ export function wrapDmSealEphemeral(seal: NostrEvent, recipientPk: string): Prom
       kind: KIND_DM_WRAP_EPHEMERAL,
       content: nip44Encrypt(JSON.stringify(seal), getConversationKey(wrapSk, recipientPk)),
       tags: [["p", recipientPk]],
-      created_at: Math.floor(Date.now() / 1000),
+      created_at: nowSecs(),
     },
     wrapSk,
   );
@@ -362,6 +363,16 @@ export interface OpenedDm {
   /** Participants from the viewer's side (see {@link dmPeersOf}). */
   peers: string[];
   wrapId: string;
+  /**
+   * When it arrived here (unix s), where that differs from `createdAt` by more than
+   * `ARRIVAL_SKEW_SECS`: its sender's clock was off. See `dm17Store.ts`.
+   */
+  arrivedAt?: number;
+}
+
+/** When a message counts as sent for order, unread and notifications: on arrival, where it was recorded. */
+export function dmAt(opened: Pick<OpenedDm, "createdAt" | "arrivedAt">): number {
+  return opened.arrivedAt ?? opened.createdAt;
 }
 
 /** The NIP-40 deadline this opened rumor disappears at, if any. */
@@ -387,7 +398,7 @@ export async function openDmWrap(
   opts?: { wrapKind?: number; cache?: boolean },
 ): Promise<OpenedDm | undefined> {
   if (wrap.kind !== (opts?.wrapKind ?? KIND_DM_WRAP) || !signer.nip44) return undefined;
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   if (isExpired(wrap.tags, now)) return undefined;
   try {
     // `cache: false` (ephemeral plane) also skips the signer's persistent decrypt cache.

@@ -9,6 +9,7 @@ import { uploadTargets } from "@/lib/blossom";
 import { t } from "@/i18n";
 import { mediaSrc } from "@/lib/mediaPolicy";
 import { preflightRefusal, uploadTimeoutMs, type PreflightRequest } from "@/lib/blossomPreflight";
+import { clockNowMs } from "@/lib/relayClock";
 
 import { useAppContext } from "./useAppContext";
 import { useCurrentUser } from "./useCurrentUser";
@@ -83,7 +84,7 @@ export async function uploadToServers(
   // Scaled to the file size, so a flat timeout doesn't cap upload size by uplink speed.
   const timeoutMs = uploadTimeoutMs(file.size);
   // One token for every server and the retry, so a remote signer is asked once.
-  const now = Date.now();
+  const now = clockNowMs();
   const token = await signer.signEvent({
     kind: 24242,
     content: `Upload ${file.name}`,

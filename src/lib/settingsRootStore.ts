@@ -22,6 +22,7 @@ import {
   settingsRootTags,
   SETTINGS_ROOT_KIND,
 } from "@/lib/settingsRoot";
+import { nowSecs } from "@/lib/relayClock";
 
 const HELD_PREFIX = "nip78root:";
 const PREVIOUS_PREFIX = "nip78root-prev:";
@@ -202,7 +203,7 @@ async function ensure(opts: EnsureSettingsRootOptions): Promise<SettingsKeys> {
     kind: SETTINGS_ROOT_KIND,
     content: await signer.nip44.encrypt(pubkey, encodeSettingsRoot({ v: 1, root })),
     tags: settingsRootTags(),
-    created_at: Math.floor(Date.now() / 1000),
+    created_at: nowSecs(),
   });
   if (event.pubkey !== pubkey) throw new Error("The signer returned a different account");
   // Held before publishing: a partial fan-out must not let this device mint a second root.

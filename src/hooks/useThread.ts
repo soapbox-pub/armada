@@ -10,6 +10,7 @@ import { toChatMsg } from "@/components/chat/transport";
 import type { ChatMsg } from "@/components/chat/transport";
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 /** Kind-9 thread replies name their root in `#e`; legacy kind-1111 comments in `#E`. */
 function threadFilters(ids: string[], groupId: string, window: Pick<NostrFilter, "since" | "limit">): NostrFilter[] {
@@ -64,7 +65,7 @@ export function useGroupThreads(
     (async () => {
       try {
         for await (const msg of nostr.relay(relayUrl).req(
-          threadFilters(ids, groupId, { since: Math.floor(Date.now() / 1000) - 5 }),
+          threadFilters(ids, groupId, { since: nowSecs() - 5 }),
           { signal: controller.signal },
         )) {
           if (msg[0] !== "EVENT") continue;

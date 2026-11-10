@@ -4,6 +4,7 @@
  */
 
 import type { NostrSigner } from "@nostrify/nostrify";
+import { nowSecs } from "@/lib/relayClock";
 
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -25,7 +26,7 @@ export async function nip98AuthHeader(
     kind: 27235,
     content: "",
     tags,
-    created_at: Math.floor(Date.now() / 1000),
+    created_at: nowSecs(),
   });
   return `Nostr ${btoa(JSON.stringify(event))}`;
 }

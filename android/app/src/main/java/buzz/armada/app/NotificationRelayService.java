@@ -4469,6 +4469,8 @@ public class NotificationRelayService extends Service {
     private void handleDm17Wrap(JSONObject wrap, String id, String relayUrl, boolean storedBefore) {
         RelayConnection via = connectionFor(relayUrl);
         final long notifyFloorSec = via != null && via.dm17CatchingUp ? via.dm17NotifyFloorSec : 0;
+        // Delivered as published (past EOSE): when it arrived, for a sender whose clock is off.
+        final Long arrivedAtSec = via != null && via.dm17Live ? System.currentTimeMillis() / 1000 : null;
         // Only wraps addressed to me are DMs — the Concord authors-scoped
         // subscription also delivers kind 1059, with no `p` tag at us.
         if (!isMentioned(wrap, userPubkey)) return;
@@ -4531,7 +4533,7 @@ public class NotificationRelayService extends Service {
                         // notify: reactions, deletes and timer changes are part
                         // of the conversation the app reads back. The store
                         // applies the rest of the rules (kind, expiry, peer).
-                        ServiceStore.storeDm17Rumor(this, userPubkey, rumor);
+                        ServiceStore.storeDm17Rumor(this, userPubkey, rumor, arrivedAtSec);
                         // Everything above is the STORE's business and happens
                         // whatever the notification prefs say — the wrap was
                         // subscribed for, received and opened, and dropping the
@@ -4592,7 +4594,10 @@ public class NotificationRelayService extends Service {
                         final String preview =
                                 rumorKind == 15 ? str(R.string.notif_sent_file) : messagePreview(rumor);
                         final long rts = rumor.optLong("created_at", 0);
-                        final long fTs = (rts > 0 ? rts * 1000L : System.currentTimeMillis());
+                        // Its arrival where the sender's clock was off, as the app orders and reads it.
+                        final long fTs = arrivedAtSec != null && ServiceStore.dm17ArrivalCounts(rumorKind, rts, arrivedAtSec)
+                                ? arrivedAtSec * 1000L
+                                : (rts > 0 ? rts * 1000L : System.currentTimeMillis());
                         resolveAuthor(peer, relayUrl, profile -> {
                             String name = authorName(profile);
                             String picture = profile != null ? profile.picture : null;

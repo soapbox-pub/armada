@@ -37,6 +37,7 @@ import {
   streamPubkeysForRelay,
   claimStaleWave,
 } from "@/concord/lib/streamAuth";
+import { nowSecs } from "@/lib/relayClock";
 
 interface NostrProviderProps {
   children: React.ReactNode;
@@ -400,7 +401,7 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
                     ["relay", url],
                     ["challenge", current],
                   ],
-                  created_at: Math.floor(Date.now() / 1000),
+                  created_at: nowSecs(),
                 }).then((ev) => {
                   authCacheRef.current.set(url, { challenge: current, event: ev, signedAt: Date.now() });
                   return ev;

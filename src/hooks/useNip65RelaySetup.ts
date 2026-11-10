@@ -33,6 +33,7 @@ import { KIND_INVITE_LIST } from "@/concord/lib/kinds";
 import type { RelayMetadata } from "@/contexts/AppContext";
 import type { NostrEvent } from "@nostrify/nostrify";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 export function relayPointerChangedDuringPreseed(
   metadata: RelayMetadata,
@@ -308,7 +309,7 @@ export function useNip65RelaySetup() {
       }
     }
     const createdAt = Math.max(
-      Math.floor(Date.now() / 1000),
+      nowSecs(),
       ownsPointer ? config.relayMetadata.updatedAt + 1 : 0,
       (refreshed?.event.created_at ?? 0) + 1,
     );

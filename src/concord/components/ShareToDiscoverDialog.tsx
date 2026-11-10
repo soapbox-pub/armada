@@ -39,6 +39,7 @@ import { toast } from "@/hooks/useToast";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
 
 import type { ImagePointer } from "@/concord/lib/types";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * Share a community to Discover (a kind-33302 announcement carrying a live
@@ -170,7 +171,7 @@ function CommunityPicker({ onSelect }: { onSelect: (idHex: string) => void }) {
 
   // The Invite List merge already drops revoked tokens; only check expiry.
   const linked = useMemo(() => {
-    const now = Math.floor(Date.now() / 1000);
+    const now = nowSecs();
     const ids = new Set<string>();
     for (const e of inviteList.data?.entries ?? []) {
       if (!e.expires_at || e.expires_at > now) ids.add(e.community_id);
@@ -260,7 +261,7 @@ function ShareForm({ idHex, onDone }: { idHex: string; onDone: () => void }) {
     intl.formatMessage({ id: "shareToDiscoverDialog.thisCommunity", defaultMessage: "this community" });
 
   // Reuse a live link so repeat shares fold to one listing, one revocation from un-listing.
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   const reusable = myLinks.find((e) => !e.expires_at || e.expires_at > now);
   const willMint = !reusable;
 

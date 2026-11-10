@@ -62,6 +62,7 @@ import type { Community } from "@/concord/lib/types";
 import type { NostrEvent } from "@nostrify/nostrify";
 import type { NUser } from "@nostrify/react/login";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * The creator's Invite List (kind 13303, CORD-05 §4): private bookkeeping for
@@ -259,14 +260,14 @@ export function useInviteList() {
             && answered.some((url) => requiredFloor.includes(url));
           if (canReconcile) {
             const createdAt = Math.max(
-              Math.floor(Date.now() / 1000),
+              nowSecs(),
               newestCreatedAt + 1,
               (persisted.newestCreatedAt ?? 0) + 1,
             );
             try {
               const content = await user!.signer.nip44!.encrypt(
                 user!.pubkey,
-                JSON.stringify(pruneExpiredInvites(merged, Math.floor(Date.now() / 1000))),
+                JSON.stringify(pruneExpiredInvites(merged, nowSecs())),
               );
               const event = await user!.signer.signEvent({
                 kind: KIND_INVITE_LIST,
@@ -371,11 +372,11 @@ export async function updateInviteList(
   }
   const next = pruneExpiredInvites(
     mergeInviteLists(mergeInviteLists(read.list, optimistic), patch),
-    Math.floor(Date.now() / 1000),
+    nowSecs(),
   );
 
   const createdAt = Math.max(
-    Math.floor(Date.now() / 1000),
+    nowSecs(),
     read.newestCreatedAt + 1,
     (persisted?.newestCreatedAt ?? 0) + 1,
   );
@@ -515,7 +516,7 @@ export function useInviteActions(community: Community | undefined) {
     await withControlWrite(c.idHex, async () => {
       const now = await foldStoredControl(c).catch(() => folded);
       const linkSigners = change(new Set(now?.registriesByCreator.get(u.pubkey) ?? []));
-      const live = liveRegistrySigners(linkSigners, inviteList.data?.entries, c.idHex, Math.floor(Date.now() / 1000));
+      const live = liveRegistrySigners(linkSigners, inviteList.data?.entries, c.idHex, nowSecs());
       const eid = bytesToHex(inviteLinksLocator(c.id, hex32(u.pubkey)));
       const head = now?.heads.get(eid);
       await publishEdition(
@@ -610,7 +611,7 @@ export function useInviteActions(community: Community | undefined) {
             // The re-basable form: synced entries are re-based onto each reader's origin.
             url: storedUrl,
             ...(label ? { label } : {}),
-            created_at: Math.floor(Date.now() / 1000),
+            created_at: nowSecs(),
             ...(expiresAtMs ? { expires_at: Math.floor(expiresAtMs / 1000) } : {}),
             epoch: bundle.root_epoch,
           },
@@ -796,7 +797,7 @@ export function useInviteActions(community: Community | undefined) {
     if (!community || myLinks.length === 0) return;
     const metaV = Number(folded?.heads.get(community.idHex)?.version ?? 0n);
     const bundle: InviteBundle = { ...buildBundle({ kind: "link" }), meta_v: metaV };
-    const now = Math.floor(Date.now() / 1000);
+    const now = nowSecs();
     let accepted = 0;
     let attempted = 0;
     await Promise.allSettled(

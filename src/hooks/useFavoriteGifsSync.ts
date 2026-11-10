@@ -33,6 +33,7 @@ import type { SettingsKeys } from "@/lib/settingsRootStore";
 
 import type { NostrEvent, NostrFilter, NostrSigner } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * GIF favorites are ONE document shared by every installation, under its key derived
@@ -170,7 +171,7 @@ async function signFavoriteGifDoc(
     kind: FAVORITE_GIFS_EVENT_KIND,
     content: await doc.signer.nip44!.encrypt(doc.pubkey, JSON.stringify(payload)),
     tags: [["d", doc.d]],
-    created_at: Math.max(Math.floor(Date.now() / 1000), (previousCreatedAt ?? 0) + 1),
+    created_at: Math.max(nowSecs(), (previousCreatedAt ?? 0) + 1),
   });
 }
 
@@ -237,7 +238,7 @@ export function useFavoriteGifsSync(): void {
       const [settled, cached] = await Promise.all([
         Promise.allSettled(relays.map(async (relay) => {
           // Resumed: what an earlier pull read is in the store (stored below and by NostrSync).
-          const requestedAt = Math.floor(Date.now() / 1000);
+          const requestedAt = nowSecs();
           const events = await nostr.relay(relay).query(sinceSelfRead(filters, readKeyFor(relay)), { signal: deadline });
           await storeSelfReadEvents(store, filters, events);
           noteSelfRead(readKeyFor(relay), requestedAt);

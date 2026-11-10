@@ -23,6 +23,7 @@ import { queryExplicitRelaysWithStatus } from "@/lib/nip65";
 
 import type { NUser } from "@nostrify/react/login";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 /** Empty list, used before any 10009 event exists. */
 const EMPTY_LIST: UserGroupList = { groups: [], servers: [] };
@@ -351,7 +352,7 @@ function serializeGroupListWrite<T>(write: () => Promise<T>): Promise<T> {
  * writes by lowest id (NIP-01), so a later edit could otherwise lose.
  */
 function nextCreatedAt(prev: NostrRumor | null): number {
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   return prev ? Math.max(now, prev.created_at + 1) : now;
 }
 

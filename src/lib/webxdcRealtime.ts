@@ -7,6 +7,8 @@
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
+import { clockNowMs } from "@/lib/relayClock";
+
 /** RFC 4648 base32, no padding — the alphabet Vector encodes topic ids with. */
 const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
@@ -197,7 +199,7 @@ export function foldPeerSignals(
   // Refuse future-dated signals (a forged far-future ad would outrank its
   // author's departures). Vector clamps at ingest, but a live fold would
   // re-clamp forever. An hour, not Vector's 5 min, tolerates skewed clocks.
-  const ceiling = Date.now() + 60 * 60_000;
+  const ceiling = clockNowMs() + 60 * 60_000;
   const latest = new Map<string, { signal: PeerSignal; ms: number }>();
   for (const ev of events) {
     if (ev.ms > ceiling) continue;

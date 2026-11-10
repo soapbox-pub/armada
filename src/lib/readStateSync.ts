@@ -8,6 +8,25 @@ import type { ReadStateMap } from "@/contexts/ReadStateContext";
  */
 export const READ_STATE_ROLLOVER_BYTES = 8 * 1024;
 
+/**
+ * How far past now a read stamp may run. A stamp is the newest message's date, and one
+ * dated by a fast clock would otherwise mark everything sent until then as read.
+ */
+export const READ_AHEAD_SECS = 60;
+
+export function capReadStamp(ts: number, nowSecs: number): number {
+  return Math.min(ts, nowSecs + READ_AHEAD_SECS);
+}
+
+/** `map` with every stamp capped; `map` itself when none needed it. */
+export function capReadStamps(map: ReadStateMap, nowSecs: number): ReadStateMap {
+  const ceiling = nowSecs + READ_AHEAD_SECS;
+  if (!Object.values(map).some((ts) => ts > ceiling)) return map;
+  const out: ReadStateMap = {};
+  for (const [key, ts] of Object.entries(map)) out[key] = Math.min(ts, ceiling);
+  return out;
+}
+
 export type ReadStatePublish =
   | { kind: "none" }
   /** Publish `readState` as `read-state-recent`. */

@@ -27,6 +27,7 @@ import { useSwipeToReply } from "@/hooks/useSwipeToReply";
 import type { ProxyInfo } from "@/lib/nip48";
 import type { ReactNode } from "react";
 import { AvatarInitial } from "@/components/AvatarInitial";
+import { nowSecs } from "@/lib/relayClock";
 
 const NO_TAGS: string[][] = [];
 
@@ -47,15 +48,15 @@ const EXPIRY_URGENT_SECS = 60 * 60;
  */
 function ExpirationClock({ createdAt, expiresAt }: { createdAt: number; expiresAt: number }) {
   const intl = useIntl();
-  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  const [now, setNow] = useState(() => nowSecs());
 
   useEffect(() => {
-    const left = expiresAt - Math.floor(Date.now() / 1000);
+    const left = expiresAt - nowSecs();
     if (left <= 0) return;
     const delayMs =
       left <= 60 ? 1000 : left <= EXPIRY_URGENT_SECS ? 30_000 : (left - EXPIRY_URGENT_SECS) * 1000;
     // setTimeout's delay is a 32-bit int; longer waits re-arm.
-    const id = setTimeout(() => setNow(Math.floor(Date.now() / 1000)), Math.min(delayMs, 2 ** 31 - 1));
+    const id = setTimeout(() => setNow(nowSecs()), Math.min(delayMs, 2 ** 31 - 1));
     return () => clearTimeout(id);
   }, [expiresAt, now]);
 

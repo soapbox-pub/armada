@@ -6,6 +6,7 @@ import { KIND_BLOSSOM_SERVERS, KIND_DM_RELAYS, KIND_SEARCH_RELAYS } from "@/lib/
 
 import type { NostrEvent } from "@nostrify/nostrify";
 import type { AppConfig } from "@/contexts/AppContext";
+import { nowSecs } from "@/lib/relayClock";
 
 /** One signed list and the relays it is published to. */
 export interface SignupListEvent {
@@ -76,7 +77,7 @@ export async function buildSignupLists(sk: Uint8Array, setup: SignupSetup): Prom
   const dm = uniqueRelayUrls(setup.dm);
   const search = uniqueRelayUrls(setup.search);
   const blossom = uniqueServers(setup.blossom);
-  const created_at = Math.floor(Date.now() / 1000);
+  const created_at = nowSecs();
   const sign = (kind: number, tags: string[][]) =>
     finalizePowEvent({ kind, created_at, tags, content: "" }, sk);
 

@@ -13,6 +13,7 @@ import {
   parseCalendarEvent,
   type RsvpStatus,
 } from "@/lib/nip29";
+import { nowSecs } from "@/lib/relayClock";
 
 export {
   KIND_CALENDAR_DATE,
@@ -71,7 +72,7 @@ export function endEpoch(e: CalendarEvent): number {
 }
 
 /** True if the event has not yet ended (upcoming or in progress). */
-export function isUpcoming(e: CalendarEvent, now = Math.floor(Date.now() / 1000)): boolean {
+export function isUpcoming(e: CalendarEvent, now = nowSecs()): boolean {
   return endEpoch(e) >= now;
 }
 

@@ -8,6 +8,7 @@ import { useEventStore } from "@/hooks/useEventStore";
 import { useKnownDmPeers } from "@/hooks/useKnownDmPeers";
 import { dmReadKey, useReadState } from "@/hooks/useReadState";
 import { countUnreadDm17Messages } from "@/lib/nip17/dm17Store";
+import { dmAt } from "@/lib/nip17/protocol";
 import {
   buildDmSwitcherEntries,
   type Dm17SwitcherSource,
@@ -60,9 +61,9 @@ export function buildDmActivityItems(
     const old = legacyByKey.get(entry.key);
     const modern = nip17ByKey.get(entry.key);
     const modernWins = Boolean(
-      modern && (!old || modern.latest.createdAt > old.latest.created_at),
+      modern && (!old || dmAt(modern.latest) > old.latest.created_at),
     );
-    const createdAt = modernWins ? modern!.latest.createdAt : old?.latest.created_at;
+    const createdAt = modernWins ? dmAt(modern!.latest) : old?.latest.created_at;
     const eventId = modernWins ? modern!.latest.rumorId : old?.latest.id;
     const author = modernWins ? modern!.latest.author : old?.latest.pubkey;
     if (!createdAt || !eventId || !author) return [];

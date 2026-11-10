@@ -5,6 +5,7 @@ import { useAppContext } from "./useAppContext";
 import { useCurrentUser } from "./useCurrentUser";
 import { useNip29Servers } from "./useNip29Servers";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * Publish a NIP-62 Request to Vanish (kind 62): targeted (`relay` tags) or global (ALL_RELAYS).
@@ -28,7 +29,7 @@ export function useRequestToVanish() {
         kind: 62,
         content,
         tags,
-        created_at: Math.floor(Date.now() / 1000),
+        created_at: nowSecs(),
       });
 
       if (isGlobal) {

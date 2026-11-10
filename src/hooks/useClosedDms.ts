@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { useAppContext } from "@/hooks/useAppContext";
 
 import type { ClosedDmMarker } from "@/contexts/AppContext";
+import { nowSecs } from "@/lib/relayClock";
 
 export interface DmLatestMarker {
   id?: string;
@@ -38,7 +39,7 @@ export function useClosedDms() {
   const closeMany = useCallback(
     (rows: Array<{ peer: string; latest: DmLatestMarker | undefined }>) => {
       if (rows.length === 0) return;
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowSecs();
       const peers = new Set(rows.map((row) => row.peer));
       updateConfig((current) => {
         const closedDms = { ...current.closedDms };

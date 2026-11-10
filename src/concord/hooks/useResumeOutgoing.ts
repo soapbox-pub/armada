@@ -6,6 +6,7 @@ import { discardOutgoing, isOutgoingLive, outgoingFor, outgoingReady } from "@/c
 import { scheduleVerify } from "@/concord/lib/outgoingVerify";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { isExpired } from "@/lib/nip17/protocol";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * Re-broadcast this account's sealed sends that no relay was seen to take, once
@@ -25,7 +26,7 @@ export function useResumeOutgoing(): void {
     let cancelled = false;
     const run = () => {
       if (cancelled) return;
-      const now = Math.floor(Date.now() / 1000);
+      const now = nowSecs();
       for (const rec of outgoingFor(viewer)) {
         // CORD-08: past its deadline it would be refused everywhere anyway.
         if (isExpired(rec.tags, now)) {

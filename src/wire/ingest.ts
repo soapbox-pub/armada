@@ -127,7 +127,8 @@ function scopeOf(ev: NostrEvent, spec: WireSpec | undefined): string | undefined
  *   - Everything else → the event store (NIP-29 into `opts.relay`'s tenant;
  *     NIP-09 applied by the store).
  * Scopes are then announced on the bus. Writes are idempotent. `opts.relay`
- * is required (one call per relay); `opts.live` is accepted for parity only.
+ * is required (one call per relay); `opts.live` (delivered as published, not a
+ * replay) lets a DM be timed by its arrival.
  */
 export async function ingestWireEvents(
   sinks: WireSinks,
@@ -188,7 +189,7 @@ export async function ingestWireEvents(
   if (dmWraps.length > 0) {
     // Dedupe by session-seen id (the `since` rewind replays wraps every
     // round); ingest can't attribute a sender, so no candidate here.
-    const freshDmWraps = bufferLiveDmWraps(dmWraps);
+    const freshDmWraps = bufferLiveDmWraps(dmWraps, { live: opts?.live });
     if (freshDmWraps.length > 0) scopes.add("dm:wrap");
   }
   if (inviteWraps.length > 0) {

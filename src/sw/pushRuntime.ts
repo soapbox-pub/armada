@@ -35,9 +35,9 @@ import { appEventStore } from "@/lib/db/mainEventStore";
 import { createAppIntl, setIntl, t } from "@/i18n/intl";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { mediaPolicyFromConfig, mediaSrc, type MediaPolicy } from "@/lib/mediaPolicy";
-import { writeDm17Rumors } from "@/lib/nip17/dm17Store";
+import { withArrival, writeDm17Rumors } from "@/lib/nip17/dm17Store";
 import { nip29ThreadRootOf } from "@/lib/nip29Threads";
-import { KIND_DM_CHAT, KIND_DM_FILE, openDmWrap } from "@/lib/nip17/protocol";
+import { dmAt, KIND_DM_CHAT, KIND_DM_FILE, openDmWrap } from "@/lib/nip17/protocol";
 import { dmConvKey } from "@/lib/nip17/conversation";
 import {
   attributedLine,
@@ -404,8 +404,10 @@ async function prepareDm(
   cfg: SwPushConfig | null,
 ): Promise<PreparedPush | undefined> {
   if (!cfg?.sk) return undefined; // non-nsec login → the worker can't decrypt
-  const opened = await openDm(wrap, cfg.sk, cfg.self);
-  if (!opened) return undefined;
+  const unwrapped = await openDm(wrap, cfg.sk, cfg.self);
+  if (!unwrapped) return undefined;
+  // A push is delivered as the message is published: time it by its arrival where the sender's clock was off.
+  const opened = withArrival(unwrapped, Math.floor(Date.now() / 1000));
 
   // Persist first (including own sent copies from other devices).
   await writeDm17Rumors(cfg.self, [opened]).catch(() => undefined);
@@ -450,7 +452,7 @@ async function prepareDm(
       roomKey,
       eventId: opened.rumorId,
       url: `/dm/${conversation}`,
-      timestamp: opened.createdAt * 1000,
+      timestamp: dmAt(opened) * 1000,
     },
     policyOf(cfg),
     // Not the wrap's relays: asking the inbox that just delivered a wrap for

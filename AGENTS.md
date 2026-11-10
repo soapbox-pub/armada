@@ -1089,6 +1089,20 @@ exists for the check and for translators.
   `modelRenderer.ts` routes every loader through a manager that refuses any URL
   but the `blob:`/`data:` resources inside the file, since a model can name
   buffers and textures on any host.
+- **Clocks: date and judge by the corrected clock, time live signals by arrival.**
+  Anything this client signs, and any comparison against a sender's date, uses
+  `nowSecs()`/`clockNowMs()` (`src/lib/relayClock.ts`), never a bare
+  `Date.now()`: the relays' `Date` corrects it on native and desktop, the page's
+  own origin on the web. Durations and throttles stay on `Date.now()`. A
+  short-lived signal (typing, call reactions) is checked against
+  `isPlausiblyLive` and then timed from when it ARRIVED (`src/lib/liveSignal.ts`),
+  so a sender's skewed clock neither hides it nor keeps it on. A NIP-17 message
+  that arrives live dated more than `ARRIVAL_SKEW_SECS` from its arrival is
+  ordered, counted unread and notified by its arrival (`dmAt`), recorded as a
+  `dm17at:<self>:<rumorId>` KV fact by every writer of the tenant — the page,
+  the service worker, `ServiceStore.storeDm17Rumor` and `NotifyStore.writeDm` —
+  whose shape all three ports must keep. Read stamps never run more than a
+  minute past now (`capReadStamp`).
 - Commit messages: concise, imperative, sentence case (see `git log`).
   Describe the technical change only — what was changed. Don't embed a
   confident problem diagnosis, root-cause narrative, or prescribed "this fixes

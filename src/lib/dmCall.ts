@@ -32,6 +32,7 @@ import {
 } from "@/concord/lib/derive";
 import { canonicalOrigin } from "@/concord/lib/voice";
 import { KIND_DM_CALL, type OpenedDm } from "@/lib/nip17/protocol";
+import { clockNowMs } from "@/lib/relayClock";
 
 /** How long an offer rings before it counts as missed (both sides). */
 export const DM_CALL_RING_MS = 45_000;
@@ -171,7 +172,7 @@ export function parseDmCall(opened: OpenedDm): DmCallSignal | null {
 }
 
 /** Whether an offer is still inside its ring window (with future-skew guard). */
-export function isDmOfferFresh(signal: DmCallSignal, nowMs = Date.now()): boolean {
+export function isDmOfferFresh(signal: DmCallSignal, nowMs = clockNowMs()): boolean {
   if (signal.phase !== "offer") return false;
   if (signal.createdAtMs > nowMs + 60_000) return false;
   return nowMs - signal.createdAtMs <= DM_CALL_RING_MS;

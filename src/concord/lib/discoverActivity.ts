@@ -17,6 +17,7 @@ import { KIND_WRAP } from "@/concord/lib/kinds";
 import { normalizeRelayUrl } from "@/lib/platform";
 
 import type { NostrFilter } from "@nostrify/nostrify";
+import { nowSecs } from "@/lib/relayClock";
 
 /** One community's probe target for a batched last-wrap REQ. */
 export interface DiscoverActivityTarget {
@@ -134,7 +135,7 @@ export function discoverActivityBatches(
 }
 
 function nowSeconds(): number {
-  return Math.floor(Date.now() / 1000);
+  return nowSecs();
 }
 
 /** Map wrap events back to link-signers by stream author (community-unique derivations). */

@@ -57,6 +57,7 @@ import { verifyEventOnce } from "@/lib/verifyCache";
 import { setPreferredVoiceServer } from "@/lib/voiceDevices";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
+import { nowSecs } from "@/lib/relayClock";
 
 /** Longer than config's: reactions are rapid, and the table is only a convenience cache. */
 const FREQUENT_REACTIONS_DEBOUNCE_MS = 10_000;
@@ -321,7 +322,7 @@ function NostrSyncInner() {
         // A new filter set is a new read: a resume would miss documents older than its `since`.
         const readKey = `${pubkey}\u0000${url}\u0000${derivedAuthorKey}`;
         const relayFilters = sinceSelfRead(filters, readKey);
-        const requestedAt = Math.floor(Date.now() / 1000);
+        const requestedAt = nowSecs();
         void (async () => {
           try {
             for await (const msg of nostr.relay(url).req(relayFilters, reqOpts)) {

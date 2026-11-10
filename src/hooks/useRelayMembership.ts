@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { KIND_RELAY_INVITE, KIND_RELAY_JOIN } from "@/lib/nip29";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * Relay-level membership for community relays (zooid/Coracle, behind Flotilla/Soapbox), which
@@ -51,7 +52,7 @@ export function useJoinRelay() {
           kind: KIND_RELAY_JOIN,
           content: "",
           tags,
-          created_at: Math.floor(Date.now() / 1000),
+          created_at: nowSecs(),
         });
         await nostr.relay(relayUrl).event(event, { signal: AbortSignal.timeout(8000) });
       } catch {

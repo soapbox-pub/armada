@@ -9,6 +9,7 @@ import { KIND_ONCHAIN_ZAP, KIND_ZAP_RECEIPT, tallyOnchainZaps, tallyZaps, type Z
 
 import type { MessageZaps } from "@/components/chat/transport";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 const zapsKey = (scope: string) => ["zaps", scope] as const;
 
@@ -102,7 +103,7 @@ export function useZapReceipts(
     (async () => {
       try {
         for await (const msg of nostr.req(
-          [{ kinds: [KIND_ZAP_RECEIPT, KIND_ONCHAIN_ZAP], "#e": ids, since: Math.floor(Date.now() / 1000) - 5 }],
+          [{ kinds: [KIND_ZAP_RECEIPT, KIND_ONCHAIN_ZAP], "#e": ids, since: nowSecs() - 5 }],
           { signal: controller.signal },
         )) {
           if (msg[0] !== "EVENT") continue;

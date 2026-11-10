@@ -23,6 +23,7 @@ import { defaultPowDifficulty } from "@/lib/pow";
 import { cn } from "@/lib/utils";
 
 import type { ReactNode } from "react";
+import { nowSecs } from "@/lib/relayClock";
 
 /** The lists Settings › Relays shows, in the signup wizard's order and with its names. */
 type RelayRow = "home" | "dm" | "search" | "blossom" | "community" | "broadcast";
@@ -113,7 +114,7 @@ export function RelaysSettings() {
   const setBlossomServers = (servers: string[]) => {
     updateConfig((current) => ({
       ...current,
-      blossomServerMetadata: { servers, updatedAt: Math.floor(Date.now() / 1000) },
+      blossomServerMetadata: { servers, updatedAt: nowSecs() },
     }));
     if (user) {
       blossomServerList.publish(servers).catch((err) =>

@@ -8,6 +8,7 @@
 import { KIND_DM_WRAP_EPHEMERAL } from "@/lib/nip17/protocol";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
+import { liveSignalSince } from "@/lib/liveSignal";
 
 interface EphemeralNostr {
   relay(url: string): {
@@ -53,7 +54,7 @@ function open(nostr: EphemeralNostr, relay: string, recipient: string, key: stri
   void (async () => {
     try {
       for await (const msg of nostr.relay(relay).req(
-        [{ kinds: [KIND_DM_WRAP_EPHEMERAL], "#p": [recipient], since: Math.floor(Date.now() / 1000) }],
+        [{ kinds: [KIND_DM_WRAP_EPHEMERAL], "#p": [recipient], since: liveSignalSince() }],
         { signal },
       )) {
         if (msg[0] !== "EVENT") continue;

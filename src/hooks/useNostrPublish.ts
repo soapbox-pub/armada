@@ -20,6 +20,7 @@ import { useEventStore } from "./useEventStore";
 import type { NostrEvent } from "@nostrify/nostrify";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 export type EventTemplate = Omit<NostrEvent, "id" | "pubkey" | "sig" | "created_at"> & {
   created_at?: number;
@@ -73,7 +74,7 @@ export function useNostrPublish(): UseMutationResult<NostrEvent, Error, EventTem
         ["client", APP_NAME],
       ];
 
-      const created_at = template.created_at ?? Math.floor(Date.now() / 1000);
+      const created_at = template.created_at ?? nowSecs();
 
       // published_at for replaceable/addressable events (NIP-24)
       if (isReplaceableKind(template.kind) && !tags.some(([name]) => name === "published_at")) {

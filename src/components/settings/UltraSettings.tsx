@@ -45,6 +45,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ReactNode } from "react";
+import { nowSecs } from "@/lib/relayClock";
 
 const HERO_TITLE_STYLE = nameStyleCss("aurora");
 
@@ -84,7 +85,7 @@ export function UltraSettings() {
     } catch { /* no Web Audio: confetti only */ }
     try {
       await Promise.all([
-        publish({ since: Math.floor(Date.now() / 1000), ...ULTRA_DEFAULTS }),
+        publish({ since: nowSecs(), ...ULTRA_DEFAULTS }),
         new Promise((resolve) => setTimeout(resolve, PROCESSING_MS)),
       ]);
     } catch (error) {

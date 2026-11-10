@@ -8,6 +8,7 @@ import { KIND_GROUP_WEBXDC_REALTIME, KIND_GROUP_WEBXDC_UPDATE } from "@/lib/nip2
 
 import type { AppStateMeta, AppStateUpdate, AppSync } from "@/hooks/useWebxdcApi";
 import type { NostrEvent } from "@nostrify/nostrify";
+import { nowSecs } from "@/lib/relayClock";
 
 function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
@@ -126,7 +127,7 @@ export function useGroupAppSync(
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
-    const since = Math.floor(Date.now() / 1000);
+    const since = nowSecs();
 
     (async () => {
       try {

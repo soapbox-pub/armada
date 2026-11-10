@@ -17,6 +17,7 @@ import { readFolded, writeFolded } from "@/lib/foldedCache";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type { UnwrappedInvite } from "@/concord/lib/directInvite";
 import { KIND_DIRECT_INVITE } from "@/concord/lib/kinds";
+import { nowSecs } from "@/lib/relayClock";
 
 /** NIP-59's outer-timestamp backdate window (the cursor rewinds this much). */
 export const WRAP_BACKDATE_SECS = 2 * 24 * 60 * 60;
@@ -145,7 +146,7 @@ function wrapExpired(tags: readonly string[][], nowSecs: number): boolean {
  */
 export function bufferLiveInviteWraps(wraps: NostrEvent[]): NostrEvent[] {
   const fresh: NostrEvent[] = [];
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   for (const w of wraps) {
     // An expired handoff is never buffered or decrypted.
     if (wrapExpired(w.tags, now)) continue;

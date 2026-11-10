@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 
 import type { QuickReaction } from "@/lib/quickReactions";
+import { nowSecs } from "@/lib/relayClock";
 
 export interface FrequentReaction {
   /** The display key (emoji, 👍/👎, or `:shortcode:`). */
@@ -88,7 +89,7 @@ export function recordReaction(
   pickerId?: string,
 ): void {
   if (!pubkey || !key) return;
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   const prev = load(pubkey);
   const existing = prev.find((e) => e.key === key);
   const next = existing

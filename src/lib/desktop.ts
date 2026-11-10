@@ -180,6 +180,8 @@ interface ArmadaDesktopBridge {
     openAsHidden: boolean;
   }) => Promise<DesktopLaunchSettings>;
   fetchImage?: (url: string) => Promise<{ type: string; data: Uint8Array<ArrayBuffer> } | null>;
+  /** A relay's `Date` and `Age`, which the page can't read cross-origin; null when it didn't answer. */
+  httpDate?: (url: string) => Promise<{ date: string | null; age: string | null } | null>;
   getWebCacheSize?: () => Promise<number>;
   clearWebCache?: () => Promise<void>;
   getLowMemoryMode?: () => Promise<DesktopLowMemoryState>;

@@ -5,6 +5,7 @@ import { KIND_PRESENCE } from "@/buzz/kinds";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 import type { NostrEvent } from "@nostrify/nostrify";
+import { nowSecs } from "@/lib/relayClock";
 
 /** A presence heartbeat is live for this long (relay TTL is 90s). */
 const PRESENCE_WINDOW_MS = 90_000;
@@ -49,7 +50,7 @@ export function useBuzzPresence(relayUrl: string | undefined): Record<string, Bu
     void (async () => {
       try {
         for await (const msg of nostr.relay(relayUrl).req(
-          [{ kinds: [KIND_PRESENCE], since: Math.floor(Date.now() / 1000) - 90 }],
+          [{ kinds: [KIND_PRESENCE], since: nowSecs() - 90 }],
           { signal: controller.signal },
         )) {
           if (msg[0] !== "EVENT") continue;
@@ -86,7 +87,7 @@ export function useBuzzPresence(relayUrl: string | undefined): Record<string, Bu
           kind: KIND_PRESENCE,
           content: "online",
           tags: [["status", "online"]],
-          created_at: Math.floor(Date.now() / 1000),
+          created_at: nowSecs(),
         });
         if (!cancelled) {
           await nostr.relay(relayUrl).event(event, { signal: AbortSignal.timeout(6000) });

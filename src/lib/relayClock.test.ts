@@ -1,7 +1,7 @@
 /** Keeping the clock by the relays (CORD-03 §3, Vector `clock.rs`). */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { accountClockRelays, agreedOffset, clockNowMs, clockOffsetMs, parseHttpDate, resetClockOffset, syncClockWithRelays } from "@/lib/relayClock";
+import { accountClockRelays, agreedOffset, clockNowMs, clockOffsetMs, nowSecs, parseHttpDate, resetClockOffset, syncClockWithOrigin, syncClockWithRelays } from "@/lib/relayClock";
 
 afterEach(() => {
   resetClockOffset();
@@ -74,6 +74,28 @@ describe("syncClockWithRelays with no relays", () => {
     await syncClockWithRelays(["wss://r1.test", "wss://r2.test", "wss://r3.test"], async () => ({ date: ahead }));
     expect(clockOffsetMs()).not.toBe(0);
     await syncClockWithRelays([]);
+    expect(clockOffsetMs()).toBe(0);
+  });
+});
+
+describe("syncClockWithOrigin", () => {
+  it("takes the origin's word alone, and ignores a gap under 2 s", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(1_800_000_000_000);
+    await syncClockWithOrigin("https://armada.test", async (url) => {
+      expect(url).toBe("https://armada.test/");
+      return { date: httpDate(Date.now() - 120_000) };
+    });
+    expect(Math.abs(clockOffsetMs() + 119_500)).toBeLessThan(1_001);
+    expect(nowSecs()).toBe(Math.floor(clockNowMs() / 1000));
+    await syncClockWithOrigin("https://armada.test", async () => ({ date: httpDate(Date.now() + 1_000) }));
+    expect(clockOffsetMs()).toBe(0);
+  });
+
+  it("falls back to the device's clock when the origin sends no date", async () => {
+    await syncClockWithOrigin("https://armada.test", async () => ({ date: httpDate(Date.now() + 600_000) }));
+    expect(clockOffsetMs()).not.toBe(0);
+    await syncClockWithOrigin("https://armada.test", async () => ({ date: null }));
     expect(clockOffsetMs()).toBe(0);
   });
 });

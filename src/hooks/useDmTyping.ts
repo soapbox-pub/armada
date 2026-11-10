@@ -27,6 +27,7 @@ import {
 } from "@/lib/nip17/protocol";
 import { dmConvKey, dmConvPeers } from "@/lib/nip17/conversation";
 import { subscribeDmEphemeral } from "@/lib/nip17/ephemeralInbox";
+import { isPlausiblyLive } from "@/lib/liveSignal";
 
 import type { NostrEvent } from "@nostrify/nostrify";
 
@@ -60,7 +61,8 @@ export function useDmTyping(conversation: string | undefined, enabled = true): D
   const senders = useMemo(() => new Set(peers), [peers]);
 
   const [typers, setTypers] = useState<string[]>([]);
-  const lastSeen = useRef(new Map<string, number>());
+  /** Per typer: when their latest signal arrived (local ms), and the date it carried. */
+  const lastSeen = useRef(new Map<string, { at: number; date: number }>());
   const lastSent = useRef(0);
 
   const on =
@@ -98,7 +100,7 @@ export function useDmTyping(conversation: string | undefined, enabled = true): D
       const cutoff = now - TYPING_WINDOW_MS;
       const live: string[] = [];
       let oldest = Infinity;
-      for (const [pubkey, at] of lastSeen.current) {
+      for (const [pubkey, { at }] of lastSeen.current) {
         if (at > cutoff) {
           live.push(pubkey);
           oldest = Math.min(oldest, at);
@@ -121,10 +123,10 @@ export function useDmTyping(conversation: string | undefined, enabled = true): D
       // Excludes our own echoed signal, and 1:1 signals from a group sharing its members.
       if (!senders.has(opened.author)) return;
       if (dmConvKey(opened.peers) !== conversationKey) return;
-      const ms = opened.createdAt * 1000;
-      if (Date.now() - ms > TYPING_WINDOW_MS) return;
-      if (ms <= (lastSeen.current.get(opened.author) ?? 0)) return;
-      lastSeen.current.set(opened.author, ms);
+      const date = opened.createdAt * 1000;
+      if (!isPlausiblyLive(date)) return;
+      if (date <= (lastSeen.current.get(opened.author)?.date ?? 0)) return;
+      lastSeen.current.set(opened.author, { at: Date.now(), date });
       recompute();
     };
 

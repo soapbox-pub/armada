@@ -10,6 +10,7 @@ import { bolt11Info } from "@/lib/zaps";
 
 import type { ChatMsg, ZapPayment } from "@/components/chat/transport";
 import type { NostrMetadata } from "@nostrify/nostrify";
+import { nowSecs } from "@/lib/relayClock";
 
 export type ZapStatus = "idle" | "resolving" | "paying" | "manual" | "success";
 
@@ -96,7 +97,7 @@ export function useZap(opts: {
           const signed = await user.signer.signEvent({
             kind: 9734,
             content: trimmedComment,
-            created_at: Math.floor(Date.now() / 1000),
+            created_at: nowSecs(),
             tags: [
               ["p", recipient.pubkey],
               ["amount", String(amountMsats)],

@@ -25,6 +25,7 @@ import {
 import type { NostrEvent } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /** NIP-17 DM relay list: a plain replaceable event whose `relay` tags hold the URLs. */
 export const KIND_DM_RELAYS = 10050;
@@ -209,8 +210,8 @@ export function useDmRelayList() {
         ...urls.map((url) => ["relay", url]),
       ];
       const createdAt = prev
-        ? Math.max(Math.floor(Date.now() / 1000), prev.created_at + 1)
-        : Math.floor(Date.now() / 1000);
+        ? Math.max(nowSecs(), prev.created_at + 1)
+        : nowSecs();
 
       await publishEvent({
         kind: KIND_DM_RELAYS,

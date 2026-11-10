@@ -6,6 +6,8 @@ import { useGuestbook } from "@/concord/hooks/useGuestbook";
 import { sendTarget } from "@/concord/lib/writerKeys";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { isPlausiblyLive } from "@/lib/liveSignal";
+import { clockNowMs } from "@/lib/relayClock";
 import { KIND_SEAL_ENCRYPTED, KIND_TYPING } from "@/concord/lib/kinds";
 import { subscribeEphemeral } from "@/concord/lib/ephemeralSub";
 import { buildRumor, channelBindingTags, checkChannelBinding, openWrap, sealRumor, wrapSeal } from "@/concord/lib/stream";
@@ -29,7 +31,8 @@ export function useTyping(community: Community | undefined, channel: Channel | u
   const { user } = useCurrentUser();
   const enabled = useAppContext().config.dmTypingIndicators;
   const [typers, setTypers] = useState<string[]>([]);
-  const seen = useRef(new Map<string, number>());
+  /** Per typer: when their latest signal arrived (local ms), and the date it carried. */
+  const seen = useRef(new Map<string, { at: number; date: number }>());
 
   const channelIdHex = channel?.idHex ?? null;
   const currentPk = channel?.current.group.pk;
@@ -53,10 +56,10 @@ export function useTyping(community: Community | undefined, channel: Channel | u
       const now = Date.now();
       const live: string[] = [];
       let oldest = Infinity;
-      for (const [pk, ms] of seen.current) {
-        if (now - ms <= TYPING_WINDOW_MS) {
+      for (const [pk, { at }] of seen.current) {
+        if (now - at <= TYPING_WINDOW_MS) {
           live.push(pk);
-          oldest = Math.min(oldest, ms);
+          oldest = Math.min(oldest, at);
         } else seen.current.delete(pk);
       }
       setTypers((prev) =>
@@ -73,9 +76,9 @@ export function useTyping(community: Community | undefined, channel: Channel | u
         if (opened.kind !== KIND_TYPING) return;
         checkChannelBinding(opened, channelIdHex, epoch);
         if (user && opened.author === user.pubkey) return;
-        if (Date.now() - opened.ms > TYPING_WINDOW_MS) return;
-        const prev = seen.current.get(opened.author) ?? 0;
-        if (opened.ms > prev) seen.current.set(opened.author, opened.ms);
+        if (!isPlausiblyLive(opened.ms)) return;
+        if (opened.ms <= (seen.current.get(opened.author)?.date ?? 0)) return;
+        seen.current.set(opened.author, { at: Date.now(), date: opened.ms });
         recompute();
       } catch {
         // not ours / malformed
@@ -120,7 +123,7 @@ export function useTypingPublisher(community: Community | undefined, channel: Ch
           content: "",
           tags: [...channelBindingTags(channel.idHex, channel.current.epoch), ...at.tags],
           pubkey: user.pubkey,
-          ms: now,
+          ms: clockNowMs(),
         });
         const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, at.group, user.signer);
         const wrap = await wrapSeal(seal, at.group, { ephemeral: true });

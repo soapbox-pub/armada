@@ -307,6 +307,25 @@ class Dm17Test {
         assertEquals(emptyList<String>(), TermPolicies.termsOf(orphan, Dm17.tenant(self)))
     }
 
+    @Test
+    fun `records the arrival of a message whose sender's clock was off`() {
+        // `rumor()` is dated now - 10: ten seconds slow, past ARRIVAL_SKEW_SECS.
+        val fact = org.json.JSONObject(Dm17.arrivalFact(self, rumor(kind = 14, pubkey = alice), now)!!)
+        assertEquals(now, fact.getLong("at"))
+        assertEquals(now - 10, fact.getLong("sent"))
+        assertEquals(alice, fact.getString("conv"))
+        assertTrue(fact.getBoolean("in"))
+        assertEquals("dm17at:$self:id-14-$alice", Dm17.arrivalKey(self, "id-14-$alice"))
+    }
+
+    @Test
+    fun `records no arrival within the skew, or for anything but a message`() {
+        assertNull(Dm17.arrivalFact(self, rumor(kind = 14, pubkey = alice), now - 8))
+        assertNull(Dm17.arrivalFact(self, rumor(kind = 7, pubkey = alice), now))
+        assertFalse(Dm17.arrivalCounts(14, now, now + Dm17.ARRIVAL_SKEW_SECS))
+        assertTrue(Dm17.arrivalCounts(15, now, now - Dm17.ARRIVAL_SKEW_SECS - 1))
+    }
+
     private fun rumor(
         kind: Int,
         pubkey: String,

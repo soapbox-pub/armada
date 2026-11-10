@@ -28,6 +28,7 @@ import type { DerivedDoc } from "@/lib/settingsKeys";
 import type { SelfStateClient, SettingsKeys } from "@/lib/settingsRootStore";
 
 import type { MetadataDoc } from "@/lib/schemas";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * Read/write one encrypted NIP-78 settings document; see `lib/settingsDocs.ts` and
@@ -231,7 +232,7 @@ export async function signDerivedSettingsDoc(
     // Only the opaque `d`: a title or client tag would name what this is.
     tags: [["d", derived.d]],
     // Strictly newer than what we merged over, or the store (and relays) would discard it.
-    created_at: Math.max(Math.floor(Date.now() / 1000), (previousCreatedAt ?? 0) + 1),
+    created_at: Math.max(nowSecs(), (previousCreatedAt ?? 0) + 1),
   });
 }
 

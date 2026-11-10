@@ -41,7 +41,9 @@ export function shouldShowDmTimelineLoading(
  * Sort-merge the kind-4 and NIP-17 planes, showing only the range both have
  * loaded: a plane still paging may hold messages older than its oldest row, so
  * the other plane's rows below that point would later have history appear
- * between them. `keepId` (a permalink target) is always shown.
+ * between them. `keepId` (a permalink target) is always shown. Rows sort by
+ * `at` (a NIP-17 message's arrival, where its sender's clock was off); the
+ * paging floor stays on `created_at`, which is what the planes page by.
  */
 export function mergeDmPlanes<M extends { id: string; created_at: number }>(
   kind4: readonly M[],
@@ -49,6 +51,7 @@ export function mergeDmPlanes<M extends { id: string; created_at: number }>(
   kind4Paging: boolean,
   dm17Paging: boolean,
   keepId?: string,
+  at: (m: M) => number = (m) => m.created_at,
 ): M[] {
   if (dm17.length === 0) return kind4 as M[];
   if (kind4.length === 0) return dm17 as M[];
@@ -58,7 +61,7 @@ export function mergeDmPlanes<M extends { id: string; created_at: number }>(
   if (dm17Paging) floor = Math.max(floor, oldest(dm17));
   return [...kind4, ...dm17]
     .filter((m) => m.created_at >= floor || m.id === keepId)
-    .sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
+    .sort((a, b) => at(a) - at(b) || (a.id < b.id ? -1 : 1));
 }
 
 export class LegacyFallbackRequired extends Error {
@@ -83,6 +86,8 @@ export function useDmTransport(
   transport: ChatTransport;
   /** Chat rows plus timer-change notices, chronologically interleaved. */
   entries: ChannelTimelineEntry[];
+  /** When the newest message counts as sent (its arrival, where recorded): what reading the thread stamps. */
+  latestAt: number;
   /**
    * Catch-up still running over an EMPTY thread; separate from `transport.isLoading`
    * (local read only) so the timeline says "Catching up…".
@@ -191,6 +196,13 @@ export function useDmTransport(
   }, [dm17.messages]);
 
   const dm17Ids = useMemo(() => new Set(dm17Messages.map((m) => m.id)), [dm17Messages]);
+  // Each message's time for order and read stamps: a NIP-17 one's arrival where recorded.
+  const arrivedAt = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const m of dm17.messages) if (m.arrivedAt !== undefined) out.set(m.rumorId, m.arrivedAt);
+    return out;
+  }, [dm17.messages]);
+  const atOf = useCallback((m: ChatMsg) => arrivedAt.get(m.id) ?? m.created_at, [arrivedAt]);
   // Via a ref: `dm17Ids` changes every history page, which would re-render every row.
   const dm17IdsRef = useRef(dm17Ids);
   dm17IdsRef.current = dm17Ids;
@@ -204,16 +216,17 @@ export function useDmTransport(
   // holds no floor, or the other plane's history would stay hidden for good.
   const kind4Paging = Boolean(legacyPeer && hasMoreKind4 && user?.signer.nip04);
   const chatMessages = useMemo<ChatMsg[]>(
-    () => mergeDmPlanes(kind4Messages, dm17Messages, kind4Paging, dm17.hasMore, focusedRumorId),
-    [kind4Messages, dm17Messages, kind4Paging, dm17.hasMore, focusedRumorId],
+    () => mergeDmPlanes(kind4Messages, dm17Messages, kind4Paging, dm17.hasMore, focusedRumorId, atOf),
+    [kind4Messages, dm17Messages, kind4Paging, dm17.hasMore, focusedRumorId, atOf],
   );
+  const latestAt = chatMessages.length > 0 ? atOf(chatMessages[chatMessages.length - 1]) : 0;
 
   const dm17TimerChanges = dm17.timerChanges;
   const entries = useMemo<ChannelTimelineEntry[]>(() => {
     const out: ChannelTimelineEntry[] = chatMessages.map((message) => ({
       type: "chat" as const,
       id: `chat:${message.id}`,
-      createdAt: message.created_at,
+      createdAt: atOf(message),
       message,
     }));
     for (const change of dm17TimerChanges) {
@@ -229,7 +242,7 @@ export function useDmTransport(
       });
     }
     return out.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
-  }, [chatMessages, dm17TimerChanges]);
+  }, [chatMessages, dm17TimerChanges, atOf]);
 
   const encryptedIds = useMemo(
     () => new Set(messages.filter((m) => m.encrypted).map((m) => m.id)),
@@ -407,6 +420,7 @@ export function useDmTransport(
   return {
     transport,
     entries,
+    latestAt,
     syncing,
     disappearingTimer: dm17.timer ?? 0,
     resolveDisappearingTimer: dm17.resolveTimer,

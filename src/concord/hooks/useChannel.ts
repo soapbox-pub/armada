@@ -1,5 +1,5 @@
 import { useNostr } from "@nostrify/react";
-import { clockNowMs } from "@/lib/relayClock";
+import { clockNowMs, nowSecs } from "@/lib/relayClock";
 import { sendsIn, sendTarget, writerGroup, writerKeyAt } from "@/concord/lib/writerKeys";
 import { hashKey, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -818,7 +818,7 @@ export function useChannelTimeline(
       const saved = await readStreamCursor(cursorKeyId);
       for (let pass = 0; pass < NEWER_PASSES; pass++) {
         // The present's floor, or (an empty present) the clock plus publisher skew.
-        const ceiling = pageCursors.get(cursorKeyId)?.until ?? Math.floor(Date.now() / 1000) + 600;
+        const ceiling = pageCursors.get(cursorKeyId)?.until ?? nowSecs() + 600;
         const res = await readForward<OpenedChat>({
           from: top + 1,
           ceiling,
@@ -1571,9 +1571,9 @@ export function useMessageActions(community: Community | undefined, channel: Cha
             [id, ...edits.map((e) => e.rumorId)],
             secret,
           ).catch(() => ({ byOwner: false, byPlane: false }));
-          const nowSecs = Math.floor(Date.now() / 1000);
+          const scrubAt = nowSecs();
           const exp = target.tags.find((t) => t[0] === "expiration")?.[1];
-          expiration = scrubbedDeleteExpiry(scrubbed, exp && /^[0-9]+$/.test(exp) ? Number(exp) : undefined, nowSecs);
+          expiration = scrubbedDeleteExpiry(scrubbed, exp && /^[0-9]+$/.test(exp) ? Number(exp) : undefined, scrubAt);
         }
         await send({
           content: "",

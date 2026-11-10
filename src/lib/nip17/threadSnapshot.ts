@@ -17,6 +17,7 @@ import { perfCount, perfMark } from "@/lib/perf";
 
 import type { OpenedDm } from "@/lib/nip17/protocol";
 import type { QueryClient } from "@tanstack/react-query";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * Newest rows kept per conversation. Larger than the channel snapshot's 40
@@ -80,7 +81,7 @@ export async function prewarmDm17ThreadSnapshot(
     perfMark("dm17.snap.prewarm", `${conversation.slice(0, 8)} miss`);
     return;
   }
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   // Re-check rows against their conversation so a corrupted snapshot can't cross-paint.
   const own = snap.filter(
     (m) => dmConvKey(m.peers ?? []) === conversation && !isExpired(m.tags, now) && !isRemovedMessageId(m.rumorId),
@@ -100,7 +101,7 @@ export function persistDm17ThreadSnapshot(
   window: readonly OpenedDm[],
 ): Promise<void> {
   if (window.length === 0) return Promise.resolve();
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   const newest = window
     .filter((m) => !isExpired(m.tags, now) && !isRemovedMessageId(m.rumorId))
     .sort((a, b) => b.createdAt - a.createdAt || (a.rumorId < b.rumorId ? -1 : 1))

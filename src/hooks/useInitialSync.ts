@@ -78,6 +78,7 @@ import { RELAY_LIST_DISCOVERY_RELAYS } from "@/lib/platform";
 import type { NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { defineMessages, t, type MessageDescriptor } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /** NIP-88 poll kind — polls render inline in the group timeline. */
 const KIND_POLL = 1068;
@@ -674,7 +675,7 @@ export function useInitialSync(pubkey: string | undefined): SyncState {
         if (channels.length > 0) {
           const mId = begin("messages");
           let messageCount = 0;
-          const since = Math.floor(Date.now() / 1000) - CATCHUP_WINDOW_SECONDS;
+          const since = nowSecs() - CATCHUP_WINDOW_SECONDS;
           await Promise.all(
             channels.map(async ({ id, relay }) => {
               try {

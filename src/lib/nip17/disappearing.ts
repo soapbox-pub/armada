@@ -6,6 +6,7 @@
  */
 
 import { defineMessage, defineMessages, t, type MessageDescriptor } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;
@@ -66,8 +67,8 @@ export function formatDisappearingDuration(seconds: number): string {
  * Compact time left ("2d", "4h", "45s"), rounded UP so a visible message never
  * reads "0s". Days are the largest unit to match how timers are set.
  */
-export function formatTimeLeft(expiresAt: number, nowSecs = Math.floor(Date.now() / 1000)): string {
-  const left = expiresAt - nowSecs;
+export function formatTimeLeft(expiresAt: number, now = nowSecs()): string {
+  const left = expiresAt - now;
   if (left >= DAY) return t({ id: "nip17Disappearing.left.days", defaultMessage: "{count}d" }, { count: Math.ceil(left / DAY) });
   if (left >= HOUR) return t({ id: "nip17Disappearing.left.hours", defaultMessage: "{count}h" }, { count: Math.ceil(left / HOUR) });
   if (left >= MINUTE) return t({ id: "nip17Disappearing.left.minutes", defaultMessage: "{count}m" }, { count: Math.ceil(left / MINUTE) });

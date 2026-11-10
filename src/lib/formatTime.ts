@@ -1,4 +1,5 @@
 import { getLocale, t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /** Format seconds to m:ss or h:mm:ss. */
 export function formatTime(seconds: number): string {
@@ -23,7 +24,7 @@ const YEAR = 365.25 * DAY;
  * ("now"/"5m"/"3h"/"2d"/"4w"/"11mo"/"2y"). Months are "mo" because "m" is minutes.
  */
 export function shortTimeAgo(timestamp: number): string {
-  const diff = Math.floor(Date.now() / 1000) - timestamp;
+  const diff = nowSecs() - timestamp;
   if (diff < MINUTE) return t({ id: "formatTime.short.now", defaultMessage: "now" });
   if (diff < HOUR) return t({ id: "formatTime.short.minutes", defaultMessage: "{count}m" }, { count: Math.floor(diff / MINUTE) });
   if (diff < DAY) return t({ id: "formatTime.short.hours", defaultMessage: "{count}h" }, { count: Math.floor(diff / HOUR) });
@@ -38,7 +39,7 @@ export function shortTimeAgo(timestamp: number): string {
  * {ago}"): "5m ago", "just now". The bare form has no "ago" to inflect around.
  */
 export function shortTimeAgoPhrase(timestamp: number): string {
-  if (Math.floor(Date.now() / 1000) - timestamp < MINUTE) {
+  if (nowSecs() - timestamp < MINUTE) {
     return t({ id: "formatTime.justNow", defaultMessage: "just now" });
   }
   return t({ id: "formatTime.shortAgo", defaultMessage: "{time} ago" }, { time: shortTimeAgo(timestamp) });
@@ -46,7 +47,7 @@ export function shortTimeAgoPhrase(timestamp: number): string {
 
 /** Format a unix-seconds timestamp as a long relative string ("2 days ago"). */
 export function relativeTime(timestamp: number): string {
-  const seconds = Math.floor(Date.now() / 1000) - timestamp;
+  const seconds = nowSecs() - timestamp;
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);

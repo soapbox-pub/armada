@@ -31,6 +31,7 @@ import {
 import { finalizePowEvent } from "@/lib/pow";
 import { verifyEventOnce } from "@/lib/verifyCache";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 export class StreamError extends Error {
   constructor(
@@ -82,7 +83,7 @@ export function buildRumor(opts: {
   const tags = [...(opts.tags ?? [])];
   let createdAt: number;
   if (opts.ms === null || opts.ms === undefined) {
-    createdAt = opts.createdAtSecs ?? Math.floor(Date.now() / 1000);
+    createdAt = opts.createdAtSecs ?? nowSecs();
   } else {
     // Fail closed on a negative/non-integer clock: the `ms` tag would be malformed (CORD-02 §5).
     if (!Number.isFinite(opts.ms) || opts.ms < 0) {
@@ -147,7 +148,7 @@ export function wrapSeal(
       kind: opts?.ephemeral ? KIND_WRAP_EPHEMERAL : KIND_WRAP,
       content: encryptChecked(stream.convKey, JSON.stringify(seal)),
       tags,
-      created_at: Math.floor(Date.now() / 1000),
+      created_at: nowSecs(),
     },
     stream.sk,
   );

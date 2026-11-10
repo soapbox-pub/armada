@@ -25,6 +25,7 @@ import type { StreamKeyView } from "@/concord/lib/derive";
 import { normalizeRelayUrl } from "@/lib/platform";
 import { ecSignBatch } from "@/lib/verifyPool";
 import type { SignJob } from "@/lib/verifyWorkerTypes";
+import { nowSecs } from "@/lib/relayClock";
 
 interface StreamKeyEntry {
   /**
@@ -187,7 +188,7 @@ export function signStreamAuths(
   relayUrl: string,
   pubkeys?: Iterable<string>,
 ): NostrEvent[] {
-  const createdAt = Math.floor(Date.now() / 1000);
+  const createdAt = nowSecs();
   const out: NostrEvent[] = [];
   for (const pk of pubkeys ?? streamPubkeysForRelay(relayUrl)) {
     const sk = registry.get(pk)?.sk;
@@ -223,7 +224,7 @@ export async function* signStreamAuthsChunked(
   relayUrl: string,
   pubkeys?: Iterable<string>,
 ): AsyncGenerator<NostrEvent[]> {
-  const createdAt = Math.floor(Date.now() / 1000);
+  const createdAt = nowSecs();
   const pks = [...(pubkeys ?? streamPubkeysForRelay(relayUrl))];
   for (let i = 0; i < pks.length; i += SIGN_BATCH) {
     const unsigned: Omit<NostrEvent, "sig">[] = [];

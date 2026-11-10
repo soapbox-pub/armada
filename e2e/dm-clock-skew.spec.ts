@@ -4,7 +4,8 @@ import { createRumor, createSeal, createWrap } from "nostr-tools/nip59";
 
 import { dismissRestore, loginAs, makePerson, profilesOf, settle, type Person } from "./screenshotWorld";
 
-// Replication: a NIP-17 DM whose sender's clock runs behind the viewer's.
+// A NIP-17 DM whose sender's clock runs behind the viewer's: it must still land
+// after the message it answers, count as unread and notify.
 //
 //   ARMADA_E2E_SINGLE_PROCESS=1 npx playwright test e2e/dm-clock-skew.spec.ts
 
@@ -62,7 +63,7 @@ function dmWrap(from: Person, to: Person, content: string, createdAt: number) {
 
 test.use({ viewport: { width: 1200, height: 800 } });
 
-test("a reply from a sender whose clock is 2 minutes behind", async ({ page, context }) => {
+test("a reply from a sender whose clock runs slow is placed, counted and notified on arrival", async ({ page, context }) => {
   test.setTimeout(240_000);
   const me = makePerson("viewer", "", 286);
   const peer = makePerson("peer", "", 20);
@@ -132,30 +133,19 @@ test("a reply from a sender whose clock is 2 minutes behind", async ({ page, con
     history.pushState({}, "", "/settings");
     dispatchEvent(new PopStateEvent("popstate"));
   });
-  await page.waitForTimeout(3000);
-  console.log("path", await page.evaluate(() => location.pathname));
+  await expect.poll(() => page.evaluate(() => location.pathname)).toBe("/settings");
+  await page.waitForTimeout(2000);
 
-  // Peer replies with a clock 30 minutes slow.
-  const skewed = dmWrap(peer, me, "skewed reply", now + 20 - 120);
-  relay.publish(skewed.wrap);
-  await page.waitForTimeout(8000);
-  const afterSkewed = {
-    notified: await page.evaluate(() => (window as unknown as { __notified: string[] }).__notified.slice()),
-    unreadBadges: await page.getByLabel(/unread message/).allTextContents(),
-  };
+  // The peer's clock runs two minutes slow: their reply is dated before the viewer's message.
+  relay.publish(dmWrap(peer, me, "skewed reply", Math.floor(Date.now() / 1000) - 120).wrap);
+  const notified = () => page.evaluate(() => (window as unknown as { __notified: string[] }).__notified.slice());
+  await expect.poll(notified, { timeout: 20_000 }).toContain("peer: skewed reply");
+  await expect(page.getByLabel(/1 unread message/)).toBeVisible();
 
-  // Control: the same peer, correct clock.
-  const onTime = dmWrap(peer, me, "on-time reply", Math.floor(Date.now() / 1000));
-  relay.publish(onTime.wrap);
-  await page.waitForTimeout(8000);
-  const afterOnTime = {
-    notified: await page.evaluate(() => (window as unknown as { __notified: string[] }).__notified.slice()),
-    unreadBadges: await page.getByLabel(/unread message/).allTextContents(),
-  };
-
+  // Read where it arrived, after the message it answers.
   await page.goto(`/dm/${peer.npub}`);
-  await settle(page, () => page.getByText("on-time reply").last().isVisible().catch(() => false));
-  const order = await page.locator("[data-event-id]").allInnerTexts();
-
-  console.log(JSON.stringify({ afterSkewed, afterOnTime, order: order.map((t) => t.replace(/\s+/g, " ").slice(0, 80)) }, null, 2));
+  await settle(page, () => page.getByText("skewed reply").last().isVisible().catch(() => false));
+  const order = (await page.locator("[data-event-id]").allInnerTexts()).map((t) =>
+    t.includes("skewed reply") ? "skewed" : t.includes("my latest message") ? "mine" : t.includes("hello from peer") ? "hello" : "?");
+  expect(order).toEqual(["hello", "mine", "skewed"]);
 });

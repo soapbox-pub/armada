@@ -3,10 +3,12 @@ import { getPublicKey, generateSecretKey } from "nostr-tools/pure";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  ARRIVAL_SKEW_SECS,
   conversationFilters,
   countUnreadDm17Messages,
   dm17Store,
   dm17ToStored,
+  forgetDm17Arrivals,
   onFreshDm17,
   queryDm17Conversations,
   queryDm17Messages,
@@ -14,11 +16,13 @@ import {
   queryDm17Thread,
   queryDm17Timer,
   queryDm17Webxdc,
+  readDm17Arrivals,
   readDm17Cursor,
   searchDm17Rumors,
   storedToDm17,
   sweepExpiredDm17Rumors,
   updateDm17Cursor,
+  withArrival,
   writeDm17Rumors,
 } from "@/lib/nip17/dm17Store";
 import {
@@ -26,6 +30,7 @@ import {
   buildDmRumor,
   DM_RUMOR_KINDS,
   DM_THREAD_KINDS,
+  dmAt,
   dmChatTags,
   dmDeleteTags,
   dmReactionTags,
@@ -962,5 +967,54 @@ describe("the conversation list read", () => {
       off();
       removedIds.delete(gone.rumorId);
     }
+  });
+});
+
+describe("a message from a sender whose clock is off", () => {
+  // The reply is dated two minutes before the viewer's own message, as a slow clock dates it.
+  async function slowReply() {
+    const viewer = getPublicKey(generateSecretKey());
+    const friend = getPublicKey(generateSecretKey());
+    const mine = opened({ author: viewer, peer: friend, content: "mine", tags: dmChatTags([friend]) });
+    const at = mine.createdAt + 5;
+    const reply = withArrival({ ...opened({ author: friend, peer: friend, content: "slow", tags: dmChatTags([viewer]) }), createdAt: mine.createdAt - 120 }, at);
+    await writeDm17Rumors(viewer, [mine, reply]);
+    return { viewer, friend, mine, reply, at };
+  }
+
+  it("is stamped with its arrival only past the skew, and only as a message", () => {
+    const m = opened({ author: alice, peer: alice });
+    expect(withArrival(m, m.createdAt + ARRIVAL_SKEW_SECS).arrivedAt).toBeUndefined();
+    expect(withArrival(m, m.createdAt + ARRIVAL_SKEW_SECS + 1).arrivedAt).toBe(m.createdAt + ARRIVAL_SKEW_SECS + 1);
+    expect(withArrival(m, m.createdAt - 60).arrivedAt).toBe(m.createdAt - 60);
+    expect(withArrival(m, undefined)).toBe(m);
+    expect(withArrival({ ...m, kind: KIND_DM_REACTION }, m.createdAt + 60).arrivedAt).toBeUndefined();
+  });
+
+  it("is read back after the message it answers, at its arrival", async () => {
+    const { viewer, friend, reply, at } = await slowReply();
+    forgetDm17Arrivals();
+    const thread = await queryDm17Thread(viewer, [friend], { limit: 50 });
+    const back = thread.find((r) => r.rumorId === reply.rumorId)!;
+    expect(back.createdAt).toBe(reply.createdAt);
+    expect(dmAt(back)).toBe(at);
+    expect((await readDm17Arrivals(viewer)).get(reply.rumorId)).toEqual({ at, sent: reply.createdAt, conv: friend, in: true });
+  });
+
+  it("heads its conversation and counts unread past a stamp its own date is under", async () => {
+    const { viewer, friend, mine, reply, at } = await slowReply();
+    forgetDm17Arrivals();
+    const row = (await queryDm17Conversations(viewer)).find((c) => c.key === friend)!;
+    expect(row.latest.rumorId).toBe(reply.rumorId);
+    expect(dmAt(row.latest)).toBe(at);
+    expect(await countUnreadDm17Messages(viewer, [friend], mine.createdAt)).toBe(1);
+    expect(await countUnreadDm17Messages(viewer, [friend], at)).toBe(0);
+  });
+
+  it("is found by a full thread window it was dated below", async () => {
+    const { viewer, friend, reply } = await slowReply();
+    for (let i = 0; i < 3; i++) await writeDm17Rumors(viewer, [opened({ author: viewer, peer: friend, tags: dmChatTags([friend]) })]);
+    const thread = await queryDm17Thread(viewer, [friend], { limit: 3 });
+    expect(thread.map((r) => r.rumorId)).toContain(reply.rumorId);
   });
 });

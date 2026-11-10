@@ -6,6 +6,7 @@ import { KIND_DELETE } from "@/lib/nip29";
 import type { NostrEvent } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * Edit an own message NIP-09 style: delete (kind 5) and republish with the SAME
@@ -34,7 +35,7 @@ export function useEditMessage(relayUrl: string, groupId: string) {
       });
 
       const tags = original.tags.filter(([name]) => name !== "edited");
-      tags.push(["edited", String(Math.floor(Date.now() / 1000))]);
+      tags.push(["edited", String(nowSecs())]);
 
       const edited = await publish({
         kind: original.kind,

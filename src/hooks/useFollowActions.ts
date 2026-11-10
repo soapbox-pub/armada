@@ -12,6 +12,7 @@ import { KIND_FOLLOW_LIST } from "@/lib/selfSyncKinds";
 import type { FollowListData } from "@/hooks/useFollowList";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { t } from "@/i18n";
+import { nowSecs } from "@/lib/relayClock";
 
 export interface UseFollowActionsReturn {
   isPending: boolean;
@@ -38,7 +39,7 @@ function serializeFollowListWrite<T>(write: () => Promise<T>): Promise<T> {
  * increasing created_at for rapid consecutive edits.
  */
 function nextCreatedAt(prev: NostrRumor | null): number {
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   return prev ? Math.max(now, prev.created_at + 1) : now;
 }
 

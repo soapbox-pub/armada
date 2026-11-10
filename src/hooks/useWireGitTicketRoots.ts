@@ -20,6 +20,7 @@ import { useWireScopes } from "@/wire/useWireScopes";
 import type { GitRepositoryWireInput } from "@/wire/spec";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type { NostrFilter } from "@nostrify/nostrify";
+import { nowSecs } from "@/lib/relayClock";
 
 /** A bounded bootstrap is enough to construct dynamic comment/status filters. */
 const ROOT_DISCOVERY_LIMIT = 500;
@@ -89,7 +90,7 @@ export function useWireGitTicketRoots(repositories: readonly GitRepositoryWireIn
       await bootLedgers.ready();
       await Promise.all([...addressesByRelay].map(async ([relay, atRelay]) => {
           const ledgerKey = normalizeRelayUrl(relay) ?? relay;
-          const startedAt = Math.floor(Date.now() / 1000);
+          const startedAt = nowSecs();
           const fresh: string[] = [];
           const covered: string[] = [];
           let oldest = Infinity;
@@ -127,7 +128,7 @@ export function useWireGitTicketRoots(repositories: readonly GitRepositoryWireIn
                 bootLedgers.get(ledgerKey),
                 new Set([...atRelay].map(rootsUnit)),
                 startedAt,
-                Math.floor(Date.now() / 1000),
+                nowSecs(),
               );
               if (ledger) bootLedgers.set(ledgerKey, ledger);
             }

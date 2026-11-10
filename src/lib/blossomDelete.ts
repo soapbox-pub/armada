@@ -7,6 +7,7 @@ import { N64 } from "@nostrify/nostrify/utils";
 import type { NostrSigner } from "@nostrify/nostrify";
 
 import { blobHashOf } from "@/lib/mediaCache";
+import { nowSecs } from "@/lib/relayClock";
 
 /** Ask each blob's server to delete it; best-effort, and a refusal changes nothing here. */
 export async function deleteBlobs(signer: NostrSigner, urls: readonly string[], fetcher: typeof fetch = fetch): Promise<number> {
@@ -25,7 +26,7 @@ export async function deleteBlobs(signer: NostrSigner, urls: readonly string[], 
     }
   }
   if (byOrigin.size === 0) return 0;
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   const results = await Promise.allSettled([...byOrigin].map(async ([origin, { host, hashes }]) => {
     const token = await signer.signEvent({
       kind: 24242,

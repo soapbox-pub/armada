@@ -1,10 +1,12 @@
 /**
- * The time Concord stamps and judges by: this device's clock, corrected when the
- * account's relays agree it is off (CORD-03 §3, Vector `clock.rs`). Every HTTPS answer
- * carries a `Date` (RFC 9110 §6.6.1), so any relay tells the time; their median moves
- * the clock, so one wrong relay can't. A browser hides `Date` from a cross-origin page,
- * so only native HTTP (Capacitor) or a relay exposing it yields a sample.
+ * The time every event this client creates is dated by, and every sender's date is
+ * judged against: this device's clock, corrected when the account's relays agree it is
+ * off (CORD-03 §3, Vector `clock.rs`). Every HTTPS answer carries a `Date` (RFC 9110
+ * §6.6.1), so any relay tells the time; their median moves the clock, so one wrong relay
+ * can't. A browser hides `Date` from a cross-origin page, so native HTTP (Capacitor) and
+ * the desktop shell ask the relays, and the web asks the origin that served it.
  */
+import { desktop } from "@/lib/desktop";
 
 /** `Date` has one-second resolution: a smaller gap is no evidence of a wrong clock. */
 const NOISE_MS = 2_000;
@@ -22,6 +24,11 @@ let offsetMs = 0;
 /** Now, in unix ms, corrected. */
 export function clockNowMs(): number {
   return Date.now() + offsetMs;
+}
+
+/** Now, in corrected unix seconds: the `created_at` of anything signed now. */
+export function nowSecs(): number {
+  return Math.floor(clockNowMs() / 1000);
 }
 
 /** The correction in force (positive when this device runs behind). */
@@ -62,6 +69,8 @@ const defaultFetcher: DateFetcher = async (url) => {
     const h = Object.fromEntries(Object.entries(res.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
     return { date: h.date, age: h.age };
   }
+  const shell = desktop()?.httpDate;
+  if (shell) return (await shell(url)) ?? {};
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
   return { date: res.headers.get("date"), age: res.headers.get("age") };
 };
@@ -102,4 +111,27 @@ export async function syncClockWithRelays(relays: readonly string[], fetcher: Da
   const samples = (await Promise.all(relays.slice(0, 8).map((r) => sample(r, fetcher)))).filter((s): s is number => s !== undefined);
   const agreed = agreedOffset(samples);
   offsetMs = agreed === undefined || Math.abs(agreed) < NOISE_MS ? 0 : Math.round(agreed);
+}
+
+/**
+ * Correct the clock by the origin that served this page: one source, trusted alone
+ * since it already serves the code, and the only `Date` a browser page can read.
+ */
+export async function syncClockWithOrigin(origin: string, fetcher: DateFetcher = defaultFetcher): Promise<void> {
+  const offset = await sample(`${origin}/`, fetcher);
+  offsetMs = offset === undefined || Math.abs(offset) < NOISE_MS ? 0 : Math.round(offset);
+}
+
+/** Whether this runtime can read a relay's `Date`: native HTTP, or the desktop shell's. */
+async function relaysTellTime(): Promise<boolean> {
+  if (desktop()?.httpDate) return true;
+  const { Capacitor } = await import("@capacitor/core");
+  return Capacitor.isNativePlatform();
+}
+
+/** Keep the clock by `relays` where their `Date` is readable, else by the page's own origin. */
+export async function syncClock(relays: readonly string[]): Promise<void> {
+  if (await relaysTellTime()) return syncClockWithRelays(relays);
+  if (typeof location !== "undefined" && /^https?:$/.test(location.protocol)) return syncClockWithOrigin(location.origin);
+  offsetMs = 0;
 }

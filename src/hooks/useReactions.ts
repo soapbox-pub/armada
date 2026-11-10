@@ -10,6 +10,7 @@ import { KIND_DELETE, KIND_REACTION } from "@/lib/nip29";
 
 import type { MessageReactions } from "@/components/chat/transport";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { nowSecs } from "@/lib/relayClock";
 
 /**
  * A NIP-25 reaction by display key: `+`/empty → 👍, `-` → 👎; NIP-30 emoji keep `:shortcode:`
@@ -164,7 +165,7 @@ export function useGroupReactions(
       // Union with the cache, but let the store PRUNE settled reactions: NIP-09 deletes show up only
       // as absence, and a fresh reaction may not be mirrored yet (see MIRROR_GRACE_SECONDS).
       const prev = queryClient.getQueryData<Map<string, NostrRumor[]>>(queryKey);
-      const settledBefore = Math.floor(Date.now() / 1000) - MIRROR_GRACE_SECONDS;
+      const settledBefore = nowSecs() - MIRROR_GRACE_SECONDS;
       const unmirrored: NostrRumor[] = [];
       if (prev) {
         const cachedIds = new Set(cached.map((e) => e.id));
@@ -189,7 +190,7 @@ export function useGroupReactions(
     (async () => {
       try {
         for await (const msg of nostr.relay(relayUrl).req(
-          [{ kinds: [KIND_REACTION], "#e": ids, since: Math.floor(Date.now() / 1000) - 5 }],
+          [{ kinds: [KIND_REACTION], "#e": ids, since: nowSecs() - 5 }],
           { signal: controller.signal },
         )) {
           if (msg[0] !== "EVENT") continue;
