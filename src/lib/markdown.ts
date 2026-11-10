@@ -4,6 +4,8 @@
  * Blocks are split BEFORE the URL/nostr tokenizer so code isn't linkified.
  */
 
+import { parse as parseDomain } from "tldts";
+
 /** A top-level block of message content. */
 export type MdBlock =
   | { type: "code"; lang?: string; code: string }
@@ -396,7 +398,11 @@ export function linkLabelSpoofs(text: string, url: string): boolean {
   const real = hostOf(url);
   if (!real) return true;
   for (const m of text.matchAll(LABEL_DOMAIN_RE)) {
-    if (hostOf(`http://${m[1]}`) !== real) return true;
+    const host = hostOf(`http://${m[1]}`);
+    // Without a scheme only a real ICANN suffix reads as a domain, so `package.json` is a file name.
+    const schemed = m[0].length > m[1].length;
+    if (host === real || (host && !schemed && !parseDomain(host).isIcann)) continue;
+    return true;
   }
   return false;
 }

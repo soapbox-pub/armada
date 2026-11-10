@@ -151,6 +151,13 @@ describe("ChatContent chat markdown", () => {
     expect(container.querySelector(".animate-pulse")).toBeNull();
   });
 
+  it("masks a link labelled with a file name", () => {
+    const { container } = renderContent("[package.json](https://github.com/x/package.json)");
+    const links = Array.from(container.querySelectorAll("a"));
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://github.com/x/package.json"]);
+    expect(links[0].querySelector(".font-medium")?.textContent).toBe("package.json");
+  });
+
   it("keeps a bare-domain spoof literal", () => {
     const { container } = renderContent("[github.com](https://evil.example/x)");
     const links = Array.from(container.querySelectorAll("a"));

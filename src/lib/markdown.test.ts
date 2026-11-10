@@ -515,6 +515,14 @@ describe("linkLabelSpoofs", () => {
     expect(linkLabelSpoofs("armada.buzz and nyan.cat", "https://nyan.cat/")).toBe(true);
   });
 
+  it("reads a name as a domain only under a real ICANN suffix", () => {
+    expect(linkLabelSpoofs("package.json", "https://github.com/x/package.json")).toBe(false);
+    expect(linkLabelSpoofs("edit index.html and app.ts", "https://evil.example/")).toBe(false);
+    expect(linkLabelSpoofs("a.zip", "https://evil.example/")).toBe(true);
+    expect(linkLabelSpoofs("nyan.cat", "https://evil.example/")).toBe(true);
+    expect(linkLabelSpoofs("https://claim.example/x", "https://evil.example/")).toBe(true);
+  });
+
   it("refuses lookalike scripts and compares fullwidth dots as dots", () => {
     expect(linkLabelSpoofs("\u0430rmada.buzz", "https://armada.buzz/")).toBe(true);
     expect(linkLabelSpoofs("armada\uFF0Ebuzz", "https://nyan.cat/")).toBe(true);
