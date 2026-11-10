@@ -1,8 +1,9 @@
 import { KeyRound, Loader2, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ChromeDialogContent, ChromeDialogFooter, ChromeDialogHeader, Dialog } from "@/components/ui/dialog";
+import { toast } from "@/hooks/useToast";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
 
 interface RotateKeysDialogProps {
@@ -48,21 +49,27 @@ export function RotateKeysDialog({
     return () => clearTimeout(t);
   }, [busy]);
 
+  // Closed while it ran: the run goes on, so its failure has to reach a toast.
+  const dismissed = useRef(false);
   const run = async () => {
     setError(null);
     setBusy(true);
+    dismissed.current = false;
     try {
       await onConfirm();
       setBusy(false);
-      onClose();
+      if (!dismissed.current) onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : t({ id: "rotateKeysDialog.error", defaultMessage: "Couldn't rotate the keys." }));
+      const message = e instanceof Error ? e.message : t({ id: "rotateKeysDialog.error", defaultMessage: "Couldn't rotate the keys." });
+      if (dismissed.current) toast({ title: t({ id: "rotateKeysDialog.error", defaultMessage: "Couldn't rotate the keys." }), description: message, variant: "destructive" });
+      else setError(message);
       setBusy(false);
     }
   };
 
   const close = () => {
     if (busy && !stuck) return;
+    if (busy) dismissed.current = true;
     setBusy(false);
     setError(null);
     setStuck(false);
