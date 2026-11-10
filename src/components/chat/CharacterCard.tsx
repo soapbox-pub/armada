@@ -21,7 +21,7 @@ import {
   verifyPlaintextHash,
 } from "@/lib/encryptedMedia";
 import { safeFilename } from "@/lib/fileBytes";
-import { splitMarkdownBlocks, type MdBlock, type MdList } from "@/lib/markdown";
+import { splitMarkdownBlocks, type MdBlock, type MdList, type MdTable } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 
 import type { ReactNode } from "react";
@@ -110,6 +110,39 @@ function CardList({ list, keyPrefix, depth }: { list: MdList; keyPrefix: string;
     : <ul className={cn(depth % 2 ? "list-[circle]" : "list-disc", className)}>{items}</ul>;
 }
 
+function CardTable({ table, keyPrefix }: { table: MdTable; keyPrefix: string }) {
+  const cellClass = (c: number) => cn(
+    "border border-border px-2 py-1 align-top",
+    table.align[c] === "center" ? "text-center" : table.align[c] === "right" ? "text-right" : "text-left",
+  );
+  return (
+    <div className="max-w-full overflow-x-auto">
+      <table className="border-collapse">
+        <thead>
+          <tr className="bg-muted/50">
+            {table.header.map((cell, c) => (
+              <th key={c} className={cn(cellClass(c), "font-semibold")}>
+                {renderInlineMarkdown(cell, renderMacros, `${keyPrefix}-h${c}`)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row, r) => (
+            <tr key={r}>
+              {row.map((cell, c) => (
+                <td key={c} className={cellClass(c)}>
+                  {renderInlineMarkdown(cell, renderMacros, `${keyPrefix}-r${r}c${c}`)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function CardBlocks({ blocks, keyPrefix }: { blocks: MdBlock[]; keyPrefix: string }) {
   return blocks.map((block, i) => {
     const key = `${keyPrefix}${i}`;
@@ -128,6 +161,8 @@ function CardBlocks({ blocks, keyPrefix }: { blocks: MdBlock[]; keyPrefix: strin
         return <p key={key} className="text-xs text-muted-foreground">{renderInlineMarkdown(block.text, renderMacros, key)}</p>;
       case "list":
         return <CardList key={key} list={block} keyPrefix={key} depth={0} />;
+      case "table":
+        return <CardTable key={key} table={block} keyPrefix={key} />;
       case "rule":
         return <hr key={key} className="my-2 border-border" />;
       case "text": {

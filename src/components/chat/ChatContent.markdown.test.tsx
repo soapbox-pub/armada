@@ -139,6 +139,17 @@ describe("ChatContent chat markdown", () => {
     expect((await findByRole("tooltip")).textContent).toBe("https://evil.example/claim?x=1");
   });
 
+  it("renders a table with aligned cells and inline formatting", () => {
+    const { container } = renderContent("| Name | Score |\n|------|------:|\n| **ann** | 10 |\n| [bob](https://example.com/bob) | 7 |");
+    const table = container.querySelector("table")!;
+    expect(Array.from(table.querySelectorAll("th")).map((th) => th.textContent)).toEqual(["Name", "Score"]);
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    expect(rows).toHaveLength(2);
+    expect(rows[0].querySelector("strong")?.textContent).toBe("ann");
+    expect(rows[1].querySelector("a")?.getAttribute("href")).toBe("https://example.com/bob");
+    expect(rows[0].querySelectorAll("td")[1].className).toContain("text-right");
+  });
+
   it("renders blocks inside a quote, nested quotes, and a divider", () => {
     const { container } = renderContent("> ## Inside\n> - item\n>> deeper\n\n---\nafter");
     const quote = container.querySelector("blockquote");

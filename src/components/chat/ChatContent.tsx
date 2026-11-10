@@ -79,7 +79,7 @@ import type { CharaCard } from "@/lib/characterCard";
 import type { ChatRoute } from "@/lib/routes";
 import type { MessageActionItem } from "@/components/chat/messageActions";
 import type { ImetaEncryption, ImetaEntry } from "@/lib/imeta";
-import type { MdBlock, MdList } from "@/lib/markdown";
+import type { MdAlign, MdBlock, MdList } from "@/lib/markdown";
 import { cacheTokens, TOKEN_CACHE } from "@/components/chat/tokenCache";
 import type { EncryptedRef } from "@/hooks/useResolvedMediaSrc";
 import type { ReactNode } from "react";
@@ -208,6 +208,7 @@ export type ContentToken =
   | { type: "heading"; level: number; tokens: ContentToken[] }
   | { type: "subtext"; tokens: ContentToken[] }
   | ListToken
+  | { type: "table"; align: MdAlign[]; header: ContentToken[][]; rows: ContentToken[][][] }
   | { type: "rule" };
 
 /** `children[i]`, when present, is the list nested under `items[i]`. */
@@ -355,6 +356,12 @@ function applyEveryoneMentions(tokens: ContentToken[]): ContentToken[] {
       out.push({ ...token, tokens: applyEveryoneMentions(token.tokens) });
     } else if (token.type === "list") {
       out.push(mapList(token, applyEveryoneMentions));
+    } else if (token.type === "table") {
+      out.push({
+        ...token,
+        header: token.header.map(applyEveryoneMentions),
+        rows: token.rows.map((row) => row.map(applyEveryoneMentions)),
+      });
     } else {
       out.push(token);
     }
@@ -859,6 +866,13 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
           out.push({ type: "subtext", tokens: tokenizeRun(block.text) });
         } else if (block.type === "list") {
           out.push(listToken(block, tokenizeRun));
+        } else if (block.type === "table") {
+          out.push({
+            type: "table",
+            align: block.align,
+            header: block.header.map(tokenizeRun),
+            rows: block.rows.map((row) => row.map(tokenizeRun)),
+          });
         } else if (block.type === "rule") {
           out.push({ type: "rule" });
         } else {
@@ -1251,6 +1265,39 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
             : <ul key={listKey} className={cn(depth % 2 ? "list-[circle]" : "list-disc", className)}>{items}</ul>;
         };
         return renderList(token, String(key), 0);
+      }
+      case "table": {
+        const cellClass = (c: number) => cn(
+          "border border-border px-2 py-1 align-top",
+          token.align[c] === "center" ? "text-center" : token.align[c] === "right" ? "text-right" : "text-left",
+        );
+        // whitespace-normal: pre-wrap would render markup line breaks between cells.
+        return (
+          <div key={key} className="my-1 max-w-full overflow-x-auto whitespace-normal">
+            <table className="border-collapse">
+              <thead>
+                <tr className="bg-muted/50">
+                  {token.header.map((cell, c) => (
+                    <th key={c} className={cn(cellClass(c), "font-semibold")}>
+                      {renderTokens(cell, `${key}-h${c}-`, false, true)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {token.rows.map((row, r) => (
+                  <tr key={r}>
+                    {row.map((cell, c) => (
+                      <td key={c} className={cellClass(c)}>
+                        {renderTokens(cell, `${key}-r${r}c${c}-`, false, true)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
       }
       case "rule":
         return <hr key={key} className="my-2 border-border" />;
