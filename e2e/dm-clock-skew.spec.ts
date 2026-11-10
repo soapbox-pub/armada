@@ -1,6 +1,6 @@
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 import { getEventHash, matchFilters, type Filter, type NostrEvent } from "nostr-tools";
-import { createRumor, createSeal, createWrap } from "nostr-tools/nip59";
+import { createRumor, createSeal, createWrap, unwrapEvent } from "nostr-tools/nip59";
 
 import { dismissRestore, loginAs, makePerson, profilesOf, settle, type Person } from "./screenshotWorld";
 
@@ -45,6 +45,7 @@ function fakeRelay(page: Page) {
   return {
     route,
     reqs,
+    events,
     publish(ev: NostrEvent) {
       events.push(ev);
       for (const [ws, byId] of subs) {
@@ -148,4 +149,67 @@ test("a reply from a sender whose clock runs slow is placed, counted and notifie
   const order = (await page.locator("[data-event-id]").allInnerTexts()).map((t) =>
     t.includes("skewed reply") ? "skewed" : t.includes("my latest message") ? "mine" : t.includes("hello from peer") ? "hello" : "?");
   expect(order).toEqual(["hello", "mine", "skewed"]);
+});
+
+test("a browser whose clock runs slow dates what it sends by the corrected clock", async ({ page, context }) => {
+  test.setTimeout(240_000);
+  const me = makePerson("viewer", "", 286);
+  const peer = makePerson("peer", "", 20);
+  const relay = fakeRelay(page);
+  await relay.route;
+
+  // The page's clock runs 30 minutes slow; the dev server's `Date` is the truth.
+  await context.addInitScript(() => {
+    const RealDate = Date;
+    const skew = -30 * 60_000;
+    class SlowDate extends RealDate {
+      constructor(...args: ConstructorParameters<typeof Date>) {
+        if (args.length === 0) super(RealDate.now() + skew);
+        else super(...args);
+      }
+      static now() {
+        return RealDate.now() + skew;
+      }
+    }
+    (window as unknown as { Date: DateConstructor }).Date = SlowDate as DateConstructor;
+  });
+  await context.addInitScript(([pk, relayUrl]) => {
+    localStorage.setItem(`armada:app-config:${pk}`, JSON.stringify({ dmRelays: [relayUrl], useAppRelays: false, automaticSettingsSync: false }));
+  }, [me.pubkey, RELAY] as const);
+  await loginAs(page, me);
+
+  await page.goto("/e2e/screenshotSeed.html");
+  await page.waitForFunction(() => Boolean(window.__armadaSeed));
+  const hello = { pubkey: peer.pubkey, kind: 14, created_at: now - 600, tags: [["p", me.pubkey]], content: "hello from peer" };
+  await page.evaluate((p) => window.__armadaSeed!(p), {
+    self: me.pubkey,
+    profiles: profilesOf([me, peer], now - 86400),
+    messages: [{ rumorId: getEventHash(hello), author: hello.pubkey, peers: [peer.pubkey], tags: hello.tags, content: hello.content, createdAt: hello.created_at, kind: 14 }],
+    mainRumors: [{ id: "f".repeat(64), pubkey: me.pubkey, kind: 3, created_at: now - 3600, content: "", tags: [["p", peer.pubkey]] }],
+  });
+  await page.goto(`/dm/${peer.npub}`);
+  await settle(page, () => page.getByText("hello from peer").last().isVisible().catch(() => false));
+  await dismissRestore(page);
+  // The clock is first sampled 5 s after the wire mounts.
+  await page.waitForTimeout(8_000);
+
+  const field = page.getByRole("textbox").last();
+  await field.click();
+  await field.fill("sent from a slow clock");
+  await field.press("Enter");
+
+  const sentAt = () => {
+    for (const ev of relay.events) {
+      if (ev.kind !== 1059 || !ev.tags.some(([n, v]) => n === "p" && v === peer.pubkey)) continue;
+      try {
+        const rumor = unwrapEvent(ev, peer.sk);
+        if (rumor.content === "sent from a slow clock") return rumor.created_at;
+      } catch {
+        // not for the peer
+      }
+    }
+    return undefined;
+  };
+  await expect.poll(sentAt, { timeout: 30_000 }).not.toBeUndefined();
+  expect(Math.abs(sentAt()! - Math.floor(Date.now() / 1000))).toBeLessThan(15);
 });

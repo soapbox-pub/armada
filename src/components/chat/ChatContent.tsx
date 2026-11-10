@@ -53,7 +53,8 @@ import { filenameFromUrl } from "@/lib/fileBytes";
 import { AUDIO_EXTS, EMBED_MEDIA_URL_REGEX, IMAGE_URL_REGEX, isGifLikeUrl, isUnplayableVideo, mimeFromExt } from "@/lib/mediaUrls";
 import { KIND_GROUP_METADATA, nip29GroupPath, parseGroupAddress, type GroupAddress } from "@/lib/nip29";
 import { normalizeRelayUrl, relayToRouteParam } from "@/lib/platform";
-import { isMagnetUri, sanitizeUrl } from "@/lib/sanitizeUrl";
+import { displayHost, isMagnetUri, sanitizeUrl } from "@/lib/sanitizeUrl";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { isNsiteUrl } from "@/lib/nsiteUrl";
 import { parseSelfLink } from "@/lib/selfLink";
 import { stripTrackingParams } from "@/lib/trackingParams";
@@ -824,23 +825,21 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
       return out;
     };
 
-    // Extract `inline code` first so code is never linkified. Document mode splits
+    // Extract `inline code` first so code is never linkified, then split
     // `[text](url)` before URL tokenizing.
     const tokenizeRun = (run: string): ContentToken[] => {
       const out: ContentToken[] = [];
       for (const seg of splitInlineCode(run)) {
         if (seg.code) {
           out.push({ type: "inline-code", code: seg.value });
-        } else if (documentMarkdown) {
-          for (const part of splitMarkdownLinks(seg.value)) {
-            if (part.type === "link") {
-              out.push({ type: "md-link", text: part.text, url: cleanUrl(part.url) });
-            } else {
-              out.push(...tokenizeSegment(part.value));
-            }
+          continue;
+        }
+        for (const part of splitMarkdownLinks(seg.value)) {
+          if (part.type === "link") {
+            out.push({ type: "md-link", text: part.text, url: cleanUrl(part.url) });
+          } else {
+            out.push(...tokenizeSegment(part.value));
           }
-        } else {
-          out.push(...tokenizeSegment(seg.value));
         }
       }
       return out;
@@ -1212,21 +1211,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
       case "md-link": {
         const safe = sanitizeUrl(token.url);
         if (!safe) return <span key={key}>{token.text}</span>;
-        // Anti-spoof: [github.com/x](https://evil.example) shows the real host.
-        const spoofedHost = mdLinkSpoofHost(token.text, safe);
-        return (
-          <a
-            key={key}
-            href={safe}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline break-words"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {token.text}
-            {spoofedHost && <span className="text-muted-foreground"> ({spoofedHost})</span>}
-          </a>
-        );
+        return <MdLink key={key} text={token.text} href={safe} />;
       }
       case "heading":
         return (
@@ -1637,6 +1622,38 @@ function CollapsibleContent({ children }: { children: ReactNode }) {
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * A `[text](url)` link, whose destination the sender hides: the full URL is a
+ * tooltip on hover/focus, and touch (no hover) shows the host unless the text names it.
+ */
+function MdLink({ text, href }: { text: string; href: string }) {
+  // Anti-spoof: [github.com/x](https://evil.example) shows the real host everywhere.
+  const spoofedHost = mdLinkSpoofHost(text, href);
+  const host = displayHost(href);
+  const touchHost = !spoofedHost && !text.toLowerCase().includes(host.toLowerCase());
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-copy-url={href}
+            className="text-primary hover:underline break-words"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="font-medium">{text}</span>
+            {spoofedHost && <span className="text-muted-foreground"> ({spoofedHost})</span>}
+            {touchHost && <span className="hidden text-muted-foreground touch:inline"> ({host})</span>}
+          </a>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-sm break-all text-xs">{href}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

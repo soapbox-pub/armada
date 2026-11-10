@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -121,6 +121,22 @@ describe("ChatContent chat markdown", () => {
     expect(strong?.querySelector("a")?.getAttribute("href")).toBe("https://example.com/page");
     expect(strong?.querySelector("code")?.textContent).toBe("x");
     expect(container.textContent).not.toContain("**");
+  });
+
+  it("renders a [text](url) link in a chat message, showing a spoofed host", () => {
+    const { container } = renderContent("see [the docs](https://example.com/docs) and [github.com](https://evil.example/x)");
+    const links = Array.from(container.querySelectorAll("a"));
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.com/docs", "https://evil.example/x"]);
+    expect(links[0].textContent).toBe("the docs (example.com)");
+    expect(links[0].querySelector(".touch\\:inline")?.textContent).toBe(" (example.com)");
+    expect(links[1].textContent).toBe("github.com (evil.example)");
+    expect(container.textContent).not.toContain("](");
+  });
+
+  it("shows a [text](url) link's full URL in a tooltip on focus", async () => {
+    const { container, findByRole } = renderContent("[click](https://evil.example/claim?x=1)");
+    act(() => container.querySelector("a")!.focus());
+    expect((await findByRole("tooltip")).textContent).toBe("https://evil.example/claim?x=1");
   });
 
   it("renders blocks inside a quote, nested quotes, and a divider", () => {

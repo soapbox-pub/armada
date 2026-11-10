@@ -83,7 +83,7 @@ describe("syncClockWithOrigin", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(1_800_000_000_000);
     await syncClockWithOrigin("https://armada.test", async (url) => {
-      expect(url).toBe("https://armada.test/");
+      expect(url).toMatch(/^https:\/\/armada\.test\/\?clock=[0-9a-z]+$/);
       return { date: httpDate(Date.now() - 120_000) };
     });
     expect(Math.abs(clockOffsetMs() + 119_500)).toBeLessThan(1_001);

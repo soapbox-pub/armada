@@ -1,6 +1,6 @@
 /**
  * Discord-flavored markdown parsing for chat (rendering: `components/chat/Markdown.tsx`).
- * Document mode (git content) adds heading levels 4–6 and `[text](url)` links.
+ * Document mode (git content) adds heading levels 4–6.
  * Blocks are split BEFORE the URL/nostr tokenizer so code isn't linkified.
  */
 

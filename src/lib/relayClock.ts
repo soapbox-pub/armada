@@ -71,7 +71,8 @@ const defaultFetcher: DateFetcher = async (url) => {
   }
   const shell = desktop()?.httpDate;
   if (shell) return (await shell(url)) ?? {};
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+  // Never the browser's cache: a stored answer carries the `Date` it was stored at.
+  const res = await fetch(url, { headers, cache: "no-store", signal: AbortSignal.timeout(10_000) });
   return { date: res.headers.get("date"), age: res.headers.get("age") };
 };
 
@@ -118,7 +119,8 @@ export async function syncClockWithRelays(relays: readonly string[], fetcher: Da
  * since it already serves the code, and the only `Date` a browser page can read.
  */
 export async function syncClockWithOrigin(origin: string, fetcher: DateFetcher = defaultFetcher): Promise<void> {
-  const offset = await sample(`${origin}/`, fetcher);
+  // A query no one has asked before, so a cache in front of the origin can't answer with an old `Date`.
+  const offset = await sample(`${origin}/?clock=${Date.now().toString(36)}`, fetcher);
   offsetMs = offset === undefined || Math.abs(offset) < NOISE_MS ? 0 : Math.round(offset);
 }
 
