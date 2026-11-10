@@ -1,4 +1,5 @@
 import { settleAccepted } from "@/concord/lib/settleAccepted";
+import { withSignerDeadline } from "@/concord/lib/signerDeadline";
 import { useNostr } from "@nostrify/react";
 import { KvPrefixCache } from "@/lib/db/kvCache";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -818,7 +819,10 @@ export async function publishEdition(
   // The WRITE key: on a split epoch it's the staff-held control_root (CORD-02 §2);
   // non-staff fail here with a readable error.
   const control = currentControlWriteGroup(community);
-  const wrap = await sealEdition(rumor, control, signer);
+  const wrap = await withSignerDeadline(
+    sealEdition(rumor, control, signer),
+    t({ id: "useControlPlane.signerTimeout", defaultMessage: "Your signer didn't answer, so the change wasn't made. Check it and try again." }),
+  );
   const urls = opts?.relays ?? community.relays;
   const attempt = () =>
     settleAccepted(urls.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })));

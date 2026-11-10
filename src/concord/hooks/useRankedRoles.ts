@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useNostr } from "@nostrify/react";
 
 type NostrClient = ReturnType<typeof useNostr>["nostr"];
@@ -50,11 +50,12 @@ export async function publishActivation(
   user: { pubkey: string; signer: Parameters<typeof publishEdition>[2] },
   folded: FoldedControl,
   everyone?: bigint,
+  onPublished?: () => void,
 ): Promise<string[]> {
   const { rumors, unfiled } = planActivation(folded, community.id, user.pubkey, everyone, community.privateChannels);
   await activationPendingReady();
   setActivationPending(user.pubkey, community.idHex, rumors);
-  await publishPendingActivation(nostr, community, user);
+  await publishPendingActivation(nostr, community, user, onPublished);
   return unfiled;
 }
 
@@ -66,6 +67,7 @@ export async function publishPendingActivation(
   nostr: NostrClient,
   community: Community,
   user: { pubkey: string; signer: Parameters<typeof publishEdition>[2] },
+  onPublished?: () => void,
 ): Promise<void> {
   await activationPendingReady();
   let left = activationPending(user.pubkey, community.idHex) ?? [];
@@ -73,6 +75,7 @@ export async function publishPendingActivation(
     await publishEdition(nostr, community, user.signer, left[0]);
     left = left.slice(1);
     setActivationPending(user.pubkey, community.idHex, left);
+    onPublished?.();
   }
 }
 
@@ -119,12 +122,22 @@ export function useRankedRoles(community: Community | undefined) {
     return { folded: stored, whole: false };
   };
 
+  /** Editions the running write has published, for its progress line. */
+  const [published, setPublished] = useState(0);
+  const notePublished = () => setPublished((n) => n + 1);
+
   /** One write at a time per community (Vector `follow_lock`). */
-  const write = <T,>(run: () => Promise<T>): Promise<T> => (community ? withControlWrite(community.idHex, run) : run());
+  const write = <T,>(run: () => Promise<T>): Promise<T> => {
+    setPublished(0);
+    return community ? withControlWrite(community.idHex, run) : run();
+  };
 
   const publish = async (c: Community, rumors: NostrRumor[]) => {
     const { user } = ready();
-    for (const rumor of rumors) await publishEdition(nostr, c, user.signer, rumor);
+    for (const rumor of rumors) {
+      await publishEdition(nostr, c, user.signer, rumor);
+      notePublished();
+    }
   };
 
   /** Seal each holder's Tenure before a Role they hold loses authority (Vector `Seal::Strict`). */
@@ -133,7 +146,10 @@ export function useRankedRoles(community: Community | undefined) {
     for (const member of holders) {
       const plan = planTenure(folded, c.id, user.pubkey, member, false, citationFor(c, folded, user.pubkey), served);
       if (plan.kind === "refuse") throw new Error(tenureRefusal());
-      if (plan.kind === "write") await publishEdition(nostr, c, user.signer, plan.rumor);
+      if (plan.kind === "write") {
+        await publishEdition(nostr, c, user.signer, plan.rumor);
+        notePublished();
+      }
     }
   };
 
@@ -306,12 +322,12 @@ export function useRankedRoles(community: Community | undefined) {
       await activationPendingReady();
       // A switch cut short finishes the plan it made rather than planning another.
       if (activationPending(user.pubkey, community.idHex)) {
-        await publishPendingActivation(nostr, community, user);
+        await publishPendingActivation(nostr, community, user, notePublished);
         return [];
       }
       const whole = await readControlWhole(nostr, community);
       if (!whole) throw new Error(needsWhole());
-      return publishActivation(nostr, community, user, whole.folded, everyone);
+      return publishActivation(nostr, community, user, whole.folded, everyone, notePublished);
     }),
     onSuccess: done,
   });
@@ -334,6 +350,8 @@ export function useRankedRoles(community: Community | undefined) {
     isActivating: activate.isPending,
     /** Editions of this owner's switch still unpublished (`activationPending.ts`). */
     activationLeft,
+    /** Editions the running write has published so far. */
+    published,
     isSaving:
       createRole.isPending || editRole.isPending || moveRole.isPending || reorderRoles.isPending || deleteRole.isPending || setEveryone.isPending || setOverwrite.isPending || setSync.isPending ||
       createCategory.isPending || renameCategory.isPending || moveCategory.isPending || deleteCategory.isPending,

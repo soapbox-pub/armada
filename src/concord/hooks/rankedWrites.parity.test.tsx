@@ -55,6 +55,7 @@ vi.mock("@/concord/hooks/useCommunityList", async (orig) => ({
 vi.mock("@/concord/hooks/useGuestbook", async (orig) => ({
   ...(await orig<typeof import("@/concord/hooks/useGuestbook")>()),
   useGuestbook: () => ({ data: [], coalesced: env.coalesced, timeouts: new Map(), nicknames: new Map() }),
+  guestbookWalked: () => true,
   useGuestbookPublisher: () => ({
     mutateAsync: async (a: { type: string; target?: string }) => {
       env.guestbook.push(a);
@@ -518,6 +519,8 @@ describe("the vsk-13 Roster's editors (Vector create/edit/move/delete_role_v2)",
     expect(deletion).toBeGreaterThanOrEqual(0);
     expect(kinds.indexOf("16")).toBeGreaterThanOrEqual(0);
     expect(kinds.indexOf("16")).toBeLessThan(deletion);
+    // Every edition counts toward the progress line, Tenures included.
+    await vi.waitFor(() => expect(result.current.published).toBe(env.published.length));
   });
 
   it("deleting a Role on a plane it can't read whole publishes nothing", async () => {
