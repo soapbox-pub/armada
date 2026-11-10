@@ -67,7 +67,7 @@ import type { Community, PrivateChannelKey } from "@/concord/lib/types";
 import { openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
 import { readChannelContent } from "@/concord/lib/control";
 
-import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefound, useRekeyWatch, useRotationConvergence } from "./useRekey";
+import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefound, useRekeyWatch } from "./useRekey";
 
 import type { NUser } from "@nostrify/react/login";
 
@@ -1852,7 +1852,7 @@ describe("useRefound resumes what it committed", () => {
 
 // ── Racing Refoundings converge on the lowest key (CORD-06 §3) ──
 
-describe("useRotationConvergence", () => {
+describe("useRekeyWatch converges a racing Refounding at the epoch it is on", () => {
   async function race() {
     const owner = member();
     const admin = member();
@@ -1866,10 +1866,20 @@ describe("useRotationConvergence", () => {
       ...(await rotationWraps(owner, community, high, [owner.pubkey, admin.pubkey, me.pubkey], now)),
       ...(await rotationWraps(admin, community, low, [owner.pubkey, admin.pubkey, me.pubkey], now + 1, citation)),
     ];
-    h.pool = { relay: () => relay, query: async () => [] };
+    const calls: Filter[][] = [];
+    h.pool = {
+      relay: () => ({
+        query: async (filters: Filter[]) => {
+          calls.push(filters);
+          return relay.query(filters);
+        },
+        event: (ev: NostrEvent) => relay.event(ev),
+      }),
+      query: async () => [],
+    };
     h.folded = fold;
     h.updateList = vi.fn(async () => {});
-    return { owner, admin, me, community, low, high };
+    return { owner, admin, me, community, low, high, calls };
   }
 
   /** `c` as a device holds it after adopting `key` at epoch 1. */
@@ -1893,7 +1903,7 @@ describe("useRotationConvergence", () => {
     const { owner, me, community, low, high } = await race();
     h.user = asNUser(me);
     const adopted = onKey(community, high, owner.pubkey, owner.pubkey);
-    renderHook(() => useRotationConvergence(adopted), { wrapper: makeWrapper().wrapper });
+    renderHook(() => useRekeyWatch(adopted), { wrapper: makeWrapper().wrapper });
     await waitFor(() =>
       expect(h.updateList).toHaveBeenCalledWith(expect.objectContaining({
         type: "refresh-current",
@@ -1911,7 +1921,7 @@ describe("useRotationConvergence", () => {
     writeRefoundJournal(owner.pubkey, community.idHex, {
       newEpoch: "1", priorEpoch: "0", recipients: [owner.pubkey], exclude: [], rotatedAtMs: Date.now(), channelBase: {}, channels: [],
     });
-    renderHook(() => useRotationConvergence(adopted), { wrapper: makeWrapper().wrapper });
+    renderHook(() => useRekeyWatch(adopted), { wrapper: makeWrapper().wrapper });
     await waitFor(() =>
       expect(h.updateList).toHaveBeenCalledWith(expect.objectContaining({
         current: expect.objectContaining({ community_root: bytesToHex(low) }),
@@ -1921,11 +1931,35 @@ describe("useRotationConvergence", () => {
     expect(refoundJournal(owner.pubkey, community.idHex)).toBeUndefined();
   });
 
+  it("reads the epoch it is on in the same request as the next one, not one of its own", { timeout: 30_000 }, async () => {
+    const { owner, me, community, high, calls } = await race();
+    h.user = asNUser(me);
+    const adopted = onKey(community, high, owner.pubkey, owner.pubkey);
+    renderHook(() => useRekeyWatch(adopted), { wrapper: makeWrapper().wrapper });
+    await waitFor(() => expect(h.updateList).toHaveBeenCalled(), { timeout: 10_000 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].flatMap((f) => f.authors ?? []).sort()).toEqual(
+      [baseRekeyGroupKey(adopted.root, community.id, 2n).pk, baseRekeyGroupKey(community.root, community.id, 1n).pk].sort(),
+    );
+  });
+
+  it("stops reading the epoch it is on a day after the rotation", { timeout: 30_000 }, async () => {
+    const { owner, me, community, high, calls } = await race();
+    h.user = asNUser(me);
+    const adopted = onKey(community, high, owner.pubkey, owner.pubkey);
+    const old = { ...adopted, heldRoots: adopted.heldRoots.map((r) => (r.epoch === 0n ? { ...r, retiredAt: nowSecs() - 2 * 86_400 } : r)) };
+    renderHook(() => useRekeyWatch(old), { wrapper: makeWrapper().wrapper });
+    await waitFor(() => expect(calls).toHaveLength(1), { timeout: 10_000 });
+    expect(calls[0].flatMap((f) => f.authors ?? [])).toEqual([baseRekeyGroupKey(adopted.root, community.id, 2n).pk]);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(h.updateList).not.toHaveBeenCalled();
+  });
+
   it("the winner stays where it is", { timeout: 30_000 }, async () => {
     const { owner, me, community, low } = await race();
     h.user = asNUser(me);
     const adopted = onKey(community, low, owner.pubkey, owner.pubkey);
-    renderHook(() => useRotationConvergence(adopted), { wrapper: makeWrapper().wrapper });
+    renderHook(() => useRekeyWatch(adopted), { wrapper: makeWrapper().wrapper });
     await new Promise((r) => setTimeout(r, 1500));
     expect(h.updateList).not.toHaveBeenCalled();
   });

@@ -256,107 +256,57 @@ async function myRotationAt(
 const CONVERGE_WINDOW_SECS = 24 * 3600;
 
 /**
- * Racing Refoundings converge on the lowest new base key (CORD-06 §3), but
- * `useRekeyWatch` only ever looks one epoch ahead: a member that adopted the
- * higher key first — or the losing rotator, who recorded its own — would stay on a
- * forked root for good. So for a while after each rotation, the CURRENT epoch's
- * rekey address (under the prior root) is read again, and a lower key I hold a blob
- * for replaces mine at the same epoch.
+ * Racing Refoundings converge on the lowest new base key (CORD-06 §3), but the forward
+ * walk only breaks the tie stepping INTO an epoch: a member that adopted the higher key
+ * first — or the losing rotator, who recorded its own — would stay on a forked root.
+ * So the epoch I'm on is read again for a while (in `useRekeyWatch`'s own REQ, as
+ * Vector's current-head heal rides its catch-up), and this is the community moved onto
+ * a lower key I hold a blob for, at the same epoch, or undefined.
  */
-export function useRotationConvergence(community: Community | undefined): void {
-  const { nostr } = useNostr();
-  const { user } = useCurrentUser();
-  const { data: folded } = useControlFold(community);
-  const { mutateAsync: updateList } = useUpdateCommunityList();
-  const entry = useCommunityEntry(community?.idHex);
-  const queryClient = useQueryClient();
-
-  const prior = community && community.rootEpoch > 0n
-    ? community.heldRoots.find((r) => r.epoch === community.rootEpoch - 1n)
-    : undefined;
-  const recent = prior?.retiredAt !== undefined && Date.now() / 1000 - prior.retiredAt < CONVERGE_WINDOW_SECS;
-  const query = useQuery<OpenedEvent[]>({
-    queryKey: ["concord", "rekey-converge", community?.idHex ?? null, community?.rootEpoch.toString() ?? ""],
-    enabled: Boolean(community && prior && recent),
-    staleTime: 30_000,
-    refetchInterval: 2 * 60_000,
-    refetchIntervalInBackground: false,
-    queryFn: async ({ signal }) => {
-      const address = baseRekeyGroupKey(prior!.key, community!.id, community!.rootEpoch);
-      const filter = { kinds: [KIND_WRAP], authors: [address.pk], limit: 200 };
-      const results = await Promise.all(
-        community!.relays.map((url) =>
-          nostr.relay(url).query([filter], { signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) }).catch(() => [] as NostrEvent[]),
-        ),
-      );
-      const out = new Map<string, OpenedEvent>();
-      for (const wrap of results.flat()) {
-        try {
-          const opened = openWrap(wrap, address);
-          out.set(opened.rumorId, opened);
-        } catch {
-          // not this address / malformed
-        }
+async function convergeOnLowerKey(
+  rounds: OpenedEvent[],
+  community: Community,
+  prior: HeldRoot,
+  folded: FoldedControl,
+  me: string,
+  nip44: { decrypt: (pubkey: string, ciphertext: string) => Promise<string> },
+): Promise<Community | undefined> {
+  const parsed: ParsedRekey[] = [];
+  for (const opened of rounds) {
+    try {
+      parsed.push(parseRekey(opened));
+    } catch {
+      // not a rekey
+    }
+  }
+  let lowest: { key: Uint8Array; rotator: string; controlPk?: string; controlRoot?: Uint8Array } | undefined;
+  for (const set of honoredRootRotations(parsed, folded, community.id, prior.epoch, prior.key)) {
+    if (!set.complete) continue;
+    const blob = findBlob(set, myLocator(set.rotator, me, set.scopeIdHex, set.newEpoch));
+    if (!blob) continue;
+    try {
+      const w = decodeWrappedBaseKey(base64ToBytes(await nip44.decrypt(set.rotator, blob.wrapped)), community.id, set.newEpoch);
+      if (!lowest || lowerKeyWins(lowest.key, w.newRoot) === w.newRoot) {
+        lowest = { key: w.newRoot, rotator: set.rotator, ...(w.controlPk ? { controlPk: w.controlPk } : {}), ...(w.controlRoot ? { controlRoot: w.controlRoot } : {}) };
       }
-      return [...out.values()];
-    },
-  });
-
-  useEffect(() => {
-    if (!community || !prior || !user || !folded || !entry || !query.data || query.data.length === 0) return;
-    const nip44 = user.signer.nip44;
-    if (!nip44) return;
-    let cancelled = false;
-    void (async () => {
-      const parsed: ParsedRekey[] = [];
-      for (const opened of query.data!) {
-        try {
-          parsed.push(parseRekey(opened));
-        } catch {
-          // not a rekey
-        }
-      }
-      let lowest: { key: Uint8Array; rotator: string; controlPk?: string; controlRoot?: Uint8Array } | undefined;
-      for (const set of honoredRootRotations(parsed, folded, community.id, prior.epoch, prior.key)) {
-        if (!set.complete) continue;
-        const blob = findBlob(set, myLocator(set.rotator, user.pubkey, set.scopeIdHex, set.newEpoch));
-        if (!blob) continue;
-        try {
-          const w = decodeWrappedBaseKey(base64ToBytes(await nip44.decrypt(set.rotator, blob.wrapped)), community.id, set.newEpoch);
-          if (!lowest || lowerKeyWins(lowest.key, w.newRoot) === w.newRoot) {
-            lowest = { key: w.newRoot, rotator: set.rotator, ...(w.controlPk ? { controlPk: w.controlPk } : {}), ...(w.controlRoot ? { controlRoot: w.controlRoot } : {}) };
-          }
-        } catch {
-          // undecryptable: not mine to adopt
-        }
-      }
-      if (cancelled || !lowest) return;
-      if (bytesToHex(lowest.key) === bytesToHex(community.root) || lowerKeyWins(community.root, lowest.key) !== lowest.key) return;
-      // The epoch belongs to the winner now: an unfinished carry of my own key is moot.
-      clearRefoundJournal(user.pubkey, community.idHex);
-      const converged: Community = {
-        ...community,
-        root: lowest.key,
-        controlPk: lowest.controlPk,
-        controlRoot: lowest.controlRoot,
-        heldRoots: community.heldRoots.map((r) =>
-          r.epoch === community.rootEpoch
-            ? { epoch: r.epoch, key: lowest.key, refounder: lowest.rotator, ...(lowest.controlPk ? { controlPk: lowest.controlPk } : {}) }
-            : r,
-        ),
-        refounder: lowest.rotator,
-      };
-      await updateList({
-        type: "refresh-current",
-        current: toJoinMaterial(converged, { prior: entry.current, relays: entry.current.relays }),
-      }).catch(() => undefined);
-      queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [community?.idHex, community?.rootEpoch, community?.root, user?.pubkey, folded, query.data, entry?.added_at]);
+    } catch {
+      // undecryptable: not mine to adopt
+    }
+  }
+  if (!lowest || bytesToHex(lowest.key) === bytesToHex(community.root) || lowerKeyWins(community.root, lowest.key) !== lowest.key) return undefined;
+  const winner = lowest;
+  return {
+    ...community,
+    root: winner.key,
+    controlPk: winner.controlPk,
+    controlRoot: winner.controlRoot,
+    heldRoots: community.heldRoots.map((r) =>
+      r.epoch === community.rootEpoch
+        ? { epoch: r.epoch, key: winner.key, refounder: winner.rotator, ...(winner.controlPk ? { controlPk: winner.controlPk } : {}) }
+        : r,
+    ),
+    refounder: winner.rotator,
+  };
 }
 
 export function useRekeyWatch(community: Community | undefined): { stranded: boolean } {
@@ -382,8 +332,14 @@ export function useRekeyWatch(community: Community | undefined): { stranded: boo
   }, [heldId, heldEpoch]);
 
   const nextEpoch = community ? community.rootEpoch + 1n : 0n;
-  const query = useQuery<OpenedEvent[]>({
-    queryKey: ["concord", "rekey", community?.idHex ?? null, nextEpoch.toString()],
+  // A racing Refounding at the epoch I'm on (see `convergeOnLowerKey`): read in the same
+  // REQ, for a while after the rotation, since the forward walk never looks back at it.
+  const prior = community && community.rootEpoch > 0n
+    ? community.heldRoots.find((r) => r.epoch === community.rootEpoch - 1n)
+    : undefined;
+  const converging = prior?.retiredAt !== undefined && Date.now() / 1000 - prior.retiredAt < CONVERGE_WINDOW_SECS;
+  const query = useQuery<{ next: OpenedEvent[]; current: OpenedEvent[] }>({
+    queryKey: ["concord", "rekey", community?.idHex ?? null, nextEpoch.toString(), converging],
     enabled: Boolean(community),
     staleTime: 30_000,
     // Rekeys are rare and this runs only for the open community; per-relay cursors
@@ -392,31 +348,32 @@ export function useRekeyWatch(community: Community | undefined): { stranded: boo
     refetchIntervalInBackground: false,
     queryFn: async ({ signal }) => {
       const address = baseRekeyGroupKey(community!.root, community!.id, nextEpoch);
-      const base: { kinds: number[]; authors: string[]; limit: number } = {
-        kinds: [KIND_WRAP],
-        authors: [address.pk],
-        limit: 50,
-      };
+      const currentAddress = converging ? baseRekeyGroupKey(prior!.key, community!.id, community!.rootEpoch) : undefined;
+      const base = { kinds: [KIND_WRAP], limit: 50 };
 
       // PER-RELAY `since` cursors, so a fast relay can't advance past a chunk a
       // lagging one still owes; a skipped chunk would block adoption forever.
       const results = await Promise.all(
         community!.relays.map(async (url) => {
-          const scope = `rekey:${community!.idHex}:${nextEpoch}|${url}`;
-          const cursor = await readStreamCursor(scope);
-          const filter = cursor?.newest ? { ...base, since: cursor.newest } : base;
+          const scopes = [
+            { scope: `rekey:${community!.idHex}:${nextEpoch}|${url}`, pk: address.pk },
+            ...(currentAddress ? [{ scope: `rekey:${community!.idHex}:${community!.rootEpoch}|${url}`, pk: currentAddress.pk }] : []),
+          ];
+          const filters = await Promise.all(scopes.map(async ({ scope, pk }) => {
+            const cursor = await readStreamCursor(scope);
+            return cursor?.newest ? { ...base, authors: [pk], since: cursor.newest } : { ...base, authors: [pk] };
+          }));
           try {
             const events = await nostr
               .relay(url)
-              .query([filter], { signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) });
-            if (events.length > 0) {
-              await updateStreamCursor(scope, {
-                newest: Math.max(...events.map((e) => e.created_at)),
-              });
+              .query(filters, { signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) });
+            for (const { scope, pk } of scopes) {
+              const mine = events.filter((e) => e.pubkey === pk);
+              if (mine.length > 0) await updateStreamCursor(scope, { newest: Math.max(...mine.map((e) => e.created_at)) });
             }
             return events;
           } catch {
-            // Failed/aborted — the cursor stays put.
+            // Failed/aborted — the cursors stay put.
             return [] as NostrEvent[];
           }
         }),
@@ -424,26 +381,52 @@ export function useRekeyWatch(community: Community | undefined): { stranded: boo
       // Decrypt the stream layer once and persist, so a seen round is never refetched.
       const fresh: OpenedWireEvent[] = [];
       for (const wrap of results.flat()) {
+        const at = wrap.pubkey === address.pk ? address : wrap.pubkey === currentAddress?.pk ? currentAddress : undefined;
+        if (!at) continue;
         try {
-          fresh.push(openWrap(wrap, address));
+          fresh.push(openWrap(wrap, at));
         } catch {
           // not this address / malformed
         }
       }
       if (fresh.length > 0) writeOpened(community!.idHex, fresh, "rekey");
       // Match rounds by their own `scope` + `newepoch`, not the arrival address.
-      const stored = await queryRekeyRounds(community!.idHex, [
-        { scopeIdHex: bytesToHex(community!.id), newEpoch: nextEpoch },
-      ]);
-      const byId = new Map<string, OpenedEvent>();
-      for (const e of stored) byId.set(e.rumorId, e);
-      for (const e of fresh) byId.set(e.rumorId, e);
-      return [...byId.values()];
+      const rounds = async (epoch: bigint) => {
+        const stored = await queryRekeyRounds(community!.idHex, [{ scopeIdHex: bytesToHex(community!.id), newEpoch: epoch }]);
+        const byId = new Map<string, OpenedEvent>();
+        for (const e of stored) byId.set(e.rumorId, e);
+        for (const e of fresh) byId.set(e.rumorId, e);
+        return [...byId.values()];
+      };
+      return { next: await rounds(nextEpoch), current: converging ? await rounds(community!.rootEpoch) : [] };
     },
   });
 
+  // A lower key at the epoch I'm on, from a racing Refounding: step down to it.
   useEffect(() => {
-    if (!community || !user || !folded || !query.data || query.data.length === 0) return;
+    if (!community || !prior || !user || !folded || !entry || !query.data?.current.length) return;
+    const nip44 = user.signer.nip44;
+    if (!nip44) return;
+    let cancelled = false;
+    void (async () => {
+      const converged = await convergeOnLowerKey(query.data.current, community, prior, folded, user.pubkey, nip44);
+      if (cancelled || !converged) return;
+      // The epoch belongs to the winner now: an unfinished carry of my own key is moot.
+      clearRefoundJournal(user.pubkey, community.idHex);
+      await updateList({
+        type: "refresh-current",
+        current: toJoinMaterial(converged, { prior: entry.current, relays: entry.current.relays }),
+      }).catch(() => undefined);
+      queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [community?.idHex, community?.rootEpoch, community?.root, user?.pubkey, folded, query.data, entry?.added_at]);
+
+  useEffect(() => {
+    if (!community || !user || !folded || !query.data || query.data.next.length === 0) return;
     // The removal decision needs my join time; wait rather than risk a false removal.
     if (!entry) return;
     // Death wins every race (CORD-02 §9): no epoch advance past the tombstone.
@@ -456,7 +439,7 @@ export function useRekeyWatch(community: Community | undefined): { stranded: boo
     let cancelled = false;
     void (async () => {
       const parsed: ParsedRekey[] = [];
-      for (const opened of query.data!) {
+      for (const opened of query.data!.next) {
         try {
           parsed.push(parseRekey(opened));
         } catch {
