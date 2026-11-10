@@ -1,7 +1,7 @@
 import { useCommunityNickname } from "@/contexts/CommunityNicknamesContext";
 import { AtSign, Check, Copy, Globe, MessageSquare, MoreHorizontal, Music, UserCog, UserMinus } from "lucide-react";
 import { Slot } from "@radix-ui/react-slot";
-import { useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { DittoIcon } from "@/components/brand/DittoIcon";
@@ -395,11 +395,51 @@ function ProfilePreviewBody({
 }
 
 /**
+ * One card open app-wide. Every row owns its own card, and on touch a tap on
+ * another trigger can land while the open card's outside-press is still
+ * dismissing it, stacking a second card. A tap that closes a card (or comes
+ * right after one closed) only dismisses, as the modal popover intends.
+ */
+const DISMISS_GRACE_MS = 400;
+const openCard: { close: (() => void) | null; closedAt: number } = { close: null, closedAt: 0 };
+
+function claimCard(close: () => void): boolean {
+  if (openCard.close && openCard.close !== close) {
+    const previous = openCard.close;
+    openCard.close = null;
+    openCard.closedAt = performance.now();
+    previous();
+    return false;
+  }
+  if (performance.now() - openCard.closedAt < DISMISS_GRACE_MS) return false;
+  openCard.close = close;
+  return true;
+}
+
+function releaseCard(close: () => void, dismissed: boolean) {
+  if (openCard.close !== close) return;
+  openCard.close = null;
+  if (dismissed) openCard.closedAt = performance.now();
+}
+
+/**
  * Click-triggered profile preview popover, tinted with the owner's Ditto theme
  * when they have one.
  */
 export function ProfilePreviewCard({ pubkey, children }: ProfilePreviewCardProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setRawOpen] = useState(false);
+  const closeRef = useRef(() => setRawOpen(false));
+  const setOpen = useCallback((next: boolean) => {
+    if (next && !claimCard(closeRef.current)) return;
+    if (!next) releaseCard(closeRef.current, true);
+    setRawOpen(next);
+  }, []);
+  // Closed by the card itself (an action, the picture), not by a tap elsewhere.
+  const close = useCallback(() => {
+    releaseCard(closeRef.current, false);
+    setRawOpen(false);
+  }, []);
+  useEffect(() => () => releaseCard(closeRef.current, false), []);
   // The Popover is built on first open (every row has two triggers); latched.
   const [armed, setArmed] = useState(false);
   const prefetchTheme = usePrefetchProfileTheme();
@@ -438,7 +478,7 @@ export function ProfilePreviewCard({ pubkey, children }: ProfilePreviewCardProps
   }
 
   return (
-    <ArmedPreviewCard pubkey={pubkey} open={open} onOpenChange={setOpen} prefetchTheme={prefetchTheme}>
+    <ArmedPreviewCard pubkey={pubkey} open={open} onOpenChange={setOpen} onClose={close} prefetchTheme={prefetchTheme}>
       {children}
     </ArmedPreviewCard>
   );
@@ -449,12 +489,14 @@ function ArmedPreviewCard({
   pubkey,
   open,
   onOpenChange,
+  onClose,
   prefetchTheme,
   children,
 }: {
   pubkey: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onClose: () => void;
   prefetchTheme: (pubkey: string) => void;
   children: React.ReactNode;
 }) {
@@ -462,7 +504,7 @@ function ArmedPreviewCard({
   const [viewed, setViewed] = useState<ViewedImage | null>(null);
   // The card closes so the viewer isn't stacked inside a modal popover.
   const viewImage = (image: ViewedImage) => {
-    onOpenChange(false);
+    onClose();
     setViewed(image);
   };
   return (
@@ -479,7 +521,7 @@ function ArmedPreviewCard({
         {open && (
           <ThemedPreviewContent
             pubkey={pubkey}
-            onClose={() => onOpenChange(false)}
+            onClose={onClose}
             onViewImage={viewImage}
             moderation={moderation}
           />

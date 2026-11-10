@@ -73,3 +73,25 @@ describe("ProfilePreviewCard avatar", () => {
     expect(screen.getByRole("button", { name: "View profile picture" })).toBeDisabled();
   });
 });
+
+describe("ProfilePreviewCard stacking", () => {
+  it("dismisses the open card on a tap on another trigger rather than opening a second", () => {
+    h.picture = PICTURE;
+    render(
+      <MemoryRouter>
+        <ProfilePreviewCard pubkey={PK}>
+          <button type="button">Carol</button>
+        </ProfilePreviewCard>
+        <ProfilePreviewCard pubkey={"d".repeat(64)}>
+          <button type="button">Dave</button>
+        </ProfilePreviewCard>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Carol" }));
+    expect(screen.getAllByRole("button", { name: "View profile picture" })).toHaveLength(1);
+
+    // The modal card hides the rest of the page from the accessibility tree.
+    fireEvent.click(screen.getByRole("button", { name: "Dave", hidden: true }));
+    expect(screen.queryAllByRole("button", { name: "View profile picture" })).toHaveLength(0);
+  });
+});
