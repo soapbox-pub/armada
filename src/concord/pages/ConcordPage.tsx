@@ -1,3 +1,4 @@
+import { channelDisplayName } from "@/concord/lib/community";
 import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Bell, BellOff, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, MessageSquareText, MessagesSquare, Pause, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigationType, useSearchParams } from "react-router-dom";
@@ -2883,7 +2884,7 @@ function ConcordCommunityPage() {
     // change overlaid since the fold lags.
     if (!roster) return;
     const affected = channelsHingingOn(roster, ownerHex, pubkey, roleId, privateChannelsHere);
-    const nameOf = (idHex: string) => folded?.channels.get(idHex)?.name ?? idHex.slice(0, 8);
+    const nameOf = (idHex: string) => channelDisplayName(community, folded, idHex);
     const listNames = (ids: string[]) => ids.map((id) => `#${nameOf(id)}`).join(", ");
 
     if (on) {
@@ -3060,7 +3061,9 @@ function ConcordCommunityPage() {
 
   // A pre-split epoch (no control_pk): the next Refounding mints the split (CORD-06 §3).
   const legacyControl = Boolean(community && !community.controlPk);
-  const offerUpgrade = Boolean(user && legacyControl && moderation.canRotateKeys && !dissolved);
+  // The banner asks the owner alone: two staff upgrading at once each keep their own new
+  // root and split the community. Other staff still have the menu's Upgrade security.
+  const offerUpgrade = Boolean(user && user.pubkey === ownerHex && legacyControl && moderation.canRotateKeys && !dissolved);
 
   const runRotateKeys = async () => {
     const upgrading = legacyControl;

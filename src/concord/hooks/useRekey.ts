@@ -1,3 +1,4 @@
+import { settleAccepted } from "@/concord/lib/settleAccepted";
 import { clockNowMs } from "@/lib/relayClock";
 import { useNostr } from "@nostrify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -867,11 +868,11 @@ export function useChannelRekey(community: Community | undefined) {
       );
       for (const rumor of chRumors) {
         const wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, chAddress, user.signer), chAddress);
-        const results = await Promise.allSettled(
+        const results = await settleAccepted(
           community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),
         );
         if (!results.some((r) => r.status === "fulfilled")) {
-          throw new Error(t({ id: "useRekey.noRelayAcceptedChannelRotation", defaultMessage: "No relay accepted the #{channel} channel key rotation." }, { channel: ch.name }));
+          throw new Error(t({ id: "useRekey.noRelayAcceptedChannelRotation", defaultMessage: "No relay accepted the #{channel} channel key rotation." }, { channel: ch.name || channelIdHex.slice(0, 8) }));
         }
       }
 
@@ -889,11 +890,15 @@ export function useChannelRekey(community: Community | undefined) {
             }
           : c,
       );
+      // Only the rotated channel, merged at write time: the rest of `community` was read
+      // before the signing run and may have gained a key since. A failed write isn't a
+      // failed rotation: it is on the wire, and the rotator's own watch adopts it.
       await updateList({
         type: "refresh-channels",
         communityId: community.idHex,
-        channels: channelKeysToWire(rotated),
-      });
+        channels: channelKeysToWire(rotated.filter((c) => bytesToHex(c.id) === channelIdHex)),
+        upsert: true,
+      }).catch(() => undefined);
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
 
       // The rotator's duty: the details sealed again under the key just minted (CORD-03 §2,
@@ -970,7 +975,9 @@ export function useRefound(community: Community | undefined) {
       const nip44 = user.signer.nip44;
       if (!nip44) throw new Error(t({ id: "useRekey.signerCantRotate", defaultMessage: "This signer can't rotate keys (NIP-44 unsupported)." }));
       const rendered = control.data;
-      if (!rendered || control.isLoading || control.isFetching) {
+      // Not `isFetching`: background refetches made that refuse most attempts, and the
+      // sweep below reads the plane whole anyway; the last fold is still a valid floor.
+      if (!rendered || control.isLoading) {
         throw new Error(t({ id: "useRekey.stillSyncing", defaultMessage: "Still syncing the community's control plane; try again shortly." }));
       }
 
@@ -1090,7 +1097,7 @@ export function useRefound(community: Community | undefined) {
       );
       for (const rumor of rumors) {
         const wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, address, user.signer), address);
-        const results = await Promise.allSettled(
+        const results = await settleAccepted(
           community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),
         );
         if (!results.some((r) => r.status === "fulfilled")) {
@@ -1154,14 +1161,38 @@ export function useRefound(community: Community | undefined) {
           // Defensive only: control heads are plaintext by construction.
           continue;
         }
-        const results = await Promise.allSettled(
+        const results = await settleAccepted(
           community.relays.map((url) => nostr.relay(url).event(rewrapped, { signal: AbortSignal.timeout(8000) })),
         );
-        // A head that fails to land is unrecoverable; abort while the epoch is unannounced.
+        // The epoch is already announced (step 1) and adopted here (1a): a head that
+        // fails to land leaves the new plane short of it until the state is carried again.
         if (!results.some((r) => r.status === "fulfilled")) {
           throw new Error(t({ id: "useRekey.noRelayAcceptedState", defaultMessage: "No relay accepted the community's state during rotation; nothing was lost, try again." }));
         }
       }
+
+      // 3. Guestbook snapshot: best-effort, non-gating (CORD-02 §5). Before the channels,
+      // which can throw: an epoch with no snapshot builds its next keep-list from a thin roster.
+      try {
+        const newGuestbook = guestbookGroupKey(newRoot, community.id, newEpoch);
+        const snapId = bytesToHex(random32());
+        for (const rumor of buildSnapshotRumors(user.pubkey, recipients, snapId, clockNowMs())) {
+          const wrap = await sealGuestbook(rumor, newGuestbook, user.signer);
+          await settleAccepted(
+            community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),
+          );
+        }
+        // The Refounder's duties to the new Guestbook (CORD-04 §8, §10): each running
+        // Timeout and each Nickname set for a re-keyed member, that it could issue itself,
+        // re-issued in its own name dated as first issued.
+        const reissued = await reissuedGuestbook(community, folded, user.pubkey, recipients, citationFor(community, folded, user.pubkey), exclude);
+        for (const rumor of reissued) {
+          const wrap = await sealGuestbook(rumor, newGuestbook, user.signer);
+          await settleAccepted(
+            community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),
+          );
+        }
+      } catch { /* ignore */ }
 
       // 2b. Rotate every held Private Channel (CORD-06 §3), each with its own fresh
       // key via a channel-scoped rekey under the PRIOR root. Each channel's keep-list
@@ -1204,13 +1235,13 @@ export function useRefound(community: Community | undefined) {
         );
         for (const rumor of chRumors) {
           const wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, chAddress, user.signer), chAddress);
-          const results = await Promise.allSettled(
+          const results = await settleAccepted(
             community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),
           );
           if (!results.some((r) => r.status === "fulfilled")) {
             // Gating like the root roll: an unrotated channel leaves the removed member
             // reading it. Resumable, not atomic.
-            throw new Error(t({ id: "useRekey.noRelayAcceptedChannelRotation", defaultMessage: "No relay accepted the #{channel} channel key rotation." }, { channel: ch.name }));
+            throw new Error(t({ id: "useRekey.noRelayAcceptedChannelRotation", defaultMessage: "No relay accepted the #{channel} channel key rotation." }, { channel: ch.name || bytesToHex(ch.id).slice(0, 8) }));
           }
         }
         // Retain the stepped-off key (CORD-03 §3), or every ban truncates private history.
@@ -1224,28 +1255,6 @@ export function useRefound(community: Community | undefined) {
           ],
         });
       }
-
-      // 3. Guestbook snapshot: best-effort, non-gating (CORD-02 §5).
-      try {
-        const newGuestbook = guestbookGroupKey(newRoot, community.id, newEpoch);
-        const snapId = bytesToHex(random32());
-        for (const rumor of buildSnapshotRumors(user.pubkey, recipients, snapId, clockNowMs())) {
-          const wrap = await sealGuestbook(rumor, newGuestbook, user.signer);
-          await Promise.allSettled(
-            community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),
-          );
-        }
-        // The Refounder's duties to the new Guestbook (CORD-04 §8, §10): each running
-        // Timeout and each Nickname set for a re-keyed member, that it could issue itself,
-        // re-issued in its own name dated as first issued.
-        const reissued = await reissuedGuestbook(community, folded, user.pubkey, recipients, citationFor(community, folded, user.pubkey), exclude);
-        for (const rumor of reissued) {
-          const wrap = await sealGuestbook(rumor, newGuestbook, user.signer);
-          await Promise.allSettled(
-            community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),
-          );
-        }
-      } catch { /* ignore */ }
 
       // 3b. Refresh my live invite links to the new epoch (CORD-05 §2), with the
       // post-rotation channel keys; other creators refresh on adoption. Retried

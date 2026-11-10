@@ -1107,6 +1107,8 @@ export type CommunityListAction =
       channels: JoinMaterial["channels"];
       /** Channels a rotation cut me out of, with the epoch that did it. */
       cuts?: CommunityListEntry["channel_cuts"];
+      /** Merge by channel id rather than replace (`upsertChannelKeys`). */
+      upsert?: boolean;
     }
   | { type: "refresh-relays"; communityId: string; relays: string[] }
   | {
@@ -1128,7 +1130,7 @@ function applyAction(list: CommunityList, action: CommunityListAction): Communit
     case "refresh-current":
       return refreshCurrent(list, action.current);
     case "refresh-channels":
-      return refreshChannels(list, action.communityId, action.channels, action.cuts);
+      return refreshChannels(list, action.communityId, action.channels, action.cuts, action.upsert);
     case "refresh-relays":
       return refreshRelays(list, action.communityId, action.relays);
     case "set-control-root":

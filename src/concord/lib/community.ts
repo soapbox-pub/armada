@@ -71,6 +71,17 @@ export function deletedChannels(community: Community, folded: FoldedControl | un
 }
 
 /**
+ * A Channel's name for a message, sealed or not: a sealed head opens with the held key
+ * (CORD-03 §2), and an empty name falls back rather than printing a bare `#`.
+ */
+export function channelDisplayName(community: Community | undefined, folded: FoldedControl | undefined, channelIdHex: string): string {
+  const def = folded?.channels.get(channelIdHex);
+  const held = community?.privateChannels.find((k) => bytesToHex(k.id) === channelIdHex);
+  const opened = def?.sealed && held ? openChannelSeal(def.sealed, held) : undefined;
+  return opened?.metadata.name || def?.name || held?.name || channelIdHex.slice(0, 8);
+}
+
+/**
  * The channels the member can read, from the Control fold + held keys:
  *
  *   - PUBLIC: streams derive from the community_root per held root epoch;

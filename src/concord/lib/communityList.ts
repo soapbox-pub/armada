@@ -513,20 +513,54 @@ export function refreshChannels(
   channels: JoinMaterial["channels"],
   /** Channels REMOVED by a rotation, with its channel epoch — recorded as `channel_cuts` floors. */
   cuts?: CommunityListEntry["channel_cuts"],
+  /**
+   * Merge `channels` into the held set by id instead of replacing it ({@link upsertChannelKeys}),
+   * for a writer that names only what it changed: a set built before a long signing run
+   * would otherwise drop a key adopted meanwhile.
+   */
+  upsert = false,
 ): CommunityList {
   const idx = list.entries.findIndex((e) => e.community_id === communityId);
   if (idx === -1) return list;
   const entries = list.entries.map((e, i) => {
     if (i !== idx) return e;
     const channelCuts = mergeChannelCuts(e.channel_cuts, cuts);
+    const merged = upsert ? upsertChannelKeys(e.current.channels ?? [], channels) : channels;
     const next: CommunityListEntry = {
       ...e,
-      current: { ...e.current, channels: applyChannelCuts(channels, channelCuts) },
+      current: { ...e.current, channels: applyChannelCuts(merged, channelCuts) },
     };
     if (channelCuts) next.channel_cuts = channelCuts;
     return next;
   });
   return { ...list, entries };
+}
+
+type WireChannelKey = JoinMaterial["channels"][number];
+
+/**
+ * `incoming` laid over `held` by channel id, never moving a channel backwards: a newer
+ * epoch wins and keeps the key it replaces as a prior (CORD-03 §3), so the history sealed
+ * under it stays readable; an older one is ignored. Channels `incoming` doesn't name stay.
+ */
+export function upsertChannelKeys(held: readonly WireChannelKey[], incoming: readonly WireChannelKey[]): WireChannelKey[] {
+  const out = new Map(held.map((c) => [c.id.toLowerCase(), c] as const));
+  for (const c of incoming) {
+    const id = c.id.toLowerCase();
+    const prev = out.get(id);
+    if (!prev) {
+      out.set(id, c);
+      continue;
+    }
+    if (prev.epoch > c.epoch) continue;
+    const priors = new Map<number, NonNullable<WireChannelKey["priors"]>[number]>();
+    for (const p of [...(c.priors ?? []), ...(prev.epoch < c.epoch ? [{ key: prev.key, epoch: prev.epoch }] : []), ...(prev.priors ?? [])]) {
+      if (p.epoch < c.epoch && !priors.has(p.epoch)) priors.set(p.epoch, p);
+    }
+    const kept = [...priors.values()].sort((a, b) => b.epoch - a.epoch);
+    out.set(id, { ...c, name: c.name || prev.name, ...(kept.length > 0 ? { priors: kept } : {}) });
+  }
+  return [...out.values()];
 }
 
 /**

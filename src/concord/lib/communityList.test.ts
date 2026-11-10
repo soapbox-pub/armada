@@ -18,6 +18,7 @@ import {
   replayedAddStanding,
   reviseSnapshots,
   unionChannelKeys,
+  upsertChannelKeys,
   toJoinMaterial,
   type CommunityListEntry,
   type JoinMaterial,
@@ -288,6 +289,36 @@ describe("refreshChannels (channel-scope rekey adoption/exclusion, CORD-06 §2)"
   it("an unknown community is a no-op", () => {
     const list = addToList(EMPTY_COMMUNITY_LIST, entryOf(makeJoinMaterial()));
     expect(refreshChannels(list, "ff".repeat(32), [])).toEqual(list);
+  });
+
+  it("upsert keeps a key the writer's stale snapshot didn't hold", () => {
+    const a = chan("11".repeat(32), 0);
+    const b = chan("22".repeat(32), 0);
+    // `a` rotated by a writer that read the list before `b` was adopted.
+    const jm = makeJoinMaterial({ channels: [a, b] });
+    const list = addToList(EMPTY_COMMUNITY_LIST, entryOf(jm));
+    const rotated = { ...a, key: bytesToHex(random32()), epoch: 1 };
+    const next = refreshChannels(list, jm.community_id, [rotated], undefined, true);
+    const ids = next.entries[0].current.channels.map((c) => [c.id, c.epoch]);
+    expect(ids).toEqual([[a.id, 1], [b.id, 0]]);
+  });
+});
+
+describe("upsertChannelKeys", () => {
+  const chan = (id: string, epoch: number, name = "sec") => ({ id, key: bytesToHex(random32()), epoch, name });
+
+  it("never moves a channel back an epoch", () => {
+    const held = chan("11".repeat(32), 3);
+    expect(upsertChannelKeys([held], [chan(held.id, 2)])).toEqual([held]);
+  });
+
+  it("keeps the replaced key as a prior, and the name a delivery doesn't carry", () => {
+    const held = { ...chan("11".repeat(32), 1), priors: [{ key: "aa".repeat(32), epoch: 0 }] };
+    const delivered = chan(held.id, 2, "");
+    const [out] = upsertChannelKeys([held], [delivered]);
+    expect(out.key).toBe(delivered.key);
+    expect(out.name).toBe("sec");
+    expect(out.priors).toEqual([{ key: held.key, epoch: 1 }, { key: "aa".repeat(32), epoch: 0 }]);
   });
 });
 

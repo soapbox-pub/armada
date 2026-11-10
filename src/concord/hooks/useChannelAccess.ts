@@ -14,7 +14,6 @@ import { useEffect, useRef } from "react";
 
 import { useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { useControlFold } from "@/concord/hooks/useControlPlane";
-import { heldChannelKeys } from "@/concord/lib/communityList";
 import { accessDeliveryAdmits, accessKeyRefuted, accessPlane, parseDelivery } from "@/concord/lib/delivery";
 import { bytesToHex, hex32 } from "@/concord/lib/derive";
 import { KIND_WRAP } from "@/concord/lib/kinds";
@@ -139,9 +138,10 @@ export function useChannelAccess(community: Community | undefined): void {
       const fresh = [...adopted].filter(([id, k]) => !handled.current.has(`${id}:${k.epoch}`));
       if (fresh.length === 0) return;
       for (const [id, k] of fresh) handled.current.add(`${id}:${k.epoch}`);
-      const channels = heldChannelKeys(entry.current.channels).filter((c) => !adopted.has(c.id.toLowerCase()));
-      for (const [id, k] of adopted) channels.push({ id, key: bytesToHex(k.key), epoch: Number(k.epoch), name: "" });
-      await updateList({ type: "refresh-channels", communityId: community.idHex, channels }).catch(() => {
+      const channels = [...adopted].map(([id, k]) => ({ id, key: bytesToHex(k.key), epoch: Number(k.epoch), name: "" }));
+      // Merged at write time, so a key the list gained since `entry` was read survives, and
+      // the key a newer epoch replaces stays as a prior.
+      await updateList({ type: "refresh-channels", communityId: community.idHex, channels, upsert: true }).catch(() => {
         for (const [id, k] of fresh) handled.current.delete(`${id}:${k.epoch}`);
       });
     })();

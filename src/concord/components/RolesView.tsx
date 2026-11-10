@@ -1,3 +1,4 @@
+import { channelDisplayName } from "@/concord/lib/community";
 import { GripVertical, Hash, Loader2, Lock, Plus, Shield, ShieldOff, Users } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
@@ -343,7 +344,7 @@ function LegacyRolesBody({ community }: { community: Community }) {
 
   /** Rotate a revoked role's channel key away from the members it cut; the reason it couldn't, else null. */
   const rotateAway = async (cut: NonNullable<ReturnType<typeof roleRevokeCut>>): Promise<string | null> => {
-    const channel = `#${liveChannel(cut.channelIdHex)?.name ?? cut.channelIdHex.slice(0, 8)}`;
+    const channel = `#${channelDisplayName(community, folded, cut.channelIdHex)}`;
     if (!cut.heldByMe) {
       return t(
         {

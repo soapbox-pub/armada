@@ -1,3 +1,4 @@
+import { channelDisplayName } from "@/concord/lib/community";
 import { useNostr } from "@nostrify/react";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
@@ -149,7 +150,7 @@ export function useModeration(community: Community | undefined, recipients: stri
   const cutChannels = async (cuts: ReturnType<typeof banChannelCuts>, targets: string[]) => {
     const leaked: string[] = [];
     for (const cut of cuts) {
-      const name = `#${folded?.channels.get(cut.channelIdHex)?.name ?? cut.channelIdHex.slice(0, 8)}`;
+      const name = `#${channelDisplayName(community, folded, cut.channelIdHex)}`;
       if (!cut.heldByMe || !canSeverChannel) {
         leaked.push(name);
         continue;
