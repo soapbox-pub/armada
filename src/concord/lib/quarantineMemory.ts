@@ -9,6 +9,7 @@
  * - False positives persist too, bounded by {@link QUARANTINE_RETENTION_MS} and
  *   {@link QUARANTINE_MAX_IDS} (newest kept).
  */
+import { activeFloodPolicy, subscribeActiveFloodPolicy } from "@/concord/lib/floodPolicy";
 import { KvPrefixCache } from "@/lib/db/kvCache";
 
 /** How long a remembered verdict outlives its message's timestamp. */
@@ -30,12 +31,32 @@ cache.subscribe(() => {
 });
 
 /**
+ * The reader's flood tuning. A remembered verdict is one the STANDARD rules
+ * reached, so it is recalled only under a policy at least that strict (one the
+ * reader relaxed must stop folding what it now lets through), and a strict
+ * policy's verdicts aren't remembered into a later standard session.
+ */
+const recalls = () => {
+  const policy = activeFloodPolicy();
+  return policy.sensitivity !== "relaxed" && !policy.exemptBridged;
+};
+const remembers = () => activeFloodPolicy().sensitivity !== "strict";
+subscribeActiveFloodPolicy(() => {
+  revision++;
+});
+
+/**
  * Re-render on change, notably when the warm lands. Subscribing kicks the warm,
  * so it's what makes the memory exist for a session.
  */
 export function subscribeQuarantineMemory(listener: () => void): () => void {
   void cache.ready();
-  return cache.subscribe(listener);
+  const offPolicy = subscribeActiveFloodPolicy(listener);
+  const off = cache.subscribe(listener);
+  return () => {
+    offPolicy();
+    off();
+  };
 }
 
 export function quarantineMemoryRevision(): number {
@@ -58,6 +79,7 @@ export function recallQuarantined(
   communityIdHex: string,
   channelIdHex: string,
 ): ReadonlySet<string> | undefined {
+  if (!recalls()) return undefined;
   const value = cache.get(entryId(communityIdHex, channelIdHex));
   if (!value) return undefined;
   let ids = setMemo.get(value);
@@ -86,7 +108,7 @@ export function rememberQuarantined(
   channelIdHex: string,
   entries: Iterable<readonly [rumorId: string, ms: number]>,
 ): void {
-  if (!communityIdHex || !channelIdHex) return;
+  if (!communityIdHex || !channelIdHex || !remembers()) return;
   const id = entryId(communityIdHex, channelIdHex);
   const existing = cache.get(id);
   let bucket = pending.get(id);

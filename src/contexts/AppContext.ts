@@ -4,6 +4,7 @@ import { APP_RELAYS, BROADCAST_RELAYS, COMMUNITY_RELAYS, normalizeRelayUrl, SEAR
 import { DEFAULT_PUSH_PREFS, type PushPrefs } from "@/lib/pushPrefs";
 import { getPreferredVoiceServer } from "@/lib/voiceDevices";
 
+import type { FloodSensitivity } from "@/concord/lib/floodPolicy";
 import type { MediaAutoload } from "@/concord/lib/mediaTrust";
 import type { BlossomServerMetadata } from "@/lib/blossom";
 import type { PaymentTargetType } from "@/lib/paymentTargets";
@@ -264,6 +265,10 @@ export interface AppConfig {
    * message; a community pause still collapses. Synced.
    */
   foldSimilarMessages: boolean;
+  /** How readily that folding fires (`FloodSensitivity`, default standard). Synced. */
+  spamSensitivity: FloodSensitivity;
+  /** Never fold messages bridged from another network (NIP-48 `proxy`; default off). Synced. */
+  spamExemptBridged: boolean;
   /** Whether message headers show the clock time instead of "2h" (default off). Synced. */
   absoluteTimestamps: boolean;
   /** Whether the rail shows the Discover button (default on). Display only; /discover still opens. Synced. */
@@ -348,6 +353,8 @@ export const METADATA_CONFIG_KEYS = [
   "messageHoverActions",
   "replyGestures",
   "foldSimilarMessages",
+  "spamSensitivity",
+  "spamExemptBridged",
   "absoluteTimestamps",
   "showDiscover",
   "currencyDisplay",
@@ -448,6 +455,8 @@ export const defaultConfig: AppConfig = {
   messageHoverActions: true,
   replyGestures: "swipe",
   foldSimilarMessages: true,
+  spamSensitivity: "standard",
+  spamExemptBridged: false,
   absoluteTimestamps: false,
   showDiscover: true,
   meshIncognito: true,

@@ -42,6 +42,7 @@ const SECTION_PAGE: Record<string, SettingsPageId> = {
   media: "privacy",
   links: "privacy",
   discover: "privacy",
+  "spam-filter": "chat",
   "app-relays": "relays",
   uploads: "relays",
 };

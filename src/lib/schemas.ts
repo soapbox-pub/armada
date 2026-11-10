@@ -160,6 +160,8 @@ export const AppConfigSchema = z.object({
   messageHoverActions: z.boolean().catch(defaultConfig.messageHoverActions),
   replyGestures: z.enum(REPLY_GESTURES).catch(defaultConfig.replyGestures),
   foldSimilarMessages: z.boolean().catch(defaultConfig.foldSimilarMessages),
+  spamSensitivity: z.enum(["relaxed", "standard", "strict"]).catch(defaultConfig.spamSensitivity),
+  spamExemptBridged: z.boolean().catch(defaultConfig.spamExemptBridged),
   absoluteTimestamps: z.boolean().catch(defaultConfig.absoluteTimestamps),
   showDiscover: z.boolean().catch(defaultConfig.showDiscover),
   currencyDisplay: z.enum(["usd", "sats"]).catch(defaultConfig.currencyDisplay),
@@ -217,6 +219,10 @@ export const MetadataDocSchema = z.looseObject({
   replyGestures: z.enum(REPLY_GESTURES).optional(),
   /** Fold near-identical Concord bursts into "Similar messages". */
   foldSimilarMessages: z.boolean().optional(),
+  /** How readily it folds: relaxed (content only), standard, strict. */
+  spamSensitivity: z.enum(["relaxed", "standard", "strict"]).optional(),
+  /** Never fold NIP-48 bridged messages. */
+  spamExemptBridged: z.boolean().optional(),
   /** Clock time instead of relative time in message headers. */
   absoluteTimestamps: z.boolean().optional(),
   /** The rail's Discover button. */

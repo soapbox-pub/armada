@@ -5,6 +5,8 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useCommunityRumors } from "@/concord/hooks/useCommunityRumors";
 import { quarantinedIn } from "@/concord/lib/floodCluster";
+import type { FloodPolicy } from "@/concord/lib/floodPolicy";
+import { useFloodPolicy } from "@/concord/hooks/useFloodPolicy";
 import {
   quarantineMemoryRevision,
   recallQuarantined,
@@ -78,19 +80,20 @@ export function useConcordUnread(
   // Re-derive when the persisted quarantine memory warms or grows; after a
   // refresh it is what keeps a flood's badges from coming back.
   const memoryRev = useSyncExternalStore(subscribeQuarantineMemory, quarantineMemoryRevision);
+  const floodPolicy = useFloodPolicy();
 
   // Remember what the badge path detected so a refresh can't resurrect it.
   // Merge-only, so it never un-remembers the timeline fold's verdicts.
   useEffect(() => {
     if (!communityIdHex) return;
     for (const [idHex, rumors] of rumorsByChannel) {
-      const quarantined = quarantinedIn(rumors, pubkey);
+      const quarantined = quarantinedIn(rumors, pubkey, undefined, floodPolicy);
       if (quarantined.size === 0) continue;
       const entries: Array<[string, number]> = [];
       for (const r of rumors) if (quarantined.has(r.rumorId)) entries.push([r.rumorId, r.ms]);
       if (entries.length > 0) rememberQuarantined(communityIdHex, idHex, entries);
     }
-  }, [communityIdHex, rumorsByChannel, pubkey]);
+  }, [communityIdHex, rumorsByChannel, pubkey, floodPolicy]);
 
   // Depend on this community's stamps only: `readState` changes on every markRead
   // anywhere, and the rail mounts one of these per community.
@@ -103,8 +106,8 @@ export function useConcordUnread(
   // cached per channel; a markRead then costs a comparison per channel. A scan
   // that skipped a future-dated message is redone when its time comes.
   const scanDeps = useMemo(
-    () => ({ pubkey, mutedPubkeys, banned, canMentionEveryone, pingsByRole, holdsPost, joinedAtMs, communityIdHex, memoryRev }),
-    [pubkey, mutedPubkeys, banned, canMentionEveryone, pingsByRole, holdsPost, joinedAtMs, communityIdHex, memoryRev],
+    () => ({ pubkey, mutedPubkeys, banned, canMentionEveryone, pingsByRole, holdsPost, joinedAtMs, communityIdHex, memoryRev, floodPolicy }),
+    [pubkey, mutedPubkeys, banned, canMentionEveryone, pingsByRole, holdsPost, joinedAtMs, communityIdHex, memoryRev, floodPolicy],
   );
   const scanCacheRef = useRef(new Map<string, ChannelScan>());
 
@@ -170,6 +173,7 @@ interface ScanDeps {
   joinedAtMs: number | undefined;
   communityIdHex: string | undefined;
   memoryRev: number;
+  floodPolicy: FloodPolicy;
 }
 
 /** One channel's unread inputs, before read state is applied. */
@@ -194,12 +198,12 @@ function scanChannel(
   deps: ScanDeps,
   feedOnly: boolean,
 ): ChannelScan {
-  const { pubkey, mutedPubkeys, banned, canMentionEveryone, pingsByRole, holdsPost, joinedAtMs, communityIdHex } = deps;
+  const { pubkey, mutedPubkeys, banned, canMentionEveryone, pingsByRole, holdsPost, joinedAtMs, communityIdHex, floodPolicy } = deps;
   // A visual flood renders as ONE collapsed row, so its members don't badge.
   // A community PAUSE is deliberately not mirrored: this path has no roster so it
   // couldn't honor the staff exemption, and few messages arrive post-pause.
   // Memoized on the batch's identity, so a readState recompute never re-runs the fold.
-  const quarantined = quarantinedIn(rumors, pubkey);
+  const quarantined = quarantinedIn(rumors, pubkey, undefined, floodPolicy);
   const remembered = communityIdHex ? recallQuarantined(communityIdHex, idHex) : undefined;
   // Fold self-deletes: the store's NIP-09 pass only fires within one write batch,
   // so a later-batch delete leaves its target stored, and a deleted newest message

@@ -5,6 +5,7 @@ import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSectio
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import type { ReplyGestures } from "@/contexts/AppContext";
+import type { FloodSensitivity } from "@/concord/lib/floodPolicy";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useIsTouch } from "@/hooks/useIsMobile";
@@ -96,16 +97,6 @@ export function ChatSettings() {
               updateConfig((current) => ({ ...current, absoluteTimestamps }))}
           />
         </SettingsRow>
-        <SettingsRow
-          label={intl.formatMessage({ id: "chatSettings.foldSimilar", defaultMessage: "Fold similar messages" })}
-          description={intl.formatMessage({ id: "chatSettings.foldSimilarDescription", defaultMessage: "Collapse bursts of near-identical messages in communities into one row. Off, every message is shown, though a burst still never counts as unread or as a mention." })}
-        >
-          <Switch
-            checked={config.foldSimilarMessages}
-            onCheckedChange={(foldSimilarMessages) =>
-              updateConfig((current) => ({ ...current, foldSimilarMessages }))}
-          />
-        </SettingsRow>
         {Capacitor.getPlatform() === "android" && (
           // Per-device: leave the app vs. walk history from the revealed list pane.
           <SettingsRow
@@ -118,6 +109,58 @@ export function ChatSettings() {
                 updateConfig((current) => ({ ...current, androidBackLeavesApp }))}
             />
           </SettingsRow>
+        )}
+      </SettingsGroup>
+
+      <SettingsGroup
+        id="spam-filter"
+        title={intl.formatMessage({ id: "chatSettings.spamFilter.title", defaultMessage: "Spam filtering" })}
+        footer={intl.formatMessage({ id: "chatSettings.spamFilter.footer", defaultMessage: "Only changes what this device shows. Folded messages are never deleted and can always be expanded." })}
+      >
+        <SettingsRow
+          label={intl.formatMessage({ id: "chatSettings.foldSimilar", defaultMessage: "Fold similar messages" })}
+          description={intl.formatMessage({ id: "chatSettings.foldSimilarDescription", defaultMessage: "Collapse bursts of near-identical messages in communities into one row. Off, every message is shown, though a burst still never counts as unread or as a mention." })}
+        >
+          <Switch
+            checked={config.foldSimilarMessages}
+            onCheckedChange={(foldSimilarMessages) =>
+              updateConfig((current) => ({ ...current, foldSimilarMessages }))}
+          />
+        </SettingsRow>
+        {config.foldSimilarMessages && (
+          <>
+            <SettingsRow
+              label={intl.formatMessage({ id: "chatSettings.spamSensitivity", defaultMessage: "Sensitivity" })}
+              description={intl.formatMessage(
+                { id: "chatSettings.spamSensitivityDescription", defaultMessage: "{level, select, relaxed {Folds only repeated messages. A crowd of new people arriving at once is always shown.} strict {Folds bursts sooner, with fewer repeats.} other {Folds repeated messages, and bursts from many new accounts at once.}}" },
+                { level: config.spamSensitivity },
+              )}
+            >
+              <Select
+                value={config.spamSensitivity}
+                onValueChange={(value) => updateConfig((current) => ({ ...current, spamSensitivity: value as FloodSensitivity }))}
+              >
+                <SelectTrigger className="w-40 shrink-0" aria-label={intl.formatMessage({ id: "chatSettings.spamSensitivity", defaultMessage: "Sensitivity" })}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="relaxed"><FormattedMessage id="chatSettings.spamSensitivity.relaxed" defaultMessage="Relaxed" /></SelectItem>
+                  <SelectItem value="standard"><FormattedMessage id="chatSettings.spamSensitivity.standard" defaultMessage="Standard" /></SelectItem>
+                  <SelectItem value="strict"><FormattedMessage id="chatSettings.spamSensitivity.strict" defaultMessage="Strict" /></SelectItem>
+                </SelectContent>
+              </Select>
+            </SettingsRow>
+            <SettingsRow
+              label={intl.formatMessage({ id: "chatSettings.spamExemptBridged", defaultMessage: "Always show bridged messages" })}
+              description={intl.formatMessage({ id: "chatSettings.spamExemptBridgedDescription", defaultMessage: "Never fold messages a bridge relays from Discord, Matrix, Telegram and other networks. A bridge reconnecting can post many at once from new accounts." })}
+            >
+              <Switch
+                checked={config.spamExemptBridged}
+                onCheckedChange={(spamExemptBridged) =>
+                  updateConfig((current) => ({ ...current, spamExemptBridged }))}
+              />
+            </SettingsRow>
+          </>
         )}
       </SettingsGroup>
 

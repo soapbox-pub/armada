@@ -1,5 +1,5 @@
-import { ChevronDown, ChevronUp, KeyRound, Loader2, MessagesSquare, Pause, ShieldOff } from "lucide-react";
-import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, KeyRound, Loader2, MessagesSquare, Pause, ShieldOff, SlidersHorizontal } from "lucide-react";
+import { memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   countRows,
@@ -29,6 +29,7 @@ import { useHiddenMessages } from "@/hooks/useHiddenMessages";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useMutedWordFilter } from "@/hooks/useMutedWords";
 import { usePerfMilestone } from "@/hooks/usePerfMilestone";
+import { SettingsOverlayContext } from "@/lib/settingsOverlay";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, useIntl, type IntlShape } from "@/i18n";
 
@@ -190,6 +191,8 @@ function FloodNotice({
   onToggle: () => void;
 }) {
   const intl = useIntl();
+  const settings = useContext(SettingsOverlayContext);
+  const filterLabel = intl.formatMessage({ id: "messageTimeline.flood.settings", defaultMessage: "Spam filtering settings" });
   const label = expanded
     ? reason === "paused"
       ? intl.formatMessage({ id: "messageTimeline.flood.hidePaused", defaultMessage: "Hide messages sent while paused" })
@@ -255,6 +258,17 @@ function FloodNotice({
         )}
         {label}
       </button>
+      {reason === "flood" && (
+        <button
+          type="button"
+          onClick={() => settings.show("spam-filter")}
+          aria-label={filterLabel}
+          title={filterLabel}
+          className="-ml-2 flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:text-foreground touch:p-2"
+        >
+          <SlidersHorizontal className="size-3" aria-hidden />
+        </button>
+      )}
       <div className="h-px flex-1 bg-muted-foreground/25" />
     </div>
   );

@@ -69,6 +69,7 @@ import {
   subscribeQuarantineMemory,
 } from "@/concord/lib/quarantineMemory";
 import { recordSightings, sightingsRevision, subscribeSightings } from "@/concord/lib/mediaTrust";
+import { useFloodPolicy } from "@/concord/hooks/useFloodPolicy";
 import { citationToTag, type AuthorityCitation } from "@/concord/lib/edition";
 import { citationSatisfied } from "@/concord/lib/control";
 import { whenAuthSettled } from "@/concord/lib/planeSync";
@@ -944,6 +945,7 @@ export function useChannelTimeline(
     refetchInterval: 5 * 60_000,
   }).data;
 
+  const floodPolicy = useFloodPolicy();
   // Re-fold when the persisted quarantine warms or grows (see quarantineMemory.ts).
   const memoryRev = useSyncExternalStore(subscribeQuarantineMemory, quarantineMemoryRevision);
 
@@ -976,9 +978,11 @@ export function useChannelTimeline(
       ...(firstSeen ? { firstSeen } : {}),
       ...(establishedSinceMs !== undefined ? { establishedSinceMs } : {}),
       ...(pauseSince !== undefined ? { pauseSince } : {}),
+      policy: floodPolicy,
       ...rules,
     });
-    // Past sessions' verdicts keep yesterday's wall folded after a refresh.
+    // Past sessions' verdicts keep yesterday's wall folded after a refresh
+    // (none under a policy the reader relaxed; see quarantineMemory.ts).
     const remembered = community?.idHex && channelIdHex
       ? recallQuarantined(community.idHex, channelIdHex)
       : undefined;
@@ -996,7 +1000,7 @@ export function useChannelTimeline(
       return { ...merged, messages: merged.messages.filter((m) => !hidden.has(m.rumorId)) };
     }
     return merged;
-  }, [moderated, moderation, optimisticDeleted, readingUser?.pubkey, firstSeen, establishedSinceMs, pauseSince, rules, community?.idHex, channelIdHex, memoryRev, revealTick]);
+  }, [moderated, moderation, optimisticDeleted, readingUser?.pubkey, firstSeen, establishedSinceMs, pauseSince, rules, floodPolicy, community?.idHex, channelIdHex, memoryRev, revealTick]);
 
   // A removed message's media leaves this device too: a moderator deleting it
   // (abuse, CSAM) shouldn't leave its plaintext in the decrypt cache.

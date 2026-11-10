@@ -25,6 +25,7 @@ import type { PollVote } from "@/lib/polls";
 import { verifyOnchainZapRumor, verifyZapRumor, type ZapEntry } from "@/lib/zaps";
 import { citationFromTags, type AuthorityCitation } from "@/concord/lib/edition";
 import { floodVerdict } from "@/concord/lib/floodCluster";
+import type { FloodPolicy } from "@/concord/lib/floodPolicy";
 import { checkChannelBinding, FUTURE_HOLD_MS, FUTURE_HORIZON_MS, openWrapToSeal, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib/stream";
 import type { Channel } from "@/concord/lib/types";
 
@@ -543,6 +544,8 @@ export function foldTimeline(
     staff?: (author: string) => boolean;
     /** Unforgeable lower bound (ms) on the room's age (`FloodOptions.establishedSinceMs`). Optional. */
     establishedSinceMs?: number;
+    /** The reader's flood tuning (`FloodOptions.policy`). Optional. */
+    policy?: FloodPolicy;
     /**
      * Active pause enactment time in SECONDS (CORD-04 §8): non-staff messages at or
      * after it fold into the flood row (never dropped).
@@ -814,6 +817,7 @@ export function foldTimeline(
     ...(opts?.firstSeen !== undefined ? { firstSeen: opts.firstSeen } : {}),
     ...(isStaff !== undefined ? { staff: isStaff } : {}),
     ...(opts?.establishedSinceMs !== undefined ? { establishedSinceMs: opts.establishedSinceMs } : {}),
+    ...(opts?.policy !== undefined ? { policy: opts.policy } : {}),
   });
   // A community pause (CORD-04 §8) collapses non-staff messages at/after it into the
   // flood row — reader-side, never a drop, gated on (forgeable) created_at. The

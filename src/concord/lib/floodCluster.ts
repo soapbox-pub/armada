@@ -27,7 +27,10 @@
  */
 
 import type { OpenedChat } from "@/concord/lib/chat";
+import { DEFAULT_FLOOD_POLICY, floodExempt, type FloodPolicy, type FloodSensitivity } from "@/concord/lib/floodPolicy";
 import { KIND_COMMENT, KIND_MESSAGE, KIND_POLL } from "@/concord/lib/kinds";
+
+export { DEFAULT_FLOOD_POLICY, floodExempt, floodPolicy, type FloodPolicy, type FloodSensitivity } from "@/concord/lib/floodPolicy";
 
 /** Messages sharing a template within one window before it reads as a flood. */
 export const FLOOD_MIN_MESSAGES = 8;
@@ -66,7 +69,15 @@ export const FLOOD_ECHO_MIN_WORDS_LINKED = 5;
 /** Token overlap at which two templates are treated as one campaign. */
 export const FLOOD_SIMILARITY = 0.6;
 
+const SENSITIVITY_SCALE: Record<FloodSensitivity, { min: number; echo: number }> = {
+  relaxed: { min: 12, echo: 6 },
+  standard: { min: FLOOD_MIN_MESSAGES, echo: FLOOD_ECHO_MIN },
+  strict: { min: 5, echo: 3 },
+};
+
 export interface FloodOptions {
+  /** The reader's tuning; absent = {@link DEFAULT_FLOOD_POLICY}. */
+  policy?: FloodPolicy;
   minMessages?: number;
   windowMs?: number;
   echoMin?: number;
@@ -294,17 +305,22 @@ export function floodClusters(messages: readonly OpenedChat[], opts: FloodOption
  * ({@link computeTrusted}), which the media hold reuses (`mediaTrust.ts`).
  */
 export function floodVerdict(
-  messages: readonly OpenedChat[],
+  all: readonly OpenedChat[],
   opts: FloodOptions = {},
 ): { flagged: Set<string>; trusted: Set<string> } {
-  const minMessages = opts.minMessages ?? FLOOD_MIN_MESSAGES;
+  const policy = opts.policy ?? DEFAULT_FLOOD_POLICY;
+  const scale = SENSITIVITY_SCALE[policy.sensitivity];
+  const minMessages = opts.minMessages ?? scale.min;
   const windowMs = opts.windowMs ?? FLOOD_WINDOW_MS;
-  const echoMin = opts.echoMin ?? FLOOD_ECHO_MIN;
+  const echoMin = opts.echoMin ?? scale.echo;
   const echoWindowMs = opts.echoWindowMs ?? FLOOD_ECHO_WINDOW_MS;
+  const contentOnly = policy.sensitivity === "relaxed";
 
   const flagged = new Set<string>();
   // Trust is computed once: the drown rule reads it and the immunity pass applies it.
-  const trusted = computeTrusted(messages, opts.self, opts.staff);
+  // Over every message, so an exempt one still earns its replies' authors trust.
+  const trusted = computeTrusted(all, opts.self, opts.staff);
+  const messages = policy.exemptBridged ? all.filter((m) => !floodExempt(m, policy)) : all;
   if (messages.length < Math.min(minMessages, echoMin)) return { flagged, trusted };
 
   // First-seen spans every message, the reader's included.
@@ -376,10 +392,12 @@ export function floodVerdict(
       markEcho(messages, idx, echoMin, echoWindowMs, flagged);
     }
   }
-  markArrivalBurst(messages, firstSeen, flagged, opts.self);
-  markCohortFlood(messages, firstSeen, flagged, opts.self);
-  markUntrustedDrown(messages, firstSeen, trusted, flagged, opts.self, opts.establishedSinceMs);
-  markGibberish(messages, flagged, opts.self);
+  if (!contentOnly) {
+    markArrivalBurst(messages, firstSeen, flagged, opts.self);
+    markCohortFlood(messages, firstSeen, flagged, opts.self);
+    markUntrustedDrown(messages, firstSeen, trusted, flagged, opts.self, opts.establishedSinceMs);
+    markGibberish(messages, flagged, opts.self);
+  }
   sweepParticipants(messages, flagged, opts.self);
 
   // Earned-trust immunity, LAST, overriding every rule (defeats copy-a-regular;
@@ -393,7 +411,7 @@ export function floodVerdict(
 /** One batch's quarantine, keyed on the batch itself (see {@link quarantinedIn}). */
 const quarantineCache = new WeakMap<
   readonly OpenedChat[],
-  { self: string | undefined; staff: FloodOptions["staff"]; ids: Set<string> }
+  { self: string | undefined; staff: FloodOptions["staff"]; policy: FloodPolicy; ids: Set<string> }
 >();
 
 const SPEECH_KINDS: ReadonlySet<number> = new Set([KIND_MESSAGE, KIND_POLL, KIND_COMMENT]);
@@ -410,14 +428,16 @@ export function quarantinedIn(
   rumors: readonly OpenedChat[],
   self?: string,
   staff?: FloodOptions["staff"],
+  policy: FloodPolicy = DEFAULT_FLOOD_POLICY,
 ): Set<string> {
   const cached = quarantineCache.get(rumors);
-  if (cached && cached.self === self && cached.staff === staff) return cached.ids;
+  if (cached && cached.self === self && cached.staff === staff && cached.policy === policy) return cached.ids;
   const ids = floodClusters(rumors.filter((r) => SPEECH_KINDS.has(r.kind)).sort((a, b) => a.ms - b.ms), {
     ...(self !== undefined ? { self } : {}),
     ...(staff !== undefined ? { staff } : {}),
+    policy,
   });
-  quarantineCache.set(rumors, { self, staff, ids });
+  quarantineCache.set(rumors, { self, staff, policy, ids });
   return ids;
 }
 
