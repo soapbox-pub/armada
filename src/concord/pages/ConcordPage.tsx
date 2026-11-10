@@ -2274,13 +2274,21 @@ function ConcordCommunityPage() {
   useHealBanDepartures(community, observed);
   // Each member carries their own Nickname across a Refounding (CORD-04 §10).
   useCarryMyNickname(community);
+  // `observed` changes with every message in any channel while the set almost never
+  // does: the previous array is kept while its members are the same, so the member
+  // panel, composers and everything else handed it don't re-render per message.
+  const memberPubkeysRef = useRef<string[]>([]);
   const memberPubkeys = useMemo(() => {
     const banned = folded?.banned ?? new Set<string>();
     const set = completeMemberlist(coalesced, observed, banned, folded?.bannedAt, refound);
     for (const g of roster?.grants ?? []) if (g.roleIds.length > 0 && !banned.has(g.member)) set.add(g.member);
     if (ownerHex) set.add(ownerHex);
     if (user && !banned.has(user.pubkey)) set.add(user.pubkey);
-    return [...set];
+    const next = [...set];
+    const prev = memberPubkeysRef.current;
+    if (prev.length === next.length && next.every((pk, i) => prev[i] === pk)) return prev;
+    memberPubkeysRef.current = next;
+    return next;
   }, [coalesced, observed, roster, ownerHex, user, folded, refound]);
 
   // One Set identity per member-list change, shared by memoized git rows and the ticket panel.
