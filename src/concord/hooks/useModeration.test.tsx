@@ -31,6 +31,8 @@ import { useModeration } from "./useModeration";
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
 const h = vi.hoisted(() => ({
+  /** Whether the Guestbook was read whole: what a rotation's keep-list is read off. */
+  walked: true,
   user: undefined as unknown,
   folded: undefined as FoldedControl | undefined,
   canRefound: true,
@@ -63,6 +65,7 @@ vi.mock("@/concord/hooks/useControlPlane", () => ({
   },
 }));
 vi.mock("@/concord/hooks/useGuestbook", () => ({
+  guestbookWalked: () => h.walked,
   useGuestbook: () => ({ data: [], coalesced: new Map(), timeouts: new Map(), nicknames: new Map() }),
   useGuestbookPublisher: () => ({
     mutateAsync: async (input: { type: string; target: string }) => {
@@ -153,6 +156,7 @@ function mount(recipients: string[]) {
 }
 
 beforeEach(() => {
+  h.walked = true;
   h.user = { pubkey: owner, signer: {} };
   h.folded = foldedWith({});
   h.canRefound = true;
@@ -168,6 +172,15 @@ const editions = (vsk: string) => h.log.filter((e) => e.op === "edition" && e.vs
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("banMany", () => {
+  it("a rotating ban refuses before the member list was read whole: no banlist, no thin keep-list saved", async () => {
+    h.walked = false;
+    const { result } = mount([owner, targetA, bystander]);
+    await waitFor(() => expect(result.current.canBan(targetA)).toBe(true));
+    await expect(result.current.banMany({ targets: [targetA] })).rejects.toThrow(/member list/);
+    expect(editions(VSK_BANLIST)).toHaveLength(0);
+    expect(h.log.filter((e) => e.op === "readcut-add")).toHaveLength(0);
+  });
+
   it("bans the whole group with ONE banlist edition and ONE refounding", async () => {
     h.folded = foldedWith({ grants: [{ member: targetA, roleIds: [adm.roleId] }] });
     const { result } = mount([owner, targetA, targetB, bystander]);
@@ -335,6 +348,14 @@ describe("rotateKeys", () => {
     expect(editions(VSK_BANLIST)).toHaveLength(0);
     expect(editions(VSK_GRANT)).toHaveLength(0);
     expect(h.log.filter((e) => e.op === "readcut-add")).toHaveLength(0);
+  });
+
+  it("refuses until the member list was read whole, publishing nothing", async () => {
+    h.walked = false;
+    const { result } = mount([owner, targetA]);
+    await waitFor(() => expect(result.current.canRotateKeys).toBe(true));
+    await expect(result.current.rotateKeys()).rejects.toThrow(/member list/);
+    expect(h.log).toEqual([]);
   });
 
   it("a foreign live link does NOT veto it, unlike a ban's rotation", async () => {

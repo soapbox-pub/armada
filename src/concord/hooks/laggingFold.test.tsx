@@ -67,6 +67,7 @@ vi.mock("@/concord/hooks/useGuestbook", async (orig) => ({
   ...(await orig<typeof import("@/concord/hooks/useGuestbook")>()),
   useGuestbook: () => ({ data: [], coalesced: new Map(), timeouts: new Map(), nicknames: new Map() }),
   useGuestbookPublisher: () => ({ mutateAsync: async () => undefined }),
+  guestbookWalked: () => true,
 }));
 
 vi.mock("@/concord/hooks/useRekey", async (orig) => ({

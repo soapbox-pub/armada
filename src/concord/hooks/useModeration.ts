@@ -4,7 +4,7 @@ import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-quer
 import { useEffect, useRef } from "react";
 
 import { useControlFold, citationFor, foldStoredControl, invalidateControl, publishEdition, readControlWhole, withControlWrite } from "@/concord/hooks/useControlPlane";
-import { useGuestbook, useGuestbookPublisher } from "@/concord/hooks/useGuestbook";
+import { guestbookWalked, useGuestbook, useGuestbookPublisher } from "@/concord/hooks/useGuestbook";
 import { useChannelRekey, useRefound } from "@/concord/hooks/useRekey";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { banChannelCuts } from "@/concord/lib/channelAccess";
@@ -208,6 +208,9 @@ export function useModeration(community: Community | undefined, recipients: stri
           t({ id: "useModeration.banNeedsEncryption", defaultMessage: "Banning from a private community rotates the community keys, which your signer can't do. Ask an admin whose signer supports encryption to carry out the ban." }),
         );
       }
+      // The keep-list is whoever the Guestbook says is here: read before it's walked, it
+      // is thin, and the rotation would cut every member it misses (and persist them cut).
+      if (willRotate && !guestbookWalked(community)) throw new Error(memberListUnread());
 
       // Judged on the pre-strip roster: once the Grants land, nobody holds the role to cut.
       const joined = [...coalesced].filter(([, m]) => m.state === "join").map(([pk]) => pk);
@@ -278,6 +281,7 @@ export function useModeration(community: Community | undefined, recipients: stri
       if (!isAuthorized(folded.roster, user.pubkey, folded.ownerHex, Permissions.BAN)) {
         throw new Error(t({ id: "useModeration.rotateNoPermission", defaultMessage: "You don't have permission to rotate this community's keys." }));
       }
+      if (!guestbookWalked(community)) throw new Error(memberListUnread());
       if (!canRefound) {
         throw new Error(
           t({ id: "useModeration.rotateNeedsEncryption", defaultMessage: "Rotating the community keys needs a signer that supports encryption, which yours doesn't. Ask an admin whose signer does." }),
@@ -380,6 +384,10 @@ export function useModeration(community: Community | undefined, recipients: stri
     canKick: (target: string) => canActOn(target, Permissions.KICK),
   };
 }
+
+/** A rotation's keep-list would be read off a Guestbook not yet read whole. */
+const memberListUnread = () =>
+  t({ id: "useModeration.memberListUnread", defaultMessage: "Still reading this community's member list, so rotating the keys now could cut members off. Try again in a moment." });
 
 /**
  * Retry an outstanding read-cut (a ban's Refounding lost to an outage) once per
