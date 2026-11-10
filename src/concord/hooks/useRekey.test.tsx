@@ -24,7 +24,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure
 import type { EventTemplate, NostrEvent } from "nostr-tools/pure";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 
 import { mintCommunity } from "@/concord/lib/community";
 import { rehydrateCommunity } from "@/concord/lib/communityList";
@@ -67,7 +67,7 @@ import type { Community, PrivateChannelKey } from "@/concord/lib/types";
 import { openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
 import { readChannelContent } from "@/concord/lib/control";
 
-import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefound, useRekeyWatch } from "./useRekey";
+import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefound, useRefoundResume, useRekeyWatch } from "./useRekey";
 
 import type { NUser } from "@nostrify/react/login";
 
@@ -1993,5 +1993,112 @@ describe("useRekeyWatch converges a racing Refounding at the epoch it is on", ()
     renderHook(() => useRekeyWatch(adopted), { wrapper: makeWrapper().wrapper });
     await new Promise((r) => setTimeout(r, 1500));
     expect(h.updateList).not.toHaveBeenCalled();
+  });
+});
+
+// ── The resume duty must not take a live rotation for an interrupted one ──
+
+describe("useRefoundResume beside a Refounding in progress", () => {
+  /** ConcordPage's arrangement: both hooks on the community list, which a recorded epoch re-renders. */
+  async function mountPage(opts: { refuse?: (ev: NostrEvent, community: Community) => boolean } = {}) {
+    const owner = member();
+    const alice = member();
+    const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+    const ch: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "sec" };
+    const community: Community = { ...base, privateChannels: [ch] };
+
+    const relay = new FakeRelay();
+    relay.events.push(...(await channelAccessEditions(community, owner, ch.id, [alice.pubkey])));
+    if (opts.refuse) relay.refuse = (ev) => opts.refuse!(ev, community);
+    // A relay answers a publish after a round trip, as a real one does.
+    const publish = relay.event.bind(relay);
+    relay.event = async (ev) => {
+      await new Promise((r) => setTimeout(r, 10));
+      return publish(ev);
+    };
+    h.pool = { relay: () => relay, query: async () => [] };
+    h.user = asNUser(owner);
+    h.folded = foldedFor(owner.pubkey);
+
+    let current: Community = community;
+    const listeners = new Set<() => void>();
+    const jm = jmOf(community, owner.pubkey);
+    h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+    h.updateList = vi.fn(async (action: { type: string; current?: JoinMaterial }) => {
+      if (action.type !== "refresh-current" || !action.current) return;
+      const entry = { community_id: community.idHex, seed: jm, current: action.current, added_at: 1 } satisfies CommunityListEntry;
+      h.entry = entry;
+      current = rehydrateCommunity(entry)!;
+      for (const l of listeners) l();
+    });
+    const subscribe = (l: () => void) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    };
+    const page = renderHook(
+      () => {
+        const c = useSyncExternalStore(subscribe, () => current);
+        useRefoundResume(c);
+        return useRefound(c);
+      },
+      { wrapper: makeWrapper().wrapper },
+    );
+    /** Long enough for anything the resume duty queued to land, then the page closes. */
+    const settle = async () => {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 3000));
+      });
+      page.unmount();
+      await refoundJournalReady();
+    };
+    return { owner, alice, community, relay, page, settle, current: () => current };
+  }
+
+  it("one rotation moves the community exactly one epoch", { timeout: 30_000 }, async () => {
+    const { owner, alice, community, relay, page, settle, current } = await mountPage();
+    await act(async () => {
+      await page.result.current.refound({ keep: [alice.pubkey], exclude: [] });
+    });
+    await settle();
+
+    expect(current().rootEpoch).toBe(1n);
+    expect(relay.published.some((e) => e.pubkey === baseRekeyGroupKey(current().root, community.id, 2n).pk)).toBe(false);
+    expect(refoundJournal(owner.pubkey, community.idHex)).toBeUndefined();
+  });
+
+  it("two rotations started back to back move it exactly two epochs", { timeout: 30_000 }, async () => {
+    const { owner, alice, community, page, settle, current } = await mountPage();
+    await act(async () => {
+      const first = page.result.current.refound({ keep: [alice.pubkey], exclude: [] });
+      const second = page.result.current.refound({ keep: [alice.pubkey], exclude: [] });
+      await Promise.allSettled([first, second]);
+    });
+    await settle();
+
+    expect(current().rootEpoch).toBe(2n);
+    expect(refoundJournal(owner.pubkey, community.idHex)).toBeUndefined();
+  });
+
+  it("a run that really was cut short is still finished at its own epoch", { timeout: 30_000 }, async () => {
+    let down = true;
+    // The relay goes away right after the roll, and comes back.
+    const { owner, alice, community, relay, page, settle, current } = await mountPage({
+      refuse: (ev, c) => down && ev.pubkey !== baseRekeyGroupKey(c.root, c.id, 1n).pk,
+    });
+    await act(async () => {
+      await page.result.current.refound({ keep: [alice.pubkey], exclude: [] }).catch(() => undefined);
+    });
+    expect(current().rootEpoch).toBe(1n);
+    expect(relay.published.some((e) => e.pubkey === current().controlPk)).toBe(false);
+
+    // Reopened: the duty finishes the carry.
+    down = false;
+    page.rerender();
+    await settle();
+
+    expect(current().rootEpoch).toBe(1n);
+    expect(relay.published.some((e) => e.pubkey === current().controlPk)).toBe(true);
+    expect(relay.published.some((e) => e.pubkey === baseRekeyGroupKey(current().root, community.id, 2n).pk)).toBe(false);
+    expect(refoundJournal(owner.pubkey, community.idHex)).toBeUndefined();
   });
 });

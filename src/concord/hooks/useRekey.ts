@@ -1,7 +1,7 @@
 import { settleAccepted } from "@/concord/lib/settleAccepted";
 import { clockNowMs } from "@/lib/relayClock";
 import { useNostr } from "@nostrify/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 import { useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
@@ -1445,12 +1445,19 @@ export function useRefound(community: Community | undefined) {
     return { prior, folded, stored, newRoot: c.root, newEpoch: c.rootEpoch, newControlRoot: c.controlRoot, newControlPk: c.controlPk, journal };
   };
 
-  const refound = useMutation<void, Error, { keep: string[]; exclude: string[]; onProgress?: (progress: RefoundProgress) => void }>({
+  /** Resolves false when a `resumeOnly` call found nothing to finish. */
+  const refound = useMutation<boolean, Error, {
+    keep: string[];
+    exclude: string[];
+    onProgress?: (progress: RefoundProgress) => void;
+    /** Only finish a journaled run at the current epoch; never roll a new one. */
+    resumeOnly?: boolean;
+  }>({
     // Serialize every refound for this community (a ban racing the durable retry
     // must queue, not mint sibling epochs); named for useIsMutating.
     mutationKey: ["concord-refound", community?.idHex],
     scope: { id: `concord-refound:${community?.idHex}` },
-    mutationFn: async ({ keep, exclude, onProgress }) => {
+    mutationFn: async ({ keep, exclude, onProgress, resumeOnly }) => {
       const report = onProgress ?? (() => undefined);
       if (!user || !community) throw new Error(t({ id: "useRekey.notReady", defaultMessage: "Not ready." }));
       if (dissolved) throw new Error(t({ id: "useRekey.dissolvedNoAdvance", defaultMessage: "This community was dissolved; no epoch advance past the tombstone is honored." }));
@@ -1462,10 +1469,12 @@ export function useRefound(community: Community | undefined) {
       const pending = refoundJournal(user.pubkey, community.idHex);
       if (pending && BigInt(pending.newEpoch) === community.rootEpoch) {
         await carry({ ...(await resumeContext(community, pending)), onProgress });
-        if (exclude.every((pk) => pending.exclude.includes(pk))) return;
+        if (exclude.every((pk) => pending.exclude.includes(pk))) return true;
         throw new Error(t({ id: "useRekey.finishedEarlier", defaultMessage: "An earlier key rotation was still unfinished, and has now been completed. Try again to remove the rest." }));
       }
       if (pending && BigInt(pending.newEpoch) < community.rootEpoch) clearRefoundJournal(user.pubkey, community.idHex);
+      // A queued resume can run after the run it saw journaled finished on its own.
+      if (resumeOnly) return false;
 
       const rendered = control.data;
       // Not `isFetching`: background refetches made that refuse most attempts, and the
@@ -1640,6 +1649,7 @@ export function useRefound(community: Community | undefined) {
 
       await carry({ prior: community, folded, stored, newRoot, newEpoch, newControlRoot, newControlPk, journal, onProgress });
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
+      return true;
     },
   });
 
@@ -1659,10 +1669,12 @@ export function useRefound(community: Community | undefined) {
 export function useRefoundResume(community: Community | undefined): void {
   const { user } = useCurrentUser();
   const { refound, canRefound } = useRefound(community);
+  // A run in flight journals its epoch before it records it, so its journal is no sign of an interruption.
+  const refoundsInFlight = useIsMutating({ mutationKey: ["concord-refound", community?.idHex] });
   const tried = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    if (!user || !community || !canRefound) return;
+    if (!user || !community || !canRefound || refoundsInFlight > 0) return;
     const key = `${community.idHex}:${community.rootEpoch}`;
     if (tried.current === key) return;
     let cancelled = false;
@@ -1672,8 +1684,8 @@ export function useRefoundResume(community: Community | undefined): void {
       const pending = refoundJournal(user.pubkey, community.idHex);
       if (!pending || BigInt(pending.newEpoch) !== community.rootEpoch) return;
       tried.current = key;
-      refound({ keep: pending.recipients, exclude: pending.exclude }).then(
-        () => toast({ title: t({ id: "useRekey.resumed.title", defaultMessage: "Key rotation completed" }), description: t({ id: "useRekey.resumed.description", defaultMessage: "An earlier key rotation that was interrupted has now finished." }) }),
+      refound({ keep: pending.recipients, exclude: pending.exclude, resumeOnly: true }).then(
+        (resumed) => resumed && toast({ title: t({ id: "useRekey.resumed.title", defaultMessage: "Key rotation completed" }), description: t({ id: "useRekey.resumed.description", defaultMessage: "An earlier key rotation that was interrupted has now finished." }) }),
         (e: unknown) => toast({
           title: t({ id: "useRekey.resumeFailed.title", defaultMessage: "An earlier key rotation is still unfinished" }),
           description: e instanceof Error ? e.message : undefined,
@@ -1685,5 +1697,5 @@ export function useRefoundResume(community: Community | undefined): void {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, community?.idHex, community?.rootEpoch, canRefound]);
+  }, [user, community?.idHex, community?.rootEpoch, canRefound, refoundsInFlight]);
 }
