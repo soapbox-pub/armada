@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resetCanvasProbe } from "./canvasProbe";
 import { canDecodeImage, makeImageThumb, resizeImage } from "./resizeImage";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  resetCanvasProbe();
 });
 
 /** `tEXt`/`iTXt`-style data: a NUL-terminated keyword, then the payload. */
@@ -138,6 +140,30 @@ describe("resizeImage", () => {
     // The canvas path ran: same-shape scaled file, re-typed by the encoder.
     expect(out.file).not.toBe(file);
     expect(out.dimensions).toBe("1920x1440");
+  });
+
+  it("strips metadata structurally where a fingerprint blocker poisons the canvas", async () => {
+    stubBitmap(4000, 3000);
+    const toBlob = vi.fn();
+    vi.stubGlobal("document", {
+      createElement: () => ({
+        width: 0,
+        height: 0,
+        // Resist-fingerprinting hands back a blank, whatever was drawn.
+        getContext: () => ({ fillStyle: "", fillRect: () => undefined, getImageData: (_x: number, _y: number, w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }), drawImage: () => undefined }),
+        toBlob,
+      }),
+    });
+    const file = new File([pngWithTextChunk("Comment", "just a note")], "photo.png", { type: "image/png" });
+
+    const out = await resizeImage(file);
+    const text = new TextDecoder("latin1").decode(new Uint8Array(await out.file.arrayBuffer()));
+
+    expect(toBlob).not.toHaveBeenCalled();
+    expect(out.dimensions).toBe("4000x3000");
+    expect(text).toContain("IDAT");
+    expect(text).not.toContain("just a note");
+    expect(await makeImageThumb(out.file)).toBeUndefined();
   });
 });
 

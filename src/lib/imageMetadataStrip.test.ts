@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { needsMetadataStrip, stripAnimatedMetadata } from "./imageMetadataStrip";
+import { needsMetadataStrip, stripAnimatedMetadata, stripJpegMetadata } from "./imageMetadataStrip";
 
 const ascii = (text: string) => [...text].map((c) => c.charCodeAt(0));
 const has = (bytes: Uint8Array, text: string) => String.fromCharCode(...bytes).includes(text);
@@ -106,5 +106,41 @@ describe("stripAnimatedMetadata", () => {
   it("returns null for a layout it can't walk, so the caller flattens it instead", () => {
     expect(stripAnimatedMetadata(new Uint8Array([...ascii("GIF89a"), 1, 0, 1, 0, 0, 0, 0, 0x99]))).toBeNull();
     expect(stripAnimatedMetadata(new Uint8Array(ascii("not an image")))).toBeNull();
+  });
+});
+
+describe("stripJpegMetadata", () => {
+  /** An EXIF APP1 payload: big-endian IFD0 with the orientation and a GPS pointer. */
+  const exif = (orientation: number) => [
+    ...ascii("Exif\0\0"),
+    ...ascii("MM"), 0, 0x2a, 0, 0, 0, 8,
+    0, 2,
+    0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, orientation, 0, 0,
+    0x88, 0x25, 0, 4, 0, 0, 0, 1, 0, 0, 0, 0x40,
+    0, 0, 0, 0,
+  ];
+  const app0 = [0xe0, ascii("JFIF\0")] as [number, number[]];
+  const quant = [0xdb, [0, 1, 2, 3]] as [number, number[]];
+  const scan = [0xff, 0xda, 0, 2, 9, 9, 0xff, 0xd9];
+
+  it("drops EXIF, XMP and comments but keeps what decoding needs", () => {
+    const out = stripJpegMetadata(jpeg([app0, [0xe1, exif(1)], [0xe1, ascii("http://ns.adobe.com/xap/1.0/\0<x/>")], [0xfe, ascii("hello")], [0xee, ascii("Adobe")], quant], scan))!;
+    expect(out).toEqual(jpeg([app0, [0xee, ascii("Adobe")], quant], scan));
+    expect(needsMetadataStrip(out)).toBe(false);
+  });
+
+  it("keeps a rotated photo's orientation, and only that", () => {
+    const out = stripJpegMetadata(jpeg([app0, [0xe1, exif(6)], quant], scan))!;
+    expect(has(out, "Exif")).toBe(true);
+    // The GPS pointer (0x8825) is gone; the orientation (0x0112 = 6) remains.
+    expect(String.fromCharCode(...out)).not.toContain(String.fromCharCode(0x88, 0x25));
+    const at = String.fromCharCode(...out).indexOf(String.fromCharCode(0x01, 0x12, 0, 3));
+    expect(out[at + 9]).toBe(6);
+    expect(out.subarray(0, 4)).toEqual(new Uint8Array([0xff, 0xd8, 0xff, 0xe1]));
+  });
+
+  it("returns null for anything it can't walk", () => {
+    expect(stripJpegMetadata(new Uint8Array(ascii("not an image")))).toBeNull();
+    expect(stripJpegMetadata(new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff]))).toBeNull();
   });
 });

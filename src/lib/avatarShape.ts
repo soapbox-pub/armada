@@ -1,5 +1,7 @@
 import type React from 'react';
 
+import { canvasReadbackIntact } from '@/lib/canvasProbe';
+
 /** Kind-0 `shape`: an emoji used as a mask. Absent/invalid renders a circle. */
 export type AvatarShape = string;
 
@@ -143,6 +145,8 @@ export function getEmojiMaskUrl(emoji: string): string {
 }
 
 function renderEmojiMask(emoji: string): string {
+  // A fingerprint blocker would cut the mask from noise; the plain avatar shows instead.
+  if (!canvasReadbackIntact()) return '';
   const mask = drawEmojiMask(emoji, (width, height) => {
     const canvas = document.createElement('canvas');
     canvas.width = width;

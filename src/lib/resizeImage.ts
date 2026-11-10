@@ -1,6 +1,7 @@
 import { characterCardFromPngBytes, isPngBytes, stripNonCardMetadata } from "@/lib/characterCard";
 import { isAnimatedImage, METADATA_SCAN_BYTES } from "@/lib/imageMetadata";
-import { needsMetadataStrip, stripAnimatedMetadata } from "@/lib/imageMetadataStrip";
+import { canvasReadbackIntact } from "@/lib/canvasProbe";
+import { needsMetadataStrip, stripAnimatedMetadata, stripJpegMetadata } from "@/lib/imageMetadataStrip";
 
 /** Maximum dimension (width or height) for resized images. */
 const MAX_DIMENSION = 1920;
@@ -63,6 +64,20 @@ export async function resizeImage(file: File): Promise<ResizedImage> {
     }
   }
 
+  // A fingerprint blocker would turn the re-encode into noise: send the image at
+  // its own size, with the metadata cut out of the container instead.
+  if (!animated && !canvasReadbackIntact()) {
+    bitmap.close();
+    const stripped = !needsMetadataStrip(bytes)
+      ? bytes
+      : stripJpegMetadata(bytes) ?? stripAnimatedMetadata(bytes);
+    if (!stripped) throw new Error("This browser blocks the canvas needed to remove this image's metadata.");
+    return {
+      file: stripped === bytes ? file : new File([stripped], file.name, { type: file.type, lastModified: file.lastModified }),
+      dimensions: `${width}x${height}`,
+    };
+  }
+
   const scale = needsResize ? MAX_DIMENSION / Math.max(width, height) : 1;
   const newWidth = Math.round(width * scale);
   const newHeight = Math.round(height * scale);
@@ -119,7 +134,7 @@ const THUMB_MIN_SAVING = 0.5;
 export async function makeImageThumb(file: File): Promise<File | undefined> {
   try {
     const head = new Uint8Array(await file.slice(0, METADATA_SCAN_BYTES).arrayBuffer());
-    if (isAnimatedImage(file.type, head)) return undefined;
+    if (isAnimatedImage(file.type, head) || !canvasReadbackIntact()) return undefined;
     const bitmap = await decodeUpright(file);
     const scale = Math.min(1, THUMB_DIMENSION / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement('canvas');

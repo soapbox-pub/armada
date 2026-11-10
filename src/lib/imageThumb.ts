@@ -1,3 +1,4 @@
+import { canvasReadbackIntact } from "@/lib/canvasProbe";
 import { canFetchDesktopImages, fetchDesktopImage } from "@/lib/desktop";
 import { isAnimatedImage } from "@/lib/imageMetadata";
 
@@ -214,6 +215,8 @@ async function fetchBlob(src: string): Promise<Blob | null> {
 }
 
 async function make(src: string, bucket: number, still: boolean): Promise<Thumb | null> {
+  // A blocked canvas would draw noise; the original shows instead.
+  if (!canvasReadbackIntact()) return null;
   const blob = await fetchSlot(() => fetchBlob(src));
   if (!blob) return null;
   const head = new Uint8Array(await blob.slice(0, 4096).arrayBuffer());

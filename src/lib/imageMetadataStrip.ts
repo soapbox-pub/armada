@@ -156,6 +156,78 @@ export function needsMetadataStrip(b: Uint8Array): boolean {
   return false;
 }
 
+/** The EXIF orientation (1–8) an APP1 segment's payload declares, or undefined. */
+function exifOrientation(b: Uint8Array, start: number, end: number): number | undefined {
+  if (end - start < 14 || ascii(b, start, 6) !== "Exif\0\0") return undefined;
+  const tiff = start + 6;
+  const order = ascii(b, tiff, 2);
+  if (order !== "II" && order !== "MM") return undefined;
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const le = order === "II";
+  const ifd = tiff + dv.getUint32(tiff + 4, le);
+  if (ifd + 2 > end) return undefined;
+  const count = dv.getUint16(ifd, le);
+  for (let i = 0; i < count; i++) {
+    const entry = ifd + 2 + i * 12;
+    if (entry + 12 > end) return undefined;
+    if (dv.getUint16(entry, le) === 0x0112 && dv.getUint16(entry + 2, le) === 3) {
+      const value = dv.getUint16(entry + 8, le);
+      return value >= 1 && value <= 8 ? value : undefined;
+    }
+  }
+  return undefined;
+}
+
+/** An APP1 carrying an EXIF IFD0 with nothing but the orientation tag. */
+function orientationApp1(orientation: number): Uint8Array {
+  return new Uint8Array([
+    0xff, 0xe1, 0x00, 0x22,
+    0x45, 0x78, 0x69, 0x66, 0x00, 0x00, // "Exif\0\0"
+    0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08, // big-endian TIFF, IFD0 at 8
+    0x00, 0x01, // one entry
+    0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, orientation, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, // no next IFD
+  ]);
+}
+
+/**
+ * A JPEG with its metadata segments (see {@link jpegHasMetadata}) removed, for
+ * where it can't go through a canvas. The orientation is kept, alone, so the
+ * photo still shows upright. Null when the layout can't be walked.
+ */
+export function stripJpegMetadata(b: Uint8Array): Uint8Array<ArrayBuffer> | null {
+  if (!isJpeg(b)) return null;
+  const kept: Span[] = [];
+  let orientation: number | undefined;
+  let at = 2;
+  while (at + 2 <= b.length) {
+    if (b[at] !== 0xff) return null;
+    const marker = b[at + 1];
+    if (marker === 0xff) { at += 1; continue; }
+    if (marker === 0xda) {
+      kept.push({ type: "scan", start: at, end: b.length });
+      const head = orientation && orientation !== 1 ? orientationApp1(orientation) : new Uint8Array(0);
+      const out = concat(b, 2, kept);
+      const withOrientation = new Uint8Array(out.length + head.length);
+      withOrientation.set(out.subarray(0, 2), 0);
+      withOrientation.set(head, 2);
+      withOrientation.set(out.subarray(2), 2 + head.length);
+      return withOrientation;
+    }
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { at += 2; continue; }
+    if (at + 4 > b.length) return null;
+    const end = at + 2 + ((b[at + 2] << 8) | b[at + 3]);
+    if (end > b.length || end < at + 4) return null;
+    if ((marker >= 0xe1 && marker <= 0xef && marker !== 0xee) || marker === 0xfe) {
+      if (marker === 0xe1) orientation ??= exifOrientation(b, at + 4, end);
+    } else {
+      kept.push({ type: "segment", start: at, end });
+    }
+    at = end;
+  }
+  return null;
+}
+
 function concat(b: Uint8Array, head: number, spans: Span[]): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(head + spans.reduce((n, s) => n + s.end - s.start, 0));
   out.set(b.subarray(0, head), 0);
