@@ -1,6 +1,6 @@
-import { AtSign, Bot, Copy, Crown, IdCard, MessageSquareText, MoreVertical, Music, Shield, Smile, UserCog, UserPlus, X } from "lucide-react";
+import { AtSign, Bot, ChevronDown, Copy, Crown, IdCard, MessageSquareText, MoreVertical, Music, Shield, Smile, UserCog, UserPlus, X } from "lucide-react";
 
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BotPill } from "@/components/BotPill";
@@ -38,6 +38,7 @@ import { useUserModeration } from "@/hooks/useUserModeration";
 import { DisplayName } from "@/components/DisplayName";
 import { SearchField } from "@/components/ui/search-field";
 import { useAuthor } from "@/hooks/useAuthor";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useMemberNameOrder, useMemberSearch } from "@/hooks/useMemberSearch";
 import { useScopedIdentity } from "@/hooks/useScopedDisplayName";
@@ -80,6 +81,42 @@ interface MenuParts {
 }
 
 const roleTint = (color: number) => `#${(color & 0xffffff).toString(16).padStart(6, "0")}`;
+
+/** Device-local: which roster sections (role id, or "admins"/"members") are folded. */
+const COLLAPSED_SECTIONS_KEY = "armada:memberSectionsCollapsed";
+const NO_COLLAPSED: string[] = [];
+const ADMINS_SECTION = "admins";
+const MEMBERS_SECTION = "members";
+
+function SectionHeader({ collapsed, onToggle, color, children }: {
+  collapsed: boolean;
+  onToggle: () => void;
+  color?: number;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-expanded={!collapsed}
+      onClick={onToggle}
+      className="group/section flex h-10 w-full items-center gap-1 px-3 text-left text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <h3
+        className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wider"
+        style={color ? { color: roleTint(color) } : undefined}
+      >
+        {children}
+      </h3>
+      <ChevronDown
+        aria-hidden
+        className={cn(
+          "size-3.5 shrink-0 opacity-0 transition-transform group-hover/section:opacity-100 touch:opacity-100",
+          collapsed && "-rotate-90 opacity-100",
+        )}
+      />
+    </button>
+  );
+}
 
 const ROW_MIN_H = 48;
 /** Below this many members the panel shows no search field. */
@@ -293,7 +330,7 @@ const MemberRow = memo(function MemberRow({
         <span
           title={customBadge.name}
           className={cn(
-            "shrink-0 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-3xs font-medium max-w-24",
+            "min-w-0 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-3xs font-medium max-w-24",
             !customBadge.color && "bg-muted text-muted-foreground",
           )}
           style={customBadge.color ? { color: roleTint(customBadge.color), backgroundColor: `${roleTint(customBadge.color)}26` } : undefined}
@@ -316,7 +353,7 @@ const MemberRow = memo(function MemberRow({
           <FormattedMessage id="memberList.role.guest" defaultMessage="Guest" />
         </span>
       ) : null}
-      <BotPill metadata={metadata} />
+      <BotPill metadata={metadata} labelClassName="member-pill-label" />
       {ultra && <UltraPill force labelClassName="member-pill-label" />}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -324,7 +361,7 @@ const MemberRow = memo(function MemberRow({
             variant="ghost"
             size="icon"
             aria-label={intl.formatMessage({ id: "memberList.manage", defaultMessage: "Manage {name}" }, { name: displayName })}
-            className="size-6 touch:size-10 opacity-0 group-hover:opacity-100 touch:opacity-100 data-[state=open]:opacity-100 text-muted-foreground hover:text-foreground"
+            className="size-6 shrink-0 touch:size-10 opacity-0 group-hover:opacity-100 touch:opacity-100 data-[state=open]:opacity-100 text-muted-foreground hover:text-foreground"
           >
             <MoreVertical className="size-3.5" />
           </Button>
@@ -403,6 +440,11 @@ export const MemberList = memo(function MemberList({
   const { mutedPubkeys } = useMutedPubkeys();
   const [query, setQuery] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [collapsedList, setCollapsedList] = useLocalStorage<string[]>(COLLAPSED_SECTIONS_KEY, NO_COLLAPSED);
+  const collapsedSet = useMemo(() => new Set(collapsedList), [collapsedList]);
+  const toggleSection = useCallback((id: string) => {
+    setCollapsedList((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }, [setCollapsedList]);
 
   const adminMap = new Map(admins.map((a) => [a.pubkey, a.roles] as const));
   // Stable arrays so memoized rows get stable `roles` identities.
@@ -442,6 +484,8 @@ export const MemberList = memo(function MemberList({
   const matched = useMemberSearch(roster, query);
   const searching = matched !== null;
   const virtualize = !searching;
+  // A search shows its matches whatever is folded.
+  const isCollapsed = (id: string) => !searching && collapsedSet.has(id);
 
   const visibleAdmins = sortedAdmins.filter(
     (a) => !sectioned.has(a.pubkey) && (!matched || matched.has(a.pubkey)),
@@ -522,16 +566,14 @@ export const MemberList = memo(function MemberList({
           first member row lands on the 168px line (banner bottom, first community). */}
       {visibleAdmins.length > 0 && (
         <>
-          <div className="flex h-10 items-center gap-1 px-3">
-            <h3 className="flex-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              <FormattedMessage
-                id="memberList.adminsHeading"
-                defaultMessage="Admins · {count}"
-                values={{ count: visibleAdmins.length }}
-              />
-            </h3>
-          </div>
-          {visibleAdmins.map((admin) => (
+          <SectionHeader collapsed={isCollapsed(ADMINS_SECTION)} onToggle={() => toggleSection(ADMINS_SECTION)}>
+            <FormattedMessage
+              id="memberList.adminsHeading"
+              defaultMessage="Admins · {count}"
+              values={{ count: visibleAdmins.length }}
+            />
+          </SectionHeader>
+          {!isCollapsed(ADMINS_SECTION) && visibleAdmins.map((admin) => (
             <DeferredRow key={admin.pubkey} active={virtualize} minHeight={ROW_MIN_H} rootRef={scrollRef}>
             <MemberRow
               pubkey={admin.pubkey}
@@ -550,15 +592,10 @@ export const MemberList = memo(function MemberList({
       {visibleSections.map((section) =>
         !searching || section.members.length > 0 ? (
           <div key={section.id}>
-            <div className="flex h-10 items-center gap-1 px-3">
-              <h3
-                className="flex-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-                style={section.color ? { color: roleTint(section.color) } : undefined}
-              >
-                {section.name} · {section.members.length}
-              </h3>
-            </div>
-            {section.members.map((pubkey) => (
+            <SectionHeader collapsed={isCollapsed(section.id)} onToggle={() => toggleSection(section.id)} color={section.color}>
+              {section.name} · {section.members.length}
+            </SectionHeader>
+            {!isCollapsed(section.id) && section.members.map((pubkey) => (
               <DeferredRow key={pubkey} active={virtualize} minHeight={ROW_MIN_H} rootRef={scrollRef}>
               <MemberRow
                 pubkey={pubkey}
@@ -575,17 +612,15 @@ export const MemberList = memo(function MemberList({
       )}
 
       {(!searching || regulars.length > 0) && (
-        <div className="flex h-10 items-center gap-1 px-3">
-          <h3 className="flex-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            <FormattedMessage
-              id="memberList.membersHeading"
-              defaultMessage="Members · {count}"
-              values={{ count: regulars.length }}
-            />
-          </h3>
-        </div>
+        <SectionHeader collapsed={isCollapsed(MEMBERS_SECTION)} onToggle={() => toggleSection(MEMBERS_SECTION)}>
+          <FormattedMessage
+            id="memberList.membersHeading"
+            defaultMessage="Members · {count}"
+            values={{ count: regulars.length }}
+          />
+        </SectionHeader>
       )}
-      {regulars.length === 0 ? (
+      {isCollapsed(MEMBERS_SECTION) ? null : regulars.length === 0 ? (
         !searching && (
           <p className="px-2 py-2 text-xs text-muted-foreground">
             <FormattedMessage

@@ -11,24 +11,25 @@ interface BotPillProps {
   pubkey?: string;
   metadata?: NostrMetadata;
   className?: string;
+  labelClassName?: string;
 }
 
 /**
  * "Bot" pill when the profile declares `bot: true` (NIP-24). Renders nothing
  * for non-bot or unknown accounts.
  */
-export function BotPill({ pubkey, metadata, className }: BotPillProps) {
+export function BotPill({ pubkey, metadata, className, labelClassName }: BotPillProps) {
   // Skip even an inert `useAuthor(undefined)`: a timeline renders one per byline.
-  if (metadata || !pubkey) return <BotPillView metadata={metadata} className={className} />;
-  return <ResolvedBotPill pubkey={pubkey} className={className} />;
+  if (metadata || !pubkey) return <BotPillView metadata={metadata} className={className} labelClassName={labelClassName} />;
+  return <ResolvedBotPill pubkey={pubkey} className={className} labelClassName={labelClassName} />;
 }
 
-function ResolvedBotPill({ pubkey, className }: { pubkey: string; className?: string }) {
+function ResolvedBotPill({ pubkey, className, labelClassName }: { pubkey: string; className?: string; labelClassName?: string }) {
   const author = useAuthor(pubkey);
-  return <BotPillView metadata={author.data?.metadata} className={className} />;
+  return <BotPillView metadata={author.data?.metadata} className={className} labelClassName={labelClassName} />;
 }
 
-function BotPillView({ metadata, className }: { metadata?: NostrMetadata; className?: string }) {
+function BotPillView({ metadata, className, labelClassName }: { metadata?: NostrMetadata; className?: string; labelClassName?: string }) {
   const intl = useIntl();
   if (metadata?.bot !== true) return null;
 
@@ -41,7 +42,7 @@ function BotPillView({ metadata, className }: { metadata?: NostrMetadata; classN
       )}
     >
       <Bot className="size-3" aria-hidden />
-      <FormattedMessage id="botPill.label" defaultMessage="Bot" />
+      <span className={labelClassName}><FormattedMessage id="botPill.label" defaultMessage="Bot" /></span>
     </span>
   );
 }
