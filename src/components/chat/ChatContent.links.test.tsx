@@ -180,4 +180,10 @@ describe("ChatContent nsite links", () => {
     expect(hrefs(container)).toEqual([]);
     expect(container.textContent).toContain("nsite://example.com/");
   });
+
+  it("links a scheme-less domain/path only under a real public suffix", () => {
+    const { container } = renderContent("see github.com/x/y and package.json/scripts and nyan.cat/a too");
+    expect(hrefs(container)).toEqual(["https://github.com/x/y", "https://nyan.cat/a"]);
+    expect(container.textContent).toContain("package.json/scripts");
+  });
 });

@@ -48,7 +48,7 @@ import { parseGiftUrl } from "@/lib/ultraGift";
 import { EVERYONE_MENTION_PATTERN } from "@/concord/lib/everyoneMention";
 import { parseFileMessageTags, parseImetaMap } from "@/lib/imeta";
 import { KIND_DM_FILE } from "@/lib/nip17/protocol";
-import { parseInlineRun, splitInlineCode, splitMarkdownBlocks, splitMarkdownLinks } from "@/lib/markdown";
+import { isIcannHost, parseInlineRun, splitInlineCode, splitMarkdownBlocks, splitMarkdownLinks } from "@/lib/markdown";
 import { filenameFromUrl } from "@/lib/fileBytes";
 import { AUDIO_EXTS, EMBED_MEDIA_URL_REGEX, IMAGE_URL_REGEX, isGifLikeUrl, isUnplayableVideo, mimeFromExt } from "@/lib/mediaUrls";
 import { KIND_GROUP_METADATA, nip29GroupPath, parseGroupAddress, type GroupAddress } from "@/lib/nip29";
@@ -602,6 +602,13 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
               url = urlWithoutPunct;
               fullMatch = urlWithoutPunct;
             }
+          }
+
+          // A bare `name.ext/…` is a link only under a real suffix (`package.json/x` is a path).
+          if (!/^(?:https?|wss?):\/\//i.test(url) && !isIcannHost(url.slice(0, url.indexOf("/")).toLowerCase())) {
+            out.push({ type: "text", value: fullMatch });
+            lastIndex = index + fullMatch.length;
+            continue;
           }
 
           // Discord's `<url>`: a plain link with its embed suppressed, brackets hidden.

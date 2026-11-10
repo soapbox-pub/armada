@@ -382,6 +382,11 @@ const MD_LINK_RE = /(!?)\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
 /** A domain-like token, with or without a scheme, in any script and with fullwidth/ideographic dots. */
 const LABEL_DOMAIN_RE = /(?:https?:\/\/)?((?:[\p{L}\p{N}-]+[.．。｡])+\p{L}{2,})/giu;
 
+/** Whether a scheme-less host reads as a domain: its suffix is a real ICANN one, so `package.json` is a file name. */
+export function isIcannHost(host: string): boolean {
+  return parseDomain(host).isIcann === true;
+}
+
 function hostOf(url: string): string | undefined {
   try {
     return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
@@ -399,9 +404,8 @@ export function linkLabelSpoofs(text: string, url: string): boolean {
   if (!real) return true;
   for (const m of text.matchAll(LABEL_DOMAIN_RE)) {
     const host = hostOf(`http://${m[1]}`);
-    // Without a scheme only a real ICANN suffix reads as a domain, so `package.json` is a file name.
     const schemed = m[0].length > m[1].length;
-    if (host === real || (host && !schemed && !parseDomain(host).isIcann)) continue;
+    if (host === real || (host && !schemed && !isIcannHost(host))) continue;
     return true;
   }
   return false;
