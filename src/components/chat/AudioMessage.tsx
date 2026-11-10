@@ -1,10 +1,12 @@
-import { Music, Pause, Play } from "lucide-react";
+import { Download, Loader2, Music, Pause, Play } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { MediaFallback } from "@/components/chat/MediaFallback";
 import { hasAudioMetadata, useAudioMetadata, useAudioWaveform } from "@/hooks/useAudioMetadata";
 import { useMediaWithFallback } from "@/hooks/useMediaWithFallback";
-import { useIntl } from "@/i18n";
+import { toast } from "@/hooks/useToast";
+import { t, useIntl } from "@/i18n";
+import { downloadUrl, savedDescription } from "@/lib/downloadFile";
 import {
   pauseOthers,
   playNextAfter,
@@ -97,6 +99,7 @@ export function AudioMessage({
   // immediately for a `blob:`, but for a plain URL only once played (full download).
   const declared = useMemo(() => parseWaveform(waveform), [waveform]);
   const [hasPlayed, setHasPlayed] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const waveformSrc = declared.length > 0 || !resolvedSrc
     ? undefined
     : resolvedSrc.startsWith("blob:") || hasPlayed
@@ -199,6 +202,24 @@ export function AudioMessage({
     audio.currentTime = ratio * mediaDuration;
   };
 
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (downloading || !resolvedSrc) return;
+    setDownloading(true);
+    try {
+      const result = await downloadUrl(resolvedSrc, { nameHint: src, mime });
+      if (result.status === "downloaded") {
+        toast({ title: t({ id: "lightbox.saved", defaultMessage: "Saved" }), description: savedDescription(result.location) });
+      } else {
+        toast({ title: t({ id: "lightbox.openedInNewTab", defaultMessage: "Opened in a new tab" }) });
+      }
+    } catch {
+      toast({ title: t({ id: "lightbox.downloadFailed", defaultMessage: "Download failed" }), variant: "destructive" });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   if (failed) {
     return <MediaFallback {...fallbackProps} kind="audio" />;
   }
@@ -258,6 +279,19 @@ export function AudioMessage({
     </>
   );
 
+  const downloadButton = resolvedSrc && (
+    <button
+      type="button"
+      onClick={handleDownload}
+      disabled={downloading}
+      aria-label={intl.formatMessage({ id: "audioMessage.download", defaultMessage: "Download audio" })}
+      title={intl.formatMessage({ id: "audioMessage.download", defaultMessage: "Download audio" })}
+      className="size-7 touch:size-11 shrink-0 -mr-1 flex items-center justify-center clip-corner text-muted-foreground hover:text-foreground hover:bg-foreground/10 transition-colors disabled:opacity-60 disabled:cursor-wait"
+    >
+      {downloading ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+    </button>
+  );
+
   if (hasAudioMetadata(meta)) {
     const { title, artist, album, year, coverUrl } = meta;
     const details = [artist, album, year].filter(Boolean).join(" · ");
@@ -281,6 +315,7 @@ export function AudioMessage({
           <div className="flex items-center gap-2.5 mt-1">
             {playButton}
             {scrubber}
+            {downloadButton}
           </div>
         </div>
       </div>
@@ -298,6 +333,7 @@ export function AudioMessage({
       {element}
       {playButton}
       {scrubber}
+      {downloadButton}
     </div>
   );
 }

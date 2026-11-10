@@ -499,6 +499,7 @@ export const ChannelRow = memo(function ChannelRow({
   muted: mutedVoice,
   unread,
   onSelect,
+  onOpenChat,
   onJoinVoice,
   categories,
   onSetCategory,
@@ -518,6 +519,8 @@ export const ChannelRow = memo(function ChannelRow({
   muted?: ReadonlySet<string>;
   unread?: ConcordUnread;
   onSelect: (channelIdHex: string) => void;
+  /** Opens a voice channel's text chat without joining its call. */
+  onOpenChat?: (channelIdHex: string) => void;
   onJoinVoice: (channel: Channel, broker: string | null) => void;
   /** Category names already in use, offered so near-duplicates aren't retyped. */
   categories?: string[];
@@ -604,6 +607,7 @@ export const ChannelRow = memo(function ChannelRow({
   const callLabel = occupied
     ? intl.formatMessage({ id: "concordPage.channelRow.joinCall", defaultMessage: "Join call" })
     : intl.formatMessage({ id: "concordPage.channelRow.startCall", defaultMessage: "Start call" });
+  const openChatLabel = intl.formatMessage({ id: "concordPage.channelRow.openChat", defaultMessage: "Open chat" });
   // A live call swaps the row's glyph for a speaker.
   return (
     <ContextMenu>
@@ -655,6 +659,25 @@ export const ChannelRow = memo(function ChannelRow({
                 </span>
               ) : null}
             </button>
+            {onOpenChat && channel.view === "voice" && !active && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenChat(channel.idHex);
+                }}
+                aria-label={openChatLabel}
+                title={openChatLabel}
+                className={cn(
+                  "shrink-0 flex items-center justify-center size-7 mr-2 clip-corner transition-opacity",
+                  "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 touch:opacity-100",
+                  hasUnread && !muted && "opacity-100",
+                  "text-muted-foreground hover:text-foreground hover:bg-foreground/10",
+                )}
+              >
+                <MessageSquareText className="size-3.5" />
+              </button>
+            )}
             {offersCall && !inCall && (
               <button
                 type="button"
@@ -872,6 +895,7 @@ function AllMessagesView({
   onLoadOlder,
   onJump,
   mentionsEveryone,
+  onMarkAllRead,
 }: {
   channels: Channel[];
   messages: ChatMsg[];
@@ -881,6 +905,8 @@ function AllMessagesView({
   onLoadOlder: () => void;
   onJump: (channelIdHex: string, message: ChatMsg) => void;
   mentionsEveryone: (message: ChatMsg) => boolean;
+  /** Set while any channel has unread messages. */
+  onMarkAllRead?: () => void;
 }) {
   const channelById = useMemo(() => {
     const m = new Map<string, Channel>();
@@ -914,6 +940,14 @@ function AllMessagesView({
 
   return (
     <div className="flex flex-col py-2 px-2">
+      {onMarkAllRead ? (
+        <div className="flex justify-end px-1 pb-1">
+          <Button variant="secondary" size="sm" className="clip-corner-lg" onClick={onMarkAllRead}>
+            <CheckCheck className="size-4" />
+            {intl.formatMessage({ id: "concordPage.communityMenu.markAllRead", defaultMessage: "Mark all as read" })}
+          </Button>
+        </div>
+      ) : null}
       {rows.map(({ msg, channelIdHex, newDay, newChannel }) => {
         const ch = channelById.get(channelIdHex);
         return (
@@ -1108,6 +1142,9 @@ export function ConcordPage() {
   if (communityId && isBlocked(communityId)) return <Suspense fallback={null}><CommunityBlocked /></Suspense>;
   return <ConcordCommunityPage />;
 }
+
+/** Communities last left from the All messages pane, this session. */
+const lastAllPaneCommunities = new Set<string>();
 
 /**
  * A Concord community rehydrated from the Community List and rendered through
@@ -1542,7 +1579,18 @@ function ConcordCommunityPage() {
   // copied links are accurate. `replace` so Back doesn't bounce. Pane routes are
   // left alone.
   useEffect(() => {
-    if (!communityId || routeChannelId || routePane || !channel) return;
+    if (!communityId) return;
+    if (routePane === "all") lastAllPaneCommunities.add(communityId);
+    else if (routeChannelId || routePane) lastAllPaneCommunities.delete(communityId);
+  }, [communityId, routeChannelId, routePane]);
+  useEffect(() => {
+    if (!communityId || routeChannelId || routePane) return;
+    // Left from All messages: a bare `/c/<id>` (the rail) goes back there, not to a channel.
+    if (lastAllPaneCommunities.has(communityId)) {
+      navigateTo(chatRoute({ kind: "concord", communityId, pane: "all" }), { replace: true });
+      return;
+    }
+    if (!channel) return;
     navigateTo(chatRoute({ kind: "concord", communityId, channelId: channel.idHex }), {
       replace: true,
     });
@@ -2721,6 +2769,13 @@ function ConcordCommunityPage() {
     },
     [suppressChannelClick, selectChannel],
   );
+  const handleOpenChannelChat = useCallback(
+    (idHex: string) => {
+      selectChannel(idHex);
+      setChannelsOpen(false);
+    },
+    [selectChannel],
+  );
   const handleSetCategory = useCallback(
     (idHex: string, category: string | undefined) => void fileChannel(idHex, category),
     [fileChannel],
@@ -3048,6 +3103,7 @@ function ConcordCommunityPage() {
         muted={inCall ? mutedPubkeys : undefined}
         unread={unreadByChannel[c.idHex]}
         onSelect={handleSelectChannel}
+        onOpenChat={handleOpenChannelChat}
         onJoinVoice={handleJoinVoice}
         categories={categoryPicklist}
         onSetCategory={canManageChannels ? handleSetCategory : undefined}
@@ -3684,6 +3740,7 @@ function ConcordCommunityPage() {
                     onLoadOlder={feed.loadOlder}
                     onJump={jumpToMention}
                     mentionsEveryone={messageMentionsEveryone}
+                    onMarkAllRead={Object.keys(unreadByChannel).length > 0 ? markAllChannelsRead : undefined}
                   />
                 </div>
               ) : view === "mentions" ? (
