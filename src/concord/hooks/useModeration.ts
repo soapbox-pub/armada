@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 
 import { useControlFold, citationFor, foldStoredControl, invalidateControl, publishEdition, readControlWhole, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { guestbookWalked, useGuestbook, useGuestbookPublisher } from "@/concord/hooks/useGuestbook";
-import { useChannelRekey, useRefound } from "@/concord/hooks/useRekey";
+import { useChannelRekey, useRefound, type RefoundProgress } from "@/concord/hooks/useRekey";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { banChannelCuts } from "@/concord/lib/channelAccess";
 import { banShouldRotateMany, buildBanlistEdition, buildGrantEdition, hasForeignLiveLinks } from "@/concord/lib/control";
@@ -183,10 +183,12 @@ export function useModeration(community: Community | undefined, recipients: stri
       targets: string[];
       onPhase?: (phase: BanPhase) => void;
       onStripProgress?: (done: number, total: number) => void;
+      /** Where the rotating ban's Refounding is (the `rekey` phase's detail). */
+      onRekeyProgress?: (progress: RefoundProgress) => void;
       forceRotate?: boolean;
     }
   >({
-    mutationFn: async ({ targets, onPhase, onStripProgress, forceRotate }) => {
+    mutationFn: async ({ targets, onPhase, onStripProgress, onRekeyProgress, forceRotate }) => {
       if (!user || !community) throw new Error(t({ id: "useModeration.notReady", defaultMessage: "Not ready." }));
       const unique = [...new Set(targets)];
       const eligible = unique.filter((t) => canActOn(t, Permissions.BAN));
@@ -252,7 +254,7 @@ export function useModeration(community: Community | undefined, recipients: stri
       const keep = recipients.filter((pk) => !excluded.has(pk));
       for (const t of eligible) await addReadCutPending(user.pubkey, community.idHex, t, keep);
       try {
-        await refound({ keep, exclude: eligible });
+        await refound({ keep, exclude: eligible, ...(onRekeyProgress ? { onProgress: onRekeyProgress } : {}) });
         clearReadCutPending(user.pubkey, community.idHex);
         return { rekeyed: true, publicBan: false, banned: eligible, skipped };
       } catch {
@@ -271,8 +273,8 @@ export function useModeration(community: Community | undefined, recipients: stri
    * the suspect key live; the caller warns), and no read-cut intent is persisted
    * (nothing is severed, so the staffer can just retry).
    */
-  const rotateKeys = useMutation<void, Error, void>({
-    mutationFn: async () => {
+  const rotateKeys = useMutation<void, Error, { onProgress?: (progress: RefoundProgress) => void } | void>({
+    mutationFn: async (opts) => {
       if (!user || !community) throw new Error(t({ id: "useModeration.notReady", defaultMessage: "Not ready." }));
       // An unsettled fold would rotate to a THIN recipient set and cut live members.
       if (!folded) throw new Error(t({ id: "useModeration.stillSyncing", defaultMessage: "Still syncing this community; try again shortly." }));
@@ -287,7 +289,7 @@ export function useModeration(community: Community | undefined, recipients: stri
           t({ id: "useModeration.rotateNeedsEncryption", defaultMessage: "Rotating the community keys needs a signer that supports encryption, which yours doesn't. Ask an admin whose signer does." }),
         );
       }
-      await refound({ keep: recipients, exclude: [] });
+      await refound({ keep: recipients, exclude: [], ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}) });
     },
     onSuccess: invalidate,
   });
@@ -365,7 +367,7 @@ export function useModeration(community: Community | undefined, recipients: stri
       banMany.mutateAsync({ targets: [input.target], onPhase: input.onPhase, forceRotate: input.forceRotate }),
     banMany: banMany.mutateAsync,
     isBanning: banMany.isPending,
-    rotateKeys: () => rotateKeys.mutateAsync(),
+    rotateKeys: (opts?: { onProgress?: (progress: RefoundProgress) => void }) => rotateKeys.mutateAsync(opts),
     isRotatingKeys: rotateKeys.isPending,
     /** Gate for the standalone rotation's UI; the mutation re-checks it. */
     canRotateKeys: Boolean(

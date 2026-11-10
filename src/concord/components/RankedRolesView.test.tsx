@@ -28,7 +28,8 @@ vi.mock("@/concord/lib/rankedWrites", async (orig) => ({
 }));
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: { pubkey: "e".repeat(64) } }) }));
 
-const { RankedRolesBody, WriteProgress } = await import("./RankedRolesView");
+const { RankedRolesBody } = await import("./RankedRolesView");
+const { WriteProgress } = await import("./WriteProgress");
 
 beforeAll(() => {
   // jsdom has no PointerEvent, and a plain Event drops `clientY`.
@@ -68,11 +69,13 @@ describe("dragging a Role", () => {
 });
 
 describe("a write in progress", () => {
-  it("says it is waiting before the first edition lands, and counts them after", () => {
-    const { rerender } = render(<WriteProgress published={0} />);
+  it("says it is waiting before anything is planned, then which change of how many, with a bar that fills", () => {
+    const { rerender } = render(<WriteProgress published={0} planned={0} />);
     expect(screen.getByRole("status")).toHaveTextContent(/waiting for your signer/);
-    rerender(<WriteProgress published={2} />);
-    expect(screen.getByRole("status")).toHaveTextContent("2 changes published");
+    expect(screen.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
+    rerender(<WriteProgress published={2} planned={4} />);
+    expect(screen.getByRole("status")).toHaveTextContent("change 3 of 4");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50");
   });
 });
 

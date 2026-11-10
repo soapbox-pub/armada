@@ -40,6 +40,12 @@ const WHOLE_READ_BUDGET_MS = 6000;
 const needsWhole = () =>
   t({ id: "useRankedRoles.switchNeedsWhole", defaultMessage: "The community couldn't be read in full; try again once the relays answer." });
 
+/** Told how many editions a write will publish as it learns, and each one as it lands. */
+export interface WriteProgressSink {
+  planned: (count: number) => void;
+  published: () => void;
+}
+
 /**
  * Publish the switch to the vsk-13 Roster planned on `folded` (CORD-04 §2), the
  * sidebar carried across with it; the Private Channels left unfiled come back.
@@ -50,12 +56,12 @@ export async function publishActivation(
   user: { pubkey: string; signer: Parameters<typeof publishEdition>[2] },
   folded: FoldedControl,
   everyone?: bigint,
-  onPublished?: () => void,
+  progress?: WriteProgressSink,
 ): Promise<string[]> {
   const { rumors, unfiled } = planActivation(folded, community.id, user.pubkey, everyone, community.privateChannels);
   await activationPendingReady();
   setActivationPending(user.pubkey, community.idHex, rumors);
-  await publishPendingActivation(nostr, community, user, onPublished);
+  await publishPendingActivation(nostr, community, user, progress);
   return unfiled;
 }
 
@@ -67,15 +73,16 @@ export async function publishPendingActivation(
   nostr: NostrClient,
   community: Community,
   user: { pubkey: string; signer: Parameters<typeof publishEdition>[2] },
-  onPublished?: () => void,
+  progress?: WriteProgressSink,
 ): Promise<void> {
   await activationPendingReady();
   let left = activationPending(user.pubkey, community.idHex) ?? [];
+  progress?.planned(left.length);
   while (left.length > 0) {
     await publishEdition(nostr, community, user.signer, left[0]);
     left = left.slice(1);
     setActivationPending(user.pubkey, community.idHex, left);
-    onPublished?.();
+    progress?.published();
   }
 }
 
@@ -124,16 +131,22 @@ export function useRankedRoles(community: Community | undefined) {
 
   /** Editions the running write has published, for its progress line. */
   const [published, setPublished] = useState(0);
+  /** Editions the running write knows it will publish; grows as it plans more. */
+  const [planned, setPlanned] = useState(0);
   const notePublished = () => setPublished((n) => n + 1);
+  const notePlanned = (count: number) => setPlanned((n) => n + count);
+  const progress: WriteProgressSink = { planned: notePlanned, published: notePublished };
 
   /** One write at a time per community (Vector `follow_lock`). */
   const write = <T,>(run: () => Promise<T>): Promise<T> => {
     setPublished(0);
+    setPlanned(0);
     return community ? withControlWrite(community.idHex, run) : run();
   };
 
   const publish = async (c: Community, rumors: NostrRumor[]) => {
     const { user } = ready();
+    notePlanned(rumors.length);
     for (const rumor of rumors) {
       await publishEdition(nostr, c, user.signer, rumor);
       notePublished();
@@ -143,14 +156,14 @@ export function useRankedRoles(community: Community | undefined) {
   /** Seal each holder's Tenure before a Role they hold loses authority (Vector `Seal::Strict`). */
   const sealHolders = async (c: Community, folded: FoldedControl, served: Set<string> | undefined, holders: string[]) => {
     const { user } = ready();
+    // Planned whole first: a refusal publishes none of them, and the count is known up front.
+    const writes: NostrRumor[] = [];
     for (const member of holders) {
       const plan = planTenure(folded, c.id, user.pubkey, member, false, citationFor(c, folded, user.pubkey), served);
       if (plan.kind === "refuse") throw new Error(tenureRefusal());
-      if (plan.kind === "write") {
-        await publishEdition(nostr, c, user.signer, plan.rumor);
-        notePublished();
-      }
+      if (plan.kind === "write") writes.push(plan.rumor);
     }
+    await publish(c, writes);
   };
 
   const done = () => {
@@ -322,12 +335,12 @@ export function useRankedRoles(community: Community | undefined) {
       await activationPendingReady();
       // A switch cut short finishes the plan it made rather than planning another.
       if (activationPending(user.pubkey, community.idHex)) {
-        await publishPendingActivation(nostr, community, user, notePublished);
+        await publishPendingActivation(nostr, community, user, progress);
         return [];
       }
       const whole = await readControlWhole(nostr, community);
       if (!whole) throw new Error(needsWhole());
-      return publishActivation(nostr, community, user, whole.folded, everyone, notePublished);
+      return publishActivation(nostr, community, user, whole.folded, everyone, progress);
     }),
     onSuccess: done,
   });
@@ -350,8 +363,9 @@ export function useRankedRoles(community: Community | undefined) {
     isActivating: activate.isPending,
     /** Editions of this owner's switch still unpublished (`activationPending.ts`). */
     activationLeft,
-    /** Editions the running write has published so far. */
+    /** Editions the running write has published so far, of the `planned` it knows of. */
     published,
+    planned,
     isSaving:
       createRole.isPending || editRole.isPending || moveRole.isPending || reorderRoles.isPending || deleteRole.isPending || setEveryone.isPending || setOverwrite.isPending || setSync.isPending ||
       createCategory.isPending || renameCategory.isPending || moveCategory.isPending || deleteCategory.isPending,

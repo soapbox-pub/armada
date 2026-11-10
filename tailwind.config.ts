@@ -118,6 +118,10 @@ export default {
 				chrome: 'var(--radius-chrome)'
 			},
 			keyframes: {
+				'progress-sweep': {
+					from: { transform: 'translateX(-100%)' },
+					to: { transform: 'translateX(300%)' }
+				},
 				'accordion-down': {
 					from: {
 						height: '0'
@@ -243,6 +247,7 @@ export default {
 			}
 			},
 			animation: {
+				'progress-sweep': 'progress-sweep 1.4s ease-in-out infinite',
 				'accordion-down': 'accordion-down 0.2s ease-out',
 				'accordion-up': 'accordion-up 0.2s ease-out',
 				'pending-glow': 'pending-glow 2.5s ease-in-out infinite',

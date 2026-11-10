@@ -629,8 +629,8 @@ export function MembersView({
           setBanTargets(null);
           setSelection(emptySelection());
         }}
-        onConfirm={async (targets, onPhase, onStripProgress) => {
-          const { rekeyed, publicBan, banned } = await moderation.banMany({ targets, onPhase, onStripProgress });
+        onConfirm={async (targets, onPhase, onStripProgress, onRekeyProgress) => {
+          const { rekeyed, publicBan, banned } = await moderation.banMany({ targets, onPhase, onStripProgress, onRekeyProgress });
           const title = t(
             {
               id: "membersView.banned",

@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ChromeDialogContent, ChromeDialogFooter, ChromeDialogHeader, Dialog } from "@/components/ui/dialog";
+import { RefoundProgressLine } from "@/concord/components/RefoundProgressLine";
+import type { RefoundProgress } from "@/concord/hooks/useRekey";
 import { toast } from "@/hooks/useToast";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
 
@@ -15,7 +17,7 @@ interface RotateKeysDialogProps {
   /** Framed as the legacy upgrade (CORD-06 §3): the same Refounding, which mints the split Control Plane. */
   upgrade?: boolean;
   onClose: () => void;
-  onConfirm: () => Promise<void>;
+  onConfirm: (onProgress: (progress: RefoundProgress) => void) => Promise<void>;
 }
 
 /** Standalone rotation (Refounding excluding nobody). Stays up while it runs; 30s grace re-enables Cancel. */
@@ -32,6 +34,7 @@ export function RotateKeysDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stuck, setStuck] = useState(false);
+  const [progress, setProgress] = useState<RefoundProgress | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -54,9 +57,10 @@ export function RotateKeysDialog({
   const run = async () => {
     setError(null);
     setBusy(true);
+    setProgress(null);
     dismissed.current = false;
     try {
-      await onConfirm();
+      await onConfirm(setProgress);
       setBusy(false);
       if (!dismissed.current) onClose();
     } catch (e) {
@@ -138,12 +142,13 @@ export function RotateKeysDialog({
           </p>
         )}
 
+        {busy && <RefoundProgressLine progress={progress} className="mt-4" />}
         {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
         {stuck && busy && (
           <p className="mt-3 text-sm text-muted-foreground">
             <FormattedMessage
-              id="rotateKeysDialog.stuck"
-              defaultMessage="This is taking longer than expected. Your signer may be slow or offline. You can close this and try again. A rotation that already landed is picked up automatically."
+              id="rotateKeysDialog.stuckResumes"
+              defaultMessage="This is taking longer than expected. Your signer may be slow or offline. You can close this; a rotation that already started is finished the next time you open the community."
             />
           </p>
         )}

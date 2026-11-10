@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
+import { WriteProgress } from "@/concord/components/WriteProgress";
 import { useRankedRoles } from "@/concord/hooks/useRankedRoles";
 import { categoryOrder, rankedOrder, sameTarget } from "@/concord/lib/rankedWrites";
 import { colorToHex, OVERWRITABLE, PERMISSION_LABELS, type OverwriteTarget } from "@/concord/lib/roles";
@@ -64,7 +65,7 @@ export function ChannelPermissionsDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const intl = useIntl();
-  const { folded, setOverwrite, setSync, isSaving } = useRankedRoles(community);
+  const { folded, setOverwrite, setSync, isSaving, published, planned } = useRankedRoles(community);
   const { coalesced } = useGuestbook(community);
   const [typed, setTyped] = useState("");
   const roster = folded?.roster;
@@ -313,6 +314,7 @@ export function ChannelPermissionsDialog({
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
+        {isSaving && <WriteProgress published={published} planned={planned} />}
 
         <ChromeDialogFooter className="mt-2">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={isSaving}>

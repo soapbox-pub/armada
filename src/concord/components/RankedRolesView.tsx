@@ -8,6 +8,7 @@ import { ColorPicker } from "@/components/ui/color-picker";
 import { ChromeDialogContent, ChromeDialogFooter, ChromeDialogHeader, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { WriteProgress } from "@/concord/components/WriteProgress";
 import { useRankedRoles } from "@/concord/hooks/useRankedRoles";
 import type { FoldedControl } from "@/concord/lib/control";
 import { rankedOrder, roleAuthor, type RoleAuthor, type RoleFields } from "@/concord/lib/rankedWrites";
@@ -21,27 +22,6 @@ import { cn } from "@/lib/utils";
 const DEFAULT_SWATCH = "#5865f2";
 
 type Editing = { kind: "new" } | { kind: "role"; role: Role } | { kind: "everyone" };
-
-/**
- * What a role write is doing while it runs: one change can be many signed editions
- * (a Tenure per holder, re-signed Grants), each a signer round-trip, so a bare spinner
- * reads as frozen.
- */
-export function WriteProgress({ published, className }: { published: number; className?: string }) {
-  return (
-    <p role="status" aria-live="polite" className={cn("text-center text-xs text-muted-foreground", className)}>
-      {published === 0 ? (
-        <FormattedMessage id="rankedRolesView.progress.starting" defaultMessage="Reading the community and waiting for your signer…" />
-      ) : (
-        <FormattedMessage
-          id="rankedRolesView.progress.published"
-          defaultMessage="{count, plural, one {# change published, waiting for the next…} other {# changes published, waiting for the next…}}"
-          values={{ count: published }}
-        />
-      )}
-    </p>
-  );
-}
 
 function authorOf(folded: FoldedControl | undefined, me: string | undefined): RoleAuthor | undefined {
   if (!folded || !me) return undefined;
@@ -61,7 +41,7 @@ function authorOf(folded: FoldedControl | undefined, me: string | undefined): Ro
 export function RankedRolesBody({ community }: { community: Community }) {
   const intl = useIntl();
   const { user } = useCurrentUser();
-  const { folded, createRole, editRole, reorderRoles, deleteRole, setEveryone, isSaving, activate, isActivating, activationLeft, published } = useRankedRoles(community);
+  const { folded, createRole, editRole, reorderRoles, deleteRole, setEveryone, isSaving, activate, isActivating, activationLeft, published, planned } = useRankedRoles(community);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -136,6 +116,7 @@ export function RankedRolesBody({ community }: { community: Community }) {
         canDelete={Boolean(role && author?.outranks(role.position) && author.supports(role.position, 0n))}
         saving={isSaving}
         published={published}
+        planned={planned}
         error={error}
         onCancel={() => {
           setEditing(null);
@@ -184,7 +165,7 @@ export function RankedRolesBody({ community }: { community: Community }) {
       )}
 
       {activationLeft > 0 && (
-        <div className="flex w-full flex-col gap-2 clip-corner-lg bg-warning/10 p-3 text-sm sm:flex-row sm:items-center">
+        <div className="flex w-full flex-col gap-2 clip-corner-lg bg-warning/10 p-3 text-sm sm:flex-row sm:flex-wrap sm:items-center">
           <p className="flex-1 text-warning">
             <FormattedMessage
               id="rankedRolesView.finishSwitch"
@@ -208,6 +189,7 @@ export function RankedRolesBody({ community }: { community: Community }) {
             {isActivating ? <Loader2 className="size-4 animate-spin" /> : <Layers className="size-4" />}
             <FormattedMessage id="rankedRolesView.finishSwitchNow" defaultMessage="Finish now" />
           </Button>
+          {isActivating && <WriteProgress published={published} planned={planned} className="sm:basis-full" />}
         </div>
       )}
 
@@ -304,7 +286,7 @@ export function RankedRolesBody({ community }: { community: Community }) {
  */
 export function RankedRolesSwitch({ community }: { community: Community }) {
   const intl = useIntl();
-  const { activate, isActivating, published } = useRankedRoles(community);
+  const { activate, isActivating, published, planned } = useRankedRoles(community);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -371,7 +353,7 @@ export function RankedRolesSwitch({ community }: { community: Community }) {
             />
           </p>
           {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
-          {isActivating && <WriteProgress published={published} className="mt-3" />}
+          {isActivating && <WriteProgress published={published} planned={planned} className="mt-3" />}
           <ChromeDialogFooter>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={isActivating}>
               <FormattedMessage {...common.cancel} />
@@ -395,6 +377,7 @@ function RankedRoleEditor({
   canDelete,
   saving,
   published,
+  planned,
   error,
   onSave,
   onDelete,
@@ -408,6 +391,7 @@ function RankedRoleEditor({
   saving: boolean;
   /** Editions the running save has published, for its progress line. */
   published: number;
+  planned: number;
   error: string | null;
   onSave: (fields: RoleFields) => void;
   onDelete: () => void;
@@ -543,7 +527,7 @@ function RankedRoleEditor({
           {saving ? <Loader2 className="size-4 animate-spin" /> : <FormattedMessage {...common.save} />}
         </Button>
       </div>
-      {saving && <WriteProgress published={published} />}
+      {saving && <WriteProgress published={published} planned={planned} />}
 
       {/* Closing mid-delete only hides the dialog; the delete finishes and toasts on its own. */}
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
@@ -564,7 +548,7 @@ function RankedRoleEditor({
             )}
           />
           {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
-          {saving && <WriteProgress published={published} className="mt-3" />}
+          {saving && <WriteProgress published={published} planned={planned} className="mt-3" />}
           <ChromeDialogFooter>
             <Button type="button" variant="ghost" onClick={() => setConfirmDelete(false)} disabled={saving}>
               <FormattedMessage {...common.cancel} />

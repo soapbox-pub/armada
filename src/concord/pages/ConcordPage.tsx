@@ -177,7 +177,7 @@ import { scheduleExpiredSweep } from "@/concord/lib/rumorStore";
 import { useDecryptedImage } from "@/concord/hooks/useDecryptedImage";
 import { useCarryMyNickname, useGuestbook, useHealBanDepartures, useMemberStanding, useRestoreJoin } from "@/concord/hooks/useGuestbook";
 import { useModeration, useReadCutRetry } from "@/concord/hooks/useModeration";
-import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefoundResume, useRekeyWatch } from "@/concord/hooks/useRekey";
+import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefoundResume, useRekeyWatch, type RefoundProgress } from "@/concord/hooks/useRekey";
 import { useCanPost } from "@/concord/hooks/useWriterAccess";
 import { clockNowMs } from "@/lib/relayClock";
 import { CommunityNicknamesContext } from "@/contexts/CommunityNicknamesContext";
@@ -3032,8 +3032,13 @@ function ConcordCommunityPage() {
     banTarget !== null && !!folded && !!user && !hasForeignLiveLinks(folded, user.pubkey, banTarget) &&
     moderation.canRekey;
 
-  const runBan = async (targets: string[], onPhase: (phase: BanPhase) => void) => {
-    const { rekeyed, publicBan } = await moderation.banMany({ targets, onPhase });
+  const runBan = async (
+    targets: string[],
+    onPhase: (phase: BanPhase) => void,
+    onStripProgress: (done: number, total: number) => void,
+    onRekeyProgress: (progress: RefoundProgress) => void,
+  ) => {
+    const { rekeyed, publicBan } = await moderation.banMany({ targets, onPhase, onStripProgress, onRekeyProgress });
     if (rekeyed || publicBan) {
       toast({
         title: t({ id: "concordPage.ban.done", defaultMessage: "Member banned" }),
@@ -3067,9 +3072,9 @@ function ConcordCommunityPage() {
   // root and split the community. Other staff still have the menu's Upgrade security.
   const offerUpgrade = Boolean(user && user.pubkey === ownerHex && legacyControl && moderation.canRotateKeys && !dissolved);
 
-  const runRotateKeys = async () => {
+  const runRotateKeys = async (onProgress: (progress: RefoundProgress) => void) => {
     const upgrading = legacyControl;
-    await moderation.rotateKeys();
+    await moderation.rotateKeys({ onProgress });
     toast(
       upgrading
         ? { title: t({ id: "concordPage.upgrade.done", defaultMessage: "Security upgraded" }) }

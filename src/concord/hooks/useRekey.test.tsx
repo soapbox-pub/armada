@@ -1699,6 +1699,37 @@ describe("useRefound (CORD-06 §3 channel rotations)", () => {
   );
 });
 
+describe("useRefound progress", () => {
+  it("reports each step in order, counting members, state and channels", { timeout: 30_000 }, async () => {
+    const owner = member();
+    const alice = member();
+    const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+    const ch: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "sec" };
+    const community: Community = { ...base, privateChannels: [ch] };
+    const relay = new FakeRelay();
+    relay.events.push(...(await channelAccessEditions(community, owner, ch.id, [alice.pubkey])));
+    h.pool = { relay: () => relay, query: async () => [] };
+    h.user = asNUser(owner);
+    h.folded = foldedFor(owner.pubkey);
+    h.updateList = vi.fn(async () => {});
+    const jm = jmOf(community, owner.pubkey);
+    h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+
+    const steps: Array<{ step: string; done?: number; total?: number }> = [];
+    const { result } = renderHook(() => useRefound(community), { wrapper: makeWrapper().wrapper });
+    await act(async () => {
+      await result.current.refound({ keep: [alice.pubkey], exclude: [], onProgress: (p) => steps.push(p) });
+    });
+
+    const order = [...new Set(steps.map((p) => p.step))];
+    expect(order).toEqual(["reading", "encrypting", "rolling", "carrying", "guestbook", "channels", "links", "saving"]);
+    expect(steps.find((p) => p.step === "encrypting")).toMatchObject({ total: 2 });
+    const carried = steps.filter((p) => p.step === "carrying");
+    expect(carried.at(-1)!.done).toBe(carried.at(-1)!.total);
+    expect(steps.find((p) => p.step === "channels")).toMatchObject({ done: 0, total: 1 });
+  });
+});
+
 // ── A Refounding cut short finishes at its own epoch ──
 
 describe("useRefound resumes what it committed", () => {

@@ -5,7 +5,9 @@ import { DisplayName } from "@/components/DisplayName";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { ChromeDialogContent, Dialog } from "@/components/ui/dialog";
+import { RefoundProgressLine } from "@/concord/components/RefoundProgressLine";
 import type { BanPhase } from "@/concord/hooks/useModeration";
+import type { RefoundProgress } from "@/concord/hooks/useRekey";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
@@ -22,6 +24,7 @@ interface BanMemberDialogProps {
     targets: string[],
     onPhase: (phase: BanPhase) => void,
     onStripProgress: (done: number, total: number) => void,
+    onRekeyProgress: (progress: RefoundProgress) => void,
   ) => Promise<void>;
 }
 
@@ -35,6 +38,7 @@ export function BanMemberDialog({ targets, ineligible, willRotate, onClose, onCo
   const intl = useIntl();
   const [phase, setPhase] = useState<BanPhase | null>(null);
   const [strip, setStrip] = useState<{ done: number; total: number } | null>(null);
+  const [rekey, setRekey] = useState<RefoundProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Signer calls have no timeout; after a grace period re-enable Cancel so the
   // user isn't trapped (the ban is idempotent and self-heals).
@@ -84,8 +88,9 @@ export function BanMemberDialog({ targets, ineligible, willRotate, onClose, onCo
     if (!targets || targets.length === 0) return;
     setError(null);
     setPhase("silence");
+    setRekey(null);
     try {
-      await onConfirm(targets, setPhase, (done, total) => setStrip({ done, total }));
+      await onConfirm(targets, setPhase, (done, total) => setStrip({ done, total }), setRekey);
       setPhase(null);
       onClose();
     } catch (e) {
@@ -176,6 +181,7 @@ export function BanMemberDialog({ targets, ineligible, willRotate, onClose, onCo
             })}
           </ul>
         )}
+        {phase === "rekey" && <RefoundProgressLine progress={rekey} className="mt-3" />}
 
         {error && <p className="mt-4 text-center text-sm text-destructive">{error}</p>}
         {stuck && busy && (

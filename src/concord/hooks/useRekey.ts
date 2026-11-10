@@ -1119,6 +1119,18 @@ export function useChannelRekey(community: Community | undefined) {
   };
 }
 
+/**
+ * Where a Refounding is, for its dialog. Most steps are a signer round-trip or a relay
+ * acceptance each, so a long one (one NIP-44 encryption per member, on a bunker) is
+ * counted where its length is known.
+ */
+export type RefoundStep = "reading" | "encrypting" | "rolling" | "carrying" | "guestbook" | "channels" | "links" | "saving";
+export interface RefoundProgress {
+  step: RefoundStep;
+  done?: number;
+  total?: number;
+}
+
 interface RefoundCarry {
   /** The community at the epoch the roll left. */
   prior: Community;
@@ -1129,6 +1141,7 @@ interface RefoundCarry {
   newControlRoot: Uint8Array;
   newControlPk: string;
   journal: RefoundJournal;
+  onProgress?: (progress: RefoundProgress) => void;
 }
 
 /** The held roots with the one the roll left given its read cutoff. */
@@ -1175,6 +1188,7 @@ export function useRefound(community: Community | undefined) {
     const nip44 = user.signer.nip44;
     if (!nip44) throw new Error(t({ id: "useRekey.signerCantRotate", defaultMessage: "This signer can't rotate keys (NIP-44 unsupported)." }));
     const { prior: community, folded, stored, newRoot, newEpoch, newControlRoot, newControlPk, journal } = ctx;
+    const report = ctx.onProgress ?? (() => undefined);
     const { recipients, exclude, rotatedAtMs } = journal;
     const save = () => writeRefoundJournal(user.pubkey, community.idHex, journal);
 
@@ -1192,7 +1206,9 @@ export function useRefound(community: Community | undefined) {
           return newControlRead.convKey;
         },
       };
-      for (const head of compactionEditions(folded, openControlEditions(stored))) {
+      const heads = compactionEditions(folded, openControlEditions(stored));
+      report({ step: "carrying", done: 0, total: heads.length });
+      for (const [i, head] of heads.entries()) {
         // Store rows keep seals in KV, so fall back to a keyed read; a missing seal
         // aborts (fold-all-or-abort) rather than dropping the entity.
         const seal =
@@ -1215,6 +1231,7 @@ export function useRefound(community: Community | undefined) {
         if (!results.some((r) => r.status === "fulfilled")) {
           throw new Error(t({ id: "useRekey.noRelayAcceptedState", defaultMessage: "No relay accepted the community's state during rotation; nothing was lost, try again." }));
         }
+        report({ step: "carrying", done: i + 1, total: heads.length });
       }
       journal.carried = true;
       save();
@@ -1223,6 +1240,7 @@ export function useRefound(community: Community | undefined) {
     // 3. Guestbook snapshot: best-effort, non-gating (CORD-02 §5). Before the channels,
     // which can throw: an epoch with no snapshot builds its next keep-list from a thin roster.
     if (!journal.guestbook) {
+      report({ step: "guestbook" });
       try {
         const newGuestbook = guestbookGroupKey(newRoot, community.id, newEpoch);
         const snapId = bytesToHex(random32());
@@ -1254,7 +1272,9 @@ export function useRefound(community: Community | undefined) {
     // entitlements, and a channel with no scoped Role rotates to the owner alone.
     const done = new Map(journal.channels.map((c) => [c.id.toLowerCase(), c] as const));
     const rotatedChannels: PrivateChannelKey[] = [];
-    for (const ch of community.privateChannels) {
+    const channelTotal = community.privateChannels.length;
+    for (const [i, ch] of community.privateChannels.entries()) {
+      if (channelTotal > 0) report({ step: "channels", done: i, total: channelTotal });
       const chIdHex = bytesToHex(ch.id);
       const finished = done.get(chIdHex);
       if (finished) {
@@ -1339,6 +1359,7 @@ export function useRefound(community: Community | undefined) {
           t({ id: "useRekey.linksDead.description", defaultMessage: "The keys rotated to cut off the removed member. Your links stay on the old keys, because refreshing them would give the new keys to anyone holding the URL. Revoke them and make new ones." }),
       });
     } else {
+      report({ step: "links" });
       const fresh = {
         ...community,
         root: newRoot,
@@ -1368,6 +1389,7 @@ export function useRefound(community: Community | undefined) {
     }
 
     // 4. Follow our own rotation forward.
+    report({ step: "saving" });
     const rotated: Community = {
       ...community,
       root: newRoot,
@@ -1423,12 +1445,13 @@ export function useRefound(community: Community | undefined) {
     return { prior, folded, stored, newRoot: c.root, newEpoch: c.rootEpoch, newControlRoot: c.controlRoot, newControlPk: c.controlPk, journal };
   };
 
-  const refound = useMutation<void, Error, { keep: string[]; exclude: string[] }>({
+  const refound = useMutation<void, Error, { keep: string[]; exclude: string[]; onProgress?: (progress: RefoundProgress) => void }>({
     // Serialize every refound for this community (a ban racing the durable retry
     // must queue, not mint sibling epochs); named for useIsMutating.
     mutationKey: ["concord-refound", community?.idHex],
     scope: { id: `concord-refound:${community?.idHex}` },
-    mutationFn: async ({ keep, exclude }) => {
+    mutationFn: async ({ keep, exclude, onProgress }) => {
+      const report = onProgress ?? (() => undefined);
       if (!user || !community) throw new Error(t({ id: "useRekey.notReady", defaultMessage: "Not ready." }));
       if (dissolved) throw new Error(t({ id: "useRekey.dissolvedNoAdvance", defaultMessage: "This community was dissolved; no epoch advance past the tombstone is honored." }));
       const nip44 = user.signer.nip44;
@@ -1438,7 +1461,7 @@ export function useRefound(community: Community | undefined) {
       await refoundJournalReady();
       const pending = refoundJournal(user.pubkey, community.idHex);
       if (pending && BigInt(pending.newEpoch) === community.rootEpoch) {
-        await carry(await resumeContext(community, pending));
+        await carry({ ...(await resumeContext(community, pending)), onProgress });
         if (exclude.every((pk) => pending.exclude.includes(pk))) return;
         throw new Error(t({ id: "useRekey.finishedEarlier", defaultMessage: "An earlier key rotation was still unfinished, and has now been completed. Try again to remove the rest." }));
       }
@@ -1451,6 +1474,7 @@ export function useRefound(community: Community | undefined) {
         throw new Error(t({ id: "useRekey.stillSyncing", defaultMessage: "Still syncing the community's control plane; try again shortly." }));
       }
 
+      report({ step: "reading" });
       // Fold-all-or-abort (CORD-06 §3): one forced whole-plane sweep, then a
       // verification fold floored at every accepted head; any unserved or gapped
       // entity ABORTS. Tallied from this sweep's own callbacks, not the shared
@@ -1548,6 +1572,7 @@ export function useRefound(community: Community | undefined) {
       );
       const blobs: RekeyBlob[] = [];
       for (const pk of recipients) {
+        report({ step: "encrypting", done: blobs.length, total: recipients.length });
         const staff = pk === user.pubkey ? true : isStaff(folded.roster, pk, folded.ownerHex);
         const wrapped = await nip44.encrypt(pk, staff ? staffPlain : memberPlain);
         blobs.push({ locator: myLocator(user.pubkey, pk, "0".repeat(64), newEpoch), wrapped });
@@ -1579,7 +1604,8 @@ export function useRefound(community: Community | undefined) {
         rotatedAtMs,
         citationFor(community, folded, user.pubkey),
       );
-      for (const rumor of rumors) {
+      for (const [i, rumor] of rumors.entries()) {
+        report({ step: "rolling", done: i, total: rumors.length });
         const wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, address, user.signer), address);
         const results = await settleAccepted(
           community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),
@@ -1612,7 +1638,7 @@ export function useRefound(community: Community | undefined) {
         ),
       });
 
-      await carry({ prior: community, folded, stored, newRoot, newEpoch, newControlRoot, newControlPk, journal });
+      await carry({ prior: community, folded, stored, newRoot, newEpoch, newControlRoot, newControlPk, journal, onProgress });
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
     },
   });
