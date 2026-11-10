@@ -213,16 +213,18 @@ function pruneBlobs(dir, keep) {
  *   is above `shellApi`); nothing else was downloaded.
  *
  * `site` must come from `resolveWebSite` (verified under the pinned key). A
- * manifest older than the stored one is refused, so a relay serving a stale
- * copy of the replaceable event cannot roll the app back, and so is one whose
- * CHANGELOG version is older than the shell's. The manifest is written only
+ * manifest older than the stored one OF THE SAME TRACK (`siteId`) is refused,
+ * so a relay serving a stale copy of the replaceable event cannot roll the app
+ * back; across tracks it is the user's choice of channel (a release older
+ * than the main build they ran). One whose CHANGELOG version is older than the
+ * shell's is refused either way. The manifest is written only
  * after every blob is in place, so an interrupted update leaves the previous
  * site intact. `active` is the site this run is serving; its blobs survive
  * the prune until the restart.
  */
 async function stageSite({ dir, site, active, parse, shellApi, shellVersion, floor = 0, fetchImpl = fetch }) {
   const current = loadCurrent(dir, parse);
-  if (current && site.createdAt < current.createdAt) return { result: "unchanged" };
+  if (current && current.siteId === site.siteId && site.createdAt < current.createdAt) return { result: "unchanged" };
   if (site.createdAt <= floor) return { result: "unchanged" };
   const files = servedFiles(site);
   if (!files.has(INDEX) || !files.has(DESKTOP_MANIFEST)) return { result: "unchanged" };
@@ -251,11 +253,30 @@ async function stageSite({ dir, site, active, parse, shellApi, shellVersion, flo
   return site.id === active?.id ? { result: "unchanged" } : { result: "installed", id: site.id };
 }
 
+/**
+ * Make the site this run serves (`active`, or the shipped bundle when null)
+ * the one the next launch serves too, discarding a staged update. For the
+ * "off" channel: a user who stops updates keeps what they are running, not
+ * whatever happened to be staged a moment before.
+ */
+function pinSite({ dir, active }) {
+  const target = path.join(dir, CURRENT);
+  if (!active) {
+    fs.rmSync(target, { force: true });
+    return;
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  const temp = `${target}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(active.event));
+  fs.renameSync(temp, target);
+}
+
 module.exports = {
   DESKTOP_MANIFEST,
   loadCurrent,
   loadSite,
   parseDesktopManifest,
+  pinSite,
   pruneBlobs,
   readBlob,
   readShippedDesktopManifest,

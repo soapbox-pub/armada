@@ -78,6 +78,8 @@ files:
   # Loads, verifies and updates the web app app:// serves from Armada's nsite.
   # Unlisted, the require fails inside the asar and the shell cannot boot.
   - webSite.js
+  # Required by main.js at startup: which deploys the web track follows.
+  - webUpdateChannel.js
   # The shell API level web bundles are checked against; required at startup.
   - desktopApi.json
   # The ArmadaDB store, built from src/lib/db by vite.config.electron.ts. main.js

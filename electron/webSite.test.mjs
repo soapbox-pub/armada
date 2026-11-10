@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   loadSite,
   parseDesktopManifest,
+  pinSite,
   pruneBlobs,
   readBlob,
   readShippedDesktopManifest,
@@ -30,13 +31,14 @@ function parse(event) {
   return {
     event,
     id: event.id,
+    siteId: event.track ?? "armada",
     createdAt: event.created_at,
     files: new Map(event.paths),
     servers: event.servers,
   };
 }
 
-function makeSite({ id = "site-1", createdAt = 2_000, api = 2, version = "1.2.0", extra = {} } = {}) {
+function makeSite({ id = "site-1", createdAt = 2_000, api = 2, version = "1.2.0", track = "armada", extra = {} } = {}) {
   const contents = {
     "/index.html": Buffer.from(`<html>${id}</html>`),
     "/assets/app.js": Buffer.from(`console.log(${JSON.stringify(id)})`),
@@ -46,7 +48,7 @@ function makeSite({ id = "site-1", createdAt = 2_000, api = 2, version = "1.2.0"
     ...extra,
   };
   const paths = Object.entries(contents).map(([sitePath, bytes]) => [sitePath, sha(bytes)]);
-  const event = { id, created_at: createdAt, trusted: true, paths, servers: ["https://one.example", "https://two.example"] };
+  const event = { id, created_at: createdAt, trusted: true, track, paths, servers: ["https://one.example", "https://two.example"] };
   return { site: parse(event), contents, blobs: new Map(Object.values(contents).map((bytes) => [sha(bytes), bytes])) };
 }
 
@@ -126,6 +128,15 @@ describe("stageSite", () => {
     expect(await install(makeSite({ id: "floor", createdAt: SHELL.floor }))).toEqual({ result: "unchanged" });
   });
 
+  it("takes an older site from the other track, which is the user switching channel", async () => {
+    await install(makeSite({ createdAt: 3_000 }));
+    const release = makeSite({ id: "release", createdAt: 2_500, track: "armada-release", extra: { "/assets/app.js": Buffer.from("release") } });
+    expect(await install(release)).toEqual({ result: "installed", id: "release" });
+    // Within the release track the rollback guard holds again.
+    expect(await install(makeSite({ id: "stale", createdAt: 2_400, track: "armada-release" }))).toEqual({ result: "unchanged" });
+    expect(loadSite({ dir, parse, ...SHELL })?.id).toBe("release");
+  });
+
   it("reports a site that needs a newer shell without downloading the rest", async () => {
     const fixture = makeSite({ api: 3 });
     const { fetchImpl, requests } = blossom({ "https://one.example": fixture.blobs });
@@ -169,6 +180,23 @@ describe("stageSite", () => {
     expect(readBlob(dir, sha(first.contents["/assets/app.js"]))).not.toBeNull();
     expect(fs.existsSync(path.join(dir, "blobs", sha(Buffer.from("two"))))).toBe(false);
     expect(loadSite({ dir, parse, ...SHELL })?.id).toBe("site-3");
+  });
+});
+
+describe("pinSite", () => {
+  it("discards a staged site so the next launch serves the running one", async () => {
+    await install(makeSite());
+    const running = loadSite({ dir, parse, ...SHELL });
+    await install(makeSite({ id: "site-2", createdAt: 3_000, extra: { "/assets/app.js": Buffer.from("two") } }), { active: running });
+    expect(loadSite({ dir, parse, ...SHELL })?.id).toBe("site-2");
+    pinSite({ dir, active: running });
+    expect(loadSite({ dir, parse, ...SHELL })?.id).toBe("site-1");
+  });
+
+  it("goes back to the shipped bundle when that is what is running", async () => {
+    await install(makeSite());
+    pinSite({ dir, active: null });
+    expect(loadSite({ dir, parse, ...SHELL })).toBeNull();
   });
 });
 

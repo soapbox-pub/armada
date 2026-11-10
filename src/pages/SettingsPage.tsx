@@ -36,6 +36,7 @@ import { AccountSettings } from "@/components/settings/AccountSettings";
 import { ChatSettings } from "@/components/settings/ChatSettings";
 import { DesktopSettings } from "@/components/settings/DesktopSettings";
 import { LowMemorySettings } from "@/components/settings/LowMemorySettings";
+import { WebUpdateSettings } from "@/components/settings/WebUpdateSettings";
 import { DiagnosticsSettings } from "@/components/settings/DiagnosticsSettings";
 import { DirectMessageSettings } from "@/components/settings/DirectMessageSettings";
 import { EmojiPackSettings } from "@/components/settings/EmojiPackSettings";
@@ -286,6 +287,7 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
         render: () => (
           <SettingsGroup id="desktop">
             <DesktopSettings />
+            <WebUpdateSettings />
             <LowMemorySettings />
           </SettingsGroup>
         ),

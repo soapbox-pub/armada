@@ -4,6 +4,7 @@
  */
 
 import { t } from "@/i18n/intl";
+import type { WebUpdateChannel } from "@/lib/desktopUpdate";
 
 export interface ScreenSource {
   id: string;
@@ -67,6 +68,15 @@ export interface DesktopLowMemoryState {
   active: boolean;
   configured: boolean;
   restartRequired: boolean;
+}
+
+/** The shell's web track (electron/webUpdateChannel.js); see `WebUpdateChannel`. */
+export interface DesktopWebUpdateState {
+  channel: WebUpdateChannel;
+  /** The signed site this run serves, or null for the bundle the app shipped with. */
+  serving: { id: string; track: string; createdAt: number } | null;
+  /** A newer site is downloaded and waits for a restart. */
+  pending: boolean;
 }
 
 export type DesktopVideoEncoderMode = "compatibility" | "hardware";
@@ -175,6 +185,8 @@ interface ArmadaDesktopBridge {
   getLowMemoryMode?: () => Promise<DesktopLowMemoryState>;
   setLowMemoryMode?: (on: boolean) => Promise<DesktopLowMemoryState>;
   relaunch?: () => Promise<void>;
+  getWebUpdateChannel?: () => Promise<DesktopWebUpdateState | null>;
+  setWebUpdateChannel?: (channel: WebUpdateChannel) => Promise<DesktopWebUpdateState | null>;
   getVideoEncoderMode?: () => Promise<DesktopVideoEncoderState>;
   setVideoEncoderMode?: (mode: DesktopVideoEncoderMode) => Promise<DesktopVideoEncoderState>;
   getHevcScreenShareCapability?: () => Promise<DesktopHevcScreenShareCapability>;
@@ -258,6 +270,23 @@ export async function clearDesktopWebCache(): Promise<void> {
 export async function setDesktopLowMemoryMode(on: boolean): Promise<DesktopLowMemoryState | null> {
   try {
     return (await desktop()?.setLowMemoryMode?.(on)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The web track's state, or null on the web, an older shell, or a store edition. */
+export async function getDesktopWebUpdateState(): Promise<DesktopWebUpdateState | null> {
+  try {
+    return (await desktop()?.getWebUpdateChannel?.()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setDesktopWebUpdateChannel(channel: WebUpdateChannel): Promise<DesktopWebUpdateState | null> {
+  try {
+    return (await desktop()?.setWebUpdateChannel?.(channel)) ?? null;
   } catch {
     return null;
   }

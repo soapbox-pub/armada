@@ -350,14 +350,31 @@ const NSITE_KIND = 35128;
 /** BUD-03 user server list. */
 const BLOSSOM_SERVER_LIST_KIND = 10063;
 
-/** The named site `.nsite/config.json` publishes. */
+/** The named site `.nsite/config.json` publishes: every push to main. */
 export const WEB_SITE_ID = "armada";
+/** The named site deploy-nsite.yml also publishes on a stable release commit only. */
+export const WEB_RELEASE_SITE_ID = "armada-release";
+/** Every site id a stored manifest may carry; each is signed by the same pinned authors. */
+export const WEB_SITE_IDS: readonly string[] = [WEB_SITE_ID, WEB_RELEASE_SITE_ID];
+
+/**
+ * Which deploys the shell follows (electron/webUpdateChannel.js): every push to
+ * main, stable releases only, or none — keeping the web app it has.
+ */
+export type WebUpdateChannel = "latest" | "release" | "off";
+
+/** The site a channel follows (the shell never asks for "off"). */
+export function webSiteIdFor(channel: WebUpdateChannel): string {
+  return channel === "release" ? WEB_RELEASE_SITE_ID : WEB_SITE_ID;
+}
 
 /** A signed site manifest the desktop shell can serve app://armada from. */
 export interface WebSite {
   /** The manifest event itself, stored as-is and re-verified at every launch. */
   event: SignedEvent;
   id: string;
+  /** Its `d` tag: which track it was published to ({@link WEB_SITE_IDS}). */
+  siteId: string;
   createdAt: number;
   /** Absolute site path → sha256, from the `path` tags. */
   files: Map<string, string>;
@@ -392,13 +409,15 @@ export function parseWebSite(
   value: unknown,
   {
     authors = RELEASE_AUTHORS,
-    siteId = WEB_SITE_ID,
+    siteId,
   }: { authors?: readonly string[]; siteId?: string } = {},
 ): WebSite | undefined {
   if (!isSignedEvent(value) || value.kind !== NSITE_KIND) return undefined;
   if (!value.tags.every((tag) => Array.isArray(tag))) return undefined;
   if (!authors.some((author) => author.toLowerCase() === value.pubkey.toLowerCase())) return undefined;
-  if (!value.tags.some((tag) => tag[0] === "d" && tag[1] === siteId)) return undefined;
+  // Without a `siteId`, any of the shell's tracks (a stored site re-verified at launch).
+  const d = value.tags.find((tag) => tag[0] === "d")?.[1];
+  if (typeof d !== "string" || (siteId !== undefined ? d !== siteId : !WEB_SITE_IDS.includes(d))) return undefined;
   if (!verifyEvent(value)) return undefined;
 
   const files = new Map<string, string>();
@@ -410,6 +429,7 @@ export function parseWebSite(
   return {
     event: value,
     id: value.id,
+    siteId: d,
     createdAt: value.created_at,
     files,
     servers: httpsServers(value.tags),

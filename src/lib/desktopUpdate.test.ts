@@ -399,6 +399,17 @@ describe("web site manifests", () => {
     expect(parseWebSite("not an event", { authors })).toBeUndefined();
   });
 
+  it("knows which track a site is on, and holds a track request to it", () => {
+    const key = generateSecretKey();
+    const authors = [getPublicKey(key)];
+    expect(parseWebSite(manifest(key), { authors })?.siteId).toBe("armada");
+    const release = manifest(key, { site: "armada-release" });
+    // A stored manifest is re-verified without a track: either is the shell's own.
+    expect(parseWebSite(release, { authors })?.siteId).toBe("armada-release");
+    expect(parseWebSite(release, { authors, siteId: "armada" })).toBeUndefined();
+    expect(parseWebSite(manifest(key), { authors, siteId: "armada-release" })).toBeUndefined();
+  });
+
   it("selects the newest acceptable manifest, past a newer forgery", () => {
     const key = generateSecretKey();
     const authors = [getPublicKey(key)];

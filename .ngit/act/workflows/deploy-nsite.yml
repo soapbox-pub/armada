@@ -224,3 +224,26 @@ jobs:
           # in from its own environment. Job containers get no docker socket
           # and their own PID namespace, so a concurrent job cannot read it.
           scripts/nsite-deploy.sh dist
+
+      # The same build again as the named site `armada-release`, but only when
+      # this push IS a stable release (the release skill's "Release vX.Y.Z"
+      # commit; a prerelease carries a "-" and is skipped). Desktop shells on
+      # the "Releases only" channel (Settings › Desktop, electron/webUpdateChannel.js)
+      # follow this site instead of `armada`, which moves with every push to
+      # main. A separate step in this one job, so it plans no second workflow
+      # run for act's container names to collide on (see the header). Every
+      # blob is already on the servers from the step above, so --sync only
+      # HEADs them. --no-config: the config's `armada` id must not apply.
+      - name: Publish the release track
+        timeout-minutes: 15
+        env:
+          NSYTE_BUNKER: ${{ secrets.NSYTE_BUNKER }}
+          NSITE_DEPLOY_TIMEOUT: "240"
+        run: |
+          set -eu
+          subject="$(git log -1 --format=%s)"
+          if ! printf '%s' "$subject" | grep -Eq '^Release v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "not a stable release commit ($subject); the release track is unchanged"
+            exit 0
+          fi
+          scripts/nsite-deploy.sh dist --name armada-release --no-config --fallback /index.html

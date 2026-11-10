@@ -94,12 +94,14 @@ const { randomUUID } = require("node:crypto");
 const {
   loadCurrent,
   loadSite,
+  pinSite,
   pruneBlobs,
   readBlob,
   readShippedDesktopManifest,
   resolveSitePath,
   stageSite,
 } = require("./webSite");
+const { readWebUpdateChannel, writeWebUpdateChannel } = require("./webUpdateChannel");
 const { spawnSync } = require("node:child_process");
 const {
   DEFAULT_LINUX_VIDEO_ENCODER_MODE,
@@ -1071,9 +1073,11 @@ async function checkForDesktopUpdates(manual = false) {
  * `"failed"`; never rejects, so the shell track still runs.
  */
 async function checkForWebUpdate() {
+  const channel = readWebUpdateChannel({ userDataPath: app.getPath("userData") });
+  if (channel === "off") return "unchanged";
   try {
-    const { parseWebSite, resolveWebSite } = require("./updateFeed.cjs");
-    const site = await resolveWebSite();
+    const { parseWebSite, resolveWebSite, webSiteIdFor } = require("./updateFeed.cjs");
+    const site = await resolveWebSite({ siteId: webSiteIdFor(channel) });
     // No acceptable manifest is "nothing newer", not a failure.
     if (!site) return "unchanged";
     const outcome = await stageSite({
@@ -1085,6 +1089,11 @@ async function checkForWebUpdate() {
       shellVersion: app.getVersion(),
       floor: SHELL_BUILT_AT,
     });
+    // Updates were turned off while this check was downloading: keep what is running.
+    if (outcome.result === "installed" && readWebUpdateChannel({ userDataPath: app.getPath("userData") }) === "off") {
+      pinSite({ dir: WEB_DIR, active: activeSite });
+      return "unchanged";
+    }
     if (outcome.result === "installed" && pendingWebSite !== outcome.id) {
       console.log(`[web] staged site ${outcome.id}`);
       pendingWebSite = outcome.id;
@@ -1945,6 +1954,37 @@ function installIpc() {
       console.warn("failed to save low memory mode", error);
     }
     return lowMemoryState();
+  });
+  // Which web deploys this install follows; null where the shell has no web track.
+  const webUpdateState = () =>
+    webUpdatesSupported()
+      ? {
+          channel: readWebUpdateChannel({ userDataPath: app.getPath("userData") }),
+          serving: activeSite ? { id: activeSite.id, track: activeSite.siteId, createdAt: activeSite.createdAt } : null,
+          pending: pendingWebSite !== null,
+        }
+      : null;
+  handleFromMainWindow("armada:web-update-channel", webUpdateState);
+  handleFromMainWindow("armada:set-web-update-channel", (_event, channel) => {
+    if (!webUpdatesSupported()) return null;
+    try {
+      if (!writeWebUpdateChannel(channel, { userDataPath: app.getPath("userData") })) return webUpdateState();
+    } catch (error) {
+      console.warn("failed to save the web update channel", error);
+      return webUpdateState();
+    }
+    if (channel === "off") {
+      // Keep exactly what is running: a site staged a moment ago must not activate on the next launch.
+      try {
+        pinSite({ dir: WEB_DIR, active: activeSite });
+        pendingWebSite = null;
+      } catch (error) {
+        console.warn("[web] could not pin the running site", error);
+      }
+    } else {
+      void checkForDesktopUpdates(false);
+    }
+    return webUpdateState();
   });
   handleFromMainWindow("armada:relaunch", () => {
     isQuitting = true;

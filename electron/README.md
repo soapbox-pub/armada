@@ -284,9 +284,22 @@ manifest (`d=armada`) naming each file of `dist` by sha256. The shell
   means the shipped bundle in the asar is served instead. That is what makes a
   file planted in userData unable to run as `app://armada`, with the whole
   preload bridge behind it;
-- **never goes backwards**: a manifest older than the stored one, no newer than
-  the shell's own build (`builtAt` in its shipped `desktop.json`), or whose
-  CHANGELOG version is below the shell's is refused.
+- **never goes backwards**: a manifest older than the stored one of the same
+  track, no newer than the shell's own build (`builtAt` in its shipped
+  `desktop.json`), or whose CHANGELOG version is below the shell's is refused.
+
+**Which deploys it follows is the user's choice** (Settings › Desktop › App
+updates, `electron/webUpdateChannel.js`, a file in userData):
+
+| Channel | Follows |
+| --- | --- |
+| Every update (`latest`, default) | `d=armada`, every push to `main` |
+| Releases only (`release`) | `d=armada-release`, which `deploy-nsite.yml` publishes only for a `Release vX.Y.Z` commit |
+| Off (`off`) | nothing; choosing it also discards a staged site, so the next launch serves what is running now |
+
+The rollback guard is per track: moving from `latest` to `release` may install
+a release older than the main build that was running, because the user asked
+for exactly that. Within a track a stale relay copy still cannot roll it back.
 
 Store editions (`process.mas`, `process.windowsStore`) serve only what they
 shipped with.

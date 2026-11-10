@@ -160,7 +160,8 @@ describe("nsite deploy", () => {
   // nsyte runs one upload queue per Blossom server and signs the manifest only
   // after EVERY queue drains, so one broken mirror runs a deploy past its
   // deadline and publishes nothing. Every deploy therefore goes through the
-  // probing, bounded wrapper, and there is exactly one nsite deploy.
+  // probing, bounded wrapper: the site, and the same build again as the
+  // release track on a stable release commit.
   it("reaches nsyte only through the probing, bounded wrapper", () => {
     const workflows = ["deploy-nsite.yml", "release.yml"].map((file) =>
       loadYaml(
@@ -187,7 +188,10 @@ describe("nsite deploy", () => {
         }
       }
     }
-    expect(wrapperCalls).toEqual(["scripts/nsite-deploy.sh dist"]);
+    expect(wrapperCalls).toEqual([
+      "scripts/nsite-deploy.sh dist",
+      "scripts/nsite-deploy.sh dist --name armada-release --no-config --fallback /index.html",
+    ]);
 
     // No step may reintroduce the OSTree repository fold.
     for (const file of ["deploy-nsite.yml", "release.yml"]) {
