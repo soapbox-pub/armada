@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   readState: {} as Record<string, number>,
   folded: undefined as { banned: Set<string>; roster: unknown; ownerHex: string } | undefined,
   queryMentionRumors: vi.fn(),
+  held: new Set<string>(),
 }));
 
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: { pubkey: ME } }) }));
@@ -47,6 +48,9 @@ vi.mock("@/hooks/useReadState", async (importOriginal) => ({
   useReadState: () => ({ readState: h.readState, markRead: vi.fn() }),
 }));
 vi.mock("@/wire/useWireScopes", () => ({ useWireScopes: () => undefined }));
+vi.mock("@/concord/hooks/useChannelRules", () => ({
+  useChannelRules: () => () => ({ hold: (m: OpenedChat) => h.held.has(m.author) }),
+}));
 
 const { useConcordMentions } = await import("@/concord/hooks/useConcordMentions");
 
@@ -86,6 +90,7 @@ beforeEach(() => {
   h.rumors = [];
   h.readState = {};
   h.folded = undefined;
+  h.held = new Set();
   h.queryMentionRumors.mockReset();
   h.queryMentionRumors.mockImplementation(async () => h.rumors);
 });
@@ -119,5 +124,17 @@ describe("useConcordMentions — the Banlist folds into the list", () => {
     expect(ids(r)).toEqual([]);
     expect(r.result.current.hasNew).toBe(false);
     expect(h.queryMentionRumors).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useConcordMentions — a channel's own rules", () => {
+  it("drops a mention its channel holds back, and does not light the @ dot", async () => {
+    h.rumors = [mention("B", X, 300), mention("A", Y, 200)];
+    h.readState[`c2m:${COMMUNITY}`] = 200;
+    h.held = new Set([X]);
+    const r = render();
+    await waitFor(() => expect(r.result.current.isLoading).toBe(false));
+    expect(ids(r)).toEqual(["A"]);
+    expect(r.result.current.hasNew).toBe(false);
   });
 });

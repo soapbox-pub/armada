@@ -10,7 +10,7 @@ import { timeoutRunning } from "@/concord/lib/guestbook";
 import { heldRoleMentions, pingableRoles, rolePings } from "@/concord/lib/roleMentions";
 import { canScrub, scrubbedDeleteExpiry, scrubOwnWraps, sendWrapOwner } from "@/concord/lib/wrapScrub";
 import { useAccountSecret } from "@/hooks/useAccountSecret";
-import { mayHideIn, restrictedPostersIn, timelineCollapse, timelineRules, writerJudge as writerJudgeOf } from "@/concord/lib/channelJudges";
+import { channelRules, mayHideIn, restrictedPostersIn } from "@/concord/lib/channelJudges";
 import { persistTimelineSnapshot, prewarmTimelineSnapshot, takeSnapshotSeed } from "@/concord/hooks/timelineSnapshot";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useKeyedMemo } from "@/hooks/useKeyedMemo";
@@ -109,6 +109,7 @@ const FLOOD_HISTORY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const FLOOD_HISTORY_MAX_ROWS = 4000;
 
 const EMPTY_RAW: OpenedChat[] = [];
+const NO_RULES: ReturnType<typeof channelRules> = {};
 
 export interface ChannelTimelineFocus {
   messageId?: string;
@@ -312,13 +313,11 @@ export function useChannelTimeline(
   const { data: control } = useControlFold(community);
   const { timeouts, history } = useGuestbook(control ? community : undefined);
   const publicUntil = channel?.publicUntil;
-  const collapse = useMemo(() => timelineCollapse(control, channelIdHex, timeouts, clockNowMs(), publicUntil), [control, channelIdHex, timeouts, publicUntil]);
   // A restricted Channel's posts stand by its Writers ledger (CORD-03 §1).
-  const writerJudge = useMemo(
-    () => writerJudgeOf(control, channelIdHex, community?.id, history),
-    [control, channelIdHex, community, history],
+  const rules = useMemo(
+    () => (channelIdHex ? channelRules(control, channelIdHex, community?.id, timeouts, history, clockNowMs(), publicUntil) : NO_RULES),
+    [control, channelIdHex, community?.id, timeouts, history, publicUntil],
   );
-  const rules = useMemo(() => timelineRules(collapse, writerJudge), [collapse, writerJudge]);
   // Cutoffs included: retirement can change without the epoch set changing.
   const epochSig = channel?.streams.map((s) => `${s.epoch}:${s.retiredAt ?? ""}`).join(",") ?? "";
   const queryKey = useMemo(() => channelKey(channelIdHex), [channelIdHex]);

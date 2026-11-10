@@ -4,6 +4,7 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useIdleMemo } from "@/hooks/useIdleMemo";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useChatModeration } from "@/concord/hooks/useChannel";
+import { useChannelRules } from "@/concord/hooks/useChannelRules";
 import { useCommunityRumors } from "@/concord/hooks/useCommunityRumors";
 import { foldTimeline, replyTargetOf, type OpenedChat } from "@/concord/lib/chat";
 import { openedToChatMsg } from "@/concord/hooks/useTransport";
@@ -41,7 +42,7 @@ export interface ConcordThread {
  * map (synced via NIP-78). Reading a channel also advances its threads' stamps
  * (the open-channel effect in ConcordPage).
  */
-export function useConcordThreads(community: Community | undefined, channels: Channel[]): {
+export function useConcordThreads(community: Community | undefined, channels: Channel[], active = false): {
   threads: ConcordThread[];
   isLoading: boolean;
   hasNew: boolean;
@@ -56,6 +57,7 @@ export function useConcordThreads(community: Community | undefined, channels: Ch
   // Required so the fold applies the Banlist and moderator deletes (CORD-04 §4);
   // without it banned authors' replies inflate counts and "new" dots.
   const moderation = useChatModeration(community);
+  const rulesFor = useChannelRules(community, channels, active);
 
   const channelSig = channels.map((c) => c.idHex).join(",");
   const channelIds = useMemo(() => channels.map((c) => c.idHex), [channelSig]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -71,7 +73,7 @@ export function useConcordThreads(community: Community | undefined, channels: Ch
 
     for (const [idHex, rumors] of rumorsByChannel) {
       // Muted authors are dropped before folding; a muted ROOT degrades to a tombstone.
-      const folded = foldTimeline(rumors, moderation);
+      const folded = foldTimeline(rumors, moderation, { ...(pubkey !== undefined ? { self: pubkey } : {}), ...rulesFor(idHex) });
       const messages = folded.messages.filter(
         (m) => !mutedPubkeys.has(m.author) && !folded.quarantined.has(m.rumorId),
       );
@@ -127,7 +129,7 @@ export function useConcordThreads(community: Community | undefined, channels: Ch
 
     out.sort((a, b) => b.lastReplyAt - a.lastReplyAt);
     return out;
-  }, [rumorsByChannel, pubkey, mutedPubkeys, moderation]);
+  }, [rumorsByChannel, pubkey, mutedPubkeys, moderation, rulesFor]);
 
   // Depends on these stamps only, not `readState` (a new object on every markRead).
   const readStateRef = useRef(readState);

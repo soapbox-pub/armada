@@ -193,3 +193,29 @@ export function timelineRules(
     ...(judge ? { hold: (m: OpenedChat) => !judge.stands(m) } : {}),
   };
 }
+
+/** One Channel's timeline rules, as its own timeline applies them. */
+export function channelRules(
+  control: FoldedControl | undefined,
+  channelIdHex: string,
+  communityId: Uint8Array | undefined,
+  timeouts: ReadonlyMap<string, FoldedTimeout>,
+  history: GuestbookHistory | undefined,
+  nowMs: number,
+  /** When a converted Channel went private (unix ms), as {@link timelineCollapse} takes it. */
+  publicUntilMs?: number,
+): ReturnType<typeof timelineRules> {
+  return timelineRules(
+    timelineCollapse(control, channelIdHex, timeouts, nowMs, publicUntilMs),
+    writerJudge(control, channelIdHex, communityId, history),
+  );
+}
+
+/**
+ * Whether a community-wide pane (All messages, Threads, Mentions, Search) leaves a
+ * post out: what its Channel holds or collapses. The reader's own posts are never collapsed.
+ */
+export function ruledOut(rules: ReturnType<typeof timelineRules>, m: OpenedChat, self?: string): boolean {
+  if (rules.hold?.(m)) return true;
+  return m.author !== self && Boolean(rules.collapse?.(m));
+}

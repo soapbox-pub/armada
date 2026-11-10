@@ -4,6 +4,8 @@ import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useChatModeration } from "@/concord/hooks/useChannel";
+import { useChannelRules } from "@/concord/hooks/useChannelRules";
+import { ruledOut } from "@/concord/lib/channelJudges";
 import { filterEpochCutoff, type OpenedChat } from "@/concord/lib/chat";
 import { openedToChatMsg } from "@/concord/hooks/useTransport";
 import {
@@ -24,7 +26,7 @@ const NO_RESULTS: ChatMsg[] = [];
 const SEARCH_PAGE = 100;
 
 interface SearchPage {
-  messages: ChatMsg[];
+  rows: OpenedChat[];
   hasMore: boolean;
 }
 
@@ -118,7 +120,7 @@ export function useConcordSearch(
         signal,
       });
       return {
-        messages: applyEpochCutoffs(rumors, channels).map(openedToChatMsg),
+        rows: applyEpochCutoffs(rumors, channels),
         // Judged before the cutoffs and moderation drops: a full page means more may match.
         hasMore: rumors.length >= limit && limit < SEARCH_SCAN_LIMIT,
       };
@@ -157,15 +159,18 @@ export function useConcordSearch(
   // CORD-04 §4 requires dropping every event from a banned npub.
   const { mutedPubkeys } = useMutedPubkeys();
   const moderation = useChatModeration(community);
+  const rulesFor = useChannelRules(community, channels, active);
   // A flood the fold quarantined must not be reachable through search.
   const memoryRev = useSyncExternalStore(subscribeQuarantineMemory, quarantineMemoryRevision);
   const channelsSig = channelIds.join(",");
   const results = useMemo(() => {
     void memoryRev;
     if (!moderation.ready) return NO_RESULTS;
-    let list = search.data?.messages ?? NO_RESULTS;
-    if (mutedPubkeys.size > 0) list = list.filter((m) => !mutedPubkeys.has(m.pubkey));
-    if (moderation.banned.size > 0) list = list.filter((m) => !moderation.banned.has(m.pubkey));
+    const rows = (search.data?.rows ?? []).filter(
+      (r) => !mutedPubkeys.has(r.author) && !moderation.banned.has(r.author) && !ruledOut(rulesFor(r.channelIdHex), r),
+    );
+    if (rows.length === 0) return NO_RESULTS;
+    let list = rows.map(openedToChatMsg);
     if (communityIdHex) {
       let quarantined: Set<string> | undefined;
       for (const idHex of channelIds) {
@@ -178,7 +183,7 @@ export function useConcordSearch(
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search.data, mutedPubkeys, moderation, communityIdHex, channelsSig, memoryRev]);
+  }, [search.data, mutedPubkeys, moderation, communityIdHex, channelsSig, memoryRev, rulesFor]);
 
   return {
     results,

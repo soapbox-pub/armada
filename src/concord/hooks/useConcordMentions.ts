@@ -10,6 +10,9 @@ import {
 } from "@/concord/lib/quarantineMemory";
 import { queryMentionRumors } from "@/concord/lib/rumorStore";
 import { openedToChatMsg } from "@/concord/hooks/useTransport";
+import { useChannelRules } from "@/concord/hooks/useChannelRules";
+import { ruledOut } from "@/concord/lib/channelJudges";
+import type { OpenedChat } from "@/concord/lib/chat";
 import type { Channel } from "@/concord/lib/types";
 import type { ChatMsg } from "@/components/chat/transport";
 import { useBootGateOpen } from "@/lib/bootGate";
@@ -36,6 +39,7 @@ const MENTION_LIMIT = 200;
  * per render, which drove the Notification Center into an infinite setState loop.
  */
 const NO_MENTIONS: ChatMsg[] = [];
+const NO_ROWS: OpenedChat[] = [];
 const NO_ROLES = emptyRoles();
 
 /**
@@ -50,7 +54,12 @@ const NO_ROLES = emptyRoles();
  * in the shared read-state map (synced via NIP-78), independent of channel read
  * state.
  */
-export function useConcordMentions(community: Community | undefined, channels: Channel[]): {
+export function useConcordMentions(
+  community: Community | undefined,
+  channels: Channel[],
+  /** Whether the community is on screen; ambient callers (the rail) leave Timeouts unread. */
+  active = false,
+): {
   mentions: ChatMsg[];
   isLoading: boolean;
   hasNew: boolean;
@@ -83,7 +92,9 @@ export function useConcordMentions(community: Community | undefined, channels: C
 
   const { mutedPubkeys } = useMutedPubkeys();
 
-  const { data: allMentions = NO_MENTIONS, isLoading } = useQuery<ChatMsg[]>({
+  const rulesFor = useChannelRules(community, channels, active);
+
+  const { data: allMentions = NO_ROWS, isLoading } = useQuery<OpenedChat[]>({
     ...STORE_READ,
     queryKey: ["concord-mentions", communityIdHex ?? null, pubkey, channelSig, everyoneAuthorSig, roleSig, joinedAtMs ?? null],
     queryFn: async ({ signal }) => {
@@ -105,8 +116,7 @@ export function useConcordMentions(community: Community | undefined, channels: C
           return isEveryoneMention(r.content, roles, ownerHex, r.author, r.channelIdHex);
         })
         .sort((a, b) => b.ms - a.ms)
-        .slice(0, MENTION_LIMIT)
-        .map(openedToChatMsg);
+        .slice(0, MENTION_LIMIT);
     },
     // After first paint, like useCommunityRumors: the rail asks for every community at once.
     enabled: bootGateOpen && !!communityIdHex && !!pubkey && channelIds.length > 0,
@@ -124,9 +134,13 @@ export function useConcordMentions(community: Community | undefined, channels: C
   // `hasNew` derives from the same list the tab renders.
   const mentions = useMemo(() => {
     void memoryRev;
-    let list = mutedPubkeys.size === 0 ? allMentions : allMentions.filter((m) => !mutedPubkeys.has(m.pubkey));
-    // The index bypasses the timeline fold, so its Banlist drop is repeated here (CORD-04 §4).
-    if (banned && banned.size > 0) list = list.filter((m) => !banned.has(m.pubkey));
+    // The index bypasses the timeline fold, so its Banlist drop and the Channel's
+    // own rules are repeated here (CORD-04 §4, §8; CORD-03 §1).
+    const kept = allMentions.filter(
+      (r) => !mutedPubkeys.has(r.author) && !banned?.has(r.author) && !ruledOut(rulesFor(r.channelIdHex), r, pubkey),
+    );
+    if (kept.length === 0) return NO_MENTIONS;
+    let list = kept.map(openedToChatMsg);
     // Drop mentions quarantined as floods in their channel. A cross-channel `#p`
     // scan can't be re-folded live, so this reads the durable per-channel verdicts
     // (quarantineMemory); rumorIds are unique across channels.
@@ -141,7 +155,7 @@ export function useConcordMentions(community: Community | undefined, channels: C
       if (quarantined && quarantined.size > 0) list = list.filter((m) => !quarantined.has(m.id));
     }
     return list;
-  }, [allMentions, mutedPubkeys, banned, communityIdHex, channelIds, memoryRev]);
+  }, [allMentions, mutedPubkeys, banned, communityIdHex, channelIds, memoryRev, rulesFor, pubkey]);
 
   useWireScopes((scopes) => {
     for (const idHex of channelIds) {

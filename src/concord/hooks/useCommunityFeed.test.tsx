@@ -33,6 +33,8 @@ const h = vi.hoisted(() => ({
   muted: new Set<string>(),
   /** Every `perChannel` the hook has asked for, in order. */
   windows: [] as number[],
+  /** Authors each channel's rules hold back, as a restricted Channel's ledger would. */
+  held: new Map<string, Set<string>>(),
 }));
 
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: { pubkey: ME } }) }));
@@ -46,6 +48,12 @@ vi.mock("@/concord/lib/quarantineMemory", () => ({
   subscribeQuarantineMemory: () => () => undefined,
 }));
 vi.mock("@/wire/useWireScopes", () => ({ useWireScopes: () => undefined }));
+vi.mock("@/concord/hooks/useChannelRules", () => ({
+  useChannelRules: () => (idHex: string) => {
+    const held = h.held.get(idHex);
+    return held ? { hold: (m: OpenedChat) => held.has(m.author) } : {};
+  },
+}));
 vi.mock("@/concord/lib/rumorStore", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/concord/lib/rumorStore")>();
   return {
@@ -108,6 +116,7 @@ beforeEach(() => {
   h.rows = new Map();
   h.muted = new Set();
   h.windows = [];
+  h.held = new Map();
 });
 
 describe("useCommunityFeed", () => {
@@ -122,6 +131,17 @@ describe("useCommunityFeed", () => {
     // Nothing was truncated, so the whole store is on screen and there is no
     // older page to ask for.
     expect(result.current.hasMore).toBe(false);
+  });
+
+  it("leaves out what a channel's own rules hold back, there and nowhere else", async () => {
+    const STRAY = "9".repeat(64);
+    h.rows.set(BUSY, [row("stray", BUSY, 300, STRAY), row("busy", BUSY, 200)]);
+    h.rows.set(QUIET, [row("quiet-stray-author", QUIET, 100, STRAY)]);
+    h.held.set(BUSY, new Set([STRAY]));
+
+    const { result } = render();
+    await waitFor(() => expect(result.current.messages.length).toBe(2));
+    expect(result.current.messages.map((m) => m.id)).toEqual(["busy", "quiet-stray-author"]);
   });
 
   it("carries each message's channel binding through to the row", async () => {

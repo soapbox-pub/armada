@@ -1341,7 +1341,7 @@ function ConcordCommunityPage() {
     hasNew: hasUnreadMention,
     markRead: markMentionsRead,
     markAllRead: markAllMentionsRead,
-  } = useConcordMentions(community, channels);
+  } = useConcordMentions(community, channels, true);
 
   // "All messages" reads the store only while open (see `useCommunityFeed`).
   const feed = useCommunityFeed(community, channels, routePane === "all");
@@ -1353,7 +1353,7 @@ function ConcordCommunityPage() {
     hasNew: hasNewThreadReplies,
     markRead: markThreadRead,
     markAllRead: markAllThreadsRead,
-  } = useConcordThreads(community, channels);
+  } = useConcordThreads(community, channels, true);
 
   // NIP-42 auth as per-channel stream keys (plane keys are registered in MainLayout).
   useRegisterChannelStreamKeys(communityId);
@@ -2431,7 +2431,7 @@ function ConcordCommunityPage() {
     return m;
   }, [allMessages]);
   // Parents older than the loaded window come from the store.
-  const olderReplyParents = useConcordReplyParents(community, channel?.idHex, allMessages, messagesById);
+  const olderReplyParents = useConcordReplyParents(community, channel, allMessages, messagesById);
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false);

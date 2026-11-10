@@ -4,6 +4,7 @@ import { useMemo, useSyncExternalStore } from "react";
 import { getQuoteReplyToId } from "@/components/chat/messageHelpers";
 import { missingReplyIds } from "@/components/chat/replyParents";
 import { useChatModeration } from "@/concord/hooks/useChannel";
+import { useChannelRules } from "@/concord/hooks/useChannelRules";
 import { openedToChatMsg } from "@/concord/hooks/useTransport";
 import { foldTimeline, type OpenedChat } from "@/concord/lib/chat";
 import {
@@ -16,22 +17,26 @@ import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { STORE_READ } from "@/lib/storeQuery";
 
 import type { ChatMsg } from "@/components/chat/transport";
-import type { Community } from "@/concord/lib/types";
+import type { Channel, Community } from "@/concord/lib/types";
 
 const EMPTY = new Map<string, ChatMsg>();
 
 /**
  * Inline-reply parents that fell outside the loaded window, read from the local
  * store. They bypass the timeline, so its drops are repeated here: the fold
- * (bans, author edits, deletes), mutes, and remembered flood quarantine.
+ * (bans, author edits, deletes, the Channel's own rules), mutes, and
+ * remembered flood quarantine.
  */
 export function useConcordReplyParents(
   community: Community | undefined,
-  channelIdHex: string | undefined,
+  channel: Channel | undefined,
   messages: readonly ChatMsg[],
   loaded: ReadonlyMap<string, ChatMsg>,
 ): ReadonlyMap<string, ChatMsg> {
   const communityIdHex = community?.idHex;
+  const channelIdHex = channel?.idHex;
+  const channels = useMemo(() => (channel ? [channel] : []), [channel]);
+  const rulesFor = useChannelRules(community, channels, true);
   const missing = useMemo(() => missingReplyIds(messages, loaded, getQuoteReplyToId), [messages, loaded]);
 
   const query = useQuery<OpenedChat[]>({
@@ -55,10 +60,11 @@ export function useConcordReplyParents(
     if (!opened || opened.length === 0 || !communityIdHex || !channelIdHex || !moderation.ready) return EMPTY;
     const quarantined = recallQuarantined(communityIdHex, channelIdHex);
     const out = new Map<string, ChatMsg>();
-    for (const m of foldTimeline(opened, moderation).messages) {
-      if (mutedPubkeys.has(m.author) || quarantined?.has(m.rumorId)) continue;
+    const folded = foldTimeline(opened, moderation, rulesFor(channelIdHex));
+    for (const m of folded.messages) {
+      if (mutedPubkeys.has(m.author) || quarantined?.has(m.rumorId) || folded.ruled.has(m.rumorId)) continue;
       out.set(m.rumorId, openedToChatMsg(m));
     }
     return out;
-  }, [query.data, moderation, mutedPubkeys, communityIdHex, channelIdHex, memoryRev]);
+  }, [query.data, moderation, mutedPubkeys, communityIdHex, channelIdHex, memoryRev, rulesFor]);
 }

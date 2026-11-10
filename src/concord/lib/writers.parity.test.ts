@@ -8,7 +8,7 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it, vi } from "vitest";
 
-import { restrictedPostersIn, timelineRules, writerJudge } from "@/concord/lib/channelJudges";
+import { channelRules, restrictedPostersIn, ruledOut, timelineRules, writerJudge } from "@/concord/lib/channelJudges";
 import { foldTimeline, type OpenedChat } from "@/concord/lib/chat";
 import { channelsView } from "@/concord/lib/community";
 import { foldControlState } from "@/concord/lib/control";
@@ -85,6 +85,16 @@ describe("what a restricted Channel's timeline shows", () => {
       expect(timeline.messages.map((m) => m.rumorId)).toEqual([before.rumorId, mine.rumorId]);
       expect(timeline.quarantined.size).toBe(0);
     }
+  });
+
+  it("gives community-wide panes the same verdict through channelRules (CORD-03 §1)", () => {
+    const { c, ch, folded } = restricted();
+    const rules = channelRules(folded, ch, c.id, new Map(), undefined, T0 + 30 * MIN);
+    expect(ruledOut(rules, post(hexKey(), ch, T0 + 20 * MIN))).toBe(true);
+    expect(ruledOut(rules, post(hexKey(), ch, T0 - MIN))).toBe(false);
+    expect(ruledOut(rules, post(c.owner, ch, T0 + 21 * MIN, { tags: [["wepoch", "1"]] }))).toBe(false);
+    // Another Channel has no ledger, so nothing is held there.
+    expect(ruledOut(channelRules(folded, hexKey(), c.id, new Map(), undefined, T0 + 30 * MIN), post(hexKey(), ch, T0 + 20 * MIN))).toBe(false);
   });
 });
 

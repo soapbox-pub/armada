@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useMemo, useState, useSyncExternalS
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useChatModeration } from "@/concord/hooks/useChannel";
+import { useChannelRules } from "@/concord/hooks/useChannelRules";
 import { useFloodPolicy } from "@/concord/hooks/useFloodPolicy";
 import { openedToChatMsg } from "@/concord/hooks/useTransport";
 import { foldTimeline } from "@/concord/lib/chat";
@@ -54,8 +55,9 @@ export interface CommunityFeed {
  * the window so that watermark recedes; `hasMore` means "a channel was truncated".
  *
  * Each channel is folded on its own before the merge, since the flood detector
- * judges a batch as a cohort. Quarantined messages are dropped (as in Mentions),
- * not collapsed: this is an aggregate catch-up surface.
+ * judges a batch as a cohort, under the Channel's own rules (`useChannelRules`).
+ * Quarantined messages are dropped (as in Mentions), not collapsed: this is an
+ * aggregate catch-up surface.
  */
 export function useCommunityFeed(
   community: Community | undefined,
@@ -66,6 +68,7 @@ export function useCommunityFeed(
   const { user } = useCurrentUser();
   const { mutedPubkeys } = useMutedPubkeys();
   const moderation = useChatModeration(community, active);
+  const rulesFor = useChannelRules(community, channels, active);
   const communityIdHex = community?.idHex;
 
   // Recomputed only when the channel SET changes, so the query key doesn't churn.
@@ -110,6 +113,7 @@ export function useCommunityFeed(
       const folded = foldTimeline(rows, moderation, {
         ...(user?.pubkey !== undefined ? { self: user.pubkey } : {}),
         policy: floodPolicy,
+        ...rulesFor(idHex),
       });
       // With folding off, only a pause and the Roster still hide rows (as in the channel).
       const dropped = new Set(foldSimilar ? folded.quarantined : [...folded.paused, ...folded.ruled]);
@@ -139,7 +143,7 @@ export function useCommunityFeed(
       messages: list.map(openedToChatMsg),
       hasMore: completeSince > 0 && windowSize < MAX_WINDOW,
     };
-  }, [byChannel, moderation, user?.pubkey, mutedPubkeys, communityIdHex, windowSize, memoryRev, floodPolicy, foldSimilar]);
+  }, [byChannel, moderation, user?.pubkey, mutedPubkeys, communityIdHex, windowSize, memoryRev, floodPolicy, foldSimilar, rulesFor]);
 
   // Full re-scan rather than a per-channel delta patch: the fold needs each
   // channel's whole window, and this only runs while the pane is open.
