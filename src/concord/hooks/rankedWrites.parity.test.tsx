@@ -535,7 +535,9 @@ describe("the vsk-13 Roster's editors (Vector create/edit/move/delete_role_v2)",
     const move = env.published.findIndex((r) => vskOf(r) === "13" && JSON.parse(r.content).role_id === modRole);
     const regrant = env.published.findIndex((r) => vskOf(r) === "3" && JSON.parse(r.content).member === mod);
     expect(move).toBeGreaterThanOrEqual(0);
-    expect(regrant).toBeGreaterThan(move);
+    // Before the move, so a run that stops between them strands no holder.
+    expect(regrant).toBeGreaterThanOrEqual(0);
+    expect(regrant).toBeLessThan(move);
     expect(env.published[regrant].pubkey).toBe(c.owner);
     expect(JSON.parse(env.published[regrant].content).role_ids).toEqual([modRole]);
   });
@@ -569,5 +571,27 @@ describe("the vsk-13 Roster's editors (Vector create/edit/move/delete_role_v2)",
     const { result } = renderHook(() => useRankedRoles(community), { wrapper });
     await attempt(() => result.current.activate({}));
     expect(env.published).toEqual([]);
+  });
+
+  it("a switch cut short after @everyone finishes its own plan on the next attempt", async () => {
+    const { community } = withOwner();
+    const legacy = { ...env.folded!, rankedRoster: undefined };
+    env.folded = legacy;
+    env.failVsk = "2";
+    const { result } = renderHook(() => useRankedRoles(community), { wrapper });
+    await attempt(() => result.current.activate({}));
+    const before = env.published.length;
+    expect(env.published.some((r) => vskOf(r) === "2")).toBe(false);
+    expect(before).toBeGreaterThan(0);
+    await vi.waitFor(() => expect(result.current.activationLeft).toBeGreaterThan(0));
+
+    // The community now reads as ranked, so planning again would be refused.
+    env.failVsk = undefined;
+    env.folded = { ...legacy, rankedRoster: true };
+    await attempt(() => result.current.activate({}));
+    const resumed = env.published.slice(before);
+    expect(resumed.length).toBeGreaterThan(0);
+    expect(resumed.every((r) => vskOf(r) === "2" || vskOf(r) === "17")).toBe(true);
+    await vi.waitFor(() => expect(result.current.activationLeft).toBe(0));
   });
 });

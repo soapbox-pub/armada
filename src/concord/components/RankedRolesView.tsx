@@ -40,7 +40,7 @@ function authorOf(folded: FoldedControl | undefined, me: string | undefined): Ro
 export function RankedRolesBody({ community }: { community: Community }) {
   const intl = useIntl();
   const { user } = useCurrentUser();
-  const { folded, createRole, editRole, reorderRoles, deleteRole, setEveryone, isSaving } = useRankedRoles(community);
+  const { folded, createRole, editRole, reorderRoles, deleteRole, setEveryone, isSaving, activate, isActivating, activationLeft } = useRankedRoles(community);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -159,6 +159,34 @@ export function RankedRolesBody({ community }: { community: Community }) {
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      )}
+
+      {activationLeft > 0 && (
+        <div className="flex w-full flex-col gap-2 clip-corner-lg bg-warning/10 p-3 text-sm sm:flex-row sm:items-center">
+          <p className="flex-1 text-warning">
+            <FormattedMessage
+              id="rankedRolesView.finishSwitch"
+              defaultMessage="The switch to ranked roles didn't finish: {count, plural, one {# change is} other {# changes are}} still to publish, among them how channels are sorted into categories."
+              values={{ count: activationLeft }}
+            />
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            className="clip-corner-lg"
+            disabled={isActivating}
+            onClick={() => {
+              setError(null);
+              activate({}).then(
+                () => toast({ title: t({ id: "rankedRolesView.switchFinished", defaultMessage: "Switch to ranked roles finished" }) }),
+                (e: unknown) => fail(e, t({ id: "rankedRolesView.finishFailed", defaultMessage: "Couldn't finish the switch. Try again." })),
+              );
+            }}
+          >
+            {isActivating ? <Loader2 className="size-4 animate-spin" /> : <Layers className="size-4" />}
+            <FormattedMessage id="rankedRolesView.finishSwitchNow" defaultMessage="Finish now" />
+          </Button>
+        </div>
       )}
 
       <div ref={listRef} className="w-full space-y-1 rounded-lg bg-secondary/40 p-1">

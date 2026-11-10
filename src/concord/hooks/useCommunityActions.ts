@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { removeCommunityLocally, useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { useControlFold, citationFor, foldStoredControl, invalidateControl, markDissolvedLocally, probeCommunityDissolved, publishEdition, withControlWrite } from "@/concord/hooks/useControlPlane";
 import type { FoldedControl } from "@/concord/lib/control";
-import { publishActivation } from "@/concord/hooks/useRankedRoles";
+import { publishActivation, publishPendingActivation } from "@/concord/hooks/useRankedRoles";
 import { useGuestbookPublisher } from "@/concord/hooks/useGuestbook";
 import { attemptGuestbookJoin, forgetGuestbookJoin, queueGuestbookJoin } from "@/concord/lib/pendingGuestbookJoin";
 import { useAppContext } from "@/hooks/useAppContext";
@@ -536,6 +536,7 @@ export function useCommunityActions() {
         try {
           const stored = await foldStoredControl(community);
           if (!stored.rankedRoster) await publishActivation(nostr, community, user, stored);
+          else await publishPendingActivation(nostr, community, user);
           ranked = true;
         } catch (e) {
           logSync("control", `${community.idHex.slice(0, 8)}: the new community's switch to ranked roles failed: ${e instanceof Error ? e.message : String(e)}`);

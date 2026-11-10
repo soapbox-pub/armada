@@ -1,3 +1,4 @@
+import { settleAccepted } from "@/concord/lib/settleAccepted";
 import { useNostr } from "@nostrify/react";
 import { KvPrefixCache } from "@/lib/db/kvCache";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -820,7 +821,7 @@ export async function publishEdition(
   const wrap = await sealEdition(rumor, control, signer);
   const urls = opts?.relays ?? community.relays;
   const attempt = () =>
-    Promise.allSettled(urls.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })));
+    settleAccepted(urls.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })));
   let results = await attempt();
   // Auth-gating relays refuse stream-authored wraps until the NIP-42 wave
   // re-authenticates the control key; one paced retry outlives it.
