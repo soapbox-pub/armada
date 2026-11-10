@@ -248,11 +248,16 @@ function alignPieces(base: Text, layer: HTMLElement) {
 }
 
 const PaintLayer = memo(function PaintLayer({ paint }: { paint: Paint[] }) {
+  // An emoji is keyed by which occurrence of its shortcode it is, not its offset:
+  // typing before it would otherwise remount (and reload) its image every keystroke.
+  const seen = new Map<string, number>();
   return paint.map((p) => {
     const style = { [p.rtl ? "right" : "left"]: `${p.x}px`, top: `${p.top}px`, lineHeight: `${p.height}px` };
     if (p.emoji) {
+      const n = seen.get(p.emoji.shortcode) ?? 0;
+      seen.set(p.emoji.shortcode, n + 1);
       return (
-        <span key={`e${p.at}`} data-at={p.at} className="rt-piece rt-emoji" style={style}>
+        <span key={`e:${p.emoji.shortcode}:${n}`} data-at={p.at} className="rt-piece rt-emoji" style={style}>
           <span className="opacity-0">{p.text}</span>
           <CustomEmojiImg name={p.emoji.shortcode} url={p.emoji.url} className="rt-emoji-img" />
         </span>
