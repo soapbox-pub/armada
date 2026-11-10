@@ -3962,6 +3962,9 @@ function ConcordCommunityPage() {
                       onOpen={openPost}
                       isNew={isPostNew}
                       onNewPost={canWrite ? () => setNewPostOpen(true) : undefined}
+                      viewer={user?.pubkey}
+                      canModerate={transport.canModerate}
+                      onDelete={transport.deleteMessage}
                       banner={
                         <>
                           {communityPause && channel && (

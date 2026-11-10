@@ -1,4 +1,4 @@
-import { ChevronDown, Clock, EyeOff, Flame, ImageOff, Loader2, MessageSquareText, MessagesSquare, Pin, Plus } from "lucide-react";
+import { ChevronDown, Clock, EyeOff, Flame, ImageOff, Loader2, MessageSquareText, MessagesSquare, MoreHorizontal, Pin, Plus, SquareArrowOutUpRight, Trash2 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BlurhashCanvas } from "@/components/BlurhashCanvas";
@@ -6,19 +6,31 @@ import { DisplayName } from "@/components/DisplayName";
 import { HeldMedia } from "@/components/chat/HeldMedia";
 import { revealMessageMedia, useAuthorBlocked, useMediaHeld, useMediaUrlHold, useMessageRevealed } from "@/components/chat/mediaHold";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PillTabs, type PillTab } from "@/components/ui/pill-tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useMediaWithFallback } from "@/hooks/useMediaWithFallback";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { forumImages, type ForumImage, type ForumPost, type ForumSort } from "@/concord/lib/forum";
-import { defineMessages, FormattedMessage, useIntl } from "@/i18n";
+import { common, defineMessages, FormattedMessage, useIntl } from "@/i18n";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { fullDateTime, shortTimeAgo, shortTimeAgoPhrase } from "@/lib/formatTime";
 import { mediaHost } from "@/lib/mediaPolicy";
 import { cn } from "@/lib/utils";
 
+import type { ChatMsg } from "@/components/chat/transport";
 import type { ReactNode } from "react";
 import { AvatarInitial } from "@/components/AvatarInitial";
 
@@ -59,10 +71,13 @@ const ForumPostRow = memo(function ForumPostRow({
   post,
   isNew,
   onOpen,
+  onRequestDelete,
 }: {
   post: ForumPost;
   isNew: boolean;
   onOpen: (post: ForumPost) => void;
+  /** Set when the reader may delete this post (their own, or as a moderator). */
+  onRequestDelete?: (post: ForumPost) => void;
 }) {
   const intl = useIntl();
   const hasComments = post.replyCount > 0;
@@ -77,8 +92,9 @@ const ForumPostRow = memo(function ForumPostRow({
   const heldHost = heldImage && !senderHeld ? mediaHost(heldImage.url) ?? heldImage.url : undefined;
   const rootId = post.root.id;
   const load = useCallback(() => revealMessageMedia(rootId), [rootId]);
+  const menuLabel = intl.formatMessage({ id: "forumFeed.postActions", defaultMessage: "Post actions" });
   return (
-    <div className={cn(isNew && "bg-primary/5")}>
+    <div className={cn("group/post relative", isNew && "bg-primary/5")}>
       <button
         type="button"
         onClick={() => onOpen(post)}
@@ -112,7 +128,8 @@ const ForumPostRow = memo(function ForumPostRow({
               )}
             </span>
           </span>
-          <span className="flex shrink-0 items-center gap-2">
+          {/* Room for the actions button, which sits over the row rather than in it. */}
+          <span className="flex shrink-0 items-center gap-2 pr-8 touch:pr-10">
             {hasComments && <ParticipantStack pubkeys={post.participants} />}
             <span
               className={cn(
@@ -127,6 +144,34 @@ const ForumPostRow = memo(function ForumPostRow({
         </span>
         {images.length > 0 && !heldImage && <ForumGallery images={images} />}
       </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={menuLabel}
+            title={menuLabel}
+            className="absolute right-2 top-3.5 size-7 touch:top-2.5 touch:size-10 text-muted-foreground hover:text-foreground opacity-0 group-hover/post:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 touch:opacity-100"
+          >
+            <MoreHorizontal className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onSelect={() => onOpen(post)}>
+            <SquareArrowOutUpRight className="size-4" />
+            <FormattedMessage id="forumFeed.openPost" defaultMessage="Open post" />
+          </DropdownMenuItem>
+          {onRequestDelete && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => onRequestDelete(post)}>
+                <Trash2 className="size-4" />
+                <FormattedMessage id="forumFeed.deletePost" defaultMessage="Delete post" />
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
       {heldImage && (
         <div className="px-3 pb-1.5 sm:pl-14">
           <HeldMedia kind="image" count={images.length} host={heldHost} blocked={authorBlocked} onLoad={load} />
@@ -278,6 +323,9 @@ export function ForumFeed({
   onOpen,
   isNew,
   onNewPost,
+  viewer,
+  canModerate = false,
+  onDelete,
   banner,
   className,
 }: {
@@ -295,6 +343,10 @@ export function ForumFeed({
   isNew: (post: ForumPost) => boolean;
   /** Undefined when the reader may not write. */
   onNewPost?: () => void;
+  /** The reader's pubkey: their own posts are theirs to delete. */
+  viewer?: string;
+  canModerate?: boolean;
+  onDelete?: (post: ChatMsg) => void;
   banner?: ReactNode;
   className?: string;
 }) {
@@ -326,6 +378,11 @@ export function ForumFeed({
     autoPagesRef.current = 0;
     void onLoadOlder?.();
   };
+
+  const [deleting, setDeleting] = useState<ForumPost | null>(null);
+  const requestDelete = useCallback((post: ForumPost) => setDeleting(post), []);
+  const deleteFor = (post: ForumPost) =>
+    onDelete && (canModerate || post.root.pubkey === viewer) ? requestDelete : undefined;
 
   const empty = !isLoading && posts.length === 0;
   const pinned = posts.filter((p) => p.pinned);
@@ -380,14 +437,14 @@ export function ForumFeed({
               {pinned.length > 0 && (
                 <PostGroup eyebrow={intl.formatMessage({ id: "forumFeed.pinned", defaultMessage: "Pinned" })} icon={Pin}>
                   {pinned.map((post) => (
-                    <ForumPostRow key={post.root.id} post={post} isNew={isNew(post)} onOpen={onOpen} />
+                    <ForumPostRow key={post.root.id} post={post} isNew={isNew(post)} onOpen={onOpen} onRequestDelete={deleteFor(post)} />
                   ))}
                 </PostGroup>
               )}
               {rest.length > 0 && (
                 <PostGroup eyebrow={pinned.length > 0 ? intl.formatMessage({ id: "forumFeed.posts", defaultMessage: "Posts" }) : undefined}>
                   {rest.map((post) => (
-                    <ForumPostRow key={post.root.id} post={post} isNew={isNew(post)} onOpen={onOpen} />
+                    <ForumPostRow key={post.root.id} post={post} isNew={isNew(post)} onOpen={onOpen} onRequestDelete={deleteFor(post)} />
                   ))}
                 </PostGroup>
               )}
@@ -411,6 +468,35 @@ export function ForumFeed({
           )}
         </div>
       </div>
+      <AlertDialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              <FormattedMessage id="forumFeed.deleteDialog.title" defaultMessage="Delete “{title}”?" values={{ title: deleting?.title ?? "" }} />
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <FormattedMessage
+                id="threadPanel.deleteDialog.description"
+                defaultMessage="This can't be undone. Relays and clients that already have it may keep their copy."
+              />
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              <FormattedMessage {...common.cancel} />
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleting) onDelete?.(deleting.root);
+                setDeleting(null);
+              }}
+            >
+              <FormattedMessage {...common.delete} />
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
