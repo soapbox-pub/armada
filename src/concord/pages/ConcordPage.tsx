@@ -1,4 +1,6 @@
 import { channelDisplayName } from "@/concord/lib/community";
+import { observedAuthors } from "@/concord/lib/observedAuthors";
+import { useCommunityRumors } from "@/concord/hooks/useCommunityRumors";
 import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Bell, BellOff, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, MessageSquareText, MessagesSquare, Pause, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigationType, useSearchParams } from "react-router-dom";
@@ -2263,17 +2265,11 @@ function ConcordCommunityPage() {
     return out;
   }, [community, folded]);
 
-  // Observed authors: newest ms each pubkey published (seconds scaled to ms to
-  // match Guestbook kick/leave times), so stale chat doesn't resurrect a kicked member.
-  const observed = useMemo(() => {
-    const out = new Map<string, number>();
-    for (const m of allMessages) {
-      const seenMs = m.created_at * 1000;
-      const prev = out.get(m.pubkey);
-      if (prev === undefined || seenMs > prev) out.set(m.pubkey, seenMs);
-    }
-    return out;
-  }, [allMessages]);
+  // Observed authors across every held channel (the shared read the unread badges
+  // already hold), not only the open one's.
+  const channelIdsHere = useMemo(() => channels.map((c) => c.idHex), [channels]);
+  const { byChannel: communityRumors } = useCommunityRumors(community?.idHex, channelIdsHere);
+  const observed = useMemo(() => observedAuthors(communityRumors, allMessages), [communityRumors, allMessages]);
   // The owner writes the departures of Bans lifted before un-bans wrote their own (Vector).
   useHealBanDepartures(community, observed);
   // Each member carries their own Nickname across a Refounding (CORD-04 §10).
