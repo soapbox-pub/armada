@@ -5334,6 +5334,17 @@ public class NotificationRelayService extends Service {
         }
     }
 
+    /**
+     * Whether a delivered event is what its id says it is. A gift wrap's
+     * signature proves no sender and is not checked, but its id keys the seen
+     * ledger and the store, so it must still be the hash of the event carrying
+     * it (as {@code verifiedRelay.ts} requires on the web).
+     */
+    static boolean isAuthentic(JSONObject event, int kind, boolean verified) {
+        if (kind == 1059 || kind == 21059) return NostrCrypto.rumorIdMatches(event);
+        return verified || NostrCrypto.verifyEvent(event);
+    }
+
     private void handleEventInner(JSONObject event, String relayUrl, boolean windowClosed, boolean verified) {
         String id = event.optString("id");
         if (id.isEmpty() || notifiedIds.contains(id)) {
@@ -5351,7 +5362,8 @@ public class NotificationRelayService extends Service {
         // wraps (kind 1059/21059) carry only an ephemeral / group-derived
         // outer key whose signature proves no sender identity (matching the
         // WebView's verifyEventSkippingWraps), so the outer sig is skipped
-        // here and the INNER seal is Schnorr-verified at decrypt time instead
+        // here, the id alone is checked against the event's hash, and the
+        // INNER seal is Schnorr-verified at decrypt time instead
         // (see openConcord/handleDm17Wrap). Everything else — NIP-29
         // chat/reactions/replies and kind-4 DMs — must be verified before it
         // is stored, fed to the WebView, or turned into a notification.
@@ -5393,7 +5405,7 @@ public class NotificationRelayService extends Service {
                 return;
             }
         }
-        if (kind != 1059 && kind != 21059 && !verified && !NostrCrypto.verifyEvent(event)) {
+        if (!isAuthentic(event, kind, verified)) {
             if (ServiceProfiler.ON) ServiceProfiler.count("event.drop signature");
             if (BuildConfig.DEBUG) Log.d(TAG, "DROP bad signature kind=" + kind + " id=" + id);
             return;
