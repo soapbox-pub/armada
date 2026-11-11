@@ -217,6 +217,8 @@ function loadWorker(options: {
   const runtime: PushRuntime = {
     preparePush: async () => undefined,
     pushScope: realPushScope,
+    // The events here are unsigned stand-ins; `worker.forged.test.ts` runs the real check.
+    verifyEvent: () => true,
     ...(options.runtime as Partial<PushRuntime> | undefined),
     // The worker hands the sealed config bytes to the runtime's openConfig;
     // stub it to hand back the injected config directly (the vault crypto is

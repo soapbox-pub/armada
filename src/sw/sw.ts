@@ -4,7 +4,9 @@
  * `pushRuntime.ts` (opening, storing and presenting an event).
  */
 
+import { verifyEvent } from "nostr-tools/pure";
+
 import { installServiceWorker } from "@/sw/worker";
 import { openConfig, preparePush, pushScope } from "@/sw/pushRuntime";
 
-installServiceWorker({ preparePush, pushScope, openConfig });
+installServiceWorker({ preparePush, pushScope, openConfig, verifyEvent });

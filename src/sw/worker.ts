@@ -34,6 +34,8 @@ declare const self: ServiceWorkerGlobalScope;
 export interface PushRuntime {
   preparePush(data: PushData, cfg: SwPushConfig | null): Promise<PreparedPush | undefined>;
   pushScope(event: NostrEvent, cfg: SwPushConfig | null): PushScope | undefined;
+  /** Whether a well-formed event's id and signature hold. */
+  verifyEvent(event: NostrEvent): boolean;
   openConfig(sealed: Uint8Array | undefined): Promise<SwPushConfig | null>;
 }
 
@@ -79,6 +81,8 @@ interface WorkerPushData extends PushData {
   subscription_id?: string;
   /** The napp path already asked the relays for the event, before presenting. */
   fetched?: boolean;
+  /** The napp path was handed an event that does not verify, and found no sound copy. */
+  forged?: boolean;
   lines?: string[];
 }
 
@@ -727,6 +731,13 @@ async function handlePush(
   }
   await mustShow();
 
+  // A forged event is not a message. It is not recorded as seen either: the id
+  // it claims belongs to an event that may still arrive.
+  if (data.forged || (data.event !== undefined && !isSound(runtime, data.event))) {
+    await quietSync(mustShow);
+    return;
+  }
+
   if (await pushPlaneUnready(runtime, data)) {
     await quietSync(mustShow);
     await markSeen(data, { outcome: "suppressed" });
@@ -856,7 +867,7 @@ async function handlePush(
     // `fetched`: the napp path already asked the relays, before presenting.
     if (data.fetched || relays.length === 0) return;
     try {
-      ev = await fetchEventFromRelays(relays, data.event_id, 4000);
+      ev = await fetchEventFromRelays(runtime, relays, data.event_id, 4000);
     } catch {
       return; // leave the static notification in place
     }
@@ -965,10 +976,12 @@ async function nappPush(
     ? raw.relays.filter((relay): relay is string => typeof relay === "string")
     : [];
   const inlined = raw.event as NostrEvent | undefined;
-  let ev = inlined && typeof inlined === "object" && inlined.id === eventId ? inlined : undefined;
+  const claimed = Boolean(inlined) && typeof inlined === "object" && inlined?.id === eventId;
+  // Tenna delivers what its relays sent unchecked: only a sound event is read below.
+  let ev = claimed && isSound(runtime, inlined) ? inlined : undefined;
   if (!ev && eventId && relays.length > 0) {
     try {
-      ev = await fetchEventFromRelays(relays, eventId, 4000);
+      ev = await fetchEventFromRelays(runtime, relays, eventId, 4000);
     } catch {
       ev = undefined;
     }
@@ -978,6 +991,7 @@ async function nappPush(
   const data: WorkerPushData = { event_id: eventId, relays, fetched: true };
   if (scope) data.scope = scope;
   if (ev) data.event = ev;
+  else if (claimed) data.forged = true;
   if (scope === "dm") data.url = "/dm";
   const h = ev ? tagValue(ev, "h") : undefined;
   if (PLAINTEXT_SCOPES.has(scope) && h && relays.length === 1) {
@@ -991,10 +1005,20 @@ async function nappPush(
   };
 }
 
-/** First value of the first `name` tag on an event, or undefined. */
-function tagValue(event: { tags?: string[][] }, name: string): string | undefined {
-  const t = (event.tags || []).find((x) => x[0] === name);
-  return t ? t[1] : undefined;
+/** Whether `ev` is a well-formed event whose id and signature hold. */
+function isSound(runtime: PushRuntime, ev: unknown): ev is NostrEvent {
+  try {
+    return typeof ev === "object" && ev !== null && runtime.verifyEvent(ev as NostrEvent);
+  } catch {
+    return false;
+  }
+}
+
+/** First value of the first `name` tag on an event, or undefined. Total: it is asked before the event is checked. */
+function tagValue(event: { tags?: unknown }, name: string): string | undefined {
+  if (!Array.isArray(event.tags)) return undefined;
+  const t: unknown = event.tags.find((x) => Array.isArray(x) && x[0] === name);
+  return Array.isArray(t) && typeof t[1] === "string" ? t[1] : undefined;
 }
 
 function truncate(text: unknown, max: number): string {
@@ -1021,6 +1045,7 @@ function groupUrl(relayUrl: string, groupId: string, eventId?: string): string {
  * Each socket is torn down on resolve.
  */
 function fetchEventFromRelays(
+  runtime: PushRuntime,
   relays: string[],
   id: string,
   timeoutMs: number,
@@ -1078,8 +1103,10 @@ function fetchEventFromRelays(
         } catch {
           return;
         }
-        if (frame[0] === "EVENT" && frame[1] === subId && frame[2] && frame[2].id === id) {
-          done(frame[2]);
+        if (!Array.isArray(frame)) return;
+        if (frame[0] === "EVENT" && frame[1] === subId) {
+          // First SOUND answer wins: a forged one must not settle the race against an honest relay.
+          if (isSound(runtime, frame[2]) && frame[2].id === id) done(frame[2]);
         } else if ((frame[0] === "EOSE" || frame[0] === "CLOSED") && frame[1] === subId) {
           try {
             ws.close();

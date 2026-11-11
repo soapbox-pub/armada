@@ -30,6 +30,7 @@ function loadWorker() {
     preparePush: async () => undefined,
     pushScope: () => undefined,
     openConfig: async () => null,
+    verifyEvent: () => true,
   };
   installServiceWorker(runtime);
 
