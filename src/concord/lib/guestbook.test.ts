@@ -14,6 +14,8 @@ import {
   liveRefound,
   openGuestbookWraps,
   sealGuestbook,
+  snapshotAuthorities,
+  snapshotEpochs,
   banDeparturesOwed,
   nextGuestbookMs,
   nicknameToCarry,
@@ -22,6 +24,7 @@ import {
 } from "@/concord/lib/guestbook";
 import { KIND_NICKNAME, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import type { OpenedEvent } from "@/concord/lib/stream";
+import type { Community } from "@/concord/lib/types";
 
 function signer(sk = generateSecretKey()) {
   return { sk, pubkey: getPublicKey(sk), signEvent: async (t: EventTemplate) => finalizeEvent(t, sk) };
@@ -161,11 +164,9 @@ describe("guestbook coalesce (CORD-02 §5)", () => {
     ).toBe("join");
   });
 
-  it("no snapshot authority (unknown refounder) means NO snapshot is honored — never a blanket owner fallback", async () => {
-    // The hook (useGuestbook) must pass the recorded minting refounders, or
-    // nothing when none is known — NEVER the owner as a fallback for a
-    // post-genesis epoch. With no authority, even an owner-signed snapshot
-    // can't seed a ghost member (CORD-02 §5).
+  it("with no snapshot authority handed to it, the fold honors no snapshot, the owner's included", async () => {
+    // Genesis has no refounder (CORD-02 §5): the fold itself never reaches for the
+    // owner, `snapshotEpochs` decides who an epoch's authority is.
     const owner = signer();
     const ghost = signer();
     const rumors = buildSnapshotRumors(owner.pubkey, [ghost.pubkey], bytesToHex(random32()), 5000);
@@ -441,5 +442,64 @@ describe("dating a Timeout or Nickname (Vector `timeout_member`, `set_nickname`)
     expect(nextGuestbookMs([ev(5_000)], KIND_NICKNAME, target, () => true, 1_000)).toBe(5_001);
     expect(nextGuestbookMs([ev(5_000)], KIND_NICKNAME, target, () => false, 1_000)).toBe(1_000);
     expect(nextGuestbookMs([ev(1_000 + 2 * 3600_000)], KIND_NICKNAME, target, () => true, 1_000)).toBe(1_000 + 3600_000);
+  });
+});
+
+describe("whose snapshot an epoch takes (CORD-02 §5, Vector `snapshot_authority_for`)", () => {
+  const [owner, admin] = [signer(), signer()];
+  const root1 = new Uint8Array(32).fill(8);
+  const gb1 = guestbookGroupKey(root1, cid, 1);
+  const community = (o: Partial<Community> = {}): Community => ({
+    id: cid,
+    idHex: bytesToHex(cid),
+    owner: owner.pubkey,
+    ownerSalt: new Uint8Array(32),
+    root: root1,
+    rootEpoch: 1n,
+    heldRoots: [{ epoch: 1n, key: root1 }, { epoch: 0n, key: root }],
+    privateChannels: [],
+    relays: [],
+    name: "",
+    ...o,
+  });
+
+  it("is the owner's where the epoch's minter was never recorded", () => {
+    const epochs = snapshotEpochs(community());
+    expect(epochs.live).toEqual({ pk: gb1.pk, refounder: owner.pubkey });
+    expect(epochs.authorityOf.get(gb1.pk)).toBe(owner.pubkey);
+    expect(snapshotAuthorities(community())).toEqual(new Set([owner.pubkey]));
+  });
+
+  it("is the recorded minter's alone where one is known", () => {
+    const c = community({ refounder: admin.pubkey, heldRoots: [{ epoch: 1n, key: root1, refounder: admin.pubkey }, { epoch: 0n, key: root }] });
+    expect(snapshotEpochs(c).live.refounder).toBe(admin.pubkey);
+    expect(snapshotEpochs(c).authorityOf.get(gb1.pk)).toBe(admin.pubkey);
+    expect(snapshotAuthorities(c)).toEqual(new Set([admin.pubkey]));
+    // Recorded on the held root only: still the minter, not the owner.
+    const heldOnly = community({ heldRoots: [{ epoch: 1n, key: root1, refounder: admin.pubkey }, { epoch: 0n, key: root }] });
+    expect(snapshotEpochs(heldOnly).live.refounder).toBe(admin.pubkey);
+  });
+
+  it("is nobody's at genesis", () => {
+    const c = community({ root, rootEpoch: 0n, heldRoots: [{ epoch: 0n, key: root }] });
+    expect(snapshotEpochs(c).live.refounder).toBeUndefined();
+    expect(snapshotEpochs(c).authorityOf.size).toBe(0);
+    expect(snapshotAuthorities(c).size).toBe(0);
+  });
+
+  it("seats the members an owner's Refounding listed for someone who joined after it", async () => {
+    const alice = signer();
+    const wraps: NostrEvent[] = [];
+    for (const r of buildSnapshotRumors(owner.pubkey, [alice.pubkey], bytesToHex(random32()), 5000)) wraps.push(await sealGuestbook(r, gb1, owner));
+    const c = community({ heldRoots: [{ epoch: 1n, key: root1 }] });
+    const epochs = snapshotEpochs(c);
+    const coalesced = coalesceGuestbook(openGuestbookWraps(wraps, [gb1]), {
+      nowMs: 10_000,
+      canKick: denyAllKicks,
+      snapshotAuthorities: snapshotAuthorities(c),
+      snapshotAuthorityOf: epochs.authorityOf,
+      live: epochs.live,
+    });
+    expect(coalesced.get(alice.pubkey)?.state).toBe("join");
   });
 });

@@ -35,11 +35,15 @@ export function currentGuestbookGroup(community: Community): GroupKey {
 }
 
 /**
- * The npubs whose Refoundings minted the held epochs — snapshot authorities
- * (CORD-02 §5). Genesis and epochs with no recorded refounder contribute none:
- * accepting no snapshot is the safe miss (§5 heals by observation), whereas
- * falling back to the owner would let a non-minter seed members.
+ * Whose snapshot an epoch takes (CORD-02 §5, Vector `snapshot_authority_for`): the
+ * npub recorded as its minter when its rotation was adopted, else the owner, since
+ * a member who joined after the Refounding was never told who minted it. Nobody's
+ * at genesis.
  */
+function epochMinter(community: Community, epoch: bigint, refounder: string | undefined): string | undefined {
+  return epoch > 0n ? refounder ?? community.owner : undefined;
+}
+
 /**
  * Each held epoch's Guestbook address → the npub whose Refounding minted it, and
  * the live epoch's: a snapshot counts only from its own epoch's minter (CORD-02 §5).
@@ -47,21 +51,19 @@ export function currentGuestbookGroup(community: Community): GroupKey {
 export function snapshotEpochs(community: Community): { authorityOf: Map<string, string>; live: { pk: string; refounder?: string } } {
   const authorityOf = new Map<string, string>();
   for (const r of community.heldRoots) {
-    if (r.epoch > 0n && r.refounder) authorityOf.set(guestbookGroupKey(r.key, community.id, r.epoch).pk, r.refounder);
+    const minter = epochMinter(community, r.epoch, r.refounder);
+    if (minter) authorityOf.set(guestbookGroupKey(r.key, community.id, r.epoch).pk, minter);
   }
   const live = currentGuestbookGroup(community).pk;
-  const refounder = community.rootEpoch > 0n ? community.refounder : undefined;
+  const recorded = community.refounder ?? community.heldRoots.find((r) => r.epoch === community.rootEpoch)?.refounder;
+  const refounder = epochMinter(community, community.rootEpoch, recorded);
   if (refounder) authorityOf.set(live, refounder);
   return { authorityOf, live: { pk: live, ...(refounder ? { refounder } : {}) } };
 }
 
+/** Every {@link epochMinter} over the held epochs, for a snapshot whose own epoch isn't known. */
 export function snapshotAuthorities(community: Community): Set<string> {
-  const out = new Set<string>();
-  for (const r of community.heldRoots) {
-    if (r.epoch > 0n && r.refounder) out.add(r.refounder);
-  }
-  if (community.rootEpoch > 0n && community.refounder) out.add(community.refounder);
-  return out;
+  return new Set(snapshotEpochs(community).authorityOf.values());
 }
 
 /** A self-signed Join, optionally attributing the invite link used (CORD-05 §1). */

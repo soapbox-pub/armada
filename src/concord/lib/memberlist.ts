@@ -26,7 +26,7 @@ export function guestbookFoldOptions(
 ): GuestbookFoldOptions {
   // A snapshot is honored only from the npub whose Refounding minted its epoch
   // (CORD-02 §5): judged per epoch where its address is known, else against the set
-  // of recorded refounders; an epoch with none accepts no snapshot (no owner fallback).
+  // of every held epoch's minter.
   const epochs = snapshotEpochs(community);
   return {
     nowMs: clockNowMs(),
