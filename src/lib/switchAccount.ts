@@ -6,6 +6,8 @@ import {
   runBeforeAccountExit,
 } from "@/lib/beforeAccountExit";
 import { beginCrossTabAccountExit } from "@/lib/crossTabAccountExit";
+import { clearEsploraStorage } from "@/lib/esploraStorage";
+import { clearWalletStorage } from "@/lib/walletStorage";
 import { beginAccountExit, exitDone, exitStep } from "@/components/accountExitState";
 
 import type { NLoginType } from "@nostrify/react/login";
@@ -105,5 +107,11 @@ export async function signOutAccount(
 ): Promise<void> {
   const remaining = logins.filter((login) => login.id !== id);
   if (remaining.length === 0) return;
+  // No purge runs while another account remains, so this account's secrets go here.
+  const departing = logins.find((login) => login.id === id)?.pubkey;
+  if (departing && !remaining.some((login) => login.pubkey === departing)) {
+    clearWalletStorage(departing);
+    clearEsploraStorage(departing);
+  }
   await persistAndReload(remaining, "/");
 }

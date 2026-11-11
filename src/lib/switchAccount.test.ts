@@ -33,6 +33,7 @@ import {
   _resetBeforeAccountExitForTests,
   registerBeforeAccountExit,
 } from "./beforeAccountExit";
+import { readEsploraApis, writeEsploraApis } from "./esploraStorage";
 import {
   addAndSwitchAccount,
   LOGIN_STORAGE_KEY,
@@ -40,6 +41,7 @@ import {
   signOutAccount,
   switchAccount,
 } from "./switchAccount";
+import { readActive, readConnections, writeWalletStorage } from "./walletStorage";
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
@@ -207,6 +209,42 @@ describe("signOutAccount", () => {
     expect(persistedLogins().map((l) => l.id)).toEqual(["id-b", "id-c"]);
     expect(getActivePubkey()).toBe(B);
     expect(assign).toHaveBeenCalledWith("/");
+  });
+
+  // An NWC connection string is spending authority, and nothing else removes it
+  // while another account keeps the device from being purged.
+  it("removes the departing account's wallet secrets and leaves the others'", async () => {
+    const connection = [{ connectionString: `nostr+walletconnect://${"e".repeat(64)}?secret=s`, alias: "w", addedAt: 1 }];
+    writeWalletStorage(A, connection, "w");
+    writeWalletStorage(B, connection, "w");
+    writeEsploraApis(A, ["https://esplora.example"]);
+    writeEsploraApis(B, ["https://esplora.example"]);
+
+    await signOutAccount(LOGINS, "id-a");
+
+    expect(readConnections(A)).toEqual([]);
+    expect(readActive(A)).toBeNull();
+    expect(localStorage.getItem(`armada:esplora-apis:${A}`)).toBeNull();
+    expect(readConnections(B)).toEqual(connection);
+    expect(readEsploraApis(B)).toEqual(["https://esplora.example"]);
+  });
+
+  it("keeps the wallet secrets of a pubkey another login still holds", async () => {
+    const connection = [{ connectionString: `nostr+walletconnect://${"e".repeat(64)}?secret=s`, alias: "w", addedAt: 1 }];
+    writeWalletStorage(A, connection, "w");
+
+    await signOutAccount([...LOGINS, login("id-a2", A)], "id-a");
+
+    expect(readConnections(A)).toEqual(connection);
+  });
+
+  it("keeps wallet secrets on a switch", async () => {
+    const connection = [{ connectionString: `nostr+walletconnect://${"e".repeat(64)}?secret=s`, alias: "w", addedAt: 1 }];
+    writeWalletStorage(A, connection, "w");
+
+    await switchAccount(LOGINS, "id-b");
+
+    expect(readConnections(A)).toEqual(connection);
   });
 
   // The last logout is a different operation — a full `purgeClientStorage`
