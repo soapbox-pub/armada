@@ -280,6 +280,38 @@ describe("catch-up classification (isCatchUpBundle)", () => {
     expect(isCatchUpBundle(cut, b({ channels: [ch("bb", 2)] }))).toBe(true);
   });
 
+  it("a bundle whose fields have the wrong JSON types is refused at parse, not thrown on at classification", () => {
+    // The sender chooses every byte of the content, and a parked record is read
+    // back on every inbox query: a throw here would fail that read for good.
+    const parsed = (over: Record<string, unknown>) =>
+      parseDirectInviteRumor(KIND_DIRECT_INVITE, JSON.stringify({ ...makeBundle(), ...over }));
+    const malformed: Record<string, unknown>[] = [
+      { community_root: 5 },
+      { community_root: null },
+      { control_pk: 5 },
+      { root_epoch: "3" },
+      { channels: [null] },
+      { channels: ["x"] },
+      { channels: [{ id: 5, key: "1".repeat(64), epoch: 0, name: "c" }] },
+      { channels: [{ id: "bb", key: null, epoch: 0, name: "c" }] },
+      { channels: [{ id: "bb", key: "1".repeat(64), epoch: "0", name: "c" }] },
+    ];
+    for (const over of malformed) {
+      const bundle = parsed(over);
+      // Whatever parse lets through must classify without throwing against a
+      // membership on the same base.
+      const sameBase = {
+        rootEpoch: 0,
+        communityRoot: typeof bundle?.community_root === "string" ? bundle.community_root : ROOT,
+        channelEpochs: new Map<string, number>(),
+      };
+      expect(() => bundle && isCatchUpBundle(sameBase, bundle), JSON.stringify(over)).not.toThrow();
+      expect(bundle, JSON.stringify(over)).toBeUndefined();
+    }
+    // A well-formed bundle still parses.
+    expect(parsed({ channels: [ch("bb", 0)], control_pk: "c".repeat(64) })).toBeDefined();
+  });
+
   it("bundles with nothing new, stale roots, and non-members never park", () => {
     expect(isCatchUpBundle(held, b({ channels: [ch("aa", 2)] }))).toBe(false);
     expect(isCatchUpBundle(held, b({ root_epoch: 2, channels: [ch("bb", 0)] }))).toBe(false);

@@ -99,13 +99,36 @@ function boundBundle(bundle: InviteBundle): InviteBundle {
   return bundle;
 }
 
+function isEpoch(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
 /**
- * Validate a decrypted bundle however it arrived (CORD-05 §6): §1 bounds, and
- * `community_id` must reproduce from (owner, salt). Throws `bounds` /
- * `owner-mismatch`; expiry is the caller's concern.
+ * The JSON types every reader of a bundle assumes. The sender chooses the whole
+ * content, and a parked bundle is re-read on every inbox query, so a wrong type
+ * must be refused here rather than thrown on there.
+ */
+function shapeBundle(bundle: InviteBundle): void {
+  const base: Record<string, unknown> = bundle;
+  const sound = typeof base.community_root === "string"
+    && isEpoch(base.root_epoch)
+    && (base.control_pk === undefined || base.control_pk === null || typeof base.control_pk === "string")
+    && bundle.channels.every((c: unknown) => {
+      if (typeof c !== "object" || c === null) return false;
+      const channel = c as Record<string, unknown>;
+      return typeof channel.id === "string" && typeof channel.key === "string" && isEpoch(channel.epoch);
+    });
+  if (!sound) throw new InviteError("bad-bundle", "bundle fields have the wrong types");
+}
+
+/**
+ * Validate a decrypted bundle however it arrived (CORD-05 §6): §1 bounds, field
+ * types, and `community_id` must reproduce from (owner, salt). Throws `bounds` /
+ * `bad-bundle` / `owner-mismatch`; expiry is the caller's concern.
  */
 export function validateBundle(bundle: InviteBundle): InviteBundle {
   boundBundle(bundle);
+  shapeBundle(bundle);
   if (!verifyCommunityId(bundle.community_id, bundle.owner, bundle.owner_salt)) {
     throw new InviteError("owner-mismatch", "bundle's owner does not reproduce its community_id");
   }
