@@ -499,6 +499,131 @@ describe("useRekeyWatch (CORD-05 §2 / CORD-06 §2)", () => {
   );
 });
 
+// ── The watchers read a rekey address whole, not its newest page ────────────
+
+describe("rekey watchers under a flooded rekey address", () => {
+  // Everyone holding the prior key can sign at a rekey address — the member a
+  // Refounding removes included — so what sits there is not all rotation.
+  function junkWraps(address: { sk: Uint8Array }, count: number, at: (i: number) => number): NostrEvent[] {
+    return Array.from({ length: count }, (_, i) =>
+      finalizeEvent({ kind: 1059, content: `junk ${i}`, tags: [["p", "0".repeat(64)]], created_at: at(i) }, address.sk),
+    );
+  }
+
+  async function mountBase(events: (c: Community, wraps: NostrEvent[]) => NostrEvent[]) {
+    const owner = member();
+    const me = member();
+    const { community } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+    const newRoot = random32();
+    const wraps = await rotationWraps(owner, community, newRoot, [owner.pubkey, me.pubkey], Date.now());
+    const relay = new FakeRelay();
+    relay.events = events(community, wraps);
+    h.pool = { relay: () => relay, query: async () => [] };
+    h.user = asNUser(me);
+    h.folded = foldedFor(owner.pubkey);
+    h.updateList = vi.fn(async () => {});
+    const jm = jmOf(community, owner.pubkey);
+    h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+    const adopted = () =>
+      expect(h.updateList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "refresh-current",
+          current: expect.objectContaining({ root_epoch: 1, community_root: bytesToHex(newRoot) }),
+        }),
+      );
+    return { community, relay, wraps, adopted };
+  }
+
+  it("adopts a Refounding buried under more than a page of newer wraps", { timeout: 30_000 }, async () => {
+    const { community, adopted } = await mountBase((c, wraps) => [
+      ...junkWraps(baseRekeyGroupKey(c.root, c.id, 1n), 120, (i) => nowSecs() + 1 + i),
+      ...wraps,
+    ]);
+    renderHook(() => useRekeyWatch(community), { wrapper: makeWrapper().wrapper });
+    await waitFor(adopted, { timeout: 10_000 });
+  });
+
+  it("adopts a Refounding sharing its second with more than a page of other wraps", { timeout: 30_000 }, async () => {
+    const { community, adopted } = await mountBase((c, wraps) => [
+      // Ahead of the rotation in the relay's order, as lower ids would be.
+      ...junkWraps(baseRekeyGroupKey(c.root, c.id, 1n), 120, () => wraps[0].created_at),
+      ...wraps,
+    ]);
+    renderHook(() => useRekeyWatch(community), { wrapper: makeWrapper().wrapper });
+    await waitFor(adopted, { timeout: 10_000 });
+  });
+
+  it("a wrap dated ahead of the clock does not hide a Refounding published after it", { timeout: 30_000 }, async () => {
+    const { community, relay, wraps, adopted } = await mountBase((c) =>
+      junkWraps(baseRekeyGroupKey(c.root, c.id, 1n), 3, (i) => nowSecs() + 600 + i),
+    );
+    const { queryClient, wrapper } = makeWrapper();
+    renderHook(() => useRekeyWatch(community), { wrapper });
+    await waitFor(() => expect(relay.queries.length).toBeGreaterThan(0), { timeout: 10_000 });
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0), { timeout: 10_000 });
+
+    relay.events.push(...wraps);
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["concord", "rekey"] });
+    });
+    await waitFor(adopted, { timeout: 10_000 });
+  });
+
+  it("adopts a Refounding dated behind a wrap already read", { timeout: 30_000 }, async () => {
+    // A wrap is dated before it is mined and published, so it can land behind one already read.
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() - 120_000);
+    const { community, relay, wraps, adopted } = await mountBase((c) =>
+      junkWraps(baseRekeyGroupKey(c.root, c.id, 1n), 3, (i) => nowSecs() + 110 + i),
+    );
+    clock.mockRestore();
+    expect(Math.max(...wraps.map((e) => e.created_at))).toBeLessThan(Math.min(...relay.events.map((e) => e.created_at)));
+    const { queryClient, wrapper } = makeWrapper();
+    renderHook(() => useRekeyWatch(community), { wrapper });
+    await waitFor(() => expect(relay.queries.length).toBeGreaterThan(0), { timeout: 10_000 });
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0), { timeout: 10_000 });
+
+    relay.events.push(...wraps);
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["concord", "rekey"] });
+    });
+    await waitFor(adopted, { timeout: 10_000 });
+  });
+
+  it("adopts a channel rotation buried under more than a page of newer wraps", { timeout: 30_000 }, async () => {
+    const owner = member();
+    const me = member();
+    const { community: base } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+    const ch: PrivateChannelKey = { id: random32(), key: random32(), epoch: 0n, name: "sec" };
+    const community: Community = { ...base, privateChannels: [ch] };
+    const newChKey = random32();
+    const wraps = await channelRotationWraps(owner, community.root, ch, newChKey, [owner.pubkey, me.pubkey], Date.now());
+
+    const relay = new FakeRelay();
+    relay.events = [
+      ...junkWraps(channelRekeyGroupKey(community.root, ch.id, 1n), 120, (i) => nowSecs() + 1 + i),
+      ...wraps,
+    ];
+    h.pool = { relay: () => relay, query: async () => [] };
+    h.user = asNUser(me);
+    h.folded = foldedFor(owner.pubkey);
+    h.updateList = vi.fn(async () => {});
+    const jm = jmOf(community, owner.pubkey);
+    h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+
+    renderHook(() => useChannelRekeyWatch(community), { wrapper: makeWrapper().wrapper });
+    await waitFor(
+      () =>
+        expect(h.updateList).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "refresh-channels",
+            channels: [expect.objectContaining({ id: bytesToHex(ch.id), key: bytesToHex(newChKey), epoch: 1 })],
+          }),
+        ),
+      { timeout: 10_000 },
+    );
+  });
+});
+
 // ── useRekeyWatch: stranded-joiner detection (CORD-05 §2 / CORD-06 §2) ──────
 
 describe("useRekeyWatch stranded detection", () => {

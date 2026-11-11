@@ -1,5 +1,5 @@
 import { settleAccepted } from "@/concord/lib/settleAccepted";
-import { clockNowMs } from "@/lib/relayClock";
+import { clockNowMs, nowSecs } from "@/lib/relayClock";
 import { useNostr } from "@nostrify/react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
@@ -252,6 +252,91 @@ async function myRotationAt(
   return groupRotations(parsed).find((set) => set.rotator === me && set.newEpoch === next && set.prevCommit === prevCommit);
 }
 
+/** Rekey wraps asked for per page. */
+const REKEY_PAGE = 50;
+/** Pages one filter is walked per relay per poll; what lies past them waits for a later poll. */
+const REKEY_MAX_PAGES = 40;
+/** Limit for the one wide ask that drains a second holding a full page. */
+const REKEY_WALL_PAGE = 5000;
+const REKEY_QUERY_TIMEOUT_MS = 8000;
+/** How far behind a cursor the next read starts: a rotator's clock may run behind the wraps already read. */
+const REKEY_REWIND_SECS = 10 * 60;
+
+type RekeyFilter = {
+  kinds: number[];
+  authors: string[];
+  limit: number;
+  since?: number;
+};
+
+/** A rekey filter resuming from `cursor`, or reading the address whole without one. */
+function rekeyFilter(authors: string[], cursor: { newest: number } | undefined): RekeyFilter {
+  const base = { kinds: [KIND_WRAP], authors, limit: REKEY_PAGE };
+  // `created_at` is the publisher's, so a stored cursor is never trusted past the clock.
+  return cursor?.newest ? { ...base, since: Math.max(0, Math.min(cursor.newest, nowSecs()) - REKEY_REWIND_SECS) } : base;
+}
+
+/**
+ * Everything a rekey filter holds on one relay, given its newest page. Whoever holds
+ * the prior key can sign at a rekey address — the member a rotation removes included —
+ * so the newest page is not the rotation's by right, and a full one is paged by
+ * inclusive `until` down to the filter's `since`. `complete` is false when the walk
+ * stopped short (budget, a failed page, a second it could not read whole).
+ */
+async function walkRekeyFilter(
+  nostr: ReturnType<typeof useNostr>["nostr"],
+  url: string,
+  filter: RekeyFilter,
+  first: NostrEvent[],
+  signal: AbortSignal,
+): Promise<{ events: NostrEvent[]; complete: boolean }> {
+  const wanted = new Set(filter.authors);
+  const seen = new Map(first.map((e) => [e.id, e]));
+  const ask = async (page: RekeyFilter & { until: number }) => {
+    const events = await nostr
+      .relay(url)
+      .query([page], { signal: AbortSignal.any([signal, AbortSignal.timeout(REKEY_QUERY_TIMEOUT_MS)]) });
+    // A relay's answer isn't the filter sent: an off-filter event must not drag the walk.
+    return events.filter((e) => e.kind === KIND_WRAP && wanted.has(e.pubkey) && e.created_at <= page.until);
+  };
+
+  let complete = true;
+  let full = first.length >= REKEY_PAGE;
+  let until = full ? Math.min(...first.map((e) => e.created_at)) : 0;
+  try {
+    for (let pages = 0; full; pages++) {
+      if (pages >= REKEY_MAX_PAGES) {
+        complete = false;
+        break;
+      }
+      const page = await ask({ ...filter, until });
+      for (const e of page) seen.set(e.id, e);
+      full = page.length >= REKEY_PAGE;
+      const lowest = page.length > 0 ? Math.min(...page.map((e) => e.created_at)) : until;
+      if (lowest < until) {
+        until = lowest;
+        continue;
+      }
+      if (!full) break;
+      // A full page that didn't move is one second holding more than a page: ask for it whole.
+      const second = await ask({ ...filter, since: until, until, limit: REKEY_WALL_PAGE });
+      for (const e of second) seen.set(e.id, e);
+      // Credible only strictly between the two limits; a capped relay looks the same as a drained second.
+      if (second.length <= REKEY_PAGE || second.length >= REKEY_WALL_PAGE) complete = false;
+      until -= 1;
+      if (until < (filter.since ?? 0)) break;
+    }
+  } catch {
+    complete = false;
+  }
+  return { events: [...seen.values()], complete };
+}
+
+/** The cursor a COMPLETE read of `events` earns: the newest wrap, never past the clock. */
+function rekeyCursor(events: NostrEvent[]): number {
+  return Math.min(Math.max(...events.map((e) => e.created_at)), nowSecs());
+}
+
 /** How long after a rotation its epoch is still checked for a racing one. */
 const CONVERGE_WINDOW_SECS = 24 * 3600;
 
@@ -349,8 +434,6 @@ export function useRekeyWatch(community: Community | undefined): { stranded: boo
     queryFn: async ({ signal }) => {
       const address = baseRekeyGroupKey(community!.root, community!.id, nextEpoch);
       const currentAddress = converging ? baseRekeyGroupKey(prior!.key, community!.id, community!.rootEpoch) : undefined;
-      const base = { kinds: [KIND_WRAP], limit: 50 };
-
       // PER-RELAY `since` cursors, so a fast relay can't advance past a chunk a
       // lagging one still owes; a skipped chunk would block adoption forever.
       const results = await Promise.all(
@@ -359,19 +442,19 @@ export function useRekeyWatch(community: Community | undefined): { stranded: boo
             { scope: `rekey:${community!.idHex}:${nextEpoch}|${url}`, pk: address.pk },
             ...(currentAddress ? [{ scope: `rekey:${community!.idHex}:${community!.rootEpoch}|${url}`, pk: currentAddress.pk }] : []),
           ];
-          const filters = await Promise.all(scopes.map(async ({ scope, pk }) => {
-            const cursor = await readStreamCursor(scope);
-            return cursor?.newest ? { ...base, authors: [pk], since: cursor.newest } : { ...base, authors: [pk] };
-          }));
+          const filters = await Promise.all(scopes.map(async ({ scope, pk }) => rekeyFilter([pk], await readStreamCursor(scope))));
           try {
             const events = await nostr
               .relay(url)
-              .query(filters, { signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) });
-            for (const { scope, pk } of scopes) {
-              const mine = events.filter((e) => e.pubkey === pk);
-              if (mine.length > 0) await updateStreamCursor(scope, { newest: Math.max(...mine.map((e) => e.created_at)) });
+              .query(filters, { signal: AbortSignal.any([signal, AbortSignal.timeout(REKEY_QUERY_TIMEOUT_MS)]) });
+            const all: NostrEvent[] = [];
+            for (const [i, { scope, pk }] of scopes.entries()) {
+              const walked = await walkRekeyFilter(nostr, url, filters[i], events.filter((e) => e.pubkey === pk), signal);
+              all.push(...walked.events);
+              // Only a read that reached its floor may move it.
+              if (walked.complete && walked.events.length > 0) await updateStreamCursor(scope, { newest: rekeyCursor(walked.events) });
             }
-            return events;
+            return all;
           } catch {
             // Failed/aborted — the cursors stay put.
             return [] as NostrEvent[];
@@ -672,26 +755,21 @@ export function useChannelRekeyWatch(community: Community | undefined) {
         }
       }
       const authors = [...byPk.keys()];
-      const base: { kinds: number[]; authors: string[]; limit: number } = {
-        kinds: [KIND_WRAP],
-        authors,
-        limit: 50,
-      };
 
       // PER-RELAY `since` cursors, as in the base watcher.
       const results = await Promise.all(
         community!.relays.map(async (url) => {
           const scope = `chrekey:${community!.idHex}:${watchKey}|${url}`;
-          const cursor = await readStreamCursor(scope);
-          const filter = cursor?.newest ? { ...base, since: cursor.newest } : base;
+          const filter = rekeyFilter(authors, await readStreamCursor(scope));
           try {
-            const events = await nostr
+            const first = await nostr
               .relay(url)
-              .query([filter], { signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) });
-            if (events.length > 0) {
-              await updateStreamCursor(scope, { newest: Math.max(...events.map((e) => e.created_at)) });
+              .query([filter], { signal: AbortSignal.any([signal, AbortSignal.timeout(REKEY_QUERY_TIMEOUT_MS)]) });
+            const walked = await walkRekeyFilter(nostr, url, filter, first.filter((e) => byPk.has(e.pubkey)), signal);
+            if (walked.complete && walked.events.length > 0) {
+              await updateStreamCursor(scope, { newest: rekeyCursor(walked.events) });
             }
-            return events;
+            return walked.events;
           } catch {
             return [] as NostrEvent[];
           }
