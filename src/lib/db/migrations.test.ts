@@ -110,7 +110,7 @@ describe("schema migrations", { timeout: 30_000 }, () => {
     await mod.kv.set(channelCursor, '{"newest":5,"oldest":1,"exhausted":true}');
     await mod.kv.set(mod.SCHEMA_VERSION_KEY, 5);
 
-    expect((await mod.pendingUpgrades()).schema.map((m) => m.to)).toEqual([6]);
+    expect((await mod.pendingUpgrades()).schema.map((m) => m.to)).toEqual([6, 7]);
     await mod.runMigrations([A]);
 
     expect(await mod.kv.get("plane-seen-wraps:0")).toBeUndefined();
@@ -118,7 +118,27 @@ describe("schema migrations", { timeout: 30_000 }, () => {
     expect(await mod.kv.get(guestbookCursor)).toBeUndefined();
     // Not a Guestbook's: the channel's cursor rechecks itself (`streamSetSig`).
     expect(await mod.kv.get(channelCursor)).toBeDefined();
-    expect(await mod.kv.get(mod.SCHEMA_VERSION_KEY)).toBe(6);
+    expect(await mod.kv.get(mod.SCHEMA_VERSION_KEY)).toBe(mod.ARMADA_DB_VERSION);
+  });
+
+  it("drops the Guestbook forward cursors, so each relay starts with a whole read (v7)", async () => {
+    const mod = await freshModules();
+    const community = "e".repeat(64);
+    const guestbookCursor = `folded:concord2-cursor:guestbook:${community}@0|wss://r.test`;
+    const channelCursor = `folded:concord2-cursor:${"c".repeat(64)}`;
+    const readState = `folded:plane-read:guestbook:${community}@0|wss://r.test`;
+    await mod.kv.set(guestbookCursor, '{"newest":5,"oldest":0,"exhausted":false}');
+    await mod.kv.set(channelCursor, '{"newest":5,"oldest":1,"exhausted":true}');
+    await mod.kv.set(readState, '{"cursor":5,"wholeAt":5}');
+    await mod.kv.set(mod.SCHEMA_VERSION_KEY, 6);
+
+    expect((await mod.pendingUpgrades()).schema.map((m) => m.to)).toEqual([7]);
+    await mod.runMigrations([A]);
+
+    expect(await mod.kv.get(guestbookCursor)).toBeUndefined();
+    expect(await mod.kv.get(channelCursor)).toBeDefined();
+    expect(await mod.kv.get(readState)).toBeDefined();
+    expect(await mod.kv.get(mod.SCHEMA_VERSION_KEY)).toBe(7);
   });
 
   it("leaves data written by a newer build alone", async () => {

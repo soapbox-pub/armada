@@ -16,8 +16,9 @@
  * floor (Concord wraps aren't backdated, CORD-01). A persisted seen-wrap memo
  * keeps repeat full sweeps decrypt-cheap.
  *
- * FORWARD mode (Guestbook): persisted `since` cursor, keyed by newest held epoch
- * so an epoch advance re-baselines with a full backfill.
+ * PAGED mode (Guestbook): each relay is read by pages to the end of the plane,
+ * whole once a day and from its own cursor between (see `planeRead.ts`). Its
+ * read state is keyed by newest held epoch, so an epoch advance starts whole.
  *
  * A sweep never claims it read everything (relay page sizes, dropped REQs and
  * withheld tails are indistinguishable). It reports only facts about itself —
@@ -28,14 +29,16 @@
 import { currentControlGroup } from "@/concord/lib/control";
 import { guestbookGroups } from "@/concord/lib/guestbook";
 import { KIND_WRAP, type Plane } from "@/concord/lib/kinds";
-import { readControlSnapshot, readStreamCursor, updateStreamCursor, writeOpened } from "@/concord/lib/rumorStore";
+import { afterRead, planRead, type ReadPlan, type RelayRead } from "@/concord/lib/planeRead";
+import { readControlSnapshot, writeOpened } from "@/concord/lib/rumorStore";
 import { isStreamPubkey, streamAuthsSettled } from "@/concord/lib/streamAuth";
 import { openWrap, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib/stream";
 import type { StreamKeyView } from "@/concord/lib/derive";
 import type { Community } from "@/concord/lib/types";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 import { IdLog } from "@/lib/db/idLog";
-import { readFolded, writeFolded } from "@/lib/foldedCache";
+import { readFolded, readFoldedShared, writeFolded } from "@/lib/foldedCache";
+import { nowSecs } from "@/lib/relayClock";
 import { beginSyncTask } from "@/lib/syncActivity";
 import { t } from "@/i18n/intl";
 import { logSync, sinceMs } from "@/lib/syncLog";
@@ -89,9 +92,9 @@ export async function whenAuthSettled(url: string, groupsOf: () => StreamKeyView
   }
 }
 
-/** One community-plane on one relay: a filter + its persisted cursor. */
+/** One community-plane on one relay: a filter + its persisted read state. */
 export interface PlaneScope {
-  /** Single-flight identity, and (forward mode) the persisted cursor key. */
+  /** Single-flight identity, and (paged mode) the persisted read state's key. */
   scope: string;
   /**
    * The rumor-store tenant for this plane's events. Explicit rather than parsed
@@ -116,8 +119,8 @@ export interface PlaneScope {
   onTruncated?: () => void;
   /**
    * Fired once this relay ANSWERED, so a caller tallies its own sweep instead of
-   * reading the shared map a concurrent sweep may reset. An incremental scope fires
-   * it only on a page short of the limit: read up to now from its cursor.
+   * reading the shared map a concurrent sweep may reset. A paged scope fires it
+   * only when its read ran to the end of the plane.
    */
   onReached?: () => void;
   /**
@@ -164,9 +167,13 @@ export function controlScope(
   };
 }
 
+/** The Guestbook Plane scope key on one relay, keyed by newest held epoch. */
+const guestbookScopeKey = (community: Community, relayUrl: string) =>
+  `guestbook:${community.idHex}@${community.rootEpoch}|${relayUrl}`;
+
 /**
- * One community's Guestbook Plane on one relay. FORWARD-cursored, keyed by
- * newest held epoch so a new epoch starts with a full backfill.
+ * One community's Guestbook Plane on one relay, PAGED mode: every held epoch's
+ * address, so a new epoch starts with a whole read.
  */
 export function guestbookScope(
   community: Community,
@@ -174,7 +181,7 @@ export function guestbookScope(
   onFresh?: (fresh: OpenedEvent[]) => void,
 ): PlaneScope {
   return {
-    scope: `guestbook:${community.idHex}@${community.rootEpoch}|${relayUrl}`,
+    scope: guestbookScopeKey(community, relayUrl),
     communityIdHex: community.idHex,
     plane: "guestbook",
     refounded: community.rootEpoch > 0n,
@@ -469,6 +476,7 @@ export function _resetPlaneSweepMemoForTests(): void {
   unreadableScopes.clear();
   scopeTruncated.clear();
   scopeReached.clear();
+  pagedReads.clear();
   completeFloors.clear();
   floorsLoaded = Promise.resolve();
   clearTimeout(floorsPersistTimer);
@@ -583,10 +591,34 @@ export function controlSweepUnreadable(community: Community): number {
 }
 
 /**
- * Page a COMPLETE scope oldest-ward past the relay's per-filter limit until a
- * short page or our event budget. Pages STREAM to `onPage` and are dropped (only
- * ids kept), so a flooded plane costs time, not heap. `truncated` means only that
- * WE stopped (budget or an undrainable same-second wall).
+ * Paged scope keys the last sweep got an answer for: whether that read ran to the
+ * end of the plane. Absent = never swept, or the last attempt went unanswered.
+ */
+const pagedReads = new Map<string, boolean>();
+
+/**
+ * The last Guestbook sweep of this community, per relay: how many answered, and
+ * how many of those stopped short of the plane's end.
+ */
+export function guestbookSweepReach(community: Community): { answered: number; unread: number } {
+  const ends = community.relays.map((url) => pagedReads.get(guestbookScopeKey(community, url)));
+  return { answered: ends.filter((end) => end !== undefined).length, unread: ends.filter((end) => end === false).length };
+}
+
+const planeReadKey = (scope: string) => `plane-read:${scope}`;
+
+/** Record how a paged scope's read ended. */
+async function savePlaneRead(scope: string, plan: ReadPlan, stopped: number | undefined): Promise<void> {
+  const held = await readFoldedShared<RelayRead>(planeReadKey(scope));
+  await writeFolded(planeReadKey(scope), afterRead(held, plan, stopped));
+}
+
+/**
+ * Page a scope oldest-ward past the relay's per-filter limit until a short page
+ * or our event budget. Pages STREAM to `onPage` and are dropped (only ids kept),
+ * so a flooded plane costs time, not heap. `truncated` means only that WE stopped
+ * (budget or an undrainable same-second wall); `stoppedAt` is where the budget
+ * ran out, for a read that goes on from there.
  */
 async function fetchCompleteScope(
   nostr: NostrLike,
@@ -596,7 +628,7 @@ async function fetchCompleteScope(
   onPage: (page: NostrEvent[]) => Promise<void>,
   onTruncated?: () => void,
   exhaustive = false,
-): Promise<{ total: number; truncated: boolean }> {
+): Promise<{ total: number; truncated: boolean; stoppedAt?: number }> {
   // A relay's answer isn't the filter sent: narrow every page by author and
   // created_at range, or an off-filter event drags the cursor and gets memoed
   // (never decrypted, by this pager or the wire).
@@ -618,13 +650,13 @@ async function fetchCompleteScope(
     if (exhaustive && seen.size >= paging.exhaustiveCeiling) {
       logSync("sweep", `${url}: exhaustive read hit its ${paging.exhaustiveCeiling}-event ceiling`);
       onTruncated?.();
-      return { total: seen.size, truncated: true };
+      return { total: seen.size, truncated: true, stoppedAt: cursor };
     }
     if (!exhaustive && seen.size >= paging.maxEvents) {
       // Members fold what arrived; only a Refounding (exhaustive) can't proceed on a short read.
       logSync("sweep", `${url}: hit the ${paging.maxEvents}-event sweep budget; older plane left for a later round`);
       onTruncated?.();
-      return { total: seen.size, truncated: true };
+      return { total: seen.size, truncated: true, stoppedAt: cursor };
     }
     const page = mine(
       await nostr.relay(url).query([{ ...filter, until: cursor }], {
@@ -691,8 +723,12 @@ async function runScopes(
       return !(await readControlSnapshot(s.communityIdHex, s.groups[0].pk));
     }),
   );
-  const cursors = await Promise.all(
-    scopes.map((s) => (s.complete ? undefined : readStreamCursor(s.scope))),
+  // PAGED scopes: each relay's own plan, whole when due.
+  const now = nowSecs();
+  const plans = await Promise.all(
+    scopes.map(async (s) =>
+      s.complete ? undefined : planRead(await readFoldedShared<RelayRead>(planeReadKey(s.scope)), now),
+    ),
   );
   // COMPLETE scopes: a fresh session floor licenses a delta read; otherwise full plane.
   const deltaSince = scopes.map((s, i) => {
@@ -706,7 +742,10 @@ async function runScopes(
     limit: paging.pageLimit,
     ...(s.complete
       ? deltaSince[i] !== undefined ? { since: deltaSince[i] } : {}
-      : cursors[i]?.newest ? { since: cursors[i]!.newest } : {}),
+      : {
+          ...(plans[i]!.since > 0 ? { since: plans[i]!.since } : {}),
+          ...(plans[i]!.until !== undefined ? { until: plans[i]!.until } : {}),
+        }),
   }));
   const out = new Map<string, OpenedEvent[]>(scopes.map((s) => [s.scope, []]));
 
@@ -795,48 +834,52 @@ async function runScopes(
         perScope[i] = [];
       }
 
-      // Forward scopes: one store write per (community, PLANE) — a relay batch
-      // mixes communities, and the write is the plane boundary.
-      const forwardFresh = new Map<
-        string,
-        { communityIdHex: string; plane: Plane; refounded: boolean; fresh: OpenedWireEvent[] }
-      >();
+      // A paged scope streams the same way, down to the end of the plane or its budget.
+      const stopped: Array<number | undefined> = scopes.map(() => undefined);
+      const unstored: boolean[] = scopes.map(() => false);
       for (const [i, s] of scopes.entries()) {
         if (s.complete) continue;
-        for (const e of await openPlaneWrapsChunked(perScope[i], s.groups)) {
-          freshPerScope[i].push(e);
-          const key = `${s.communityIdHex}|${s.plane}`;
-          const bucket = forwardFresh.get(key);
-          if (bucket) bucket.fresh.push(e);
-          else {
-            forwardFresh.set(key, {
-              communityIdHex: s.communityIdHex,
-              plane: s.plane,
-              refounded: s.refounded,
-              fresh: [e],
-            });
+        const ingest = async (page: NostrEvent[]) => {
+          const fresh = page.filter((w) => !seenCompleteWraps.has(w.id));
+          const opened = await openPlaneWrapsChunked(fresh, s.groups);
+          if (opened.length > 0) {
+            for (const e of opened) freshPerScope[i].push(e);
+            if (!(await writeOpened(s.communityIdHex, opened, s.plane, { refounded: s.refounded }))) {
+              unstored[i] = true;
+              return;
+            }
           }
-        }
+          notePlaneWrapsSeen(fresh.map((w) => w.id));
+        };
+        const swept = await fetchCompleteScope(nostr, url, filters[i], perScope[i], ingest);
+        totals[i] = swept.total;
+        // A same-second wall is stepped past, not a place to resume from (Vector `page_relay`).
+        stopped[i] = swept.stoppedAt;
+        perScope[i] = [];
       }
       await Promise.all(
-        [...forwardFresh.values()].map(({ communityIdHex, plane, refounded, fresh }) =>
-          writeOpened(communityIdHex, fresh, plane, { refounded }),
-        ),
-      );
-      await Promise.all(
         scopes.map((s, i) => {
+          const plan = plans[i];
           logSync(
             "sweep",
-            `${s.scope} → ${totals[i]} event(s), ${freshPerScope[i].length} new in ${sinceMs(started)} (${s.complete ? (deltaSince[i] === undefined ? "full" : `delta since=${deltaSince[i]}`) : `since=${cursors[i]?.newest ?? "∅"}`}, authors×${s.groups.length})`,
+            `${s.scope} → ${totals[i]} event(s), ${freshPerScope[i].length} new in ${sinceMs(started)} (${s.complete ? (deltaSince[i] === undefined ? "full" : `delta since=${deltaSince[i]}`) : `since=${plan?.since || "∅"}${plan?.until !== undefined ? ` until=${plan.until}` : ""}${stopped[i] !== undefined ? `, stopped at ${stopped[i]}` : ""}`}, authors×${s.groups.length})`,
           );
-          if (s.complete) return undefined; // memoed per page above
-          const mine = perScope[i];
-          if (mine.length === 0) return undefined;
-          return updateStreamCursor(s.scope, { newest: Math.max(...mine.map((e) => e.created_at)) });
+          // An empty answer with AUTHs unacked is a CLOSED read, and a page that wasn't
+          // stored wasn't read: either way the relay keeps its place.
+          if (!plan || unstored[i] || !(authSettled || totals[i] > 0)) return undefined;
+          return savePlaneRead(s.scope, plan, stopped[i]);
         }),
       );
       for (const [i, s] of scopes.entries()) {
-        if (!s.complete && (authSettled || totals[i] > 0) && totals[i] < paging.pageLimit) s.onReached?.();
+        if (!s.complete) {
+          if (authSettled || totals[i] > 0) {
+            const end = stopped[i] === undefined && !unstored[i];
+            pagedReads.set(s.scope, end);
+            if (end) s.onReached?.();
+          } else {
+            pagedReads.delete(s.scope);
+          }
+        }
         // An empty answer with AUTHs unacked is a CLOSED read, not an exhausted plane.
         if (s.complete && (authSettled || totals[i] > 0)) {
           scopeReached.add(s.scope);
@@ -872,6 +915,7 @@ async function runScopes(
       await whenAuthReady(url, () => scopes.flatMap((s) => s.groups));
     }
   }
+  for (const s of scopes) if (!s.complete) pagedReads.delete(s.scope);
   return out;
 }
 
@@ -938,6 +982,11 @@ function enqueue(nostr: NostrLike, url: string, scope: PlaneScope): Promise<Open
     twin.exhaustive = twin.exhaustive || scope.exhaustive;
     const priorFresh = twin.onFresh;
     const priorTruncated = twin.onTruncated;
+    const priorReached = twin.onReached;
+    twin.onReached = () => {
+      priorReached?.();
+      scope.onReached?.();
+    };
     twin.onFresh = (fresh) => {
       priorFresh?.(fresh);
       scope.onFresh?.(fresh);
@@ -1016,12 +1065,18 @@ export function sweepControl(
   return sweepCommunityPlane(nostr, community, scopeOf, opts);
 }
 
-/** Sweep one community's Guestbook Plane (membership motions). */
-export function sweepGuestbook(
+/**
+ * Sweep one community's Guestbook Plane (membership motions). `onWalked` fires
+ * when a relay answered and every one that did was read to the end of the plane
+ * (Vector `sync_guestbook_pass`): a Join may sit on one relay and nobody else's.
+ */
+export async function sweepGuestbook(
   nostr: NostrLike,
   community: Community,
-  opts?: { onFresh?: (fresh: OpenedEvent[]) => void; onReached?: () => void },
+  opts?: { onFresh?: (fresh: OpenedEvent[]) => void; onWalked?: () => void },
 ): Promise<OpenedEvent[]> {
-  const scopeOf: typeof guestbookScope = (c, url, onFresh) => ({ ...guestbookScope(c, url, onFresh), onReached: opts?.onReached });
-  return sweepCommunityPlane(nostr, community, scopeOf, opts);
+  const fresh = await sweepCommunityPlane(nostr, community, guestbookScope, opts);
+  const { answered, unread } = guestbookSweepReach(community);
+  if (answered > 0 && unread === 0) opts?.onWalked?.();
+  return fresh;
 }

@@ -18,8 +18,10 @@ import { getArmadaDB } from "./armadaDB";
  * 5 — likewise a Control snapshot entry (`c2snap:<community>:<address>:<rumor>`), not an id in `c2snap:<community>:<address>`.
  * 6 — the plane sweeps' wrap memos and Guestbook cursors start over: builds before
  *     the Guestbook took Timeouts and Nicknames (v0.69.0) memoized and read past them.
+ * 7 — a Guestbook relay's read state is `folded:plane-read:<scope>` (`planeRead.ts`);
+ *     the forward cursors written since v6 say nothing about how deep a read went.
  */
-export const ARMADA_DB_VERSION = 6;
+export const ARMADA_DB_VERSION = 7;
 
 export const SCHEMA_VERSION_KEY = "db:version";
 
@@ -90,7 +92,20 @@ export const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       }
     },
   },
+  {
+    to: 7,
+    label: "Guestbook read state",
+    needed: async () => (await getArmadaDB().kv.list({ prefix: GUESTBOOK_CURSOR_PREFIX }, { limit: 1 })).length > 0,
+    async run() {
+      // A cursor vouches for the newest page only, so none becomes a read state:
+      // each relay starts with a whole read.
+      const kv = getArmadaDB().kv;
+      for (const { key } of await kv.list({ prefix: GUESTBOOK_CURSOR_PREFIX })) await kv.delete(key);
+    },
+  },
 ];
+
+const GUESTBOOK_CURSOR_PREFIX = "folded:concord2-cursor:guestbook:";
 
 /** What v6 clears: the seen/junk wrap logs and their legacy values, the complete floors, and Guestbook cursors. */
 const SWEEP_MEMO_PREFIXES = [
@@ -99,7 +114,7 @@ const SWEEP_MEMO_PREFIXES = [
   "folded:plane-seen-wraps",
   "folded:plane-junk-wraps",
   "folded:plane-complete-floors",
-  "folded:concord2-cursor:guestbook:",
+  GUESTBOOK_CURSOR_PREFIX,
 ];
 
 /** The `c2snap:<community>:<address>` id arrays, which the per-entry keys sharing their prefix never are. */

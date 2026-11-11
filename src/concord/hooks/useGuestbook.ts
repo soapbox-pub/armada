@@ -107,7 +107,7 @@ function releaseGuestbookWake(registry: Map<string, GuestbookWakeEntry>, key: st
   }
 }
 
-/** The live Guestbook planes a sweep read up to now this session (CORD-02 §5's "read the whole plane"). */
+/** The live Guestbook planes a sweep read to the end on every relay that answered, this session (CORD-02 §5's "read the whole plane"). */
 const walkedPlanes = new Set<string>();
 const walkedListeners = new Set<() => void>();
 
@@ -310,7 +310,7 @@ export function useGuestbook(community: Community | undefined) {
       const merged = mergeOpened(queryClient.getQueryData<OpenedEvent[]>(queryKey) ?? [], stored);
       const walked = guestbookPlaneKey(community!);
       void sweepGuestbook(nostr, community!, {
-        onReached: () => markGuestbookWalked(walked),
+        onWalked: () => markGuestbookWalked(walked),
         onFresh: (fresh) => {
           if (fresh.length === 0) return;
           queryClient.setQueryData<OpenedEvent[]>(queryKey, (old) => mergeOpened(old ?? [], fresh));
