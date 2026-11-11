@@ -259,8 +259,10 @@ describe("a Refounding's recipients (Vector `refound_community_with`)", () => {
     });
     const open = (key: { pk: string; convKey: Uint8Array }) => env.sent.filter((e) => e.pubkey === key.pk).map((e) => openWrap(e, key));
     const keyed = new Set(open(baseRekeyGroupKey(community.root, c.id, 1n)).flatMap((o) => parseRekey(o).blobs.map((b) => b.locator)));
-    const snapshot = open(guestbookGroupKey(env.newRoot, c.id, 1n)).filter((o) => o.kind === KIND_SNAPSHOT).flatMap((o) => JSON.parse(o.content) as string[]);
-    return { keyed, snapshot };
+    const snapshots = open(guestbookGroupKey(env.newRoot, c.id, 1n)).filter((o) => o.kind === KIND_SNAPSHOT);
+    const snapshot = snapshots.flatMap((o) => JSON.parse(o.content) as string[]);
+    const rotatedAt = open(baseRekeyGroupKey(community.root, c.id, 1n)).map((o) => o.ms);
+    return { keyed, snapshot, rotatedAt, snapshotAt: snapshots.map((o) => o.ms) };
   }
 
   it("keys every member the Guestbook holds, not only the list it was handed", async () => {
@@ -278,6 +280,19 @@ describe("a Refounding's recipients (Vector `refound_community_with`)", () => {
     const { keyed, snapshot } = await refound(community, c, [], [quiet]);
     expect(keyed.has(myLocator(owner, quiet, "0".repeat(64), 1n))).toBe(false);
     expect(snapshot).not.toContain(quiet);
+  });
+
+  it("dates the new Guestbook's snapshot at the rotation, however long after it is written", async () => {
+    const { c, community } = setup();
+    let tick = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => (tick += 1000));
+    try {
+      const { rotatedAt, snapshotAt } = await refound(community, c, []);
+      expect(rotatedAt.length).toBeGreaterThan(0);
+      expect(snapshotAt).toEqual([rotatedAt[0]]);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("reads the Guestbook again while a relay stopped short of its end, three passes at most", async () => {

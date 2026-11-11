@@ -1323,7 +1323,9 @@ export function useRefound(community: Community | undefined) {
       try {
         const newGuestbook = guestbookGroupKey(newRoot, community.id, newEpoch);
         const snapId = bytesToHex(random32());
-        for (const rumor of buildSnapshotRumors(user.pubkey, recipients, snapId, clockNowMs())) {
+        // Dated at the rotation: its time is the cut a Join on the new epoch is judged
+        // against, and this step can run long after the key rolled.
+        for (const rumor of buildSnapshotRumors(user.pubkey, recipients, snapId, rotatedAtMs)) {
           const wrap = await sealGuestbook(rumor, newGuestbook, user.signer);
           await settleAccepted(
             community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),
