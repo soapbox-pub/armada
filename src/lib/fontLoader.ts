@@ -45,6 +45,22 @@ function injectFontFace(family: string, url: string): void {
   injectedUrls.add(url);
 }
 
+const uploadedFamilies = new Map<string, string>();
+
+/**
+ * The family a font file loaded by URL is registered under: one of its own.
+ * `@font-face` is document-wide, so under the name its theme gives it the file
+ * would be drawn wherever the app or another theme uses that family.
+ */
+function uploadedFamily(src: string): string {
+  let family = uploadedFamilies.get(src);
+  if (!family) {
+    family = `armada-uploaded-font-${uploadedFamilies.size + 1}`;
+    uploadedFamilies.set(src, family);
+  }
+  return family;
+}
+
 /**
  * Where a theme's own font URL loads from: through the media proxy when one is
  * set, like any image a theme or event names. Catalog fonts are Armada's pinned
@@ -74,8 +90,8 @@ export function appThemeFont(
   if (!ownFont || !font.url || !sanitizeUrl(font.url)) return undefined;
   const src = uploadedFontSrc(font.url, policy);
   if (!src) return undefined;
-  injectFontFace(font.family, src);
-  return `"${sanitizeCssString(font.family)}"`;
+  injectFontFace(uploadedFamily(src), src);
+  return `"${uploadedFamily(src)}"`;
 }
 
 /**
@@ -94,8 +110,14 @@ export function claimedThemeFont(
 /** CSS `font-family` value for a theme font, or undefined when it can't resolve to a loadable URL. */
 export function loadThemeFont(font: ThemeFont | undefined, policy: MediaPolicy = defaultMediaPolicy()): string | undefined {
   if (!font?.family) return undefined;
-  const url = font.url ? uploadedFontSrc(font.url, policy) : findThemeFont(font.family)?.cdnUrl;
-  if (!url) return undefined;
-  injectFontFace(font.family, url);
-  return `"${sanitizeCssString(font.family)}", system-ui, sans-serif`;
+  if (font.url) {
+    const src = uploadedFontSrc(font.url, policy);
+    if (!src) return undefined;
+    injectFontFace(uploadedFamily(src), src);
+    return `"${uploadedFamily(src)}", system-ui, sans-serif`;
+  }
+  const option = findThemeFont(font.family);
+  if (!option) return undefined;
+  injectFontFace(option.family, option.cdnUrl);
+  return `"${sanitizeCssString(option.family)}", system-ui, sans-serif`;
 }
