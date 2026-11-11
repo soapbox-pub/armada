@@ -14,10 +14,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { foldControlState, openControlEditions, type FoldedControl } from "@/concord/lib/control";
 import { baseRekeyGroupKey, bytesToHex, controlGroupKey, controlSignerGroupKey, epochKeyCommitment, guestbookGroupKey, random32, syncLocator } from "@/concord/lib/derive";
-import { buildNicknameRumor, buildTimeoutRumor } from "@/concord/lib/guestbook";
+import { buildJoinRumor, buildNicknameRumor, buildTimeoutRumor } from "@/concord/lib/guestbook";
 import type { InviteListEntry } from "@/concord/lib/invite";
-import { KIND_NICKNAME, KIND_SEAL_ENCRYPTED, KIND_TIMEOUT } from "@/concord/lib/kinds";
-import { buildRekeyRumors, bytesToBase64, encodeWrappedBaseKey, myLocator } from "@/concord/lib/rekey";
+import { KIND_NICKNAME, KIND_SEAL_ENCRYPTED, KIND_SNAPSHOT, KIND_TIMEOUT } from "@/concord/lib/kinds";
+import { buildRekeyRumors, bytesToBase64, encodeWrappedBaseKey, myLocator, parseRekey } from "@/concord/lib/rekey";
 import { buildRumor, openWrap, sealRumor, wrapSeal, type OpenedEvent } from "@/concord/lib/stream";
 import type { Community } from "@/concord/lib/types";
 import { heldCommunity, hexKey, sealedEdition, TestCommunity } from "@/test/concordEditions";
@@ -35,6 +35,8 @@ const env = vi.hoisted(() => ({
   links: [] as InviteListEntry[],
   refreshed: [] as InviteListEntry[][],
   listWrites: [] as unknown[],
+  guestbookSweeps: 0,
+  guestbookReach: { answered: 1, unread: 0 },
 }));
 
 vi.mock("@nostrify/react", () => ({
@@ -84,6 +86,11 @@ vi.mock("@/concord/lib/planeSync", async (orig) => ({
   sweepControl: async (_n: unknown, _c: unknown, opts: { onReached?: () => void }) => {
     opts.onReached?.();
   },
+  sweepGuestbook: async () => {
+    env.guestbookSweeps++;
+    return [];
+  },
+  guestbookSweepReach: () => env.guestbookReach,
 }));
 vi.mock("@/concord/lib/rumorStore", async (orig) => ({
   ...(await orig<typeof import("@/concord/lib/rumorStore")>()),
@@ -132,6 +139,8 @@ beforeEach(() => {
   env.links = [];
   env.newRoot = random32();
   env.newControlRoot = random32();
+  env.guestbookSweeps = 0;
+  env.guestbookReach = { answered: 1, unread: 0 };
 });
 
 describe("a Refounding's duties", () => {
@@ -223,6 +232,70 @@ describe("a Refounding's duties", () => {
     const { c, community, member } = setup();
     const { guestbook } = await refoundAndOpen(community, c, [], [member]);
     expect(guestbook.some((o) => o.kind === KIND_TIMEOUT && o.tags.some((t) => t[0] === "p" && t[1] === member))).toBe(false);
+  });
+});
+
+describe("a Refounding's recipients (Vector `refound_community_with`)", () => {
+  /** The owner's Community, and a member whose Join the Guestbook holds but no list on screen names. */
+  function setup() {
+    const ownerSk = generateSecretKey();
+    const owner = getPublicKey(ownerSk);
+    const c = new TestCommunity(owner);
+    const quiet = getPublicKey(generateSecretKey());
+    env.control = [sealedEdition(c, ownerSk, { vsk: "13", eid: c.everyoneHex, content: { permissions: "1" } })];
+    env.folded = foldControlState(openControlEditions(env.control), c.id, owner);
+    const community: Community = heldCommunity(c);
+    env.entry = { added_at: 1, current: { root_epoch: 0, channels: [], relays: community.relays } };
+    env.user = userOf(ownerSk);
+    const at = Date.now() - 500_000;
+    env.guestbook = [{ ...opened(buildJoinRumor(quiet, at), at), streamPk: guestbookGroupKey(community.root, c.id, 0n).pk }];
+    return { c, community, owner, quiet };
+  }
+
+  async function refound(community: Community, c: TestCommunity, keep: string[], exclude: string[] = []) {
+    const { result } = renderHook(() => useRefound(community), { wrapper });
+    await act(async () => {
+      await result.current.refound({ keep, exclude });
+    });
+    const open = (key: { pk: string; convKey: Uint8Array }) => env.sent.filter((e) => e.pubkey === key.pk).map((e) => openWrap(e, key));
+    const keyed = new Set(open(baseRekeyGroupKey(community.root, c.id, 1n)).flatMap((o) => parseRekey(o).blobs.map((b) => b.locator)));
+    const snapshot = open(guestbookGroupKey(env.newRoot, c.id, 1n)).filter((o) => o.kind === KIND_SNAPSHOT).flatMap((o) => JSON.parse(o.content) as string[]);
+    return { keyed, snapshot };
+  }
+
+  it("keys every member the Guestbook holds, not only the list it was handed", async () => {
+    const { c, community, owner, quiet } = setup();
+    const listed = getPublicKey(generateSecretKey());
+    const { keyed, snapshot } = await refound(community, c, [listed]);
+    expect(env.guestbookSweeps, "the Guestbook is read from the relays first").toBeGreaterThan(0);
+    expect(keyed.has(myLocator(owner, quiet, "0".repeat(64), 1n)), "a member no list named is still vended the key").toBe(true);
+    expect(keyed.has(myLocator(owner, listed, "0".repeat(64), 1n))).toBe(true);
+    expect(snapshot).toContain(quiet);
+  });
+
+  it("leaves out only whom it removes", async () => {
+    const { c, community, owner, quiet } = setup();
+    const { keyed, snapshot } = await refound(community, c, [], [quiet]);
+    expect(keyed.has(myLocator(owner, quiet, "0".repeat(64), 1n))).toBe(false);
+    expect(snapshot).not.toContain(quiet);
+  });
+
+  it("reads the Guestbook again while a relay stopped short of its end, three passes at most", async () => {
+    const { c, community, owner, quiet } = setup();
+    env.guestbookReach = { answered: 1, unread: 1 };
+    const { keyed } = await refound(community, c, []);
+    expect(env.guestbookSweeps).toBe(3);
+    expect(keyed.has(myLocator(owner, quiet, "0".repeat(64), 1n))).toBe(true);
+  });
+
+  it("rolls no key when no relay answered for the Guestbook", async () => {
+    const { community } = setup();
+    env.guestbookReach = { answered: 0, unread: 0 };
+    const { result } = renderHook(() => useRefound(community), { wrapper });
+    await act(async () => {
+      await expect(result.current.refound({ keep: [], exclude: [] })).rejects.toThrow();
+    });
+    expect(env.sent).toEqual([]);
   });
 });
 

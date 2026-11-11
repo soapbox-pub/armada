@@ -4794,6 +4794,7 @@
   "useRekey.linksDead.title": "I tuoi link di invito non funzionano più",
   "useRekey.linksStale.description": "Il rinnovo delle chiavi è riuscito, ma l’aggiornamento dei tuoi link di invito non è riuscito. Riapri la community per riprovare, altrimenti chi si unisce con quei link potrebbe finire nell’epoca precedente.",
   "useRekey.linksStale.title": "I link di invito attivi potrebbero fornire le vecchie chiavi",
+  "useRekey.memberListUnreachable": "Impossibile leggere la lista dei membri della community dai suoi relay; rinnovo annullato perché nessun membro resti senza la nuova chiave. Controlla la connessione e riprova.",
   "useRekey.missingHistory": "Manca la cronologia firmata necessaria per portare lo stato di questa community nella nuova epoca; non si è perso nulla, riprova dopo una nuova sincronizzazione.",
   "useRekey.noChannelKey": "Non possiedi la chiave di questo canale.",
   "useRekey.noPermission": "Non hai il permesso di rinnovare le chiavi di questa community.",

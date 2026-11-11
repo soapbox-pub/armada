@@ -4794,6 +4794,7 @@
   "useRekey.linksDead.title": "Seus links de convite não funcionam mais",
   "useRekey.linksStale.description": "A rotação de chaves deu certo, mas a atualização dos seus links de convite falhou. Reabra a comunidade para tentar de novo, ou quem entrar por esses links pode cair na época anterior.",
   "useRekey.linksStale.title": "Links de convite ativos podem fornecer as chaves antigas",
+  "useRekey.memberListUnreachable": "Não foi possível ler a lista de membros da comunidade nos relays dela; rotação cancelada para que nenhum membro fique sem a nova chave. Verifique sua conexão e tente de novo.",
   "useRekey.missingHistory": "Falta o histórico assinado necessário para levar o estado desta comunidade para a nova época; nada foi perdido, tente de novo após uma ressincronização.",
   "useRekey.noChannelKey": "Você não tem a chave deste canal.",
   "useRekey.noPermission": "Você não tem permissão para rotacionar as chaves desta comunidade.",

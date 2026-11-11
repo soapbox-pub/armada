@@ -26,14 +26,13 @@ import {
   openGuestbookOpened,
   sealGuestbook,
   liveRefound,
-  snapshotAuthorities,
-  snapshotEpochs,
   guestbookHistory,
   joinToRestore,
   type CoalescedMember,
   type FoldedTimeout,
   type GuestbookHistory,
 } from "@/concord/lib/guestbook";
+import { guestbookFoldOptions } from "@/concord/lib/memberlist";
 import { mergeOpened, openPlaneWraps, sweepGuestbook } from "@/concord/lib/planeSync";
 import { heldPostAfter, queryPlane, withGuestbookStreams, writeOpened } from "@/concord/lib/rumorStore";
 import { clockNowMs } from "@/lib/relayClock";
@@ -332,31 +331,7 @@ export function useGuestbook(community: Community | undefined) {
   const { coalesced, history, refound, opts: coalesceOpts } = useMemo(() => {
     if (!community || !query.data) return { coalesced: new Map<string, CoalescedMember>(), history: undefined, refound: undefined, opts: undefined };
     const opened = openGuestbookOpened(query.data);
-    // A snapshot is honored only from the npub whose Refounding minted its epoch
-    // (CORD-02 §5): judged per epoch where its address is known, else against the set
-    // of recorded refounders; an epoch with none accepts no snapshot (no owner fallback).
-    const authorities = snapshotAuthorities(community);
-    const epochs = snapshotEpochs(community);
-    const opts: Parameters<typeof coalesceGuestbook>[1] = {
-      nowMs: clockNowMs(),
-      canKick: (actor, target, citation, atMs) =>
-        Boolean(
-          // Death wins every race (CORD-02 §9) — an ORDERING rule: only a kick published
-          // AFTER the tombstone is refused, or dissolving would un-kick everyone.
-          !(dissolvedAtMs != null && atMs > dissolvedAtMs) &&
-            folded &&
-            // A lifted Ban writes its departure as a Kick from a BAN holder (CORD-04 §6).
-            (canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.KICK) ||
-              canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.BAN)) &&
-            // …and the CORD-04 §5 sync floor, so a kick from an admin whose
-            // demotion we haven't read yet parks instead of landing.
-            citationSatisfied(folded, community.id, actor, citation),
-        ),
-      snapshotAuthorities: authorities,
-      snapshotAuthorityOf: epochs.authorityOf,
-      live: epochs.live,
-      banned: folded?.banned,
-    };
+    const opts = guestbookFoldOptions(community, folded, dissolvedAtMs);
     return {
       coalesced: coalesceGuestbook(opened, opts),
       history: guestbookHistory(opened, opts) as GuestbookHistory,

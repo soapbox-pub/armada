@@ -4794,6 +4794,7 @@
   "useRekey.linksDead.title": "Deine Einladungslinks funktionieren nicht mehr",
   "useRekey.linksStale.description": "Die Schlüsselerneuerung war erfolgreich, aber deine Einladungslinks konnten nicht aktualisiert werden. Öffne die Community erneut, um es nochmal zu versuchen, sonst landen neue Mitglieder über diese Links womöglich in der vorherigen Epoche.",
   "useRekey.linksStale.title": "Aktive Einladungslinks liefern eventuell die alten Schlüssel",
+  "useRekey.memberListUnreachable": "Die Mitgliederliste der Community konnte nicht von ihren Relays gelesen werden; die Erneuerung wurde abgebrochen, damit kein Mitglied ohne den neuen Schlüssel bleibt. Prüfe deine Verbindung und versuch es erneut.",
   "useRekey.missingHistory": "Es fehlt der signierte Verlauf, der nötig ist, um den Status dieser Community in die neue Epoche zu übernehmen; nichts ging verloren, versuch es nach einer erneuten Synchronisierung noch einmal.",
   "useRekey.noChannelKey": "Du hast den Schlüssel dieses Kanals nicht.",
   "useRekey.noPermission": "Du hast keine Berechtigung, die Schlüssel dieser Community zu erneuern.",

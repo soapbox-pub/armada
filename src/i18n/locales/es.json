@@ -4794,6 +4794,7 @@
   "useRekey.linksDead.title": "Tus enlaces de invitación ya no funcionan",
   "useRekey.linksStale.description": "La rotación de claves se completó, pero no se pudieron renovar tus enlaces de invitación. Vuelve a abrir la comunidad para reintentarlo, o quienes se unan con esos enlaces podrían acabar en la época anterior.",
   "useRekey.linksStale.title": "Los enlaces de invitación activos podrían ofrecer las claves antiguas",
+  "useRekey.memberListUnreachable": "No se pudo leer la lista de miembros de la comunidad desde sus relays; se canceló la rotación para que ningún miembro se quede sin la nueva clave. Revisa tu conexión y vuelve a intentarlo.",
   "useRekey.missingHistory": "Falta el historial firmado necesario para llevar el estado de esta comunidad a la nueva época; no se perdió nada, vuelve a intentarlo tras una resincronización.",
   "useRekey.noChannelKey": "No tienes la clave de este canal.",
   "useRekey.noPermission": "No tienes permiso para rotar las claves de esta comunidad.",

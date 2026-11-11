@@ -4794,6 +4794,7 @@
   "useRekey.linksDead.title": "Vos liens d’invitation ne fonctionnent plus",
   "useRekey.linksStale.description": "Le renouvellement des clés a réussi, mais l’actualisation de vos liens d’invitation a échoué. Rouvrez la communauté pour réessayer, sinon les nouveaux arrivants via ces liens pourraient atterrir dans l’époque précédente.",
   "useRekey.linksStale.title": "Les liens d’invitation actifs peuvent fournir les anciennes clés",
+  "useRekey.memberListUnreachable": "Impossible de lire la liste des membres de la communauté depuis ses relais ; renouvellement annulé pour qu’aucun membre ne reste sans la nouvelle clé. Vérifiez votre connexion et réessayez.",
   "useRekey.missingHistory": "L’historique signé nécessaire pour transférer l’état de cette communauté vers la nouvelle époque est manquant ; rien n’a été perdu, réessayez après une resynchronisation.",
   "useRekey.noChannelKey": "Vous ne détenez pas la clé de ce salon.",
   "useRekey.noPermission": "Vous n’avez pas la permission de renouveler les clés de cette communauté.",

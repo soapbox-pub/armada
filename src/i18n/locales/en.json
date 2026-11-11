@@ -4794,6 +4794,7 @@
   "useRekey.linksDead.title": "Your invite links no longer work",
   "useRekey.linksStale.description": "Key rotation succeeded, but refreshing your invite links failed. Reopen the community to retry, or new joiners on those links could land on the previous epoch.",
   "useRekey.linksStale.title": "Live invite links may serve the old keys",
+  "useRekey.memberListUnreachable": "Couldn't read the community's member list from its relays; rotation aborted so no member is left without the new key. Check your connection and try again.",
   "useRekey.missingHistory": "Missing the signed history needed to carry this community's state into the new epoch; nothing was lost, try again after a resync.",
   "useRekey.noChannelKey": "You don't hold this channel's key.",
   "useRekey.noPermission": "You don't have permission to rotate this community's keys.",

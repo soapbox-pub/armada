@@ -15,7 +15,8 @@ import { currentControlGroup, foldControlState, openControlEditions, storedContr
 import type { AuthorityCitation, ParsedEdition } from "@/concord/lib/edition";
 import { VSK_SYNC } from "@/concord/lib/roster";
 import type { NostrRumor } from "@/lib/nostrRumor";
-import { sweepControl } from "@/concord/lib/planeSync";
+import { storedMemberlist } from "@/concord/lib/memberlist";
+import { guestbookSweepReach, sweepControl, sweepGuestbook } from "@/concord/lib/planeSync";
 import { channelRekeyGroupKey, controlGroupKey, controlSignerGroupKey, guestbookGroupKey } from "@/concord/lib/derive";
 import {
   baseRekeyGroupKey,
@@ -1637,8 +1638,23 @@ export function useRefound(community: Community | undefined) {
         throw new Error(t({ id: "useRekey.rotatedMeanwhile", defaultMessage: "The community rotated since this action began; reopen it and try again." }));
       }
 
+      // The Guestbook as the relays hold it now: a pass that ran out of budget goes on
+      // where it stopped (Vector `read_whole`), and a deeper plane rides on what was read.
+      let answered = 0;
+      for (let pass = 0; pass < 3; pass++) {
+        await sweepGuestbook(nostr, community).catch(() => []);
+        const reach = guestbookSweepReach(community);
+        answered = reach.answered;
+        if (answered === 0 || reach.unread === 0) break;
+      }
+      if (answered === 0) {
+        throw new Error(t({ id: "useRekey.memberListUnreachable", defaultMessage: "Couldn't read the community's member list from its relays; rotation aborted so no member is left without the new key. Check your connection and try again." }));
+      }
+      // Everyone the Guestbook holds beside whom the caller listed: a member a list
+      // forgot would be left at this epoch for good, so only `exclude` removes (Vector
+      // `refound_community_with`).
       const excluded = new Set(exclude);
-      const recipients = [...new Set([user.pubkey, ...keep])].filter((pk) => !excluded.has(pk));
+      const recipients = [...new Set([user.pubkey, ...keep, ...(await storedMemberlist(community, folded))])].filter((pk) => !excluded.has(pk));
 
       const newEpoch = community.rootEpoch + 1n;
       const prevCommit = bytesToHex(epochKeyCommitment(community.rootEpoch, community.root));

@@ -4794,6 +4794,7 @@
   "useRekey.linksDead.title": "Je uitnodigingslinks werken niet meer",
   "useRekey.linksStale.description": "De sleutelvernieuwing is gelukt, maar het vernieuwen van je uitnodigingslinks is mislukt. Open de community opnieuw om het nog eens te proberen, anders kunnen nieuwe leden via die links in de vorige epoch belanden.",
   "useRekey.linksStale.title": "Actieve uitnodigingslinks geven mogelijk de oude sleutels",
+  "useRekey.memberListUnreachable": "De ledenlijst van de community kon niet van de relays worden gelezen; vernieuwing afgebroken zodat geen lid zonder de nieuwe sleutel achterblijft. Controleer je verbinding en probeer het opnieuw.",
   "useRekey.missingHistory": "De ondertekende geschiedenis die nodig is om de status van deze community naar de nieuwe epoch over te zetten ontbreekt; er is niets verloren, probeer het opnieuw na een hersynchronisatie.",
   "useRekey.noChannelKey": "Je hebt de sleutel van dit kanaal niet.",
   "useRekey.noPermission": "Je hebt geen toestemming om de sleutels van deze community te vernieuwen.",
