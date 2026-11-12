@@ -4,6 +4,22 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.3] - 2026-11-12
+
+Channel history no longer skips a stretch of messages after an update or a
+key change, switching communities and accounts is quicker, Armada stores less
+on your device, and typing indicators behave like Vector's.
+
+### Changed
+- Typing indicators are sent at most every 30 seconds and not for deletions or slash commands, last 30 seconds, and clear when the person's message arrives
+- Switching between communities and accounts is faster
+- Armada keeps less on your device: message seals are no longer stored, and saved timelines are kept for the 40 most recently viewed channels and conversations
+- Settings › Storage breaks settings and sync state down into their parts
+- The member list keeps its order while you're scrolled down it
+
+### Fixed
+- A channel no longer shows older messages directly below the newest ones with the messages in between missing, after an update or a key change restarts its history
+
 ## [0.69.2] - 2026-11-11
 
 Discover gets reworked curation and community boosts, chat messages render
