@@ -1246,7 +1246,7 @@ try {
   }
 
 
-  if (wants("concord-many")) {
+  if (wants("concord-many") || wants("concord-hop")) {
     // Many joined communities with real Guestbooks: how long a boot takes to paint
     // the open channel, and to subscribe every community's chat on the wire.
     const MANY = Number(opt("communities", "20"));
@@ -1364,6 +1364,60 @@ try {
     relayBody = JSON.stringify([...many.wraps, ...many.laterWraps]);
     const warm = await bootOnce("warm (reload)", LATER > 0 ? `(#c0-later-${LATER - 1})` : undefined);
     if (LATER > 0) warm.missedStored = await storedBeyond(200 + MISSED, LATER);
+    if (wants("concord-hop")) {
+      // Hopping between the joined communities, each already on disk: how long until the
+      // new community's #general shows its rows, and how long the main thread stays busy.
+      const HOPS = Number(opt("hops", "8"));
+      const ring = many.communities.slice(0, Math.min(4, many.communities.length));
+      console.log(`▶ concord-hop (${HOPS} hops over ${ring.length} communities)`);
+      await page.goto(`/c/${ring[0].communityId}/${ring[0].channelIds[0]}`);
+      await perfReady(page);
+      await page.waitForTimeout(10_000);
+      const hopMark = errors.length;
+      await resetCounters(page);
+      const a = await metrics(cdp);
+      const t = Date.now();
+      const hops = [];
+      const { hot } = await cpuProfile("concord-hop", async () => {
+        for (let i = 1; i <= HOPS; i++) {
+          const ci = i % ring.length;
+          const c = ring[ci];
+          const index = many.communities.indexOf(c);
+          hops.push(await page.evaluate(
+            ([path, needle]) =>
+              new Promise((done) => {
+                const busy = [];
+                const obs = new PerformanceObserver((list) => {
+                  for (const e of list.getEntries()) busy.push(Math.round(e.duration));
+                });
+                obs.observe({ type: "longtask" });
+                const start = performance.now();
+                history.pushState({}, "", path);
+                dispatchEvent(new PopStateEvent("popstate"));
+                let shown = -1;
+                let lastBusyEnd = start;
+                const check = () => {
+                  const now = performance.now();
+                  if (shown < 0 && document.querySelector("main")?.textContent?.includes(needle)) shown = Math.round(now - start);
+                  // Settled: the rows are up and no frame took longer than 50ms for a second.
+                  if (now - lastBusyEnd > 50) lastBusyEnd = now;
+                  if ((shown >= 0 && now - start > 1000 + shown) || now - start > 15_000) {
+                    obs.disconnect();
+                    done({ shownMs: shown, busyMs: busy.reduce((x, y) => x + y, 0), longTasks: busy.length, maxTaskMs: Math.max(0, ...busy) });
+                  } else requestAnimationFrame(check);
+                };
+                requestAnimationFrame(check);
+              }),
+            [`/c/${c.communityId}/${c.channelIds[0]}`, `(#c${index}-`],
+          ));
+          await page.waitForTimeout(2000);
+        }
+      });
+      const b = await metrics(cdp);
+      const shown = hops.map((h) => h.shownMs);
+      console.log(`  shown ms: ${shown.join(" ")}; long-task ms per hop: ${hops.map((h) => h.busyMs).join(" ")}`);
+      save("concord-hop", { hops, hot, cost: cost(a, b, (Date.now() - t) / 1000), errors: errorsSince(hopMark), report: await report(page) });
+    }
     const span = (ws) => (ws.length ? `${Math.min(...ws.map((w) => w.created_at))}..${Math.max(...ws.map((w) => w.created_at))}` : "none");
     const relaySpans = { later: span(many.laterWraps), planes: span(many.wraps.filter((w) => !many.communities.some((c) => c.chatPks.includes(w.pubkey)))) };
     save("concord-many", { communities: MANY, members: MEMBERS, windowSec: WINDOW_SEC, relaySpans, cold, warm });
