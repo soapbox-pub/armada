@@ -125,7 +125,7 @@ const OUT = resolve(root, "perf-reports");
 /** Messages in the seeded community's #general. */
 const CONCORD_BIG = 3000;
 
-const LIVE = ["live-switch", "live-boot", "live-idle", "account-hop"];
+const LIVE = ["live-switch", "live-boot", "live-idle", "account-hop", "account-storage"];
 const wants = (name) => (ONLY.length === 0 && !LIVE.includes(name)) || ONLY.includes(name);
 
 // ─── Build + serve ──────────────────────────────────────────────────────────
@@ -892,6 +892,79 @@ async function scrollBack() {
 
 // ─── Scenarios ──────────────────────────────────────────────────────────────
 
+/** The real account in ARMADA_PERF_NSEC (never read from a file here), or undefined. */
+function accountFromEnv() {
+  const secret = process.env.ARMADA_PERF_NSEC ?? "";
+  if (!secret) return undefined;
+  const sk = secret.startsWith("nsec1") ? nip19.decode(secret).data : Uint8Array.from(Buffer.from(secret, "hex"));
+  return { sk, pubkey: getPublicKey(sk) };
+}
+
+/**
+ * Sign `who` in and let the account sync for --settle seconds. From the seed page,
+ * which doesn't run the app: a booting app saves its own empty login list over one
+ * written under it. Publishes are swallowed in the page like every scenario's.
+ */
+async function signInAndSettle(who) {
+  await page.goto("/e2e/screenshotSeed.html");
+  await login(who);
+  await page.goto("/");
+  await perfReady(page);
+  const settleSec = Number(opt("settle", "60"));
+  console.log(`  settling ${settleSec}s (first sync of the account)`);
+  await page.waitForTimeout(settleSec * 1000);
+  const stored = await page.evaluate(() => (localStorage.getItem("armada:login") ?? "").length).catch(() => -1);
+  if (stored <= 2) console.log(`  ⚠ not signed in after settling (at ${new URL(page.url()).pathname})`);
+}
+
+/** The ArmadaDB KV and localStorage, sized per key prefix (two segments under `folded:`). */
+function storageByPrefix() {
+  return page.evaluate(async () => {
+    const out = {};
+    const add = (where, key, bytes) => {
+      const parts = key.split(":");
+      const prefix = `${where} ${parts[0] === "folded" || parts[0] === "armada" ? parts.slice(0, 2).join(":") : parts[0]}`;
+      const row = (out[prefix] ??= { keys: 0, bytes: 0 });
+      row.keys++;
+      row.bytes += bytes;
+    };
+    const sizeOf = (v) => {
+      if (typeof v === "string") return v.length * 2;
+      if (v instanceof ArrayBuffer || ArrayBuffer.isView(v)) return v.byteLength;
+      try {
+        return JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x instanceof Map ? [...x] : x instanceof Set ? [...x] : x))?.length ?? 0;
+      } catch {
+        return 0;
+      }
+    };
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) add("ls", key, (key.length + (localStorage.getItem(key)?.length ?? 0)) * 2);
+    }
+    const name = (await indexedDB.databases()).map((d) => d.name).find((n) => n?.endsWith(":kv"));
+    if (name) {
+      const db = await new Promise((ok, fail) => {
+        const req = indexedDB.open(name);
+        req.onsuccess = () => ok(req.result);
+        req.onerror = () => fail(req.error);
+      });
+      await new Promise((done) => {
+        const req = db.transaction("kv").objectStore("kv").openCursor();
+        req.onsuccess = () => {
+          const cursor = req.result;
+          if (!cursor) return done();
+          add("kv", String(cursor.key), String(cursor.key).length * 2 + sizeOf(cursor.value));
+          cursor.continue();
+        };
+        req.onerror = () => done();
+      });
+      db.close();
+    }
+    return out;
+  });
+}
+
+
 await waitForServer();
 const world = buildWorld();
 const big = world.peers[0];
@@ -914,26 +987,14 @@ try {
     // A real account (ARMADA_PERF_NSEC, never read from a file here) hopping between two
     // of its rail communities, named by --hop-names "A,B". Publishes are swallowed in the
     // page like every scenario's, and the context is ephemeral.
-    const secret = process.env.ARMADA_PERF_NSEC ?? "";
+    const who = accountFromEnv();
     const names = opt("hop-names", "").split(",").map((s) => s.trim()).filter(Boolean);
-    if (!secret || names.length < 2) {
+    if (!who || names.length < 2) {
       console.log("\n▶ account-hop skipped: set ARMADA_PERF_NSEC and pass --hop-names 'A,B'");
     } else {
-      const sk = secret.startsWith("nsec1") ? nip19.decode(secret).data : Uint8Array.from(Buffer.from(secret, "hex"));
-      const who = { sk, pubkey: getPublicKey(sk) };
       console.log(`\n▶ account-hop as ${nip19.npubEncode(who.pubkey).slice(0, 16)}… between ${names.join(" ↔ ")}`);
       const mark = errors.length;
-      // From the seed page, which doesn't run the app: a booting app saves its own
-      // empty login list over one written under it.
-      await page.goto("/e2e/screenshotSeed.html");
-      await login(who);
-      await page.goto("/");
-      await perfReady(page);
-      const settleSec = Number(opt("settle", "60"));
-      console.log(`  settling ${settleSec}s (first sync of the account)`);
-      await page.waitForTimeout(settleSec * 1000);
-      const stored = await page.evaluate(() => (localStorage.getItem("armada:login") ?? "").length).catch(() => -1);
-      if (stored <= 2) console.log(`  ⚠ not signed in after settling (at ${new URL(page.url()).pathname})`);
+      await signInAndSettle(who);
       const railButton = (name) => page.locator(`[aria-label="${name.replace(/"/g, '\\"')}"]`).first();
       /** Click a rail community; ms until its own timeline rows paint, and the long tasks meanwhile. */
       const hop = (name) =>
@@ -988,6 +1049,62 @@ try {
       for (const h of hops) console.log(`  → ${h.to}: shown ${h.shownMs}ms, long tasks ${h.busyMs}ms (${h.longTasks}, max ${h.maxTaskMs})`);
       save("account-hop", { hops, hot, cost: cost(a, b, (Date.now() - t) / 1000), errors: errorsSince(mark), report: await report(page) });
       // Nothing of this account outlives the scenario on this origin.
+      await page.evaluate(() => localStorage.clear());
+    }
+  }
+
+  if (wants("account-storage")) {
+    // What a real account's settings and sync state (KV + localStorage) grows by while
+    // it reads: every channel of every rail community, then every DM.
+    const who = accountFromEnv();
+    if (!who) {
+      console.log("\n▶ account-storage skipped: set ARMADA_PERF_NSEC");
+    } else {
+      console.log(`\n▶ account-storage as ${nip19.npubEncode(who.pubkey).slice(0, 16)}…`);
+      const mark = errors.length;
+      await signInAndSettle(who);
+      await resetCounters(page);
+      const before = await storageByPrefix();
+      const dwell = Number(opt("dwell", "1500"));
+      const visited = { channels: 0, dms: 0 };
+      const communities = await page.evaluate(() =>
+        [...new Set([...document.querySelectorAll('a[href^="/c/"]')].map((a) => a.getAttribute("href")).filter((h) => /^\/c\/[^/]+$/.test(h)))]);
+      for (const path of communities) {
+        await softNavigate(page, path);
+        await page.waitForTimeout(dwell);
+        const channels = await page.evaluate(() => [...new Set([...document.querySelectorAll("[data-channel]")].map((b) => b.getAttribute("data-channel")))]);
+        for (const id of channels) {
+          await page.evaluate((c) => document.querySelector(`[data-channel="${c}"]`)?.click(), id);
+          await page.waitForTimeout(dwell);
+          visited.channels++;
+        }
+      }
+      await softNavigate(page, "/dm");
+      await page.waitForTimeout(dwell);
+      const dms = await page.evaluate(() => [...new Set([...document.querySelectorAll("[data-conversation]")].map((b) => b.getAttribute("data-conversation")))]);
+      for (const key of dms) {
+        await page.evaluate((c) => document.querySelector(`[data-conversation="${CSS.escape(c)}"]`)?.click(), key);
+        await page.waitForTimeout(dwell);
+        visited.dms++;
+      }
+      await page.waitForTimeout(5000);
+      const after = await storageByPrefix();
+      const rows = [...new Set([...Object.keys(before), ...Object.keys(after)])].map((prefix) => ({
+        prefix,
+        keys: after[prefix]?.keys ?? 0,
+        bytes: after[prefix]?.bytes ?? 0,
+        grewKeys: (after[prefix]?.keys ?? 0) - (before[prefix]?.keys ?? 0),
+        grewBytes: (after[prefix]?.bytes ?? 0) - (before[prefix]?.bytes ?? 0),
+      }));
+      const total = (o) => Object.values(o).reduce((n, r) => n + r.bytes, 0);
+      console.log(`  visited ${communities.length} communities, ${visited.channels} channels, ${visited.dms} DMs`);
+      console.log(`  settings and sync state: ${(total(before) / 1e6).toFixed(2)} MB → ${(total(after) / 1e6).toFixed(2)} MB`);
+      for (const r of [...rows].sort((x, y) => y.grewBytes - x.grewBytes).slice(0, 15)) {
+        console.log(`  ${(r.grewBytes / 1e3).toFixed(0).padStart(7)} KB (+${r.grewKeys} keys)  now ${(r.bytes / 1e3).toFixed(0)} KB in ${r.keys}  ${r.prefix}`);
+      }
+      const kvWrites = (await report(page)).boot.aggregates.filter((a) => a.label.startsWith("kv.set")).slice(0, 20)
+        .map((a) => `${a.count}× ${a.units ?? "?"} ${a.unitName ?? ""} ${a.label}`);
+      save("account-storage", { visited, communities: communities.length, before, after, rows, kvWrites, errors: errorsSince(mark) });
       await page.evaluate(() => localStorage.clear());
     }
   }
