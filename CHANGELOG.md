@@ -4,6 +4,46 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.2] - 2026-11-11
+
+Discover gets reworked curation and community boosts, chat messages render
+links with labels and tables, and spam filtering gets its own settings. Key
+rotations show their progress, can resume after an interruption and reach
+every member, and desktop users can choose which web updates they follow.
+
+### Added
+- Boost a community you belong to from its menu; Discover cards show who boosted it, and boosters get a badge in the member list
+- Choose Discover's curators: the Armada Developers by default, plus any lists or people you add
+- Labeled links and tables in chat messages, documents and character cards
+- Spam filtering settings: sensitivity, whether bridged messages are exempt, and a link from the folded row
+- Desktop users can follow every web update, releases only, or none
+- A progress bar for key rotations, bans that rotate keys, role changes, channel permission saves and the switch to ranked roles
+- The Members pane lists anyone a key rotation left out, and Send keys extends past rotations to them
+- Collapsible member list sections
+- A download button for audio, an open-chat button on voice channel rows, and a mark-all-read button in All messages
+- An actions menu on forum posts in the list, with open and delete
+- Call rosters mark members joined peer-to-peer or through a bridge, and show their own and moderator mutes
+
+### Changed
+- Ranked role changes are faster, and an interrupted change or switch to ranked roles can be finished later
+- An interrupted key rotation finishes on the next attempt or visit
+- A link whose text names a different site than it leads to shows its real address
+- Bare words are turned into links only when they end in a real domain
+- Only one profile card stays open at a time
+
+### Fixed
+- Channel posting rules apply in All messages, Threads, Mentions, Search and reply previews
+- Messages from devices with a wrong clock are ordered, counted and notified by when they arrived
+- A key rotation waits until the whole member list has been read, so no member is left out
+- Channels whose keys changed reload their history instead of staying empty
+- Saving permissions or rotating keys reports a failure even after the dialog was closed
+- Typing before an emoji in the composer no longer makes it flicker
+- Image uploads work in browsers that block canvas fingerprinting, and still strip photo metadata
+- A theme's custom font no longer replaces a font of the same name elsewhere in the app
+- Signing out of one account clears its wallet data when other accounts stay signed in
+- Shrugs ¯\\\_(ツ)\_/¯ render as written
+- Moderators can mute, move or disconnect members in calls joined over a different connection
+
 ## [0.69.1] - 2026-11-09
 
 Staff of older communities can upgrade their security so only staff can change
