@@ -100,6 +100,24 @@ describe("buildWireSpec", () => {
     expect(spec.concordByPk.get("pkB1")).toBe(chanB);
   });
 
+  it("subscribes a restricted Channel's live writer address beside its read address, not a closed one (CORD-03 §1)", () => {
+    const chan = concordChannel(1, ["read"]);
+    const group = (pk: string) => ({ pk }) as unknown as Channel["streams"][number]["group"];
+    chan.streams.push(
+      { epoch: 0n, group: group("closed"), writer: { epoch: 1n, from: 0, to: 10 } },
+      { epoch: 0n, group: group("live"), writer: { epoch: 2n, from: 10 } },
+    );
+    const spec = buildWireSpec({
+      pubkey: PUBKEY,
+      groups: [],
+      dmRelays: [],
+      dmFollows: [],
+      concord: [{ relays: ["wss://c.relay"], channel: chan, communityIdHex: "comm" }],
+    });
+    expect(spec.subs[0].filters).toEqual([{ kinds: [1059], authors: ["live", "read"] }]);
+    expect(spec.concordByPk.get("closed")).toBe(chan);
+  });
+
   it("subscribes to Concord control authors and maps control pk → community", () => {
     const spec = buildWireSpec({
       pubkey: PUBKEY,

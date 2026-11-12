@@ -248,6 +248,10 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
       let set = pksByRelay.get(relay);
       if (!set) pksByRelay.set(relay, (set = new Set()));
       set.add(channel.current.group.pk);
+      // A restricted Channel's posts arrive at its live writer address (CORD-03 §1).
+      for (const s of channel.streams) {
+        if (s.writer && s.writer.to === undefined && s.epoch === channel.current.epoch) set.add(s.group.pk);
+      }
     }
   }
   for (const [relay, pks] of pksByRelay) {
