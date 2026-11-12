@@ -25,6 +25,9 @@ export function useRankedCategoryControls(community: Community | undefined, canM
   const { user } = useCurrentUser();
   const { folded, moveCategory, deleteCategory } = useRankedRoles(community);
   const [scope, setScope] = useState<Scope | undefined>(undefined);
+  // Mounted from its first opening on, not before: closed, it would still fold the Roster and Guestbook on every render.
+  const [permissionsOpened, setPermissionsOpened] = useState(false);
+  if (scope && !permissionsOpened) setPermissionsOpened(true);
   const [deleting, setDeleting] = useState<{ idHex: string; name: string } | undefined>(undefined);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -68,7 +71,7 @@ export function useRankedCategoryControls(community: Community | undefined, canM
 
   const dialog = community ? (
     <>
-      <ChannelPermissionsDialog community={community} scope={scope} onOpenChange={(open) => !open && setScope(undefined)} />
+      {permissionsOpened && <ChannelPermissionsDialog community={community} scope={scope} onOpenChange={(open) => !open && setScope(undefined)} />}
       <Dialog open={Boolean(deleting)} onOpenChange={(open) => !open && closeDelete()}>
         <ChromeDialogContent
           title={intl.formatMessage({ id: "rankedCategory.deleteTitle", defaultMessage: "Delete {name}?" }, { name: deleting?.name ?? "" })}
