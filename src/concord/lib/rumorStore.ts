@@ -80,6 +80,11 @@ function touchTenant(communityIdHex: string): void {
   for (const plane of MEMO_PLANES) planeMemo.delete(planeMemoKey(communityIdHex, plane));
 }
 
+/** Moves on every write that can change a community's stored planes, so a derivation of them can be held until it does. */
+export function planeRevision(communityIdHex: string): number {
+  return tenantRev.get(communityIdHex) ?? 0;
+}
+
 /** Forget the shared plane reads on logout: they are decrypted community state. */
 export function clearRumorStoreMemory(): void {
   planeMemo.clear();

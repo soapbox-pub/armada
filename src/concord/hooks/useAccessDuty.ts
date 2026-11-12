@@ -113,7 +113,7 @@ export function useAccessDuty(community: Community | undefined): void {
   const { user } = useCurrentUser();
   const { data: folded } = useControlFold(community);
   const { data: dissolved } = useDissolved(community);
-  const { coalesced, history } = useGuestbook(folded?.rankedRoster ? community : undefined);
+  const { coalesced, history } = useGuestbook(folded?.rankedRoster ? community : undefined, { poll: false });
   const { rekeyChannel, canRekeyChannel } = useChannelRekey(community);
   const latest = useRef({ community, folded, coalesced, history, rekeyChannel, canRekeyChannel });
   latest.current = { community, folded, coalesced, history, rekeyChannel, canRekeyChannel };

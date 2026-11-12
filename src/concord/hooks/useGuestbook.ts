@@ -286,7 +286,11 @@ export function useMemberStanding(community: Community | undefined) {
   return useMemo(() => ({ timeouts, nicknames, mayTimeout, mayNickname, timeout, setNickname }), [timeouts, nicknames, mayTimeout, mayNickname, timeout, setNickname]);
 }
 
-export function useGuestbook(community: Community | undefined) {
+/**
+ * `poll: false` for a background reader: it is still woken by every stored write
+ * (`c2gb`), but leaves the minutely relay sweep to an open page.
+ */
+export function useGuestbook(community: Community | undefined, { poll = true }: { poll?: boolean } = {}) {
   const { nostr } = useNostr();
   const queryClient = useQueryClient();
   const { data: folded } = useControlFold(community);
@@ -301,7 +305,7 @@ export function useGuestbook(community: Community | undefined) {
     queryKey,
     enabled: Boolean(community),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: poll ? 60_000 : false,
     queryFn: async () => {
       // Return the STORE read; the network sweep runs in the background and merges
       // via onFresh. Awaiting it stranded reads (incl. useSelfRemove's refetch)
