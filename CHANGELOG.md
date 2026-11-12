@@ -4,6 +4,26 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.4] - 2026-11-12
+
+Quicker ways to manage roles and channel permissions, sturdier direct
+invites, and better compatibility with other Concord apps.
+
+### Added
+- Make admin and Make moderator on a member, and Admin and Moderator templates in Create role
+- Sync all channels in a category's permissions, applying its rules to every channel in it at once
+- Make public on a private channel
+
+### Changed
+- A public channel moved into a category follows the category's permissions when it has none of its own
+- The message hover toolbar sits on the message's top edge in a single row
+
+### Fixed
+- Direct invites whose sender can't be verified are ignored
+- Direct invites, reactions, deletions and role edits work better with other Concord apps
+- New messages in channels only some members can post in show up live
+- Someone in a voice call is no longer missing from the participant list when connected more than one way
+
 ## [0.69.3] - 2026-11-12
 
 Channel history no longer skips a stretch of messages after an update or a
