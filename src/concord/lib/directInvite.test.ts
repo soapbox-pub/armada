@@ -124,6 +124,21 @@ describe("direct invites (CORD-05 §6)", () => {
     expect(await unwrapDirectInvite(wrap, rawSigner(recipientSk))).toBeUndefined();
   });
 
+  it("rejects a seal whose signature does not verify", async () => {
+    const inviterSk = generateSecretKey();
+    const recipientSk = generateSecretKey();
+    const recipientPk = getPublicKey(recipientSk);
+
+    const rumor = buildDirectInviteRumor(makeBundle(), getPublicKey(inviterSk));
+    const seal = await sealDirectInvite(rumor, recipientPk, rawSigner(inviterSk));
+    const badSig = `${seal.sig.slice(0, -1)}${seal.sig.endsWith("0") ? "1" : "0"}`;
+    const unsigned = { ...seal, sig: "" } as NostrEvent;
+    for (const forged of [{ ...seal, sig: badSig }, unsigned]) {
+      const wrap = await wrapDirectInvite(forged, recipientPk);
+      expect(await unwrapDirectInvite(wrap, rawSigner(recipientSk))).toBeUndefined();
+    }
+  });
+
   it("refuses a bundle whose owner does not reproduce its community_id", () => {
     const forged = makeBundle({ owner: bytesToHex(random32()) });
     expect(parseDirectInviteRumor(KIND_DIRECT_INVITE, JSON.stringify(forged))).toBeUndefined();

@@ -24,6 +24,7 @@ import { KIND_DIRECT_INVITE, KIND_WRAP } from "@/concord/lib/kinds";
 import { t } from "@/i18n/intl";
 import { finalizePowEvent } from "@/lib/pow";
 import { nowSecs } from "@/lib/relayClock";
+import { verifyEventOnce } from "@/lib/verifyCache";
 
 /** The standard NIP-59 seal kind (classic giftwrap — not a CORD-01 seal). */
 export const KIND_NIP59_SEAL = 13;
@@ -131,6 +132,8 @@ export async function unwrapDirectInvite(
   try {
     const seal = JSON.parse(await signer.nip44.decrypt(giftWrap.pubkey, giftWrap.content)) as NostrEvent;
     if (seal.kind !== KIND_NIP59_SEAL) return undefined;
+    // The seal's signature is what makes `sender` the inviter (CORD-05 §6, NIP-59).
+    if (!verifyEventOnce(seal)) return undefined;
 
     const rumor = JSON.parse(await signer.nip44.decrypt(seal.pubkey, seal.content)) as DirectInviteRumor;
 
