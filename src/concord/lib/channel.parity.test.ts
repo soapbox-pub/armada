@@ -96,6 +96,20 @@ describe("reading Channel editions", () => {
     expect(channelsView(heldCommunity(c, [ch.held]), folded).find((v) => v.idHex === ch.idHex)?.topic).toBeUndefined();
   });
 
+  it("takes a plain `private: false` edition over a sealed head as the Channel made public again (CORD-03 §2)", () => {
+    const { c, base } = rankedCommunity(MANAGER_BITS);
+    const ch = sealedChannel(c, c.owner, undefined, "vault");
+    const opened = c.edition({ vsk: "2", eid: ch.id, author: c.owner, prev: ch.edition, content: { name: "vault", private: false } });
+    const folded = foldControlState([...base, ch.edition, opened], c.id, c.owner, undefined, undefined, { heldChannels: [ch.held] });
+    const community = heldCommunity(c, [ch.held]);
+    const shown = channelsView(community, folded).find((v) => v.idHex === ch.idHex)!;
+    expect(shown.isPrivate).toBe(false);
+    expect(shown.current?.group.pk).toBe(channelGroupKey(community.root, ch.id, 0n).pk);
+    // The private era stays readable to its key holders.
+    expect(shown.streams.map((s) => s.group.pk)).toContain(channelGroupKey(ch.key, ch.id, 1n).pk);
+    expect(visibleChannels([shown], folded, hexKey()).map((v) => v.idHex)).toEqual([ch.idHex]);
+  });
+
   it("reads a converted Private Channel's public era at the root planes, before public_until (CORD-03 §2)", () => {
     const { c, base } = rankedCommunity(MANAGER_BITS);
     const ch = sealedChannel(c, c.owner, undefined, "was-public", { publicUntil: 1_700_000_000 });

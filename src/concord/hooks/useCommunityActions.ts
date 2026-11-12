@@ -1293,12 +1293,14 @@ export function useCommunityManagement(community: Community | undefined) {
     }
     // Only the groups a Channel lands in are keyed: the rest keep their order (Vector `move_channel`).
     const landed = new Set(changes.map((c) => groupOf.get(c.idHex)));
+    const filed = new Map<string, string[]>();
     for (const [g, list] of groups) {
       if (!landed.has(g)) continue;
       const keys = rekeyOrder(list, new Set(changes.map((c) => c.idHex)));
       for (const item of list) {
         const key = keys.get(item.id);
         const refile = moved.has(item.id) && !moved.get(item.id)!.keepCategory && view.find((v) => v.idHex === item.id)?.categoryId !== g;
+        if (refile && g) filed.set(g, [...(filed.get(g) ?? []), item.id]);
         if (key === undefined && !refile) continue;
         await writeChannel(item.id, (meta) => {
           const { category: _category, ...rest } = meta;
@@ -1306,6 +1308,46 @@ export function useCommunityManagement(community: Community | undefined) {
           return key !== undefined ? { ...next, position: key } : next;
         });
       }
+    }
+    for (const [g, ids] of filed) await followCategory(ids, g);
+  };
+
+  /**
+   * A public Channel filed into a Category follows its rules, as one made there does
+   * (CORD-04 §8), unless it has rules of its own: those it keeps, and the mover is told.
+   */
+  const followCategory = async (channelIds: readonly string[], categoryId: string | undefined) => {
+    if (!ranked || !categoryId || !community || !user) return;
+    const c = community;
+    const u = user;
+    const kept: string[] = [];
+    await withControlWrite(c.idHex, async () => {
+      const now = await foldStoredControl(c).catch(() => folded);
+      if (!now) return;
+      const held = new Set(c.privateChannels.map((k) => bytesToHex(k.id)));
+      const ruled = new Set((now.roster.overwrites ?? []).map((o) => o.scope));
+      for (const id of channelIds) {
+        const def = now.channels.get(id);
+        if (!def || def.deleted || def.isPrivate || now.roster.syncs?.[id] === categoryId) continue;
+        if (ruled.has(id)) {
+          kept.push(def.name);
+          continue;
+        }
+        try {
+          await publishEdition(nostr, c, u.signer, planSync(now, c.id, u.pubkey, held, id, categoryId, citationFor(c, now, u.pubkey)));
+        } catch (e) {
+          logSync("control", `#${id.slice(0, 8)} keeps its own rules: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    });
+    if (kept.length > 0) {
+      toast({
+        title: t(
+          { id: "useCommunityActions.keptOwnRules", defaultMessage: "{count, plural, one {{names} keeps its own permissions} other {{names} keep their own permissions}}" },
+          { count: kept.length, names: kept.map((n) => `#${n}`).join(", ") },
+        ),
+        description: t({ id: "useCommunityActions.keptOwnRulesHint", defaultMessage: "To follow the category's rules instead, sync from the category's permissions." }),
+      });
     }
   };
 
@@ -1456,6 +1498,7 @@ export function useCommunityManagement(community: Community | undefined) {
         const { category: _category, ...rest } = meta;
         return catId ? { ...rest, category: catId } : rest;
       });
+      await followCategory([channelIdHex], catId);
       invalidateControl(queryClient, community.idHex);
     },
   });
@@ -1493,6 +1536,7 @@ export function useCommunityManagement(community: Community | undefined) {
             return { ...rest, category: created };
           });
         }
+        await followCategory(channelIds, created);
       }
       invalidateControl(queryClient, community.idHex);
     },

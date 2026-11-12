@@ -927,7 +927,7 @@ function ChannelsSection({
 }) {
   const intl = useIntl();
   const channels = useChannels(community);
-  const { renameChannel, isRenaming, setChannelCategory, isFiling, setChannelView, deleteChannel, createChannel, isAddingChannel, arrangeChannels, nameCategory } =
+  const { renameChannel, isRenaming, setChannelCategory, isFiling, setChannelView, deleteChannel, createChannel, isAddingChannel, arrangeChannels, nameCategory, publiciseChannel } =
     useCommunityManagement(community);
   const rankedControls = useRankedCategoryControls(community, canManage);
 
@@ -1148,6 +1148,7 @@ function ChannelsSection({
             onRename={(name) => renameChannel({ channelIdHex: ch.idHex, name })}
             accessRoles={channelRoles?.get(ch.idHex) ?? []}
             onPrivatise={onPrivatiseChannel ? (roleName) => onPrivatiseChannel(ch.idHex, roleName) : undefined}
+            onPublicise={canManage ? () => publiciseChannel({ channelIdHex: ch.idHex }) : undefined}
             onRotateKey={onRotateChannelKey ? () => onRotateChannelKey(ch.idHex) : undefined}
             onMintAccessRole={onMintAccessRole ? (name) => onMintAccessRole(ch.idHex, name) : undefined}
             onSetCategory={(category) => setChannelCategory({ channelIdHex: ch.idHex, category })}
@@ -1452,6 +1453,7 @@ function ChannelRow({
   onDelete,
   accessRoles,
   onPrivatise,
+  onPublicise,
   onRotateKey,
   onMintAccessRole,
 }: {
@@ -1472,6 +1474,8 @@ function ChannelRow({
   /** The Roles scoped to this channel — who may read it (CORD-03/04 §2). */
   accessRoles?: Array<{ id: string; name: string }>;
   onPrivatise?: (accessRoleName?: string) => Promise<void>;
+  /** Convert Private → Public (CORD-03 §2): readable by every member from here on. */
+  onPublicise?: () => Promise<void>;
   /** Re-key to exactly the currently-entitled members (drift/leak repair). */
   onRotateKey?: () => Promise<void>;
   onMintAccessRole?: (name: string) => Promise<void>;
@@ -1541,7 +1545,7 @@ function ChannelRow({
 
   const currentView = channel.view ?? "chat";
   const ViewIcon = CHANNEL_TYPES.find((c) => c.view === currentView)?.icon ?? Hash;
-  const showAccessButton = canManage && Boolean(onPrivatise || (channel.isPrivate && onRotateKey));
+  const showAccessButton = canManage && Boolean(onPrivatise || (channel.isPrivate && (onRotateKey || onPublicise)));
   const row = (
     <div className="px-1">
     <div className="flex items-center gap-2">
@@ -1879,6 +1883,31 @@ function ChannelRow({
               }}
             >
               <FormattedMessage id="communitySettingsView.access.rotate" defaultMessage="Rotate key" />
+            </Button>
+          )}
+          {channel.isPrivate && onPublicise && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground"
+              disabled={busy}
+              onClick={() => {
+                if (!confirm(t(
+                  {
+                    id: "communitySettingsView.access.confirmPublic",
+                    defaultMessage: "Make #{name} public?\n\nEvery member can read what's said there from now on. What was said while it was private stays readable only to those who held its key.",
+                  },
+                  { name: channel.name },
+                ))) return;
+                void run(async () => {
+                  await onPublicise();
+                  setAccessOpen(false);
+                  toast({ title: t({ id: "communitySettingsView.access.madePublic", defaultMessage: "#{name} is now public" }, { name: channel.name }) });
+                }, t({ id: "communitySettingsView.access.makePublicFailed", defaultMessage: "Couldn't make the channel public" }));
+              }}
+            >
+              <FormattedMessage id="communitySettingsView.access.makePublic" defaultMessage="Make public" />
             </Button>
           )}
           <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setAccessOpen(false)}>

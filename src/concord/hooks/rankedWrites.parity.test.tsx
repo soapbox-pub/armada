@@ -15,6 +15,7 @@ import { bytesToHex, random32 } from "@/concord/lib/derive";
 import { isRankKey } from "@/concord/lib/rankKey";
 import { arrangedBefore, dropChanges, planChannelDrop } from "@/concord/lib/channelArrangement";
 import { Permissions } from "@/concord/lib/roles";
+import { overwriteLocator, overwriteToJSON } from "@/concord/lib/roster";
 import type { Community, PrivateChannelKey } from "@/concord/lib/types";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { encrypt as nip44Encrypt, getConversationKey } from "nostr-tools/nip44";
@@ -481,6 +482,32 @@ describe("reducing a member's authority (CORD-04 §6, §9)", () => {
     // Above the existing "a" and "m" ranks: it outranks every Role there was.
     expect(role.rank < "a").toBe(true);
     expect(JSON.parse(env.published[1].content)).toMatchObject({ member, role_ids: [role.role_id] });
+  });
+});
+
+describe("filing a Channel into a Category (CORD-04 §8)", () => {
+  it("syncs a public Channel with no rules of its own to the Category it's filed into", async () => {
+    const { community, publicId, cat } = setup();
+    const { result } = renderHook(() => useCommunityManagement(community), { wrapper });
+    await act(async () => {
+      await result.current.setChannelCategory({ channelIdHex: publicId, category: cat });
+    });
+    expect(env.published.map(vskOf)).toEqual(["2", "17"]);
+    expect(JSON.parse(env.published[1].content)).toEqual({ channel: publicId, sync: cat });
+  });
+
+  it("leaves a Channel with rules of its own on them", async () => {
+    const { c, base, community, publicId, cat } = setup();
+    const rule = { scope: publicId, target: { kind: "everyone" as const }, allow: 0n, deny: Permissions.ATTACH_FILES };
+    const ow = c.edition({ vsk: "14", eid: overwriteLocator(c.id, rule), author: c.owner, content: overwriteToJSON(rule) });
+    const heads = [...env.folded!.headEditions.values()].filter((e) => e.vsk === "2" || e.vsk === "15");
+    env.folded = foldControlState([...base, ...heads, ow], c.id, c.owner);
+    expect(env.folded.roster.overwrites?.some((o) => o.scope === publicId)).toBe(true);
+    const { result } = renderHook(() => useCommunityManagement(community), { wrapper });
+    await act(async () => {
+      await result.current.setChannelCategory({ channelIdHex: publicId, category: cat });
+    });
+    expect(env.published.map(vskOf)).toEqual(["2"]);
   });
 });
 
