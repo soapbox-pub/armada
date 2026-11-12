@@ -42,13 +42,16 @@ function notify(): void {
   }
 }
 
-/** The user navigated in: this is the active scope of its kind, live for the session. Notifies. */
+/**
+ * The user navigated in: this is the active scope of its kind, live for the session.
+ * Notifies only a FIRST activation: listeners rebuild the wire's whole spec, and
+ * moving between scopes already live changes nothing in it.
+ */
 export function activateScope(scope: string): void {
-  const kind = kindOf(scope);
-  const changed = activeByKind.get(kind) !== scope || !activated.has(scope);
-  activeByKind.set(kind, scope);
+  activeByKind.set(kindOf(scope), scope);
+  if (activated.has(scope)) return;
   activated.add(scope);
-  if (changed) notify();
+  notify();
 }
 
 /** Pin a scope live WITHOUT notifying (for the wire's own mid-rebuild pass). */

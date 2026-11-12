@@ -313,6 +313,9 @@ function useWireConcordChannels(): WireConcordChannel[] {
   const query = useQuery<WireConcordChannel[]>({
     queryKey: ["wire", "concord-channels", listSig, activationEpoch],
     enabled: entries.length > 0,
+    // While a new key reads, the spec keeps the last one's channels: an empty one
+    // would restart every relay's subscription, twice.
+    placeholderData: (previous) => previous,
     staleTime: 30_000,
     // Picks up out-of-band fold updates (new channels, rotated epochs).
     refetchInterval: 2 * 60_000,
@@ -552,6 +555,8 @@ function useWireNip29Deferral(
   const query = useQuery<Array<{ id: string; relay: string; buzz?: boolean }>>({
     queryKey: ["wire", "nip29-deferral", groupsSig, activationEpoch],
     enabled: groups.length > 0,
+    // As the Concord channels: never an empty spec between two keys.
+    placeholderData: (previous) => previous,
     staleTime: 30_000,
     refetchInterval: 2 * 60_000,
     refetchIntervalInBackground: false,
