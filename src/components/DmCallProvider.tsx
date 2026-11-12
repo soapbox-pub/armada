@@ -54,11 +54,11 @@ import {
   buildDmRumor,
   KIND_DM_CALL,
   KIND_DM_WRAP_EPHEMERAL,
-  openDmWrap,
   sealDmRumor,
   wrapDmSealEphemeral,
   type Dm17Signer,
 } from "@/lib/nip17/protocol";
+import { openDmEphemeral } from "@/lib/nip17/ephemeralInbox";
 import { hasNativeNotificationService, RESCUE_RELAYS } from "@/lib/platform";
 
 import type { DmVoiceContext } from "@/contexts/CallContext";
@@ -302,7 +302,8 @@ export function DmCallProvider({ children }: { children: React.ReactNode }) {
   );
 
   // Call rumors ride ephemeral wraps, so nothing arrives via inbox sync: hold a
-  // standing 21059 subscription. Typing signals share the filter and are discarded.
+  // standing 21059 subscription. Typing signals share the filter and are discarded,
+  // opened once with the typing listener (`openDmEphemeral`).
   const scanRelaysKey = scanRelays.join(",");
   useEffect(() => {
     const self = user?.pubkey;
@@ -318,10 +319,7 @@ export function DmCallProvider({ children }: { children: React.ReactNode }) {
           )) {
             if (msg[0] !== "EVENT") continue;
             void (async () => {
-              const opened = await openDmWrap(msg[2] as NostrEvent, signer, self, {
-                wrapKind: KIND_DM_WRAP_EPHEMERAL,
-                cache: false,
-              }).catch(() => undefined);
+              const opened = await openDmEphemeral(msg[2] as NostrEvent, signer, self);
               if (opened && opened.kind === KIND_DM_CALL) deliverDmCallRumors([opened]);
             })();
           }

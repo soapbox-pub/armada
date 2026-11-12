@@ -109,3 +109,22 @@ describe("subscribeDmEphemeral", () => {
     expect(reqs[0]!.signal?.aborted).toBe(true);
   });
 });
+
+describe("openDmEphemeral", () => {
+  afterEach(() => closeDmEphemeralSubs());
+
+  it("asks the signer once per wrap, whoever asks and however often", async () => {
+    const { openDmEphemeral } = await import("./ephemeralInbox");
+    const decrypt = vi.fn(async () => {
+      throw new Error("declined");
+    });
+    const signer = { nip44: { encrypt: vi.fn(), decrypt } } as never;
+    const wrap = { id: "w1", kind: 21059, pubkey: "p".repeat(64), content: "x", tags: [], created_at: Math.floor(Date.now() / 1000), sig: "" } as NostrEvent;
+    await Promise.all([openDmEphemeral(wrap, signer, "me"), openDmEphemeral(wrap, signer, "me")]);
+    await openDmEphemeral(wrap, signer, "me");
+    expect(decrypt).toHaveBeenCalledTimes(1);
+    closeDmEphemeralSubs();
+    await openDmEphemeral(wrap, signer, "me");
+    expect(decrypt).toHaveBeenCalledTimes(2);
+  });
+});

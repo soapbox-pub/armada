@@ -5,7 +5,7 @@
  * conversation switches off the socket. Wraps are deduped across relays.
  * Nothing is stored, so nothing is replayed after a reopen.
  */
-import { KIND_DM_WRAP_EPHEMERAL } from "@/lib/nip17/protocol";
+import { KIND_DM_WRAP_EPHEMERAL, openDmWrap, type Dm17Signer, type OpenedDm } from "@/lib/nip17/protocol";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import { liveSignalSince } from "@/lib/liveSignal";
@@ -34,6 +34,8 @@ export const LINGER_MS = 30_000;
 const SEEN_CAP = 256;
 
 const lines = new Map<string, Line>();
+/** Each ephemeral wrap opened once, by id, for every listener and every relay's copy. */
+const opened = new Map<string, Promise<OpenedDm | undefined>>();
 const seen = new Map<string, Set<string>>();
 
 function firstSighting(recipient: string, id: string): boolean {
@@ -79,6 +81,22 @@ function open(nostr: EphemeralNostr, relay: string, recipient: string, key: stri
   return line;
 }
 
+/**
+ * Open an ephemeral DM wrap, once per wrap however many listeners and relays hand it
+ * over: on a signer that prompts, each open is two `nip44_decrypt` requests. Uncached
+ * on disk, as before; held in memory only for the last {@link SEEN_CAP} wraps.
+ */
+export function openDmEphemeral(wrap: NostrEvent, signer: Dm17Signer, self: string): Promise<OpenedDm | undefined> {
+  const key = `${self}\u0000${wrap.id}`;
+  let hit = opened.get(key);
+  if (!hit) {
+    hit = openDmWrap(wrap, signer, self, { wrapKind: KIND_DM_WRAP_EPHEMERAL, cache: false }).catch(() => undefined);
+    opened.set(key, hit);
+    if (opened.size > SEEN_CAP) opened.delete(opened.keys().next().value as string);
+  }
+  return hit;
+}
+
 /** Receive raw ephemeral DM wraps for `recipient` on `relay`. Returns an unsubscribe. */
 export function subscribeDmEphemeral(
   nostr: EphemeralNostr,
@@ -121,4 +139,5 @@ export function closeDmEphemeralSubs(): void {
   }
   lines.clear();
   seen.clear();
+  opened.clear();
 }
