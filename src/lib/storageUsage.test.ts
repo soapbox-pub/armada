@@ -48,6 +48,33 @@ describe("dataRows()", () => {
     ]);
   });
 
+  it("breaks settings and sync state into localStorage and the KV's groups, largest first", () => {
+    const rows = dataRows(
+      {
+        tenants: [],
+        kv: {
+          entries: 3,
+          bytes: 90,
+          groups: [
+            { group: "c2seal", entries: 2, bytes: 80 },
+            { group: "draft", entries: 1, bytes: 10 },
+          ],
+        },
+      },
+      30,
+    );
+    expect(rows.find((r) => r.id === "settings")).toEqual({
+      id: "settings",
+      bytes: 120,
+      clearable: false,
+      parts: [
+        { id: "c2seal", bytes: 80, entries: 2 },
+        { id: "localStorage", bytes: 30 },
+        { id: "draft", bytes: 10, entries: 1 },
+      ],
+    });
+  });
+
   it("leaves a row unsized when the engine couldn't size a tenant in it", () => {
     const rows = dataRows({ tenants: [{ id: "dm17:a", rumors: 2 }, { id: "svc", rumors: 1 }] }, 0);
     expect(rows.find((r) => r.id === "dms")).toEqual({ id: "dms", count: 2, bytes: undefined, clearable: false });

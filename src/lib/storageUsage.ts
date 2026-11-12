@@ -37,7 +37,19 @@ export interface StorageRow {
   /** Items held (cached files, stored events), where that means something. */
   count?: number;
   clearable: boolean;
+  /** What the row is made of, largest first, where it can be told apart (settings and sync state). */
+  parts?: StoragePart[];
 }
+
+/** One piece of a row: a KV key group (`kvGroupOf`) or {@link LOCAL_STORAGE_PART}. */
+export interface StoragePart {
+  id: string;
+  bytes: number;
+  entries?: number;
+}
+
+/** The {@link StoragePart} id of the browser's localStorage, where the app's own settings live. */
+export const LOCAL_STORAGE_PART = "localStorage";
 
 export interface StorageReport {
   /** Caches and leftovers, each clearable. */
@@ -134,7 +146,13 @@ export function dataRows(usage: ArmadaDBUsage, settingsBytes: number): StorageRo
     row.bytes = row.bytes === undefined || tenant.bytes === undefined ? undefined : row.bytes + tenant.bytes;
   }
   const out = [...rows.values()].filter((row) => row.id !== "otherData" || row.count! > 0);
-  out.push({ id: "settings", bytes: settingsBytes + (usage.kv?.bytes ?? 0), clearable: false });
+  const groups = usage.kv?.groups;
+  const parts = groups
+    ? [{ id: LOCAL_STORAGE_PART, bytes: settingsBytes }, ...groups.map((g) => ({ id: g.group, bytes: g.bytes, entries: g.entries }))]
+      .filter((part) => part.bytes > 0)
+      .sort((a, b) => b.bytes - a.bytes)
+    : undefined;
+  out.push({ id: "settings", bytes: settingsBytes + (usage.kv?.bytes ?? 0), clearable: false, ...(parts ? { parts } : {}) });
   return out;
 }
 

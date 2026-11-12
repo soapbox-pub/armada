@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
 vi.mock("@/lib/storageUsage", () => ({
   measureStorage: h.measure,
   clearStorage: h.clear,
+  LOCAL_STORAGE_PART: "localStorage",
 }));
 vi.mock("@/hooks/useToast", () => ({ toast: vi.fn() }));
 
@@ -32,7 +33,16 @@ describe("StorageSettings", () => {
       ],
       data: [
         { id: "dms", bytes: 4_500, count: 12, clearable: false },
-        { id: "settings", bytes: 900, clearable: false },
+        {
+          id: "settings",
+          bytes: 9_000_900,
+          clearable: false,
+          parts: [
+            { id: "c2seal", bytes: 8_000_000, entries: 4_000 },
+            { id: "c2odd", bytes: 1_000_000, entries: 3 },
+            { id: "localStorage", bytes: 900 },
+          ],
+        },
       ],
       totalBytes: 20_000_000,
       quotaBytes: 1_000_000_000,
@@ -67,6 +77,19 @@ describe("StorageSettings", () => {
 
     expect(within(rowOf("Community icons and banners")).getByRole("button", { name: "Clear" })).toBeDisabled();
     expect(within(rowOf("Direct messages")).queryByRole("button")).toBeNull();
+  });
+
+  it("opens settings and sync state into its parts, naming the ones it knows and keying the rest", async () => {
+    render(<StorageSettings />);
+    await screen.findByText("20 MB");
+    expect(screen.queryByText("Message signatures")).toBeNull();
+
+    fireEvent.click(screen.getByText("Settings and sync state"));
+
+    expect(within(rowOf("Message signatures")).getByText("8 MB")).toBeInTheDocument();
+    expect(screen.getByText("4,000 items")).toBeInTheDocument();
+    expect(within(rowOf("Settings on this device")).getByText("900 byte")).toBeInTheDocument();
+    expect(screen.getByText("c2odd")).toBeInTheDocument();
   });
 
   it("asks before deleting unsaved recordings", async () => {
