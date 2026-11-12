@@ -292,6 +292,18 @@ export function useRankedRoles(community: Community | undefined) {
     onSuccess: done,
   });
 
+  /** Sync several Channels to one Category; planned whole first, so a refusal publishes none of them. */
+  const syncChannels = useMutation<void, Error, { channelIds: string[]; category: string }>({
+    mutationFn: ({ channelIds, category }) => write(async () => {
+      const { user, community } = ready();
+      const { folded } = await read(community, false);
+      const authority = citationFor(community, folded, user.pubkey);
+      const rumors = channelIds.map((id) => planSync(folded, community.id, user.pubkey, heldKeys(community), id, category, authority));
+      await publish(community, rumors);
+    }),
+    onSuccess: done,
+  });
+
   const createCategory = useMutation<string, Error, { name: string }>({
     mutationFn: ({ name }) => write(async () => {
       const { user, community } = ready();
@@ -358,6 +370,7 @@ export function useRankedRoles(community: Community | undefined) {
     setEveryone: setEveryone.mutateAsync,
     setOverwrite: setOverwrite.mutateAsync,
     setSync: setSync.mutateAsync,
+    syncChannels: syncChannels.mutateAsync,
     createCategory: createCategory.mutateAsync,
     renameCategory: renameCategory.mutateAsync,
     moveCategory: moveCategory.mutateAsync,
@@ -370,7 +383,7 @@ export function useRankedRoles(community: Community | undefined) {
     published,
     planned,
     isSaving:
-      createRole.isPending || editRole.isPending || moveRole.isPending || reorderRoles.isPending || deleteRole.isPending || setEveryone.isPending || setOverwrite.isPending || setSync.isPending ||
+      createRole.isPending || editRole.isPending || moveRole.isPending || reorderRoles.isPending || deleteRole.isPending || setEveryone.isPending || setOverwrite.isPending || setSync.isPending || syncChannels.isPending ||
       createCategory.isPending || renameCategory.isPending || moveCategory.isPending || deleteCategory.isPending,
   };
 }

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
 import { WriteProgress } from "@/concord/components/WriteProgress";
+import { useChannels } from "@/concord/hooks/useControlPlane";
 import { useRankedRoles } from "@/concord/hooks/useRankedRoles";
 import { categoryOrder, rankedOrder, sameTarget } from "@/concord/lib/rankedWrites";
 import { colorToHex, OVERWRITABLE, PERMISSION_LABELS, type OverwriteTarget } from "@/concord/lib/roles";
@@ -65,8 +66,9 @@ export function ChannelPermissionsDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const intl = useIntl();
-  const { folded, setOverwrite, setSync, isSaving, published, planned } = useRankedRoles(community);
+  const { folded, setOverwrite, setSync, syncChannels, isSaving, published, planned } = useRankedRoles(community);
   const { coalesced } = useGuestbook(community);
+  const channels = useChannels(community, Boolean(scope));
   const [typed, setTyped] = useState("");
   const roster = folded?.roster;
   const scopeHex = scope?.idHex.toLowerCase();
@@ -74,6 +76,11 @@ export function ChannelPermissionsDialog({
   const roles = useMemo(() => (folded ? rankedOrder(folded) : []), [folded]);
   const categories = useMemo(() => (folded ? categoryOrder(folded) : []), [folded]);
   const syncedTo = scope?.kind === "channel" && scopeHex ? roster?.syncs?.[scopeHex] : undefined;
+  // A Category's Channels still on their own rules (or another Category's).
+  const unsynced = useMemo(
+    () => (scope?.kind === "category" && scopeHex ? channels.filter((c) => c.categoryId === scopeHex && roster?.syncs?.[c.idHex] !== scopeHex).map((c) => c.idHex) : []),
+    [scope?.kind, scopeHex, channels, roster],
+  );
   const bits = useMemo(() => PERMISSION_LABELS.filter((l) => (l.bit & OVERWRITABLE) === l.bit), []);
 
   const [selected, setSelected] = useState<string>("everyone");
@@ -131,6 +138,17 @@ export function ChannelPermissionsDialog({
     setError(null);
     try {
       await setSync({ channelIdHex: scopeHex, category: value === "own" ? undefined : value });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t({ id: "channelPermissions.syncFailed", defaultMessage: "Couldn't change where the permissions come from." }));
+    }
+  };
+
+  const syncAll = async () => {
+    if (!scopeHex) return;
+    setError(null);
+    try {
+      await syncChannels({ channelIds: unsynced, category: scopeHex });
+      toast({ title: t({ id: "channelPermissions.syncedAll", defaultMessage: "{count, plural, one {# channel synced} other {# channels synced}}" }, { count: unsynced.length }) });
     } catch (e) {
       setError(e instanceof Error ? e.message : t({ id: "channelPermissions.syncFailed", defaultMessage: "Couldn't change where the permissions come from." }));
     }
@@ -204,6 +222,21 @@ export function ChannelPermissionsDialog({
                 />
               </p>
             )}
+          </div>
+        )}
+
+        {scope?.kind === "category" && unsynced.length > 0 && (
+          <div className="flex flex-col gap-2 rounded-lg bg-secondary/40 p-3 sm:flex-row sm:items-center">
+            <p className="flex-1 text-xs text-muted-foreground">
+              <FormattedMessage
+                id="channelPermissions.unsyncedChannels"
+                defaultMessage="{count, plural, one {# channel in this category uses its own rules.} other {# channels in this category use their own rules.}} Syncing keeps those rules, and they apply again if a channel is switched back."
+                values={{ count: unsynced.length }}
+              />
+            </p>
+            <Button type="button" size="sm" variant="secondary" className="shrink-0 clip-corner-lg" disabled={isSaving} onClick={() => void syncAll()}>
+              <FormattedMessage id="channelPermissions.syncAll" defaultMessage="Sync all channels" />
+            </Button>
           </div>
         )}
 

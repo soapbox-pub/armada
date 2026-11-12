@@ -484,6 +484,28 @@ describe("reducing a member's authority (CORD-04 §6, §9)", () => {
   });
 });
 
+describe("syncing a Category's Channels at once (CORD-04 §8)", () => {
+  it("publishes one sync edition per Channel, the sealed one included", async () => {
+    const { community, sealedId, publicId, cat } = setup();
+    const { result } = renderHook(() => useRankedRoles(community), { wrapper });
+    await act(async () => {
+      await result.current.syncChannels({ channelIds: [publicId, sealedId], category: cat });
+    });
+    expect(env.published.map(vskOf)).toEqual(["17", "17"]);
+    expect(env.published.map((r) => JSON.parse(r.content))).toEqual([
+      { channel: publicId, sync: cat },
+      { channel: sealedId, sync: cat },
+    ]);
+  });
+
+  it("publishes nothing when one Channel can't be synced", async () => {
+    const { community, publicId, cat } = setup();
+    const { result } = renderHook(() => useRankedRoles(community), { wrapper });
+    await attempt(() => result.current.syncChannels({ channelIds: [publicId, hexKey()], category: cat }));
+    expect(env.published).toEqual([]);
+  });
+});
+
 describe("lifting a Ban (CORD-04 §6, concord#25 7c64a24)", () => {
   it("writes the banned member's departure, a Kick dated at the Ban, before the Banlist edition", async () => {
     const { c, base, community } = setup();

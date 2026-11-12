@@ -13,6 +13,7 @@ const ROLE = "a".repeat(64);
 const env = vi.hoisted(() => ({
   setOverwrite: vi.fn(async () => {}),
   setSync: vi.fn(async () => {}),
+  syncChannels: vi.fn(async () => {}),
   overwrites: [] as unknown[],
 }));
 
@@ -24,8 +25,19 @@ const JOINED = "d".repeat(64);
 vi.mock("@/concord/hooks/useGuestbook", () => ({
   useGuestbook: () => ({ coalesced: new Map([[JOINED, { pubkey: JOINED, state: "join" }]]) }),
 }));
+const CATEGORY = "b".repeat(64);
+const SYNCED = "1".repeat(64);
+const OWN = "2".repeat(64);
+vi.mock("@/concord/hooks/useControlPlane", () => ({
+  useChannels: () => [
+    { idHex: SYNCED, categoryId: CATEGORY },
+    { idHex: OWN, categoryId: CATEGORY },
+    { idHex: CHANNEL },
+  ],
+}));
 vi.mock("@/concord/hooks/useRankedRoles", () => ({
   useRankedRoles: () => ({
+    syncChannels: env.syncChannels,
     folded: {
       ownerHex: OWNER,
       rankedRoster: true,
@@ -34,6 +46,7 @@ vi.mock("@/concord/hooks/useRankedRoles", () => ({
         grants: [],
         everyone: 0n,
         overwrites: env.overwrites,
+        syncs: { [SYNCED]: CATEGORY },
       },
       categories: new Map(),
     },
@@ -94,5 +107,28 @@ describe("ChannelPermissionsDialog (CORD-04 §8)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(env.setOverwrite).toHaveBeenCalled());
     expect((env.setOverwrite.mock.calls[0] as unknown as [{ target: unknown }])[0].target).toEqual({ kind: "member", id: member });
+  });
+
+  it("syncs every channel of a category still on its own rules", async () => {
+    render(
+      <ChannelPermissionsDialog
+        community={{ owner: OWNER } as unknown as Community}
+        scope={{ idHex: CATEGORY, kind: "category", name: "Text" }}
+        onOpenChange={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Sync all channels" }));
+    await waitFor(() => expect(env.syncChannels).toHaveBeenCalledWith({ channelIds: [OWN], category: CATEGORY }));
+  });
+
+  it("offers no bulk sync on a channel", () => {
+    render(
+      <ChannelPermissionsDialog
+        community={{ owner: OWNER } as unknown as Community}
+        scope={{ idHex: CHANNEL, kind: "channel", name: "general" }}
+        onOpenChange={() => undefined}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Sync all channels" })).toBeNull();
   });
 });
