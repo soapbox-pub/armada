@@ -14,6 +14,7 @@ import { isExpired } from "@/lib/nip17/protocol";
 import { isRemovedMessageId } from "@/lib/removedMessages";
 import { dmConvKey } from "@/lib/nip17/conversation";
 import { perfCount, perfMark } from "@/lib/perf";
+import { SnapshotLru } from "@/lib/snapshotLru";
 
 import type { OpenedDm } from "@/lib/nip17/protocol";
 import type { QueryClient } from "@tanstack/react-query";
@@ -27,6 +28,10 @@ import { nowSecs } from "@/lib/relayClock";
 const SNAP_WINDOW = 80;
 
 const SNAP_PREFIX = "dm17-thread-snap:";
+
+/** Conversations keeping a snapshot; the least recently painted beyond it lose theirs. */
+const SNAP_CONVERSATIONS = 40;
+const recent = new SnapshotLru(SNAP_PREFIX, "dm17-thread-recent", SNAP_CONVERSATIONS);
 
 function snapKey(self: string, conversation: string): string {
   return `${SNAP_PREFIX}${self}:${conversation}`;
@@ -110,12 +115,14 @@ export function persistDm17ThreadSnapshot(
   // Aggregated, not a mark: marks are an unbounded timeline and this runs per paint.
   perfCount("dm17.snap.persist", 0, newest.length, "rows");
   // writeFolded skips an encoding identical to the last one written.
-  return writeFolded(snapKey(self, conversation), newest);
+  const key = snapKey(self, conversation);
+  return writeFolded(key, newest).then(() => recent.touch(key));
 }
 
 /** Forget this session's prewarm attempts (logout). */
 export function clearDm17ThreadSnapshotMemory(): void {
   prewarmed.clear();
+  recent.reset();
 }
 
 /** Test seam. */

@@ -19,6 +19,7 @@
 import { isUnsealedRow } from "@/concord/lib/outgoing";
 import { listFoldedKeys, readFolded, writeFolded } from "@/lib/foldedCache";
 import { perfMark } from "@/lib/perf";
+import { SnapshotLru } from "@/lib/snapshotLru";
 import { isRemovedMessageId } from "@/lib/removedMessages";
 
 import type { QueryClient } from "@tanstack/react-query";
@@ -27,6 +28,10 @@ import type { OpenedChat } from "@/concord/lib/chat";
 const SNAP_WINDOW = 40;
 
 const SNAP_PREFIX = "c2-timeline-snap:";
+
+/** Channels keeping a snapshot; the least recently painted beyond it lose theirs. */
+const SNAP_CHANNELS = 40;
+const recent = new SnapshotLru(SNAP_PREFIX, "c2-timeline-recent", SNAP_CHANNELS);
 
 function snapKey(viewerPubkey: string, channelIdHex: string): string {
   return `${SNAP_PREFIX}${viewerPubkey}:${channelIdHex}`;
@@ -97,10 +102,11 @@ export function persistTimelineSnapshot(
   const sealed = window.filter((m) => !isUnsealedRow(m) && !isRemovedMessageId(m.rumorId));
   if (sealed.length === 0) return Promise.resolve();
   const key = snapKey(viewerPubkey, channelIdHex);
-  const newest = sealed.sort((a, b) => b.ms - a.ms).slice(0, SNAP_WINDOW);
+  // Without the envelope: painting never reads it, and it was most of each row.
+  const newest = sealed.sort((a, b) => b.ms - a.ms).slice(0, SNAP_WINDOW).map(withoutEnvelope);
   // writeFolded skips an encoding identical to the last one it wrote.
   perfMark("snap.persist", `${channelIdHex.slice(0, 8)} ${newest.length} row(s)`);
-  return writeFolded(key, newest);
+  return writeFolded(key, newest).then(() => recent.touch(key));
 }
 
 /** Whether the cache holds an unreplaced snapshot seed; true at most once per seed. */
@@ -109,10 +115,17 @@ export function takeSnapshotSeed(viewerPubkey: string | undefined, channelIdHex:
   return seeded.delete(snapKey(viewerPubkey, channelIdHex));
 }
 
+function withoutEnvelope(row: OpenedChat): OpenedChat {
+  if (row.seal === undefined && row.wrapId === undefined) return row;
+  const { seal: _seal, wrapId: _wrapId, ...rest } = row;
+  return rest;
+}
+
 /** Forget which channels were prewarmed/seeded. Logout. */
 export function clearTimelineSnapshotMemory(): void {
   prewarmed.clear();
   seeded.clear();
+  recent.reset();
 }
 
 /** Test seam. */
