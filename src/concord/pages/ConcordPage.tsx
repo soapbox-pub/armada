@@ -633,6 +633,7 @@ export const ChannelRow = memo(function ChannelRow({
           >
             <button
               type="button"
+              data-channel={channel.idHex}
               onClick={() => {
                 onSelect(channel.idHex);
               }}

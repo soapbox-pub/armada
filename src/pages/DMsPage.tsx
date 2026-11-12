@@ -260,6 +260,7 @@ const ConversationRow = memo(function ConversationRow({
       <ContextMenuTrigger asChild>
         <button
           type="button"
+          data-conversation={conversation}
           onClick={() => actions.open(conversation)}
           className={cn(
             // Larger than a channel row: avatar and preview carry recognition here.
