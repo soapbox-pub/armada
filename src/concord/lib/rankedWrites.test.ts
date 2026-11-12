@@ -23,10 +23,11 @@ import {
   planReorder,
   planRoleSave,
   planSetEveryone,
+  planStockTier,
   planSync,
   rankedOrder,
 } from "@/concord/lib/rankedWrites";
-import { EVERYONE_DEFAULT, Permissions, roleToJSON, type Role } from "@/concord/lib/roles";
+import { EVERYONE_DEFAULT, Permissions, RANKED_ADMIN_ALL, roleToJSON, stockTierOf, type Role } from "@/concord/lib/roles";
 import type { OpenedEvent } from "@/concord/lib/stream";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { eidHex, headFloor, heldCommunity, hexKey, rankedCommunity, TestCommunity } from "@/test/concordEditions";
@@ -49,6 +50,75 @@ function setup(adminBits = MANAGER) {
   const base = [...s.base, channel];
   return { ...s, base, general: bytesToHex(general), folded: foldControlState(base, s.c.id, s.c.owner) };
 }
+
+describe("stock tiers on the vsk-13 Roster", () => {
+  /** Readers' fold once the plan's Role and the Grant it implies land. */
+  function land(c: TestCommunity, all: ParsedEdition[], plan: ReturnType<typeof planStockTier>, member: string, author: string, cite?: ParsedEdition) {
+    const created = plan.create ? [parsed(plan.create)] : [];
+    const prev = all.filter((e) => e.vsk === "3" && bytesToHex(e.entityId) === c.grantEid(member)).at(-1);
+    const grant = c.grant(member, plan.roleIds, { author, cite, prev });
+    const next = [...all, ...created, grant];
+    return { all: next, folded: foldControlState(next, c.id, c.owner) };
+  }
+
+  it("the owner's Admin is minted at the top, and readers keep the Grant", () => {
+    const { c, base, folded } = setup();
+    const member = hexKey();
+    const plan = planStockTier(folded, c.id, c.owner, member, "admin");
+    expect(plan.create).toBeDefined();
+    const next = land(c, base, plan, member, c.owner).folded;
+    const top = rankedOrder(next)[0];
+    expect(top.name).toBe("Admin");
+    expect(top.display).toBe(true);
+    expect(top.permissions).toBe(RANKED_ADMIN_ALL);
+    expect(next.roster.grants.find((g) => g.member === member)?.roleIds).toEqual([top.roleId]);
+    expect(stockTierOf(next.roster, member)).toBe("admin");
+  });
+
+  it("a Moderator lands beneath the Admin, a second promotion reuses the Role, and a demotion swaps them", () => {
+    const { c, base, folded } = setup();
+    const a = hexKey();
+    const b = hexKey();
+    let state = land(c, base, planStockTier(folded, c.id, c.owner, a, "admin"), a, c.owner);
+    const modPlan = planStockTier(state.folded, c.id, c.owner, b, "moderator");
+    state = land(c, state.all, modPlan, b, c.owner);
+    expect(rankedOrder(state.folded).slice(0, 2).map((r) => r.name)).toEqual(["Admin", "Moderator"]);
+
+    const again = planStockTier(state.folded, c.id, c.owner, a, "moderator");
+    expect(again.create).toBeUndefined();
+    state = land(c, state.all, again, a, c.owner);
+    expect(stockTierOf(state.folded.roster, a)).toBe("moderator");
+    expect(state.folded.roster.grants.find((g) => g.member === a)?.roleIds).toHaveLength(1);
+  });
+
+  it("taking the tier away keeps a member's custom Roles", () => {
+    const { c, base, adminRole } = setup();
+    const member = hexKey();
+    const custom = c.grant(member, [adminRole]);
+    const all = [...base, custom];
+    let state = { all, folded: foldControlState(all, c.id, c.owner) };
+    state = land(c, state.all, planStockTier(state.folded, c.id, c.owner, member, "moderator"), member, c.owner);
+    expect(state.folded.roster.grants.find((g) => g.member === member)?.roleIds).toHaveLength(2);
+    const plan = planStockTier(state.folded, c.id, c.owner, member, null);
+    expect(plan.roleIds).toEqual([adminRole]);
+  });
+
+  it("a manager's Moderator is minted beneath their own Role, and stands for readers", () => {
+    const { c, admin, grant, base, folded } = setup(RANKED_ADMIN_ALL);
+    const cite = { entityId: grant.entityId, version: grant.version, editionHash: grant.selfHash };
+    const member = hexKey();
+    const plan = planStockTier(folded, c.id, admin, member, "moderator", cite);
+    const next = land(c, base, plan, member, admin, grant).folded;
+    const order = rankedOrder(next);
+    expect(order.map((r) => r.name)).toEqual(["role", "Moderator"]);
+    expect(stockTierOf(next.roster, member)).toBe("moderator");
+  });
+
+  it("a manager can't mint an Admin holding bits they lack", () => {
+    const { c, admin, folded } = setup();
+    expect(() => planStockTier(folded, c.id, admin, hexKey(), "admin")).toThrow();
+  });
+});
 
 describe("ranked Role writers (Vector create/edit/move/delete_role_v2)", () => {
   it("a created Role lands at the bottom, and readers keep it", () => {

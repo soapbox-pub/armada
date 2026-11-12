@@ -21,6 +21,11 @@ import {
   highestPosition,
   isAuthorized,
   isManagement,
+  isStockRole,
+  rankedTierTemplate,
+  stockRoleOf,
+  stockTierPosition,
+  type StockTier,
   MAX_ROLES_PER_COMMUNITY,
   MAX_ROLES_PER_MEMBER,
   OVERWRITABLE,
@@ -221,8 +226,18 @@ export interface RoleFields {
   mentionable: boolean;
 }
 
-/** Mint a Role at the bottom, beneath everything, as in Discord (Vector `create_role_v2`). */
-export function planCreateRole(folded: FoldedControl, communityId: Uint8Array, me: string, fields: Pick<RoleFields, "name" | "color" | "permissions"> & Partial<RoleFields>, authority?: AuthorityCitation): { roleId: string; rumor: NostrRumor } {
+/**
+ * Mint a Role at the bottom, beneath everything, as in Discord (Vector `create_role_v2`),
+ * or at `index` in the rank order, 0 the top, beneath the writer's own Roles.
+ */
+export function planCreateRole(
+  folded: FoldedControl,
+  communityId: Uint8Array,
+  me: string,
+  fields: Pick<RoleFields, "name" | "color" | "permissions"> & Partial<RoleFields>,
+  authority?: AuthorityCitation,
+  index?: number,
+): { roleId: string; rumor: NostrRumor; role: Role } {
   requireRanked(folded);
   const author = roleAuthor(folded, me);
   if (folded.roster.roles.length >= MAX_ROLES_PER_COMMUNITY) {
@@ -230,15 +245,27 @@ export function planCreateRole(folded: FoldedControl, communityId: Uint8Array, m
   }
   const name = checkName(fields.name);
   const order = rankedOrder(folded);
-  const bottom = order.reduce((m, r) => Math.max(m, r.position), 0) + 1;
-  if (!author.supports(bottom, fields.permissions)) throw noBits();
-  const rank = rankBetween(order.at(-1)?.rank, undefined);
-  if (!rank) throw new Error(t({ id: "rankedWrites.noRoomBottom", defaultMessage: "No room left at the bottom; reorder the roles first." }));
+  const at = index === undefined ? order.length : Math.min(Math.max(0, index), order.length);
+  const above = at > 0 ? order[at - 1] : undefined;
+  const below = order[at];
+  if (index !== undefined && !author.isOwner && (above === undefined || author.rank > above.position)) {
+    throw new Error(t({ id: "rankedWrites.createAbove", defaultMessage: "You can only create roles beneath your own." }));
+  }
+  const position = above ? above.position + 1 : 1;
+  if (!author.supports(position, fields.permissions)) throw noBits();
+  const rank = rankBetween(above?.rank, below?.rank);
+  if (!rank) {
+    throw new Error(
+      below
+        ? t({ id: "rankedWrites.noRoomBetween", defaultMessage: "No room between those roles; move a neighbour first." })
+        : t({ id: "rankedWrites.noRoomBottom", defaultMessage: "No room left at the bottom; reorder the roles first." }),
+    );
+  }
   const roleId = bytesToHex(random32());
   const role: Role = {
     roleId,
     name,
-    position: bottom,
+    position,
     rank,
     permissions: fields.permissions,
     scope: { kind: "server" },
@@ -246,7 +273,44 @@ export function planCreateRole(folded: FoldedControl, communityId: Uint8Array, m
     ...(fields.display ? { display: true } : {}),
     ...(fields.mentionable ? { mentionable: true } : {}),
   };
-  return { roleId, rumor: nextEdition(folded, communityId, me, VSK_RANKED_ROLE, hex32(roleId), rankedRoleToJSON(role), authority) };
+  return { roleId, role, rumor: nextEdition(folded, communityId, me, VSK_RANKED_ROLE, hex32(roleId), rankedRoleToJSON(role), authority) };
+}
+
+/** Where a stock tier's Role is minted in the rank order, 0 the top (see {@link stockTierPosition}). */
+export function stockTierIndex(folded: FoldedControl, me: string, tier: StockTier): number {
+  const position = stockTierPosition(folded.roster, me, folded.ownerHex, tier);
+  return rankedOrder(folded).filter((r) => r.position < position).length;
+}
+
+/**
+ * Give `member` a stock tier on the vsk-13 Roster, or take theirs away with `null`:
+ * the tier's Role where one stands, else minted from its template at
+ * {@link stockTierIndex}. The other stock Role goes; custom Roles stay. Planned whole,
+ * so a refusal publishes nothing. `view` is `folded` with any minted Role in it.
+ */
+export function planStockTier(
+  folded: FoldedControl,
+  communityId: Uint8Array,
+  me: string,
+  member: string,
+  tier: StockTier | null,
+  authority?: AuthorityCitation,
+): { create?: NostrRumor; view: FoldedControl; roleIds: string[] } {
+  requireRanked(folded);
+  let view = folded;
+  let create: NostrRumor | undefined;
+  let roleId = tier ? stockRoleOf(folded.roster, tier)?.roleId : undefined;
+  if (tier && !roleId) {
+    const made = planCreateRole(folded, communityId, me, rankedTierTemplate(tier), authority, stockTierIndex(folded, me, tier));
+    roleId = made.roleId;
+    create = made.rumor;
+    const roles = [...folded.roster.roles, made.role];
+    const ranks = denseRanks(roles.flatMap((r) => (r.rank !== undefined ? [r.rank] : [])));
+    view = { ...folded, roster: { ...folded.roster, roles: roles.map((r) => (r.rank !== undefined ? { ...r, position: ranks.get(r.rank) ?? r.position } : r)) } };
+  }
+  const stock = new Set(view.roster.roles.filter(isStockRole).map((r) => r.roleId));
+  const kept = (view.roster.grants.find((g) => g.member === member)?.roleIds ?? []).filter((id) => !stock.has(id));
+  return { create, view, roleIds: planMemberRoles(view, communityId, me, member, roleId ? [...kept, roleId] : kept) };
 }
 
 /**

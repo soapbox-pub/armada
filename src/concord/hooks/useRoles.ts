@@ -11,7 +11,7 @@ import { bytesToHex, controlSignerGroupKey, grantLocator, hex32, random32 } from
 import { base64ToBytes, bytesToBase64, decodeControlWrap, encodeControlWrap } from "@/concord/lib/rekey";
 import { adminRole, canActOnMember, canActOnPosition, emptyRoles, moderatorRole, Permissions, rolesMakeStaff, STAFF_MASK, type MemberGrant, type Role } from "@/concord/lib/roles";
 import type { CommunityMetadata, Community, ImagePointer } from "@/concord/lib/types";
-import { planMemberRoles, planRoleSave } from "@/concord/lib/rankedWrites";
+import { planMemberRoles, planRoleSave, planStockTier } from "@/concord/lib/rankedWrites";
 import { planTenure, tenureRefusal } from "@/concord/lib/tenure";
 import { t } from "@/i18n";
 
@@ -200,7 +200,8 @@ export function useRoles(community: Community | undefined) {
   /**
    * Set a member's stock tier: "admin" (position 1, owner-grantable only),
    * "moderator" (position 2, any strict outranker with MANAGE_ROLES), or null
-   * (revoke). Pre-checks the fold's authority rules (CORD-04 §3).
+   * (revoke). Pre-checks the fold's authority rules (CORD-04 §3). On the vsk-13
+   * Roster the tier is a ranked Role, minted from its template on first use (`planStockTier`).
    */
   const setTier = useMutation<void, Error, { member: string; tier: "admin" | "moderator" | null }>({
     mutationFn: ({ member, tier }) => write(async (folded) => {
@@ -210,9 +211,34 @@ export function useRoles(community: Community | undefined) {
       const grantHeadOf = (m: string) => folded?.heads.get(bytesToHex(grantLocator(community.id, hex32(m))));
       const ownerHex = folded?.ownerHex ?? community.owner;
       const roster = folded?.roster ?? emptyRoles();
-      // The stock tiers are vsk-1 Roles, which stand for nothing on the vsk-13 Roster (CORD-04 §2).
+      // vsk-1 Roles stand for nothing on the vsk-13 Roster (CORD-04 §2): the tier is a ranked Role there.
       if (folded?.rankedRoster) {
-        throw new Error(t({ id: "useRoles.tiersRanked", defaultMessage: "This community uses ranked roles: give members roles from their Roles menu instead." }));
+        const authority = citationFor(community, folded, user.pubkey);
+        const plan = planStockTier(folded, community.id, user.pubkey, member, tier, authority);
+        const current = folded.roster.grants.find((g) => g.member === member)?.roleIds ?? [];
+        // A Grant that drops a Role writes the member's Tenure first, or is refused (CORD-04 §9).
+        if (current.some((id) => !plan.roleIds.includes(id))) {
+          const whole = await readControlWhole(nostr, community);
+          if (!whole) throw new Error(tenureRefusal());
+          const tenure = planTenure(whole.folded, community.id, user.pubkey, member, false, citationFor(community, whole.folded, user.pubkey), whole.served);
+          if (tenure.kind === "refuse") throw new Error(tenureRefusal());
+          if (tenure.kind === "write") await publishEdition(nostr, community, user.signer, tenure.rumor);
+        }
+        if (plan.create) await publishEdition(nostr, community, user.signer, plan.create);
+        const head = folded.heads.get(bytesToHex(grantLocator(community.id, hex32(member))));
+        const controlWrap = await controlWrapOwed(community, rolesMakeStaff(plan.view.roster, plan.roleIds), user.signer.nip44, member);
+        await publishEdition(
+          nostr,
+          community,
+          user.signer,
+          buildGrantEdition(community.id, { member, roleIds: plan.roleIds, ...(controlWrap ? { controlWrap } : {}) }, {
+            actorPubkey: user.pubkey,
+            version: head ? head.version + 1n : 1n,
+            prevHash: head?.hash,
+            authority,
+          }),
+        );
+        return;
       }
 
       // Strict outrank over the member, and over the granted role's position.

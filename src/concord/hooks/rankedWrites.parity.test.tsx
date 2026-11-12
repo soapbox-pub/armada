@@ -465,6 +465,23 @@ describe("reducing a member's authority (CORD-04 §6, §9)", () => {
     await attempt(() => result.current.setTier({ member: hexKey(), tier: "moderator" }));
     expect(env.published.filter((r) => vskOf(r) === "1")).toEqual([]);
   });
+
+  it("the owner's first Make admin mints a ranked Admin at the top, then grants it", async () => {
+    const { c, community } = withModerator();
+    env.user = { pubkey: c.owner, signer: {} };
+    const member = hexKey();
+    const { result } = renderHook(() => useRoles(community), { wrapper });
+    await act(async () => {
+      await result.current.setTier({ member, tier: "admin" });
+    });
+    expect(env.published.map(vskOf)).toEqual(["13", "3"]);
+    const role = JSON.parse(env.published[0].content);
+    expect(role.name).toBe("Admin");
+    expect(role.display).toBe(true);
+    // Above the existing "a" and "m" ranks: it outranks every Role there was.
+    expect(role.rank < "a").toBe(true);
+    expect(JSON.parse(env.published[1].content)).toMatchObject({ member, role_ids: [role.role_id] });
+  });
 });
 
 describe("lifting a Ban (CORD-04 §6, concord#25 7c64a24)", () => {

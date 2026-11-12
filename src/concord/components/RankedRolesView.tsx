@@ -1,5 +1,5 @@
-import { GripVertical, Layers, Loader2, Plus, Shield, Trash2, Users } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { Crown, GripVertical, Layers, Loader2, Plus, Shield, Trash2, Users } from "lucide-react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,17 @@ import { WriteProgress } from "@/concord/components/WriteProgress";
 import { useRankedRoles } from "@/concord/hooks/useRankedRoles";
 import type { FoldedControl } from "@/concord/lib/control";
 import { rankedOrder, roleAuthor, type RoleAuthor, type RoleFields } from "@/concord/lib/rankedWrites";
-import { BENEATH_EVERY_ROLE, colorToHex, hexToColor, MAX_ROLES_PER_COMMUNITY, PERMISSION_LABELS, type Role } from "@/concord/lib/roles";
+import {
+  BENEATH_EVERY_ROLE,
+  colorToHex,
+  hexToColor,
+  MAX_ROLES_PER_COMMUNITY,
+  PERMISSION_LABELS,
+  rankedTierTemplate,
+  stockTierPosition,
+  type Role,
+  type StockTier,
+} from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { toast } from "@/hooks/useToast";
@@ -21,7 +31,7 @@ import { cn } from "@/lib/utils";
 
 const DEFAULT_SWATCH = "#5865f2";
 
-type Editing = { kind: "new" } | { kind: "role"; role: Role } | { kind: "everyone" };
+type Editing = { kind: "new"; template?: StockTier } | { kind: "role"; role: Role } | { kind: "everyone" };
 
 function authorOf(folded: FoldedControl | undefined, me: string | undefined): RoleAuthor | undefined {
   if (!folded || !me) return undefined;
@@ -98,18 +108,67 @@ export function RankedRolesBody({ community }: { community: Community }) {
 
   if (editing) {
     const role = editing.kind === "role" ? editing.role : undefined;
+    const template = editing.kind === "new" ? editing.template : undefined;
     const bottom = roles.reduce((m, r) => Math.max(m, r.position), 0) + 1;
-    const reach = editing.kind === "everyone" ? BENEATH_EVERY_ROLE : role ? role.position : bottom;
+    const tierReach = (tier: StockTier) => (folded && user ? stockTierPosition(folded.roster, user.pubkey, folded.ownerHex, tier) : bottom);
+    const reach = editing.kind === "everyone" ? BENEATH_EVERY_ROLE : role ? role.position : template ? tierReach(template) : bottom;
     return (
       <RankedRoleEditor
-        key={role?.roleId ?? editing.kind}
+        key={role?.roleId ?? `${editing.kind}:${template ?? ""}`}
         everyone={editing.kind === "everyone"}
         initial={
           editing.kind === "everyone"
             ? { name: "@everyone", color: 0, permissions: folded?.roster.everyone ?? 0n, display: false, mentionable: false }
             : role
               ? { name: role.name, color: role.color, permissions: role.permissions, display: role.display === true, mentionable: role.mentionable === true }
-              : { name: intl.formatMessage({ id: "rankedRolesView.newRoleName", defaultMessage: "New role" }), color: 0, permissions: 0n, display: false, mentionable: false }
+              : template
+                ? rankedTierTemplate(template)
+                : { name: intl.formatMessage({ id: "rankedRolesView.newRoleName", defaultMessage: "New role" }), color: 0, permissions: 0n, display: false, mentionable: false }
+        }
+        header={
+          editing.kind === "new" && (
+            <div className="space-y-1.5">
+              <Label>
+                <FormattedMessage id="rankedRolesView.template" defaultMessage="Start from" />
+              </Label>
+              <div className="flex flex-wrap gap-2">
+                {([undefined, "admin", "moderator"] as const).map((tier) => (
+                  <Button
+                    key={tier ?? "blank"}
+                    type="button"
+                    size="sm"
+                    variant={template === tier ? "secondary" : "ghost"}
+                    aria-pressed={template === tier}
+                    disabled={isSaving || (tier !== undefined && !author?.supports(tierReach(tier), rankedTierTemplate(tier).permissions))}
+                    onClick={() => setEditing({ kind: "new", template: tier })}
+                  >
+                    {tier === "admin" ? (
+                      <>
+                        <Crown className="size-3.5" />
+                        <FormattedMessage id="rankedRolesView.templateAdmin" defaultMessage="Admin" />
+                      </>
+                    ) : tier === "moderator" ? (
+                      <>
+                        <Shield className="size-3.5" />
+                        <FormattedMessage id="rankedRolesView.templateModerator" defaultMessage="Moderator" />
+                      </>
+                    ) : (
+                      <FormattedMessage id="rankedRolesView.templateBlank" defaultMessage="Blank" />
+                    )}
+                  </Button>
+                ))}
+              </div>
+              {template && (
+                <p className="text-xs text-muted-foreground">
+                  {template === "admin" ? (
+                    <FormattedMessage id="rankedRolesView.templateAdminHint" defaultMessage="Every permission, ranked just beneath you." />
+                  ) : (
+                    <FormattedMessage id="rankedRolesView.templateModeratorHint" defaultMessage="Kicking, banning, hiding messages and keeping order in calls, ranked beneath any Admin role." />
+                  )}
+                </p>
+              )}
+            </div>
+          )
         }
         holders={role ? (holderCounts.get(role.roleId) ?? 0) : 0}
         mayGive={(bit) => author?.supports(reach, bit) ?? false}
@@ -138,7 +197,7 @@ export function RankedRolesBody({ community }: { community: Community }) {
           try {
             if (editing.kind === "everyone") await setEveryone({ permissions: fields.permissions });
             else if (role) await editRole({ roleId: role.roleId, fields });
-            else await createRole(fields);
+            else await createRole({ ...fields, template });
             toast({ title: t({ id: "rolesView.roleSaved", defaultMessage: "Role saved" }) });
             setEditing(null);
           } catch (e) {
@@ -372,6 +431,7 @@ export function RankedRolesSwitch({ community }: { community: Community }) {
 function RankedRoleEditor({
   everyone,
   initial,
+  header,
   holders,
   mayGive,
   canDelete,
@@ -385,6 +445,8 @@ function RankedRoleEditor({
 }: {
   everyone: boolean;
   initial: RoleFields;
+  /** Above the fields: a new Role's template picker. */
+  header?: ReactNode;
   holders: number;
   mayGive: (bit: bigint) => boolean;
   canDelete: boolean;
@@ -413,6 +475,7 @@ function RankedRoleEditor({
       }}
       className="flex flex-col gap-5"
     >
+      {header}
       {everyone ? (
         <p className="text-sm text-muted-foreground">
           <FormattedMessage id="rankedRolesView.everyoneIntro" defaultMessage="What every member holds, beneath every role." />

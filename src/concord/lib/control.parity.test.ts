@@ -179,10 +179,16 @@ describe("malformed editions that stand as the head (CORD-04 §1, CORD-03 §2, �
 });
 
 describe("what the member list offers on the vsk-13 Roster", () => {
-  it("offers no stock-tier moves, which mint vsk-1 Roles that stand for nothing there (the Roles page is read-only)", () => {
+  it("offers the owner both stock tiers, minted as ranked Roles", () => {
     const { c, base } = rankedCommunity(Permissions.MANAGE_ROLES);
     const folded = foldControlState(base, c.id, c.owner);
-    expect(tierMoves(folded.roster, c.owner, c.owner, hexKey())).toEqual([]);
+    expect(tierMoves(folded.roster, c.owner, c.owner, hexKey())).toEqual(["admin", "moderator"]);
+  });
+
+  it("offers a manager no tier whose template holds bits they lack", () => {
+    const { c, admin, base } = rankedCommunity(Permissions.MANAGE_ROLES);
+    const folded = foldControlState(base, c.id, c.owner);
+    expect(tierMoves(folded.roster, admin, c.owner, hexKey())).toEqual([]);
   });
 });
 

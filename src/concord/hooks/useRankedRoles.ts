@@ -23,9 +23,10 @@ import {
   planReorder,
   planSetEveryone,
   planSync,
+  stockTierIndex,
   type RoleFields,
 } from "@/concord/lib/rankedWrites";
-import { rolesMakeStaff, type OverwriteTarget } from "@/concord/lib/roles";
+import { rolesMakeStaff, type OverwriteTarget, type StockTier } from "@/concord/lib/roles";
 import { planTenure, tenureRefusal } from "@/concord/lib/tenure";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -170,11 +171,13 @@ export function useRankedRoles(community: Community | undefined) {
     if (community) invalidateControl(queryClient, community.idHex);
   };
 
-  const createRole = useMutation<string, Error, Pick<RoleFields, "name" | "color" | "permissions"> & Partial<RoleFields>>({
-    mutationFn: (fields) => write(async () => {
+  /** A Role started from a stock tier's template is minted where that tier's would be. */
+  const createRole = useMutation<string, Error, Pick<RoleFields, "name" | "color" | "permissions"> & Partial<RoleFields> & { template?: StockTier }>({
+    mutationFn: ({ template, ...fields }) => write(async () => {
       const { user, community } = ready();
       const { folded } = await read(community, false);
-      const { roleId, rumor } = planCreateRole(folded, community.id, user.pubkey, fields, citationFor(community, folded, user.pubkey));
+      const index = template ? stockTierIndex(folded, user.pubkey, template) : undefined;
+      const { roleId, rumor } = planCreateRole(folded, community.id, user.pubkey, fields, citationFor(community, folded, user.pubkey), index);
       await publish(community, [rumor]);
       return roleId;
     }),
