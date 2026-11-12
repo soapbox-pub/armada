@@ -30,7 +30,7 @@ import {
 
 import { isAuthorized, Permissions } from "@/concord/lib/roles";
 import { editionHash } from "@/concord/lib/version";
-import { readStoredSeal } from "@/concord/lib/rumorStore";
+import { fetchChatSeal } from "@/concord/lib/chatSeal";
 import type { OpenedEvent } from "@/concord/lib/stream";
 import type { Channel, Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -234,7 +234,7 @@ export function usePins(
       // Store rows have no seal and just-sent rows a PLACEHOLDER; pinning needs the real one.
       const needsSeal = !opened.seal || isPlaceholderSeal(opened.seal);
       const withSeal = needsSeal
-        ? { ...opened, seal: community ? await readStoredSeal(community.idHex, opened.rumorId) : undefined }
+        ? { ...opened, seal: community ? await fetchChatSeal(nostr, community, channel, opened, epoch) : undefined }
         : opened;
       const { entry, reason } = buildPinEntryOrReason(withSeal, stream.group.convKey);
       if (!entry) throw new Error(t(PIN_FAILURE_MESSAGE[reason ?? "unverifiable"]));
@@ -281,7 +281,7 @@ export function usePins(
         const opened =
           local.opened.seal && !isPlaceholderSeal(local.opened.seal)
             ? local.opened
-            : { ...local.opened, seal: await readStoredSeal(community.idHex, local.opened.rumorId) };
+            : { ...local.opened, seal: await fetchChatSeal(nostr, community, channel, local.opened, epoch) };
         const withEdit = withProvenEdit(p.entry, opened, stream.group.convKey);
         // Compare CONTENT: withProvenEdit always returns a fresh object.
         if (withEdit.edit?.keys !== p.entry.edit?.keys) changed += 1;

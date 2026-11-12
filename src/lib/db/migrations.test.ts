@@ -138,7 +138,7 @@ describe("schema migrations", { timeout: 30_000 }, () => {
     expect(await mod.kv.get(guestbookCursor)).toBeUndefined();
     expect(await mod.kv.get(channelCursor)).toBeDefined();
     expect(await mod.kv.get(readState)).toBeDefined();
-    expect(await mod.kv.get(mod.SCHEMA_VERSION_KEY)).toBe(7);
+    expect(await mod.kv.get(mod.SCHEMA_VERSION_KEY)).toBe(mod.ARMADA_DB_VERSION);
   });
 
   it("leaves data written by a newer build alone", async () => {
@@ -170,5 +170,22 @@ describe("schema migrations", { timeout: 30_000 }, () => {
 
     const names = (await (indexedDB as IDBFactory).databases()).map((d) => d.name);
     expect(names.filter((n) => n?.startsWith("armada-"))).toEqual([]);
+  });
+
+  it("drops stored chat seals in pages, keeping the plaintext control seals compaction republishes (v8)", async () => {
+    const mod = await freshModules();
+    const community = "f".repeat(64);
+    const control = `c2seal:${community}:${"1".repeat(64)}`;
+    const chat = Array.from({ length: 1_200 }, (_, i) => `c2seal:${community}:${i.toString(16).padStart(64, "0")}`);
+    await mod.kv.set(control, { kind: 20014, content: "edition" });
+    await Promise.all(chat.map((key) => mod.kv.set(key, { kind: 20013, content: "message" })));
+    await mod.kv.set(mod.SCHEMA_VERSION_KEY, 7);
+
+    expect((await mod.pendingUpgrades()).schema.map((m) => m.to)).toEqual([8]);
+    await mod.runMigrations([A]);
+
+    expect(await mod.kv.get(control)).toEqual({ kind: 20014, content: "edition" });
+    expect(await mod.kv.list({ prefix: "c2seal:" })).toHaveLength(1);
+    expect(await mod.kv.get(mod.SCHEMA_VERSION_KEY)).toBe(8);
   });
 });

@@ -88,6 +88,7 @@ export function planeRevision(communityIdHex: string): number {
 /** Forget the shared plane reads on logout: they are decrypted community state. */
 export function clearRumorStoreMemory(): void {
   planeMemo.clear();
+  recentChatSeals.clear();
   tenantRev.clear();
   guestbookAddrs.clear();
   guestbookAddrsReady.clear();
@@ -893,11 +894,26 @@ export async function queryRekeyRounds(
   return out;
 }
 
-// Seals: the author-signed NIP-59 envelope, kept only so a Refounding's compaction
-// can republish heads verbatim (CORD-06 §3) and so Pins can prove messages.
+// Seals: the author-signed NIP-59 envelope. A plaintext edition's is stored so a
+// Refounding's compaction can republish heads verbatim (CORD-06 §3). A Pin-provable
+// message's is held for this session only: storing every message's seal grew without
+// bound, and a Pin of an older one fetches its wrap again (`fetchChatSeal`).
 
-/** Rumor kinds a Pin can prove, whose seals must therefore survive the store. */
+/** Rumor kinds a Pin can prove. */
 const PIN_PROVABLE_KINDS: ReadonlySet<number> = new Set([KIND_MESSAGE, KIND_COMMENT, KIND_EDIT]);
+
+/** The seals of messages this session opened, newest last. */
+const recentChatSeals = new Map<string, NostrEvent>();
+const MAX_RECENT_CHAT_SEALS = 4_000;
+
+function holdChatSeal(key: string, seal: NostrEvent): void {
+  recentChatSeals.delete(key);
+  recentChatSeals.set(key, seal);
+  if (recentChatSeals.size > MAX_RECENT_CHAT_SEALS) recentChatSeals.delete(recentChatSeals.keys().next().value as string);
+}
+
+/** KV prefix of stored seals; chat ones written before they were session-only are cleared by schema v8. */
+export const SEAL_PREFIX = "c2seal:";
 
 /** Seal keys written this session (bounded; oldest forgotten first). */
 const sealsWritten = new Set<string>();
@@ -913,7 +929,7 @@ function rememberSealWritten(key: string): void {
 
 /** KV key holding the signed seal a stored rumor arrived in. */
 function sealKey(communityIdHex: string, rumorId: string): string {
-  return `c2seal:${communityIdHex}:${rumorId}`;
+  return `${SEAL_PREFIX}${communityIdHex}:${rumorId}`;
 }
 
 /**
@@ -922,18 +938,23 @@ function sealKey(communityIdHex: string, rumorId: string): string {
  */
 export async function forgetStoredSeals(communityIds: Iterable<string>, rumorId: string): Promise<void> {
   const kv = getArmadaDB().kv;
-  await Promise.all([...communityIds].map((cid) => kv.delete(sealKey(cid, rumorId)).catch(() => undefined)));
+  await Promise.all([...communityIds].map((cid) => {
+    recentChatSeals.delete(sealKey(cid, rumorId));
+    return kv.delete(sealKey(cid, rumorId)).catch(() => undefined);
+  }));
 }
 
 /**
- * The seal a stored rumor arrived in, or undefined. Prefer one already on the
- * {@link OpenedEvent} (this session, or a legacy `seal` tag); this is the fallback.
+ * The seal a rumor arrived in, if this session opened it or it is a stored plaintext
+ * one, else undefined. Prefer one already on the {@link OpenedEvent}; this is the fallback.
  */
 export async function readStoredSeal(
   communityIdHex: string,
   rumorId: string,
 ): Promise<NostrEvent | undefined> {
   if (!communityIdHex || !rumorId) return undefined;
+  const held = recentChatSeals.get(sealKey(communityIdHex, rumorId));
+  if (held) return held;
   try {
     return await getArmadaDB().kv.get<NostrEvent>(sealKey(communityIdHex, rumorId));
   } catch {
@@ -961,10 +982,12 @@ function writeStored(
   const writes: Promise<unknown>[] = [];
   for (const o of opened) {
     writes.push(s.event(openedToStored(o)));
-    // Keep seals for plaintext editions (compaction) and Pin-provable kinds
-    // (CORD-04 §7), else those stop being pinnable once out of memory.
     // A removed rumor is refused by the store, but its seal is a KV value it never sees.
-    if (o.seal && (o.sealKind === KIND_SEAL_PLAINTEXT || PIN_PROVABLE_KINDS.has(o.kind)) && !isRemovedMessageId(o.rumorId)) {
+    if (o.seal && o.sealKind !== KIND_SEAL_PLAINTEXT && PIN_PROVABLE_KINDS.has(o.kind) && !isRemovedMessageId(o.rumorId)) {
+      holdChatSeal(sealKey(communityIdHex, o.rumorId), o.seal);
+      continue;
+    }
+    if (o.seal && o.sealKind === KIND_SEAL_PLAINTEXT && !isRemovedMessageId(o.rumorId)) {
       // Seal write failures are swallowed: the rumor is the record, and quota
       // errors mustn't mark a committed batch as failed. Once per rumor per
       // session (channel syncs re-fetch the newest page).

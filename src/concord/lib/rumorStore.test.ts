@@ -476,11 +476,9 @@ describe("concord rumor store", () => {
     expect(openWrap(rewrapped, control).rumorId).toBe(opened.rumorId);
   });
 
-  it("keeps a chat message's encrypted seal — a Pin proves a message FROM its seal", async () => {
-    // Encrypted seals were once dropped as pure cost: only compaction read
-    // them, and it can re-wrap plaintext seals alone. Pins (CORD-04 §7) changed
-    // that — a pin carries the original seal verbatim, so a message whose seal
-    // was discarded stops being pinnable the moment it leaves memory.
+  it("holds a chat message's encrypted seal for the session without storing it — a Pin proves a message FROM its seal", async () => {
+    // A pin carries the original seal verbatim (CORD-04 §7). Stored for every
+    // message it grew without bound; an older message's is fetched again instead.
     const { channel, idHex } = makeChannel();
     const alice = signer();
     const rumor = chatRumor(idHex, alice, KIND_MESSAGE, "chat", 1000);
@@ -497,6 +495,7 @@ describe("concord rumor store", () => {
     const keys = discloseKeysFor(seal!.content, channel.current.group.convKey)!;
     expect(keys).toBeDefined();
     expect(JSON.parse(decryptWithDisclosedKeys(seal!.content, keys)!).content).toBe("chat");
+    expect(await getArmadaDB().kv.get(`c2seal:${CID}:${rumor.id}`)).toBeUndefined();
   });
 
   it("reads back the rumor verbatim, with the envelope absent unless supplied", () => {
