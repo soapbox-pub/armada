@@ -37,6 +37,8 @@ export interface MentionRole {
 }
 
 /** `@query` profile autocomplete at the caret; inserts `nostr:npub1...` (NIP-27). */
+const NO_MEMBERS: string[] = [];
+
 export function MentionAutocomplete({
   textareaRef,
   content,
@@ -64,7 +66,8 @@ export function MentionAutocomplete({
 
   const restricted = Array.isArray(restrictToPubkeys);
   const { data: searchProfiles } = useSearchProfiles(isOpen && !restricted ? mentionQuery : "");
-  const memberProfiles = useMemberProfiles(restrictToPubkeys ?? [], isOpen ? mentionQuery : "");
+  // Closed, it ranks nobody: a public community's roster is thousands of members.
+  const memberProfiles = useMemberProfiles(isOpen && restrictToPubkeys ? restrictToPubkeys : NO_MEMBERS, isOpen ? mentionQuery : "");
   const profiles = restricted ? memberProfiles : searchProfiles;
   const showEveryone = allowEveryone
     && "everyone".startsWith(mentionQuery.trim().toLowerCase());
