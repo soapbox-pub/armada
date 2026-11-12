@@ -923,13 +923,17 @@ try {
       const who = { sk, pubkey: getPublicKey(sk) };
       console.log(`\n▶ account-hop as ${nip19.npubEncode(who.pubkey).slice(0, 16)}… between ${names.join(" ↔ ")}`);
       const mark = errors.length;
-      await page.goto("/");
+      // From the seed page, which doesn't run the app: a booting app saves its own
+      // empty login list over one written under it.
+      await page.goto("/e2e/screenshotSeed.html");
       await login(who);
       await page.goto("/");
       await perfReady(page);
       const settleSec = Number(opt("settle", "60"));
       console.log(`  settling ${settleSec}s (first sync of the account)`);
       await page.waitForTimeout(settleSec * 1000);
+      const stored = await page.evaluate(() => (localStorage.getItem("armada:login") ?? "").length).catch(() => -1);
+      if (stored <= 2) console.log(`  ⚠ not signed in after settling (at ${new URL(page.url()).pathname})`);
       const railButton = (name) => page.locator(`[aria-label="${name.replace(/"/g, '\\"')}"]`).first();
       /** Click a rail community; ms until its own timeline rows paint, and the long tasks meanwhile. */
       const hop = (name) =>
@@ -954,7 +958,10 @@ try {
           requestAnimationFrame(check);
         }), name);
       for (const name of names) {
-        if (!(await railButton(name).count())) console.log(`  ⚠ no rail item labelled "${name}"`);
+        if (!(await railButton(name).count())) {
+          console.log(`  ⚠ no rail item labelled "${name}" at ${new URL(page.url()).pathname} (perf-reports/account-hop-missing.png)`);
+          await page.screenshot({ path: resolve(OUT, "account-hop-missing.png") });
+        }
       }
       // One untimed round, so both are mounted once as a member would have them.
       for (const name of names) {
@@ -970,7 +977,9 @@ try {
       const { hot } = await cpuProfile("account-hop", async () => {
         for (let r = 0; r < rounds; r++) {
           for (const name of names) {
-            hops.push(await hop(name));
+            const h = await hop(name);
+            hops.push(h);
+            if (h.shownMs < 0) await page.screenshot({ path: resolve(OUT, "account-hop-stuck.png") });
             await page.waitForTimeout(2500);
           }
         }
