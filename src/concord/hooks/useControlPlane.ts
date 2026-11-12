@@ -348,7 +348,11 @@ export function useControlFold(community: Community | undefined, active = true) 
     isCurrentFoldedControl,
   );
 
-  return { ...control, data } as typeof control & { data: FoldedControl | undefined };
+  // Forwarded, not spread: a spread reads every tracked field, subscribing each of the
+  // dozens of callers to every fetch-state change of the control query.
+  return new Proxy(control, {
+    get: (target, key, receiver) => (key === "data" ? data : Reflect.get(target, key, receiver)),
+  }) as typeof control & { data: FoldedControl | undefined };
 }
 
 /**

@@ -350,7 +350,11 @@ export function useGuestbook(community: Community | undefined, { poll = true }: 
     return () => clearTimeout(timer);
   }, [validUntil]);
 
-  return { ...query, coalesced, history, refound, coalesceOpts, timeouts, nicknames };
+  // Forwarded, not spread, so each caller tracks only the query fields it reads (see useControlFold).
+  const derived: Record<PropertyKey, unknown> = { coalesced, history, refound, coalesceOpts, timeouts, nicknames };
+  return new Proxy(query, {
+    get: (target, key, receiver) => (key in derived ? derived[key] : Reflect.get(target, key, receiver)),
+  }) as typeof query & { coalesced: typeof coalesced; history: typeof history; refound: typeof refound; coalesceOpts: typeof coalesceOpts; timeouts: typeof timeouts; nicknames: typeof nicknames };
 }
 
 interface GuestbookFold {
