@@ -624,6 +624,16 @@ describe("CORD-04 §2 — The Roster", () => {
     expect(roleFromJSON(JSON.stringify({ ...wire, position: 1.5 }))).toBeUndefined();
   });
 
+  it("an edit round-trips the fields of a legacy Role it doesn't understand (CORD-02 §6)", () => {
+    const wire = { ...(JSON.parse(roleToJSON(R_MOD)) as Record<string, unknown>), icon: "🛡", rules: { slowmode: 5 } };
+    const read = roleFromJSON(JSON.stringify(wire));
+    expect(read?.extra).toEqual({ icon: "🛡", rules: { slowmode: 5 } });
+    const renamed = JSON.parse(roleToJSON({ ...read!, name: "Wardens" })) as Record<string, unknown>;
+    expect(renamed).toEqual({ ...wire, name: "Wardens" });
+    // A foreign field can't override one Armada writes.
+    expect(JSON.parse(roleToJSON({ ...R_MOD, extra: { name: "spoof", position: 99 } }))).toMatchObject({ name: R_MOD.name, position: R_MOD.position });
+  });
+
   it("O-19: a Grant maps member -> role_ids; empty role_ids is a revoke", async () => {
     expect(JSON.parse(grantToJSON({ member: PLAIN, roleIds: [R_MOD.roleId] }))).toEqual({
       member: PLAIN,

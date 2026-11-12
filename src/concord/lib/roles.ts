@@ -393,7 +393,7 @@ export interface Role {
   rank?: string;
   /** Any member may @mention it (CORD-03 §3, vsk 13). */
   mentionable?: boolean;
-  /** Unknown fields, round-tripped by an editor (CORD-02 §6, vsk 13). */
+  /** Unknown fields, round-tripped by an editor (CORD-02 §6). */
   extra?: Record<string, unknown>;
   permissions: bigint;
   scope: RoleScope;
@@ -459,6 +459,7 @@ export function roleToJSON(role: Role): string {
   const scope: RoleWire["scope"] =
     role.scope.kind === "channel" ? { kind: "channel", channel_id: role.scope.channelId } : { kind: "server" };
   const wire: RoleWire = {
+    ...(role.extra ?? {}),
     role_id: role.roleId,
     name: role.name,
     position: role.position,
@@ -494,6 +495,8 @@ export function roleFromJSON(json: string): Role | undefined {
   if (sc && typeof sc === "object" && sc.kind === "server") scope = { kind: "server" };
   else if (sc && typeof sc === "object" && sc.kind === "channel" && typeof sc.channel_id === "string") scope = { kind: "channel", channelId: sc.channel_id };
   else return undefined;
+  const extra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(w)) if (!LEGACY_ROLE_FIELDS.has(k)) extra[k] = v;
   return {
     roleId: w.role_id.toLowerCase(),
     name: cutName(w.name),
@@ -502,8 +505,12 @@ export function roleFromJSON(json: string): Role | undefined {
     scope,
     color: Number(color),
     ...(w.display === true ? { display: true } : {}),
+    ...(Object.keys(extra).length > 0 ? { extra } : {}),
   };
 }
+
+/** The vsk-1 Role fields Armada reads; the rest round-trip through {@link Role.extra} (CORD-02 §6). */
+const LEGACY_ROLE_FIELDS: ReadonlySet<string> = new Set(["role_id", "name", "position", "permissions", "scope", "color", "display"]);
 
 /** Cut a name past 64 bytes to the last whole character within it (CORD-03 §2, CORD-04 §2). */
 export function cutName(name: string): string {
