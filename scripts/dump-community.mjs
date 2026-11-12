@@ -402,14 +402,16 @@ async function discoverChannels(pool, bundle) {
   const scanTo = bundle.root_epoch + Number(process.env.CONTROL_EPOCH_SCAN ?? 0);
   for (let epoch = bundle.root_epoch; epoch <= scanTo; epoch++) {
     const readKey = controlGroupKey(bundle.community_root, bundle.community_id, epoch);
+    // A split epoch's address is the staff signer's pk, named by the bundle (CORD-02 §5).
+    const address = epoch === bundle.root_epoch && bundle.control_pk ? bundle.control_pk : readKey.pk;
     const wraps = await pool.queryAll(
       bundle.relays,
-      { kinds: [KIND_WRAP], authors: [readKey.pk] },
+      { kinds: [KIND_WRAP], authors: [address] },
       20000,
     );
     let folded = 0;
     for (const wrap of wraps) {
-      if (wrap.pubkey !== readKey.pk || !verifyEvent(wrap)) continue;
+      if (wrap.pubkey !== address || !verifyEvent(wrap)) continue;
       try {
         const seal = JSON.parse(nip44Decrypt(wrap.content, readKey.convKey));
         if (seal.kind !== KIND_SEAL_PLAINTEXT) continue;
