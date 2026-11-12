@@ -242,6 +242,10 @@ export function useMemberStanding(community: Community | undefined) {
   const { data: folded } = useControlFold(community);
   const { data, timeouts, nicknames } = useGuestbook(community);
   const publish = useGuestbookPublisher(community);
+  // Read at call time: the mutation is a new object each render, and the actions built
+  // on these callbacks reach every member and message row.
+  const latest = useRef({ data, publish: publish.mutateAsync });
+  latest.current = { data, publish: publish.mutateAsync };
   const me = user?.pubkey;
   const counts = useCallback(
     (permission: "timeout" | "nickname", target: string) => (actor: string, citation: AuthorityCitation | undefined) => {
@@ -266,22 +270,22 @@ export function useMemberStanding(community: Community | undefined) {
     async (target: string, seconds: number) => {
       if (!community || !folded || !me) throw new Error(t({ id: "useGuestbook.notReady", defaultMessage: "Not ready." }));
       const nowMs = clockNowMs();
-      const ms = nextGuestbookMs(data ?? [], KIND_TIMEOUT, target, counts("timeout", target), nowMs);
+      const ms = nextGuestbookMs(latest.current.data ?? [], KIND_TIMEOUT, target, counts("timeout", target), nowMs);
       // A lift's `until` is past for every reader, however its date runs ahead.
       const until = seconds <= 0 ? 0 : Math.floor(nowMs / 1000) + Math.min(seconds, TIMEOUT_MAX_SECS);
-      await publish.mutateAsync({ type: "timeout", target, until, ms, authority: citationFor(community, folded, me) });
+      await latest.current.publish({ type: "timeout", target, until, ms, authority: citationFor(community, folded, me) });
     },
-    [community, folded, me, data, counts, publish],
+    [community, folded, me, counts],
   );
   const setNickname = useCallback(
     async (target: string, nick: string) => {
       if (!community || !folded || !me) throw new Error(t({ id: "useGuestbook.notReady", defaultMessage: "Not ready." }));
       const clean = cleanNickname(nick);
       if (clean === undefined) throw new Error(t({ id: "useGuestbook.nicknameInvalid", defaultMessage: "A nickname is at most 32 characters, with no line breaks." }));
-      const ms = nextGuestbookMs(data ?? [], KIND_NICKNAME, target, counts("nickname", target), clockNowMs());
-      await publish.mutateAsync({ type: "nickname", target, nick: clean, ms, ...(target !== me ? { authority: citationFor(community, folded, me) } : {}) });
+      const ms = nextGuestbookMs(latest.current.data ?? [], KIND_NICKNAME, target, counts("nickname", target), clockNowMs());
+      await latest.current.publish({ type: "nickname", target, nick: clean, ms, ...(target !== me ? { authority: citationFor(community, folded, me) } : {}) });
     },
-    [community, folded, me, data, counts, publish],
+    [community, folded, me, counts],
   );
   return useMemo(() => ({ timeouts, nicknames, mayTimeout, mayNickname, timeout, setNickname }), [timeouts, nicknames, mayTimeout, mayNickname, timeout, setNickname]);
 }
