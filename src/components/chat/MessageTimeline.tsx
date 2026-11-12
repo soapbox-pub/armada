@@ -1272,7 +1272,7 @@ export function MessageTimeline({
             className="flex-1 min-h-0 overflow-y-auto overflow-x-clip overscroll-contain [overflow-anchor:none] scrollbar-stable px-3"
           >
             {/* Positioned, so every row's `offsetTop` is measured against it. */}
-            <div ref={contentRef} className="relative">
+            <div ref={contentRef} className="relative flex flex-col">
               <div className="h-4" aria-hidden />
               {items.map((item) => (
                 // `hover:z-10` keeps the overhanging toolbar above the previous row.

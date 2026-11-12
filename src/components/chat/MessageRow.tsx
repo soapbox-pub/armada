@@ -361,13 +361,13 @@ export const MessageRow = memo(function MessageRow({
           </div>
         )}
         {actions && actionsArmed && (
-          // Top-right of the hovered row and inside it, so it never covers the row
-          // above (its text or reactions). One line where it fits; a cramped row
-          // wraps it downward rather than past the row's left edge. Pointer only;
-          // touch uses the long-press sheet.
+          // Straddles the row's top edge, as Discord's does, so it covers the gap
+          // between messages rather than this one's text; always one line.
+          // Pointer only; touch uses the long-press sheet. Hidden, it overhangs the
+          // row above, so it must not take that row's pointer.
           <div data-message-actions className={cn(
-            "absolute right-2.5 z-20 flex flex-wrap justify-end items-center max-w-[calc(100%-1.25rem)] gap-0.5 vessel [--vessel-cut:0.45rem] px-1 py-0.5 select-none opacity-0 group-hover:opacity-100 focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100 transition-opacity",
-            continuation ? "-top-1" : "top-0",
+            "absolute right-2.5 z-20 flex flex-nowrap items-center gap-0.5 vessel [--vessel-cut:0.45rem] px-1 py-0.5 select-none opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto has-[[aria-expanded=true]]:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto transition-opacity",
+            continuation ? "-top-4" : "-top-5",
           )}>
             {actions}
           </div>
