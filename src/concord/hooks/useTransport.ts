@@ -208,17 +208,17 @@ export function useTransport(
 
   const channelIdHex = channel?.idHex ?? null;
 
-  // For the NIP-25 `p` tag on reactions; it lives inside the encrypted rumor.
-  const authorById = useMemo(() => {
-    const out = new Map<string, string>();
-    for (const m of messages) out.set(m.id, m.pubkey);
+  // For the NIP-25 `p` and `k` tags on reactions; they live inside the encrypted rumor.
+  const targetById = useMemo(() => {
+    const out = new Map<string, { pubkey: string; kind: number }>();
+    for (const m of messages) out.set(m.id, { pubkey: m.pubkey, kind: m.kind });
     return out;
   }, [messages]);
 
   // Both caches outlive a `talliesById` recompute (which rebuilds every array),
   // so memoized rows keep their `reactions` prop. The react fn reads through a ref.
-  const reactDeps = useRef({ send, queryClient, channelIdHex, authorById });
-  reactDeps.current = { send, queryClient, channelIdHex, authorById };
+  const reactDeps = useRef({ send, queryClient, channelIdHex, targetById });
+  reactDeps.current = { send, queryClient, channelIdHex, targetById };
   const reactCacheRef = useRef(new Map<string, (input: ReactInput) => void>());
   const reactionCacheRef = useRef(new Map<string, MessageReactions>());
   const reactionsFor = useMemo(() => {
@@ -227,7 +227,7 @@ export function useTransport(
       let fn = reactCache.get(id);
       if (!fn) {
         fn = (input: ReactInput) => {
-          const { send, queryClient, channelIdHex, authorById } = reactDeps.current;
+          const { send, queryClient, channelIdHex, targetById } = reactDeps.current;
           if (input.mineEventId) {
             // Optimistic removal: mark deleted now and strip from the query cache.
             markReactionDeleted(input.mineEventId);
@@ -242,11 +242,13 @@ export function useTransport(
               targetKind: KIND_REACTION,
             }).catch(() => {});
           } else {
+            const reacted = targetById.get(id);
             void send({
               content: input.content,
               kind: KIND_REACTION,
               target: id,
-              targetPubkey: authorById.get(id),
+              targetKind: reacted?.kind,
+              targetPubkey: reacted?.pubkey,
               extraTags: customEmojiReactionTags(input.content, input.emojiUrl),
             }).catch(() => {});
           }

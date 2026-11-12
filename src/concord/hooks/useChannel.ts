@@ -1251,7 +1251,7 @@ export function useSendMessage(community: Community | undefined, channel: Channe
       replyTo?: { id: string; kind: number; pubkey: string; tags: string[][] };
       /** `e`-target for reactions / deletes / edits. */
       target?: string;
-      /** Kind of the `e`-target for deletes (NIP-09 `k` tag); defaults to message. */
+      /** Kind of the `e`-target for deletes and reactions (`k` tag); defaults to message. */
       targetKind?: number;
       /** NIP-25 `p` for reactions; on the encrypted rumor, so nothing leaks to relays. */
       targetPubkey?: string;
@@ -1303,7 +1303,8 @@ export function useSendMessage(community: Community | undefined, channel: Channe
       if (target) tags.push(["e", target]);
       // NIP-25 `p` on the encrypted rumor, never the wrap.
       if (kind === KIND_REACTION && targetPubkey) tags.push(["p", targetPubkey]);
-      if (kind === KIND_DELETE && target) tags.push(["k", String(targetKind ?? KIND_MESSAGE)]);
+      // NIP-09/NIP-25 `k`: the target's kind (CORD-03), `1111` for a thread reply.
+      if ((kind === KIND_DELETE || kind === KIND_REACTION) && target) tags.push(["k", String(targetKind ?? KIND_MESSAGE)]);
       if (extraTags) tags.push(...extraTags);
       // CORD-08 §2: durable chat rumors (not deletes/notices) sign a NIP-40
       // deadline; the wrap repeats it so relays purge ciphertext. Override wins.
@@ -1578,6 +1579,7 @@ export function useMessageActions(community: Community | undefined, channel: Cha
           content: "",
           kind: KIND_DELETE,
           target: id,
+          targetKind: target?.kind,
           extraTags: citation ? [citationToTag(citation)] : undefined,
           expiration,
         });
