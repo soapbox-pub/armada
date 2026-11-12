@@ -31,13 +31,14 @@ import {
   type CoalescedMember,
   type FoldedTimeout,
   type GuestbookHistory,
+  type Refound,
 } from "@/concord/lib/guestbook";
-import { guestbookFoldOptions } from "@/concord/lib/memberlist";
+import { guestbookFoldOptions, type GuestbookFoldOptions } from "@/concord/lib/memberlist";
 import { mergeOpened, openPlaneWraps, sweepGuestbook } from "@/concord/lib/planeSync";
 import { heldPostAfter, queryPlane, withGuestbookStreams, writeOpened } from "@/concord/lib/rumorStore";
 import { clockNowMs } from "@/lib/relayClock";
 import type { OpenedEvent } from "@/concord/lib/stream";
-import { citationSatisfied } from "@/concord/lib/control";
+import { citationSatisfied, type FoldedControl } from "@/concord/lib/control";
 import { canActOnMember, mayName, Permissions } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 import { queueSignedEvent, recordQueuedPublishAttempt } from "@/lib/publishOutbox";
@@ -328,57 +329,108 @@ export function useGuestbook(community: Community | undefined) {
     return acquireGuestbookWake(queryClient, idHex, queryKey);
   }, [idHex, queryKey, queryClient]);
 
-  const { coalesced, history, refound, opts: coalesceOpts } = useMemo(() => {
-    if (!community || !query.data) return { coalesced: new Map<string, CoalescedMember>(), history: undefined, refound: undefined, opts: undefined };
-    const opened = openGuestbookOpened(query.data);
-    const opts = guestbookFoldOptions(community, folded, dissolvedAtMs);
-    return {
-      coalesced: coalesceGuestbook(opened, opts),
-      history: guestbookHistory(opened, opts) as GuestbookHistory,
-      refound: liveRefound(opened, opts),
-      opts,
-    };
-  }, [community, query.data, folded, dissolvedAtMs]);
-
-  // Timeouts and Nicknames (CORD-04 §8, §10), judged against the Roster as it stands, and
-  // again as each running Timeout ends.
+  // Timeouts and Nicknames (CORD-04 §8, §10) are judged again as each running Timeout ends.
   const [timeoutEdge, setTimeoutEdge] = useState(0);
-  const timeouts = useMemo(() => {
+  const fold = useMemo(() => {
     void timeoutEdge;
-    if (!community || !query.data || !folded) return new Map<string, FoldedTimeout>();
-    return foldTimeouts(query.data, {
-      nowMs: clockNowMs(),
+    return community && query.data ? sharedGuestbookFold(community, query.data, folded, dissolvedAtMs, clockNowMs()) : EMPTY_FOLD;
+  }, [community, query.data, folded, dissolvedAtMs, timeoutEdge]);
+  const { coalesced, history, refound, opts: coalesceOpts, timeouts, nicknames, validUntil } = fold;
+  useEffect(() => {
+    if (validUntil === Infinity) return;
+    const timer = setTimeout(() => setTimeoutEdge((n) => n + 1), Math.min(validUntil - clockNowMs() + 50, 2 ** 31 - 1));
+    return () => clearTimeout(timer);
+  }, [validUntil]);
+
+  return { ...query, coalesced, history, refound, coalesceOpts, timeouts, nicknames };
+}
+
+interface GuestbookFold {
+  sig: string;
+  folded: FoldedControl | undefined;
+  dissolvedAtMs: number | null | undefined;
+  coalesced: Map<string, CoalescedMember>;
+  history: GuestbookHistory | undefined;
+  refound: Refound | undefined;
+  opts: GuestbookFoldOptions | undefined;
+  timeouts: Map<string, FoldedTimeout>;
+  nicknames: Map<string, string>;
+  /** When the next running Timeout ends, and with it these Timeouts and Nicknames. */
+  validUntil: number;
+}
+
+const EMPTY_FOLD: GuestbookFold = {
+  sig: "",
+  folded: undefined,
+  dissolvedAtMs: undefined,
+  coalesced: new Map(),
+  history: undefined,
+  refound: undefined,
+  opts: undefined,
+  timeouts: new Map(),
+  nicknames: new Map(),
+  validUntil: Infinity,
+};
+
+/** The last fold per shared Guestbook read, so every `useGuestbook` on a community folds it once. */
+const foldByData = new WeakMap<OpenedEvent[], GuestbookFold>();
+
+/** What {@link guestbookFoldOptions} reads off a Community; instances rehydrate their own copies. */
+function guestbookFoldSig(community: Community): string {
+  const roots = community.heldRoots.map((r) => `${r.epoch}/${r.refounder ?? ""}`).join(",");
+  return `${community.idHex}:${community.rootEpoch}:${community.refounder ?? ""}:${roots}`;
+}
+
+function sharedGuestbookFold(
+  community: Community,
+  data: OpenedEvent[],
+  folded: FoldedControl | undefined,
+  dissolvedAtMs: number | null | undefined,
+  nowMs: number,
+): GuestbookFold {
+  const sig = guestbookFoldSig(community);
+  const hit = foldByData.get(data);
+  const same = hit !== undefined && hit.sig === sig && hit.folded === folded && hit.dissolvedAtMs === dissolvedAtMs;
+  if (same && nowMs < hit.validUntil) return hit;
+
+  let { coalesced, history, refound, opts } = same ? hit : EMPTY_FOLD;
+  if (!same) {
+    const opened = openGuestbookOpened(data);
+    opts = guestbookFoldOptions(community, folded, dissolvedAtMs);
+    coalesced = coalesceGuestbook(opened, opts);
+    history = guestbookHistory(opened, opts);
+    refound = liveRefound(opened, opts);
+  }
+
+  // Judged against the Roster as it stands; on a legacy one every member still names themselves.
+  let timeouts = new Map<string, FoldedTimeout>();
+  let nicknames = new Map<string, string>();
+  if (folded) {
+    timeouts = foldTimeouts(data, {
+      nowMs,
       ownerHex: folded.ownerHex,
       banned: folded.banned,
       mayTimeout: (actor, target, citation) =>
         canActOnMember(folded.roster, actor, folded.ownerHex, target, Permissions.MODERATE_MEMBERS) &&
         citationSatisfied(folded, community.id, actor, citation),
     });
-  }, [community, query.data, folded, timeoutEdge]);
-  useEffect(() => {
-    const now = clockNowMs();
-    let next = Infinity;
-    for (const t of timeouts.values()) if (t.until * 1000 > now) next = Math.min(next, t.until * 1000);
-    if (next === Infinity) return;
-    const timer = setTimeout(() => setTimeoutEdge((n) => n + 1), Math.min(next - now + 50, 2 ** 31 - 1));
-    return () => clearTimeout(timer);
-  }, [timeouts]);
-  const nicknames = useMemo(() => {
-    // On a legacy Roster every member still names themselves (CORD-04 §10).
-    if (!community || !query.data || !folded) return new Map<string, string>();
     // Only the live epoch's count: one seen at an older address, or at none recorded, doesn't (Vector `nicknames_on`).
     const live = currentGuestbookGroup(community).pk;
-    return foldNicknames(query.data.filter((e) => e.streamPk === live), {
-      nowMs: clockNowMs(),
+    nicknames = foldNicknames(data.filter((e) => e.streamPk === live), {
+      nowMs,
       banned: folded.banned,
       timeouts,
       mayName: (actor, target, citation) =>
         mayName(folded.roster, actor, folded.ownerHex, target) &&
         (actor === target || citationSatisfied(folded, community.id, actor, citation)),
     });
-  }, [community, query.data, folded, timeouts]);
+  }
+  let validUntil = Infinity;
+  for (const t of timeouts.values()) if (t.until * 1000 > nowMs) validUntil = Math.min(validUntil, t.until * 1000);
 
-  return { ...query, coalesced, history, refound, coalesceOpts, timeouts, nicknames };
+  const fold: GuestbookFold = { sig, folded, dissolvedAtMs, coalesced, history, refound, opts, timeouts, nicknames, validUntil };
+  foldByData.set(data, fold);
+  return fold;
 }
 
 /**
