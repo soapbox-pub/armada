@@ -41,6 +41,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
+import { useOrderHeldOffTop } from "@/hooks/useOrderHeldOffTop";
 import { useMemberNameOrder, useMemberSearch } from "@/hooks/useMemberSearch";
 import { useScopedIdentity } from "@/hooks/useScopedDisplayName";
 import { isStatusExpired, useUserStatus } from "@/hooks/useUserStatus";
@@ -493,23 +494,34 @@ export const MemberList = memo(function MemberList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sortedAdmins.map((a) => a.pubkey).join(","), allRegulars.join(",")],
   );
+  // Section-only members order among themselves, after the roster.
+  const sectionOnly = (roleSections ?? []).flatMap((s) => s.members).filter((pk) => !roster.includes(pk)).sort(byName);
+  const sectionOnlyKey = sectionOnly.join(",");
+  const liveOrder = useMemo(
+    () => (sectionOnly.length > 0 ? [...roster, ...sectionOnly] : roster),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [roster, sectionOnlyKey],
+  );
+  const shownOrder = useOrderHeldOffTop(liveOrder, scrollRef);
+  const rank = useMemo(() => new Map(shownOrder.map((pk, i) => [pk, i] as const)), [shownOrder]);
+  const byRank = (a: string, b: string) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity) || byName(a, b);
   const matched = useMemberSearch(roster, query);
   const searching = matched !== null;
   const virtualize = !searching;
   // A search shows its matches whatever is folded.
   const isCollapsed = (id: string) => !searching && collapsedSet.has(id);
 
-  const visibleAdmins = sortedAdmins.filter(
-    (a) => !sectioned.has(a.pubkey) && (!matched || matched.has(a.pubkey)),
-  );
-  const regulars = allRegulars.filter(
-    (pubkey) => !sectioned.has(pubkey) && (!matched || matched.has(pubkey)),
-  );
+  const visibleAdmins = sortedAdmins
+    .filter((a) => !sectioned.has(a.pubkey) && (!matched || matched.has(a.pubkey)))
+    .sort((a, b) => byRank(a.pubkey, b.pubkey));
+  const regulars = allRegulars
+    .filter((pubkey) => !sectioned.has(pubkey) && (!matched || matched.has(pubkey)))
+    .sort(byRank);
   const visibleSections = (roleSections ?? []).map((section) => ({
     ...section,
     members: section.members
       .filter((pubkey) => !mutedPubkeys.has(pubkey) && (!matched || matched.has(pubkey)))
-      .sort(byName),
+      .sort(byRank),
   }));
   const noMatches =
     searching &&
