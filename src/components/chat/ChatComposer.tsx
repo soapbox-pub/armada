@@ -104,6 +104,7 @@ import { invocationTags, parseInvocation, usageLine, validateInvocation, type Bo
 import { executeSlashCommand, parseSlashCommand, resolveNpubArg, type SlashAction, type SlashCapability, type SlashCommand } from "@/lib/slashCommands";
 import { buildPollTags, KIND_POLL } from "@/lib/polls";
 import { cn } from "@/lib/utils";
+import { isTypingInput } from "@/lib/typingSignal";
 import { useAddrEvent, useEvent } from "@/hooks/useEvent";
 
 import type { AddrCoords } from "@/hooks/useEvent";
@@ -2408,7 +2409,7 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
                   rich={rich}
                   dir="auto"
                   onInput={(e) => {
-                    if (e.currentTarget.value) onTyping?.();
+                    if (isTypingInput(e.currentTarget.value, (e.nativeEvent as InputEvent).inputType)) onTyping?.();
                   }}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}

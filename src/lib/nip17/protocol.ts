@@ -67,7 +67,7 @@ export const KIND_DM_CALL = 23314;
 export const KIND_DM_WRAP_EPHEMERAL = 21059;
 
 /** How long a typing signal stays live before it ages out. */
-export const TYPING_WINDOW_SECS = 8;
+export const TYPING_WINDOW_SECS = 30;
 
 /**
  * In-chat app state (as Concord, CORD-02 Appendix B). Stored like any DM rumor

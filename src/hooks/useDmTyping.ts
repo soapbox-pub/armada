@@ -18,22 +18,16 @@ import {
   buildDmRumor,
   dmTypingTags,
   KIND_DM_TYPING,
-  KIND_DM_WRAP_EPHEMERAL,
-  openDmWrap,
   sealDmRumor,
-  TYPING_WINDOW_SECS,
   wrapDmSealEphemeral,
   type Dm17Signer,
 } from "@/lib/nip17/protocol";
 import { dmConvKey, dmConvPeers } from "@/lib/nip17/conversation";
-import { subscribeDmEphemeral } from "@/lib/nip17/ephemeralInbox";
+import { openDmEphemeral, subscribeDmEphemeral } from "@/lib/nip17/ephemeralInbox";
 import { isPlausiblyLive } from "@/lib/liveSignal";
+import { sameTypers, TYPING_THROTTLE_MS, TYPING_WINDOW_MS, useTypersStillTyping, useTypingResetOnPost, type Typer } from "@/lib/typingSignal";
 
 import type { NostrEvent } from "@nostrify/nostrify";
-
-const TYPING_WINDOW_MS = TYPING_WINDOW_SECS * 1000;
-/** One every 4s covers an 8s window. */
-const TYPING_THROTTLE_MS = 4_000;
 
 export interface DmTyping {
   typers: string[];
@@ -43,7 +37,7 @@ export interface DmTyping {
 const IDLE: DmTyping = { typers: [], publishTyping: () => {} };
 
 /** Returns an inert value when off/unsupported/no peer, so callers can mount it unconditionally. */
-export function useDmTyping(conversation: string | undefined, enabled = true): DmTyping {
+export function useDmTyping(conversation: string | undefined, enabled = true, messages?: readonly { pubkey: string; created_at: number }[]): DmTyping {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const { config } = useAppContext();
@@ -60,10 +54,11 @@ export function useDmTyping(conversation: string | undefined, enabled = true): D
   const peerInboxRelays = useDmRelaysFor(publishPeer);
   const senders = useMemo(() => new Set(peers), [peers]);
 
-  const [typers, setTypers] = useState<string[]>([]);
+  const [typers, setTypers] = useState<readonly Typer[]>([]);
   /** Per typer: when their latest signal arrived (local ms), and the date it carried. */
   const lastSeen = useRef(new Map<string, { at: number; date: number }>());
   const lastSent = useRef(0);
+  useTypingResetOnPost(lastSent, messages, user?.pubkey);
 
   const on =
     enabled &&
@@ -98,27 +93,21 @@ export function useDmTyping(conversation: string | undefined, enabled = true): D
       decay = undefined;
       const now = Date.now();
       const cutoff = now - TYPING_WINDOW_MS;
-      const live: string[] = [];
+      const live: Typer[] = [];
       let oldest = Infinity;
-      for (const [pubkey, { at }] of lastSeen.current) {
+      for (const [pubkey, { at, date }] of lastSeen.current) {
         if (at > cutoff) {
-          live.push(pubkey);
+          live.push({ pubkey, date });
           oldest = Math.min(oldest, at);
         } else lastSeen.current.delete(pubkey);
       }
-      live.sort();
-      setTypers((prev) =>
-        prev.length === live.length && prev.every((pk, i) => pk === live[i]) ? prev : live,
-      );
+      live.sort((a, b) => (a.pubkey < b.pubkey ? -1 : 1));
+      setTypers((prev) => sameTypers(prev, live));
       if (live.length > 0) decay = setTimeout(recompute, oldest + TYPING_WINDOW_MS - now + 1);
     };
 
     const apply = async (wrap: NostrEvent) => {
-      // No cache: an 8-second signal must not leave plaintext on disk.
-      const opened = await openDmWrap(wrap, signer, self!, {
-        wrapKind: KIND_DM_WRAP_EPHEMERAL,
-        cache: false,
-      }).catch(() => undefined);
+      const opened = await openDmEphemeral(wrap, signer, self!);
       if (released || !opened || opened.kind !== KIND_DM_TYPING) return;
       // Excludes our own echoed signal, and 1:1 signals from a group sharing its members.
       if (!senders.has(opened.author)) return;
@@ -170,5 +159,6 @@ export function useDmTyping(conversation: string | undefined, enabled = true): D
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nostr, on, self, publishPeer, user, myRelayKey, peerRelayKey]);
 
-  return on ? { typers, publishTyping } : IDLE;
+  const shown = useTypersStillTyping(typers, messages);
+  return useMemo(() => (on ? { typers: shown, publishTyping } : IDLE), [on, shown, publishTyping]);
 }

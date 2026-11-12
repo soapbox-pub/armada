@@ -7,6 +7,7 @@ import { sendTarget } from "@/concord/lib/writerKeys";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { isPlausiblyLive } from "@/lib/liveSignal";
+import { sameTypers, TYPING_THROTTLE_MS, TYPING_WINDOW_MS, useTypersStillTyping, useTypingResetOnPost, type Typer } from "@/lib/typingSignal";
 import { clockNowMs } from "@/lib/relayClock";
 import { KIND_SEAL_ENCRYPTED, KIND_TYPING } from "@/concord/lib/kinds";
 import { subscribeEphemeral } from "@/concord/lib/ephemeralSub";
@@ -15,22 +16,17 @@ import type { Channel, Community } from "@/concord/lib/types";
 
 import type { NostrEvent } from "@nostrify/nostrify";
 
-/** How long a typing signal is considered live. */
-const TYPING_WINDOW_MS = 8000;
-/** Minimum gap between published signals. */
-const TYPING_THROTTLE_MS = 4000;
-
 /**
  * Live "who is typing" for a channel: kind 23311 rumor in a kind-21059 wrap at
  * the channel's current address (CORD-02 Appendix B), and in a restricted Channel at
  * its live writer address, where typing moves with posting (CORD-03 §1). Relays store
  * nothing, so it's subscription-only into a decaying in-memory map.
  */
-export function useTyping(community: Community | undefined, channel: Channel | undefined): string[] {
+export function useTyping(community: Community | undefined, channel: Channel | undefined, messages?: readonly { pubkey: string; created_at: number }[]): string[] {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const enabled = useAppContext().config.dmTypingIndicators;
-  const [typers, setTypers] = useState<string[]>([]);
+  const [typers, setTypers] = useState<readonly Typer[]>([]);
   /** Per typer: when their latest signal arrived (local ms), and the date it carried. */
   const seen = useRef(new Map<string, { at: number; date: number }>());
 
@@ -54,17 +50,16 @@ export function useTyping(community: Community | undefined, channel: Channel | u
       if (decay) clearTimeout(decay);
       decay = undefined;
       const now = Date.now();
-      const live: string[] = [];
+      const live: Typer[] = [];
       let oldest = Infinity;
-      for (const [pk, { at }] of seen.current) {
+      for (const [pubkey, { at, date }] of seen.current) {
         if (now - at <= TYPING_WINDOW_MS) {
-          live.push(pk);
+          live.push({ pubkey, date });
           oldest = Math.min(oldest, at);
-        } else seen.current.delete(pk);
+        } else seen.current.delete(pubkey);
       }
-      setTypers((prev) =>
-        prev.length === live.length && prev.every((p, i) => p === live[i]) ? prev : live,
-      );
+      live.sort((a, b) => (a.pubkey < b.pubkey ? -1 : 1));
+      setTypers((prev) => sameTypers(prev, live));
       if (live.length > 0) decay = setTimeout(recompute, oldest + TYPING_WINDOW_MS - now + 1);
     };
 
@@ -95,15 +90,16 @@ export function useTyping(community: Community | undefined, channel: Channel | u
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nostr, community?.idHex, channelIdHex, listenedSig, user?.pubkey, enabled]);
 
-  return typers;
+  return useTypersStillTyping(typers, messages);
 }
 
 /** A throttled publisher for the current user's typing signal. */
-export function useTypingPublisher(community: Community | undefined, channel: Channel | undefined) {
+export function useTypingPublisher(community: Community | undefined, channel: Channel | undefined, messages?: readonly { pubkey: string; created_at: number }[]) {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const enabled = useAppContext().config.dmTypingIndicators;
   const lastSent = useRef(0);
+  useTypingResetOnPost(lastSent, messages, user?.pubkey);
   const { data: folded } = useControlFold(community);
   const { history } = useGuestbook(folded?.rankedRoster ? community : undefined);
 

@@ -2810,8 +2810,8 @@ function ConcordCommunityPage() {
     [],
   );
 
-  const publishTyping = useTypingPublisher(community, channel);
-  const typingPubkeys = useTyping(community, channel);
+  const publishTyping = useTypingPublisher(community, channel, allMessages);
+  const typingPubkeys = useTyping(community, channel, allMessages);
 
   if (!communityId) return <Navigate to="/" replace />;
   // Render NOTHING of the community to a non-member; placed before all of it.

@@ -716,7 +716,7 @@ const Conversation = memo(function Conversation({
   const isTouch = useIsTouch();
   // Typing rides the NIP-17 plane only, and never on an unaccepted request
   // (it would tell a stranger someone is reading).
-  const { typers, publishTyping } = useDmTyping(conversation, dm17Enabled && !isRequest);
+  const { typers, publishTyping } = useDmTyping(conversation, dm17Enabled && !isRequest, messages);
   // Tier-2 hint for the request banner; read only while a request is open.
   const requestPeers = useMemo(
     () => (isRequest && !group ? [peer] : []),
