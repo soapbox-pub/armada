@@ -1,6 +1,6 @@
 import { IDBFactory } from "fake-indexeddb";
 import { getConversationKey, decrypt as nip44Decrypt, encrypt as nip44Encrypt } from "nostr-tools/nip44";
-import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
+import { finalizeEvent, generateSecretKey, getEventHash, getPublicKey } from "nostr-tools/pure";
 import type { EventTemplate, NostrEvent } from "nostr-tools/pure";
 import { describe, expect, it } from "vitest";
 
@@ -137,6 +137,12 @@ describe("direct invites (CORD-05 §6)", () => {
       const wrap = await wrapDirectInvite(forged, recipientPk);
       expect(await unwrapDirectInvite(wrap, rawSigner(recipientSk))).toBeUndefined();
     }
+  });
+
+  it("gives the rumor its NIP-59 id", () => {
+    const rumor = buildDirectInviteRumor(makeBundle(), getPublicKey(generateSecretKey()));
+    const { id, ...body } = rumor;
+    expect(id).toBe(getEventHash(body));
   });
 
   it("refuses a bundle whose owner does not reproduce its community_id", () => {

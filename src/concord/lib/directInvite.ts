@@ -16,7 +16,7 @@
  */
 
 import { getConversationKey, encrypt as nip44Encrypt } from "nostr-tools/nip44";
-import { generateSecretKey } from "nostr-tools/pure";
+import { generateSecretKey, getEventHash } from "nostr-tools/pure";
 import type { EventTemplate, NostrEvent } from "nostr-tools/pure";
 
 import { validateBundle, type InviteBundle } from "@/concord/lib/invite";
@@ -47,6 +47,8 @@ export interface DirectInviteSigner {
 
 /** The unsigned kind-3313 rumor: the bundle whole, claimed by the inviter. */
 export interface DirectInviteRumor {
+  /** NIP-59: a rumor carries its hash; stock readers drop one without it. */
+  id?: string;
   kind: number;
   content: string;
   tags: string[][];
@@ -56,13 +58,14 @@ export interface DirectInviteRumor {
 
 /** Build the kind-3313 rumor carrying the bundle as its content (CORD-05 §6). */
 export function buildDirectInviteRumor(bundle: InviteBundle, inviterPubkey: string): DirectInviteRumor {
-  return {
+  const rumor = {
     kind: KIND_DIRECT_INVITE,
     content: JSON.stringify(bundle),
     tags: [],
     created_at: nowSecs(),
     pubkey: inviterPubkey,
   };
+  return { ...rumor, id: getEventHash(rumor) };
 }
 
 /**
