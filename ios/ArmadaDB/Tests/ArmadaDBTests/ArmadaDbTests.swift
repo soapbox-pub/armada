@@ -395,6 +395,25 @@ final class ArmadaDbTests: XCTestCase {
         XCTAssertGreaterThan(usage.fileBytes, 0)
     }
 
+    func testUsageSizesTheKvPerGroupAsArmadaDBTestTsDoes() throws {
+        let db = try open()
+        try db.kvSet("c2seal:a:1", "\"xx\"")
+        try db.kvSet("c2seal:b:2", "\"y\"")
+        try db.kvSet("folded:snap:a", "1")
+        try db.kvSet("folded", "1")
+        try db.kvSet("plain", "1")
+
+        let usage = try db.usage()
+
+        XCTAssertEqual(usage.kvGroups, [
+            SqliteArmadaDb.KvGroupUsage(group: "c2seal", entries: 2, bytes: 27),
+            SqliteArmadaDb.KvGroupUsage(group: "folded:snap", entries: 1, bytes: 14),
+            SqliteArmadaDb.KvGroupUsage(group: "folded", entries: 1, bytes: 7),
+            SqliteArmadaDb.KvGroupUsage(group: "plain", entries: 1, bytes: 6),
+        ])
+        XCTAssertEqual(usage.kvBytes, 54)
+    }
+
     // MARK: - forget (removed from this device)
 
     func testForgetDeletesTheIdFromEveryTenantAndLeavesTheRest() throws {

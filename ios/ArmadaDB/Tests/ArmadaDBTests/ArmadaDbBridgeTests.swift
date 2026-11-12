@@ -98,6 +98,8 @@ final class ArmadaDbBridgeTests: XCTestCase {
         XCTAssertEqual(tenants[0]["bytes"] as? Int, 29)
         let kv = try XCTUnwrap(usage["kv"] as? [String: Any])
         XCTAssertEqual(kv["entries"] as? Int, 1)
+        let groups = try XCTUnwrap(kv["groups"] as? [[String: Any]])
+        XCTAssertEqual(groups.map { $0["group"] as? String }, ["k"])
         XCTAssertEqual(kv["bytes"] as? Int, 2)
         XCTAssertGreaterThan(try XCTUnwrap(usage["fileBytes"] as? Int), 0)
     }

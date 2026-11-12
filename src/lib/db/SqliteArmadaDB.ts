@@ -103,6 +103,15 @@ const USAGE_KV_SQL =
   "SELECT COUNT(*) AS entries, " +
   "COALESCE(SUM(length(CAST(key AS BLOB)) + length(CAST(value AS BLOB))), 0) AS bytes FROM kv";
 
+/** The KV per {@link kvGroupOf} group, largest first; the Kotlin and Swift ports run the same SQL. */
+const USAGE_KV_GROUPS_SQL =
+  "WITH k AS (SELECT key, length(CAST(key AS BLOB)) + length(CAST(value AS BLOB)) AS b, " +
+  "CASE WHEN instr(key, ':') = 0 THEN key ELSE substr(key, 1, instr(key, ':') - 1) END AS head, " +
+  "substr(key, instr(key, ':') + 1) AS rest FROM kv) " +
+  "SELECT CASE WHEN head = 'folded' AND instr(key, ':') > 0 THEN 'folded:' || " +
+  "CASE WHEN instr(rest, ':') = 0 THEN rest ELSE substr(rest, 1, instr(rest, ':') - 1) END ELSE head END AS grp, " +
+  "COUNT(*) AS entries, SUM(b) AS bytes FROM k GROUP BY grp ORDER BY bytes DESC, grp";
+
 export interface SqliteArmadaDBOpts extends ArmadaDBOpts {
   /** Install the schema on construction (default `true`; `false` when the transport owns it). */
   migrate?: boolean;
@@ -298,11 +307,16 @@ export class SqliteArmadaDB implements ArmadaDB {
     await this.ready;
     const tenants = await this.all(USAGE_TENANTS_SQL);
     const [kv] = await this.all(USAGE_KV_SQL);
+    const groups = await this.all(USAGE_KV_GROUPS_SQL);
     const [pages] = await this.all(`PRAGMA page_count`);
     const [size] = await this.all(`PRAGMA page_size`);
     return {
       tenants: tenants.map((row) => ({ id: String(row.id), rumors: Number(row.rumors), bytes: Number(row.bytes) })),
-      kv: { entries: Number(kv?.entries ?? 0), bytes: Number(kv?.bytes ?? 0) },
+      kv: {
+        entries: Number(kv?.entries ?? 0),
+        bytes: Number(kv?.bytes ?? 0),
+        groups: groups.map((row) => ({ group: String(row.grp), entries: Number(row.entries), bytes: Number(row.bytes) })),
+      },
       fileBytes: Number(pages?.page_count ?? 0) * Number(size?.page_size ?? 0),
     };
   }

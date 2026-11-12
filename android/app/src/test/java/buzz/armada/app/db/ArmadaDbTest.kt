@@ -310,6 +310,29 @@ class ArmadaDbTest {
         assertTrue(usage.fileBytes > 0)
     }
 
+    @Test
+    fun `usage sizes the KV per group as ArmadaDB_test_ts does`() {
+        val db = open()
+        db.kvSet("c2seal:a:1", "\"xx\"")
+        db.kvSet("c2seal:b:2", "\"y\"")
+        db.kvSet("folded:snap:a", "1")
+        db.kvSet("folded", "1")
+        db.kvSet("plain", "1")
+
+        val usage = db.usage()
+
+        assertEquals(
+            listOf(
+                SqliteArmadaDb.KvGroupUsage("c2seal", 2, 27),
+                SqliteArmadaDb.KvGroupUsage("folded:snap", 1, 14),
+                SqliteArmadaDb.KvGroupUsage("folded", 1, 7),
+                SqliteArmadaDb.KvGroupUsage("plain", 1, 6),
+            ),
+            usage.kvGroups,
+        )
+        assertEquals(54L, usage.kvBytes)
+    }
+
     // ── forget (removed from this device) ─────────────────────────────────────
 
     @Test

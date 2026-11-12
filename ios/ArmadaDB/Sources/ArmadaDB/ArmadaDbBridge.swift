@@ -103,9 +103,14 @@ public final class ArmadaDbBridge {
             JsonText.quote(&out, tenant.id)
             out.append(contentsOf: Array(",\"rumors\":\(tenant.rumors),\"bytes\":\(tenant.bytes)}".utf8))
         }
-        out.append(contentsOf: Array(
-            "],\"kv\":{\"entries\":\(usage.kvEntries),\"bytes\":\(usage.kvBytes)},\"fileBytes\":\(usage.fileBytes)}".utf8
-        ))
+        out.append(contentsOf: Array("],\"kv\":{\"entries\":\(usage.kvEntries),\"bytes\":\(usage.kvBytes),\"groups\":[".utf8))
+        for (index, group) in usage.kvGroups.enumerated() {
+            if index > 0 { out.append(UInt8(ascii: ",")) }
+            out.append(contentsOf: Array("{\"group\":".utf8))
+            JsonText.quote(&out, group.group)
+            out.append(contentsOf: Array(",\"entries\":\(group.entries),\"bytes\":\(group.bytes)}".utf8))
+        }
+        out.append(contentsOf: Array("]},\"fileBytes\":\(usage.fileBytes)}".utf8))
         return String(decoding: out, as: UTF8.self)
     }
 

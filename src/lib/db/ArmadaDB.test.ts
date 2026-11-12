@@ -825,8 +825,29 @@ describe.each(backends)("$name", ({ create }) => {
       // "é" (2) + '[["p","q"]]' (11) + "x" (1) + "pk" (2)
       expect(usage.tenants[0].bytes).toBe(16);
       // "k" (1) + '"é"' (4)
-      expect(usage.kv).toEqual({ entries: 1, bytes: 5 });
+      expect(usage.kv).toMatchObject({ entries: 1, bytes: 5 });
       expect(usage.fileBytes).toBeGreaterThan(0);
+    });
+  });
+
+  describe("kv usage", () => {
+    it("sizes the KV per group: the first segment, or two under folded:", async () => {
+      await db.kv.set("c2seal:a:1", "xx");
+      await db.kv.set("c2seal:b:2", "y");
+      await db.kv.set("folded:snap:a", 1);
+      await db.kv.set("folded", 1);
+      await db.kv.set("plain", 1);
+
+      const usage = await db.usage();
+
+      // Each key's UTF-8 bytes plus its value's JSON text, as the engines store it.
+      expect(usage.kv?.groups).toEqual([
+        { group: "c2seal", entries: 2, bytes: 27 },
+        { group: "folded:snap", entries: 1, bytes: 14 },
+        { group: "folded", entries: 1, bytes: 7 },
+        { group: "plain", entries: 1, bytes: 6 },
+      ]);
+      expect(usage.kv).toMatchObject({ entries: 5, bytes: 54 });
     });
   });
 

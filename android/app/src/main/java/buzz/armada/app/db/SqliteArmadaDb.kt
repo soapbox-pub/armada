@@ -190,13 +190,27 @@ class SqliteArmadaDb(
     data class TenantUsage(val id: String, val rumors: Long, val bytes: Long)
 
     /** `ArmadaDB.usage`: the same SQL as `SqliteArmadaDB.ts`, so the three engines report alike. */
-    data class Usage(val tenants: List<TenantUsage>, val kvEntries: Long, val kvBytes: Long, val fileBytes: Long) {
+    data class KvGroupUsage(val group: String, val entries: Long, val bytes: Long)
+
+    data class Usage(
+        val tenants: List<TenantUsage>,
+        val kvEntries: Long,
+        val kvBytes: Long,
+        val fileBytes: Long,
+        val kvGroups: List<KvGroupUsage> = emptyList(),
+    ) {
         fun toJson(): String = JSONObject()
             .put(
                 "tenants",
                 JSONArray(tenants.map { JSONObject().put("id", it.id).put("rumors", it.rumors).put("bytes", it.bytes) }),
             )
-            .put("kv", JSONObject().put("entries", kvEntries).put("bytes", kvBytes))
+            .put(
+                "kv",
+                JSONObject().put("entries", kvEntries).put("bytes", kvBytes).put(
+                    "groups",
+                    JSONArray(kvGroups.map { JSONObject().put("group", it.group).put("entries", it.entries).put("bytes", it.bytes) }),
+                ),
+            )
             .put("fileBytes", fileBytes)
             .toString()
     }
@@ -211,9 +225,18 @@ class SqliteArmadaDb(
             "SELECT COUNT(*) AS entries, " +
                 "COALESCE(SUM(length(CAST(key AS BLOB)) + length(CAST(value AS BLOB))), 0) AS bytes FROM kv",
         ) { it.long(0) to it.long(1) }.first()
+        // `USAGE_KV_GROUPS_SQL` in SqliteArmadaDB.ts: the first key segment, or two under `folded:`.
+        val groups = db.query(
+            "WITH k AS (SELECT key, length(CAST(key AS BLOB)) + length(CAST(value AS BLOB)) AS b, " +
+                "CASE WHEN instr(key, ':') = 0 THEN key ELSE substr(key, 1, instr(key, ':') - 1) END AS head, " +
+                "substr(key, instr(key, ':') + 1) AS rest FROM kv) " +
+                "SELECT CASE WHEN head = 'folded' AND instr(key, ':') > 0 THEN 'folded:' || " +
+                "CASE WHEN instr(rest, ':') = 0 THEN rest ELSE substr(rest, 1, instr(rest, ':') - 1) END ELSE head END AS grp, " +
+                "COUNT(*) AS entries, SUM(b) AS bytes FROM k GROUP BY grp ORDER BY bytes DESC, grp",
+        ) { KvGroupUsage(it.text(0), it.long(1), it.long(2)) }
         val pages = db.query("PRAGMA page_count") { it.long(0) }.first()
         val pageSize = db.query("PRAGMA page_size") { it.long(0) }.first()
-        Usage(tenants, kv.first, kv.second, pages * pageSize)
+        Usage(tenants, kv.first, kv.second, pages * pageSize, groups)
     }
 
     // ── Write path ────────────────────────────────────────────────────────────

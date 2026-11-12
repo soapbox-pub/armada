@@ -248,11 +248,18 @@ public final class SqliteArmadaDb {
     }
 
     /// `ArmadaDB.usage`: the same SQL as `SqliteArmadaDB.ts`, so the three engines report alike.
+    public struct KvGroupUsage: Equatable {
+        public let group: String
+        public let entries: Int64
+        public let bytes: Int64
+    }
+
     public struct Usage {
         public let tenants: [TenantUsage]
         public let kvEntries: Int64
         public let kvBytes: Int64
         public let fileBytes: Int64
+        public let kvGroups: [KvGroupUsage]
     }
 
     public func usage() throws -> Usage {
@@ -268,9 +275,18 @@ public final class SqliteArmadaDb {
             "SELECT COUNT(*) AS entries, "
                 + "COALESCE(SUM(length(CAST(key AS BLOB)) + length(CAST(value AS BLOB))), 0) AS bytes FROM kv"
         ) { ($0.int(0), $0.int(1)) }.first ?? (0, 0)
+        // `USAGE_KV_GROUPS_SQL` in SqliteArmadaDB.ts: the first key segment, or two under `folded:`.
+        let groups = try db.query(
+            "WITH k AS (SELECT key, length(CAST(key AS BLOB)) + length(CAST(value AS BLOB)) AS b, "
+                + "CASE WHEN instr(key, ':') = 0 THEN key ELSE substr(key, 1, instr(key, ':') - 1) END AS head, "
+                + "substr(key, instr(key, ':') + 1) AS rest FROM kv) "
+                + "SELECT CASE WHEN head = 'folded' AND instr(key, ':') > 0 THEN 'folded:' || "
+                + "CASE WHEN instr(rest, ':') = 0 THEN rest ELSE substr(rest, 1, instr(rest, ':') - 1) END ELSE head END AS grp, "
+                + "COUNT(*) AS entries, SUM(b) AS bytes FROM k GROUP BY grp ORDER BY bytes DESC, grp"
+        ) { KvGroupUsage(group: $0.text(0), entries: $0.int(1), bytes: $0.int(2)) }
         let pages = try db.query("PRAGMA page_count") { $0.int(0) }.first ?? 0
         let pageSize = try db.query("PRAGMA page_size") { $0.int(0) }.first ?? 0
-        return Usage(tenants: tenants, kvEntries: kv.0, kvBytes: kv.1, fileBytes: pages * pageSize)
+        return Usage(tenants: tenants, kvEntries: kv.0, kvBytes: kv.1, fileBytes: pages * pageSize, kvGroups: groups)
     }
 
     // MARK: - Write path

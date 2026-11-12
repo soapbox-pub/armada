@@ -13,11 +13,13 @@ import { installChunkedScans } from "./chunkedScans";
 import { ParsedFilter } from "./ParsedFilter";
 import {
   defaultIndexTags,
+  kvGroupOf,
   matchesKvRange,
   resolveKvRange,
   TERM_TAG,
   tenantClass,
   termNamespaceRange,
+  type ArmadaKVGroupUsage,
 } from "./types";
 import { WrittenIds } from "./writtenIds";
 
@@ -921,6 +923,31 @@ class IndexedDBKV implements ArmadaKV {
   }
 
   /** Every tenant id recorded by this or a previous session. */
+  /**
+   * The KV per {@link kvGroupOf} group, for Settings › Storage. Walks every value,
+   * so only on request. Sized as the SQLite engines size it: UTF-8 key plus value text.
+   */
+  async usage(): Promise<{ entries: number; bytes: number; groups: ArmadaKVGroupUsage[] } | undefined> {
+    const db = await this.db.catch(() => null);
+    if (!db) return undefined;
+    const encoder = new TextEncoder();
+    const groups = new Map<string, ArmadaKVGroupUsage>();
+    let cursor = await db.transaction("kv").store.openCursor();
+    while (cursor) {
+      const key = String(cursor.key);
+      const value = cursor.value as unknown;
+      const text = JSON.stringify(value) ?? "";
+      const group = kvGroupOf(key);
+      const row = groups.get(group) ?? { group, entries: 0, bytes: 0 };
+      row.entries++;
+      row.bytes += encoder.encode(key).length + encoder.encode(text).length;
+      groups.set(group, row);
+      cursor = await cursor.continue();
+    }
+    const rows = [...groups.values()].sort((a, b) => b.bytes - a.bytes || (a.group < b.group ? -1 : 1));
+    return { entries: rows.reduce((n, r) => n + r.entries, 0), bytes: rows.reduce((n, r) => n + r.bytes, 0), groups: rows };
+  }
+
   async knownTenants(): Promise<string[]> {
     try {
       const db = await this.db;
@@ -1143,12 +1170,16 @@ export class IndexedDBArmadaDB implements ArmadaDB {
     return [...new Set([...(await this.kv.knownTenants()), ...this.stores.keys()])];
   }
 
-  /** See {@link ArmadaDB.usage}: counts only, since IndexedDB can't size a database. */
+  /** See {@link ArmadaDB.usage}: tenants are counted only, since IndexedDB can't size a database. */
   async usage(): Promise<ArmadaDBUsage> {
     const ids = (await this.tenantIds()).sort();
-    const counts = await Promise.all(ids.map((id) => this.tenant(id).count([{}]).then(({ count }) => count, () => 0)));
+    const [counts, kv] = await Promise.all([
+      Promise.all(ids.map((id) => this.tenant(id).count([{}]).then(({ count }) => count, () => 0))),
+      this.kv.usage().catch(() => undefined),
+    ]);
     return {
       tenants: ids.map((id, i) => ({ id, rumors: counts[i] })).filter((t) => t.rumors > 0),
+      ...(kv ? { kv } : {}),
     };
   }
 

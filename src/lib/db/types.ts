@@ -143,10 +143,27 @@ export interface ArmadaDB {
 export interface ArmadaDBUsage {
   /** Every tenant holding rumors, with the bytes of its rows' JSON (indexes excluded). */
   tenants: { id: string; rumors: number; bytes?: number }[];
-  /** The KV store: entries, and bytes of keys plus value text. */
-  kv?: { entries: number; bytes: number };
+  /** The KV store: entries, and bytes of keys plus value text, also per {@link kvGroupOf} group. */
+  kv?: { entries: number; bytes: number; groups?: ArmadaKVGroupUsage[] };
   /** The whole file, indexes and free pages included. */
   fileBytes?: number;
+}
+
+/** One KV key group's share of {@link ArmadaDBUsage.kv}. */
+export interface ArmadaKVGroupUsage {
+  group: string;
+  entries: number;
+  bytes: number;
+}
+
+/**
+ * What a KV key is sized under: its first `:`-separated segment, or two under
+ * `folded:`, whose second segment names the cache. The SQLite engines compute
+ * the same in SQL (`USAGE_KV_GROUPS_SQL`).
+ */
+export function kvGroupOf(key: string): string {
+  const [head, second] = key.split(":", 2);
+  return head === "folded" && second !== undefined ? `folded:${second}` : head;
 }
 
 export interface ArmadaDBOpts {
