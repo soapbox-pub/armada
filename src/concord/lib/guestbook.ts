@@ -305,16 +305,31 @@ function snapTag(tags: string[][]): { id: string; i: number; n: number } | undef
   return { id: snaps[0][1].toLowerCase(), i, n };
 }
 
-/** A Snapshot's members, each a public key; malformed entries are dropped alone. */
-function snapshotMembers(content: string): string[] {
+/** A Snapshot's members, each a public key; malformed entries are dropped alone. Shared: callers only read it. */
+function snapshotMembers(content: string): readonly string[] {
+  const known = snapshotParsed.get(content);
+  if (known) return known;
   let members: unknown;
   try {
     members = JSON.parse(content);
   } catch {
-    return [];
+    members = undefined;
   }
-  if (!Array.isArray(members)) return [];
-  return members.filter((pk): pk is string => typeof pk === "string" && isPubkey(pk.toLowerCase())).map((pk) => pk.toLowerCase());
+  const out = Array.isArray(members)
+    ? members.filter((pk): pk is string => typeof pk === "string" && isPubkey(pk.toLowerCase())).map((pk) => pk.toLowerCase())
+    : [];
+  remember(snapshotParsed, content, out, SNAPSHOT_PARSED_CAP);
+  return out;
+}
+
+/** Parsed snapshot chunks by content; a few Refoundings' worth across the joined communities. */
+const SNAPSHOT_PARSED_CAP = 256;
+const snapshotParsed = new Map<string, readonly string[]>();
+
+/** Forget parsed snapshots and checked keys on logout: they are decrypted membership. */
+export function clearGuestbookParseMemory(): void {
+  snapshotParsed.clear();
+  pubkeyChecked.clear();
 }
 
 /** Every member's Guestbook entries in order of time (`ms`, then rumor id): what a departure window reads. */
@@ -569,12 +584,26 @@ const U64_DECIMAL = /^[0-9]+$/;
 /** A target that is a public key: 64 hex digits naming a point on the curve (Vector `PublicKey::from_hex`). */
 export function isPubkey(hex: string): boolean {
   if (!/^[0-9a-f]{64}$/.test(hex)) return false;
+  // A point decompression each: a Refounding snapshot names every member, and each fold reads it.
+  const known = pubkeyChecked.get(hex);
+  if (known !== undefined) return known;
+  let ok: boolean;
   try {
     schnorr.utils.lift_x(BigInt(`0x${hex}`));
-    return true;
+    ok = true;
   } catch {
-    return false;
+    ok = false;
   }
+  remember(pubkeyChecked, hex, ok, PUBKEY_CHECKED_CAP);
+  return ok;
+}
+
+const PUBKEY_CHECKED_CAP = 50_000;
+const pubkeyChecked = new Map<string, boolean>();
+
+function remember<K, V>(map: Map<K, V>, key: K, value: V, cap: number): void {
+  map.set(key, value);
+  if (map.size > cap) map.delete(map.keys().next().value as K);
 }
 
 /**
