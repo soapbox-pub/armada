@@ -125,7 +125,7 @@ const OUT = resolve(root, "perf-reports");
 /** Messages in the seeded community's #general. */
 const CONCORD_BIG = 3000;
 
-const LIVE = ["live-switch", "live-boot", "live-idle"];
+const LIVE = ["live-switch", "live-boot", "live-idle", "account-hop"];
 const wants = (name) => (ONLY.length === 0 && !LIVE.includes(name)) || ONLY.includes(name);
 
 // ─── Build + serve ──────────────────────────────────────────────────────────
@@ -908,6 +908,79 @@ try {
     await page.waitForTimeout(5000);
     const idle = await measureIdle(page, cdp, IDLE_SEC);
     save("landing", { idle, errors: errorsSince(mark), report: await report(page) });
+  }
+
+  if (wants("account-hop")) {
+    // A real account (ARMADA_PERF_NSEC, never read from a file here) hopping between two
+    // of its rail communities, named by --hop-names "A,B". Publishes are swallowed in the
+    // page like every scenario's, and the context is ephemeral.
+    const secret = process.env.ARMADA_PERF_NSEC ?? "";
+    const names = opt("hop-names", "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (!secret || names.length < 2) {
+      console.log("\n▶ account-hop skipped: set ARMADA_PERF_NSEC and pass --hop-names 'A,B'");
+    } else {
+      const sk = secret.startsWith("nsec1") ? nip19.decode(secret).data : Uint8Array.from(Buffer.from(secret, "hex"));
+      const who = { sk, pubkey: getPublicKey(sk) };
+      console.log(`\n▶ account-hop as ${nip19.npubEncode(who.pubkey).slice(0, 16)}… between ${names.join(" ↔ ")}`);
+      const mark = errors.length;
+      await page.goto("/");
+      await login(who);
+      await page.goto("/");
+      await perfReady(page);
+      const settleSec = Number(opt("settle", "60"));
+      console.log(`  settling ${settleSec}s (first sync of the account)`);
+      await page.waitForTimeout(settleSec * 1000);
+      const railButton = (name) => page.locator(`[aria-label="${name.replace(/"/g, '\\"')}"]`).first();
+      /** Click a rail community; ms until its own timeline rows paint, and the long tasks meanwhile. */
+      const hop = (name) =>
+        page.evaluate((label) => new Promise((done) => {
+          const before = location.pathname;
+          const busy = [];
+          const obs = new PerformanceObserver((list) => { for (const e of list.getEntries()) busy.push(Math.round(e.duration)); });
+          obs.observe({ type: "longtask" });
+          const target = document.querySelector(`[aria-label="${CSS.escape(label)}"]`);
+          const start = performance.now();
+          target?.click();
+          let shown = -1;
+          const check = () => {
+            const now = performance.now();
+            const moved = location.pathname !== before;
+            if (shown < 0 && moved && document.querySelector("main [data-scroll-anchor]")) shown = Math.round(now - start);
+            if ((shown >= 0 && now - start > shown + 1500) || now - start > 20_000) {
+              obs.disconnect();
+              done({ to: label, path: location.pathname.slice(0, 12), shownMs: shown, busyMs: busy.reduce((a, b) => a + b, 0), longTasks: busy.length, maxTaskMs: Math.max(0, ...busy) });
+            } else requestAnimationFrame(check);
+          };
+          requestAnimationFrame(check);
+        }), name);
+      for (const name of names) {
+        if (!(await railButton(name).count())) console.log(`  ⚠ no rail item labelled "${name}"`);
+      }
+      // One untimed round, so both are mounted once as a member would have them.
+      for (const name of names) {
+        await hop(name);
+        await page.waitForTimeout(3000);
+      }
+      await resetCounters(page);
+      await page.evaluate(() => window.__armadaPerf?.renders?.(true));
+      const a = await metrics(cdp);
+      const t = Date.now();
+      const rounds = Number(opt("rounds", "4"));
+      const hops = [];
+      const { hot } = await cpuProfile("account-hop", async () => {
+        for (let r = 0; r < rounds; r++) {
+          for (const name of names) {
+            hops.push(await hop(name));
+            await page.waitForTimeout(2500);
+          }
+        }
+      });
+      const b = await metrics(cdp);
+      for (const h of hops) console.log(`  → ${h.to}: shown ${h.shownMs}ms, long tasks ${h.busyMs}ms (${h.longTasks}, max ${h.maxTaskMs})`);
+      save("account-hop", { hops, hot, cost: cost(a, b, (Date.now() - t) / 1000), errors: errorsSince(mark), report: await report(page) });
+      // Nothing of this account outlives the scenario on this origin.
+      await page.evaluate(() => localStorage.clear());
+    }
   }
 
   // Seed through the production writers, on the app's own origin.
