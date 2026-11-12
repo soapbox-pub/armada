@@ -35,9 +35,12 @@ import {
   baseRekeyGroupKey,
   bytesToHex,
   channelRekeyGroupKey,
+  controlSignerGroupKey,
   epochKeyCommitment,
   grantLocator,
+  guestbookGroupKey,
   hex32,
+  hexToBytes,
   random32,
 } from "@/concord/lib/derive";
 import type { AuthorityCitation } from "@/concord/lib/edition";
@@ -53,6 +56,7 @@ import {
   buildRekeyRumors,
   bytesToBase64,
   decodeWrappedKey,
+  encodeWrappedBaseKey,
   encodeWrappedKey,
   findBlob,
   groupRotations,
@@ -67,7 +71,7 @@ import type { Community, PrivateChannelKey } from "@/concord/lib/types";
 import { openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
 import { readChannelContent } from "@/concord/lib/control";
 
-import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefound, useRefoundResume, useRekeyWatch } from "./useRekey";
+import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefound, useRefoundResume, useRekeyWatch, useRescueStranded } from "./useRekey";
 
 import type { NUser } from "@nostrify/react/login";
 
@@ -213,11 +217,19 @@ async function rotationWraps(
   recipients: string[],
   publishMs: number,
   authority?: AuthorityCitation,
+  /**
+   * `startAfter` extends the rotation already holding that many chunks, rather than
+   * start one; `controlPk` makes the blobs the split 104-byte form.
+   */
+  opts: { startAfter?: number; severed?: boolean; controlPk?: string } = {},
 ): Promise<NostrEvent[]> {
+  const { startAfter, severed, controlPk } = opts;
   const newEpoch = c.rootEpoch + 1n;
   const address = baseRekeyGroupKey(c.root, c.id, newEpoch);
   const prevCommit = bytesToHex(epochKeyCommitment(c.rootEpoch, c.root));
-  const plain = bytesToBase64(encodeWrappedKey(new Uint8Array(32), newEpoch, newRoot));
+  const plain = bytesToBase64(
+    controlPk ? encodeWrappedBaseKey(newEpoch, newRoot, hexToBytes(controlPk)) : encodeWrappedKey(new Uint8Array(32), newEpoch, newRoot),
+  );
   const blobs: RekeyBlob[] = recipients.map((pk) => ({
     locator: myLocator(rotator.pubkey, pk, "0".repeat(64), newEpoch),
     wrapped: rotator.nip44encrypt(pk, plain),
@@ -229,6 +241,7 @@ async function rotationWraps(
     blobs,
     publishMs,
     authority,
+    { startAfter, severed },
   )) {
     wraps.push(await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, address, rotator), address));
   }
@@ -658,6 +671,276 @@ describe("useRekeyWatch stranded detection", () => {
       expect(h.updateList).not.toHaveBeenCalledWith(expect.objectContaining({ type: "exclude" }));
     },
   );
+});
+
+// ── useRekeyWatch: a rotation extended for a member it left out ─────────────
+
+describe("useRekeyWatch on a rotation extended for the member it left out", () => {
+  async function leftOut() {
+    const owner = member();
+    const me = member();
+    const other = member();
+    const { community } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
+    const newRoot = random32();
+    const relay = new FakeRelay();
+    h.pool = { relay: () => relay, query: async () => [] };
+    h.user = asNUser(me);
+    h.folded = foldedFor(owner.pubkey);
+    h.updateList = vi.fn(async () => {});
+    const jm = jmOf(community, owner.pubkey);
+    h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+    /** The owner's chunks dated `agoMs` back: the rotation itself, or an extension of it. */
+    const chunks = async (agoMs: number, recipients: string[], startAfter?: number) => {
+      const at = Date.now() - agoMs;
+      const clock = vi.spyOn(Date, "now").mockReturnValue(at);
+      const wraps = await rotationWraps(owner, community, newRoot, recipients, at, undefined, { startAfter });
+      clock.mockRestore();
+      return wraps;
+    };
+    const excluded = () => expect(h.updateList).toHaveBeenCalledWith(expect.objectContaining({ type: "exclude", epoch: 1 }));
+    const adopted = () =>
+      expect(h.updateList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "refresh-current",
+          current: expect.objectContaining({ root_epoch: 1, community_root: bytesToHex(newRoot) }),
+        }),
+      );
+    return { owner, me, other, community, relay, chunks, excluded, adopted };
+  }
+
+  it("adopts the key once an extension carries it, in the session that marked the member excluded", { timeout: 30_000 }, async () => {
+    const { owner, me, community, relay, chunks, excluded, adopted } = await leftOut();
+    relay.events = await chunks(60_000, [owner.pubkey]);
+    const { queryClient, wrapper } = makeWrapper();
+    renderHook(() => useRekeyWatch(community), { wrapper });
+    await waitFor(excluded, { timeout: 10_000 });
+
+    relay.events.push(...(await chunks(0, [me.pubkey], 1)));
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["concord", "rekey"] });
+    });
+    await waitFor(adopted, { timeout: 10_000 });
+    // Marked once, not again on each read that still finds the member left out.
+    expect((h.updateList as ReturnType<typeof vi.fn>).mock.calls.filter(([a]) => a.type === "exclude")).toHaveLength(1);
+  });
+
+  it("adopts from an extension read after the rotation's own chunks fell behind the cursor", { timeout: 30_000 }, async () => {
+    const { owner, me, other, community, relay, chunks, excluded, adopted } = await leftOut();
+    // An earlier extension for someone else moved the cursor well past the rotation.
+    relay.events = [...(await chunks(3_600_000, [owner.pubkey])), ...(await chunks(1_800_000, [other.pubkey], 1))];
+    const first = renderHook(() => useRekeyWatch(community), { wrapper: makeWrapper().wrapper });
+    await waitFor(excluded, { timeout: 10_000 });
+    first.unmount();
+
+    relay.events.push(...(await chunks(0, [me.pubkey], 2)));
+    relay.queries = [];
+    renderHook(() => useRekeyWatch(community), { wrapper: makeWrapper().wrapper });
+    await waitFor(adopted, { timeout: 10_000 });
+    // The second read resumed from the cursor: the rotation's own chunks came from the store.
+    expect(relay.queries.every((f) => f.since !== undefined)).toBe(true);
+  });
+});
+
+// ── useRescueStranded: re-vend the epoch chain to members a rotation left out ──
+
+describe("useRescueStranded (Vector `rescue_stranded_members`)", () => {
+  /** `c` one epoch on, as a device that followed `minter`'s rotation holds it. */
+  function advance(c: Community, newRoot: Uint8Array, minter: string, split = true): Community {
+    const newEpoch = c.rootEpoch + 1n;
+    const controlRoot = split ? random32() : undefined;
+    const controlPk = controlRoot ? controlSignerGroupKey(controlRoot, c.id, newEpoch).pk : undefined;
+    return {
+      ...c,
+      root: newRoot,
+      rootEpoch: newEpoch,
+      controlPk,
+      controlRoot,
+      heldRoots: [
+        { epoch: newEpoch, key: newRoot, refounder: minter, ...(controlPk ? { controlPk } : {}) },
+        ...c.heldRoots.map((r) => (r.epoch === c.rootEpoch ? { ...r, retiredAt: 1 } : r)),
+      ],
+      refounder: minter,
+    };
+  }
+
+  /** A community two epochs on, each rotation the owner's and keyed to the owner alone. */
+  async function twoHops() {
+    const owner = member();
+    const stranded = member();
+    const c0 = mintCommunity("Fleet", owner.pubkey, [RELAY]).community;
+    const c1 = advance(c0, random32(), owner.pubkey);
+    const c2 = advance(c1, random32(), owner.pubkey);
+    const relay = new FakeRelay();
+    const t = Date.now();
+    relay.events = [
+      ...(await rotationWraps(owner, c0, c1.root, [owner.pubkey], t - 7_200_000, undefined, { controlPk: c1.controlPk })),
+      ...(await rotationWraps(owner, c1, c2.root, [owner.pubkey], t - 3_600_000, undefined, { controlPk: c2.controlPk })),
+    ];
+    h.pool = { relay: () => relay, query: async () => [] };
+    h.user = asNUser(owner);
+    h.folded = foldedFor(owner.pubkey);
+    h.updateList = vi.fn(async () => {});
+    const jm = jmOf(c2, owner.pubkey);
+    h.entry = { community_id: c2.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+    return { owner, stranded, c0, c1, c2, relay };
+  }
+
+  /** The rekey chunks `relay` took at the rotation off `prior`, in the order published. */
+  const publishedAt = (relay: FakeRelay, prior: Community) => {
+    const address = baseRekeyGroupKey(prior.root, prior.id, prior.rootEpoch + 1n);
+    return relay.published.filter((e) => e.pubkey === address.pk).map((e) => parseRekey(openWrap(e, address)));
+  };
+
+  /** Mount `who`'s watcher on `held` and wait for it to adopt `next`. */
+  async function follows(who: ReturnType<typeof member>, held: Community, next: Community) {
+    h.user = asNUser(who);
+    h.updateList = vi.fn(async () => {});
+    const jm = jmOf(held, held.owner);
+    h.entry = { community_id: held.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+    const watch = renderHook(() => useRekeyWatch(held), { wrapper: makeWrapper().wrapper });
+    await waitFor(
+      () =>
+        expect(h.updateList).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "refresh-current",
+            current: expect.objectContaining({
+              root_epoch: Number(next.rootEpoch),
+              community_root: bytesToHex(next.root),
+              ...(next.controlPk ? { control_pk: next.controlPk } : {}),
+            }),
+          }),
+        ),
+      { timeout: 10_000 },
+    );
+    watch.unmount();
+  }
+
+  it("extends each rotation with a blob for the member it left out, who then follows the chain", { timeout: 30_000 }, async () => {
+    const { owner, stranded, c0, c1, c2, relay } = await twoHops();
+    const { result } = renderHook(() => useRescueStranded(c2), { wrapper: makeWrapper().wrapper });
+    let report: Awaited<ReturnType<typeof result.current.rescue>> | undefined;
+    await act(async () => {
+      report = await result.current.rescue({ targets: [stranded.pubkey] });
+    });
+    expect(report).toEqual({ targets: 1, hops: 2, notMine: 0, missingKeys: 0, chunks: 2, relisted: true });
+
+    // One chunk per rotation, numbered past the one it had, for the member and the rotator.
+    for (const [prior, next] of [[c0, c1], [c1, c2]] as const) {
+      const [chunk, ...rest] = publishedAt(relay, prior);
+      expect(rest).toHaveLength(0);
+      expect(chunk).toMatchObject({ rotator: owner.pubkey, newEpoch: next.rootEpoch, chunkIndex: 2, chunkCount: 2, severed: false });
+      const widths = [stranded, owner].map((who) => {
+        const blob = chunk.blobs.find((b) => b.locator === myLocator(owner.pubkey, who.pubkey, "0".repeat(64), next.rootEpoch));
+        return base64ToBytes(who.nip44decrypt(owner.pubkey, blob!.wrapped)).length;
+      });
+      // The control secret rides only the rotator's own blob, and only at the live epoch it belongs to.
+      expect(widths).toEqual([104, next === c2 ? 136 : 104]);
+    }
+
+    // The live epoch's member list names them again, under the rotator's signature.
+    const guestbook = guestbookGroupKey(c2.root, c2.id, c2.rootEpoch);
+    const listed = relay.published.filter((e) => e.pubkey === guestbook.pk).map((e) => openWrap(e, guestbook));
+    expect(listed.map((e) => [e.author, JSON.parse(e.content)])).toEqual([[owner.pubkey, [stranded.pubkey]]]);
+
+    // The member's own watcher, still on the first epoch, walks both hops with no action of theirs.
+    await follows(stranded, c0, c1);
+    const held1: Community = { ...c1, controlRoot: undefined };
+    await follows(stranded, held1, c2);
+  });
+
+  it("numbers past an earlier extension and re-states a Severing rotation's mark", { timeout: 30_000 }, async () => {
+    const owner = member();
+    const stranded = member();
+    const other = member();
+    const c0 = mintCommunity("Fleet", owner.pubkey, [RELAY]).community;
+    // A legacy epoch: no control pair held for it, so its blobs are the 72-byte form.
+    const c1 = advance(c0, random32(), owner.pubkey, false);
+    const relay = new FakeRelay();
+    relay.events = [
+      ...(await rotationWraps(owner, c0, c1.root, [owner.pubkey], Date.now() - 7_200_000, undefined, { severed: true })),
+      ...(await rotationWraps(owner, c0, c1.root, [other.pubkey], Date.now() - 3_600_000, undefined, { startAfter: 1, severed: true })),
+    ];
+    h.pool = { relay: () => relay, query: async () => [] };
+    h.user = asNUser(owner);
+    h.folded = foldedFor(owner.pubkey);
+    h.entry = { community_id: c1.idHex, seed: jmOf(c1, owner.pubkey), current: jmOf(c1, owner.pubkey), added_at: 1 } satisfies CommunityListEntry;
+
+    const { result } = renderHook(() => useRescueStranded(c1), { wrapper: makeWrapper().wrapper });
+    await act(async () => {
+      await result.current.rescue({ targets: [stranded.pubkey] });
+    });
+    const [chunk] = publishedAt(relay, c0);
+    expect(chunk).toMatchObject({ chunkIndex: 3, chunkCount: 3, severed: true });
+    const blob = chunk.blobs.find((b) => b.locator === myLocator(owner.pubkey, stranded.pubkey, "0".repeat(64), 1n));
+    expect(base64ToBytes(stranded.nip44decrypt(owner.pubkey, blob!.wrapped))).toHaveLength(72);
+    await follows(stranded, c0, c1);
+  });
+
+  it("sends nothing when an earlier rotation can't be read from the relays", { timeout: 30_000 }, async () => {
+    const { stranded, c0, c2, relay } = await twoHops();
+    // The first hop reads; the second is unreachable.
+    const second = baseRekeyGroupKey(c2.heldRoots.find((r) => r.epoch === 1n)!.key, c2.id, 2n).pk;
+    const query = relay.query.bind(relay);
+    relay.query = async (filters) => {
+      if (filters.some((f) => f.authors?.includes(second))) throw new Error("relay down");
+      return query(filters);
+    };
+    const { result } = renderHook(() => useRescueStranded(c2), { wrapper: makeWrapper().wrapper });
+    await act(async () => {
+      await expect(result.current.rescue({ targets: [stranded.pubkey] })).rejects.toThrow(/nothing was sent/i);
+    });
+    expect(relay.published).toHaveLength(0);
+    expect(publishedAt(relay, c0)).toHaveLength(0);
+  });
+
+  it("leaves a rotation another member minted to them, and doesn't list anyone it couldn't reach", { timeout: 30_000 }, async () => {
+    const owner = member();
+    const admin = member();
+    const stranded = member();
+    const c0 = mintCommunity("Fleet", owner.pubkey, [RELAY]).community;
+    const c1 = advance(c0, random32(), admin.pubkey);
+    const c2 = advance(c1, random32(), owner.pubkey);
+    const relay = new FakeRelay();
+    relay.events = [
+      ...(await rotationWraps(admin, c0, c1.root, [admin.pubkey, owner.pubkey], Date.now() - 7_200_000, undefined, { controlPk: c1.controlPk })),
+      ...(await rotationWraps(owner, c1, c2.root, [admin.pubkey, owner.pubkey], Date.now() - 3_600_000, undefined, { controlPk: c2.controlPk })),
+    ];
+    h.pool = { relay: () => relay, query: async () => [] };
+    h.user = asNUser(owner);
+    h.folded = foldedFor(owner.pubkey, undefined, admin.pubkey);
+    h.entry = { community_id: c2.idHex, seed: jmOf(c2, owner.pubkey), current: jmOf(c2, owner.pubkey), added_at: 1 } satisfies CommunityListEntry;
+
+    const { result } = renderHook(() => useRescueStranded(c2), { wrapper: makeWrapper().wrapper });
+    let report: Awaited<ReturnType<typeof result.current.rescue>> | undefined;
+    await act(async () => {
+      report = await result.current.rescue({ targets: [stranded.pubkey] });
+    });
+    expect(report).toEqual({ targets: 1, hops: 1, notMine: 1, missingKeys: 0, chunks: 1, relisted: false });
+    expect(publishedAt(relay, c0)).toHaveLength(0);
+    expect(publishedAt(relay, c1)).toHaveLength(1);
+    // Someone still behind the admin's rotation would read as a member while holding no key.
+    const guestbook = guestbookGroupKey(c2.root, c2.id, c2.rootEpoch);
+    expect(relay.published.some((e) => e.pubkey === guestbook.pk)).toBe(false);
+  });
+
+  it("refuses a member with no authority to rotate, and never keys a banned one", { timeout: 30_000 }, async () => {
+    const { owner, stranded, c2, relay } = await twoHops();
+    h.user = asNUser(stranded);
+    const asMember = renderHook(() => useRescueStranded(c2), { wrapper: makeWrapper().wrapper });
+    await act(async () => {
+      await expect(asMember.result.current.rescue({ targets: [member().pubkey] })).rejects.toThrow(/permission/i);
+    });
+
+    h.user = asNUser(owner);
+    h.folded = { ...(foldedFor(owner.pubkey) as object), banned: new Set([stranded.pubkey]) };
+    const asOwner = renderHook(() => useRescueStranded(c2), { wrapper: makeWrapper().wrapper });
+    let report: Awaited<ReturnType<typeof asOwner.result.current.rescue>> | undefined;
+    await act(async () => {
+      report = await asOwner.result.current.rescue({ targets: [stranded.pubkey] });
+    });
+    expect(report).toMatchObject({ targets: 0, chunks: 0 });
+    expect(relay.published).toHaveLength(0);
+  });
 });
 
 // ── useLinkRefreshWatch: creator-side stale-link roll-forward (CORD-05 §2) ──

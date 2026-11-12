@@ -21,8 +21,8 @@ import { KickMembersDialog } from "@/concord/components/KickMembersDialog";
 import { useChannels, useControlFold } from "@/concord/hooks/useControlPlane";
 import { useCommunityRumors } from "@/concord/hooks/useCommunityRumors";
 import { useMembers } from "@/concord/hooks/useGuestbook";
-import { useInviteActions } from "@/concord/hooks/useInvites";
 import { useModeration } from "@/concord/hooks/useModeration";
+import { useRescueStranded } from "@/concord/hooks/useRekey";
 import { useRoles } from "@/concord/hooks/useRoles";
 import { useSuspiciousActivity } from "@/concord/hooks/useSuspiciousActivity";
 import { describeAttempts, type SuspiciousActor } from "@/concord/lib/auditLog";
@@ -55,7 +55,8 @@ const RENDER_CAP = 150;
 
 /**
  * Full community roster with mass moderation. Epoch health: a member last seen
- * under an older epoch missed a rotation; "Send keys" re-sends via Direct Invite.
+ * under an older epoch, or left out of the last rotation's member list, missed a
+ * rotation; "Send keys" extends the rotations with their keys (CORD-06).
  */
 export function MembersView({
   community,
@@ -80,7 +81,7 @@ export function MembersView({
   const { byChannel } = useCommunityRumors(community.idHex, channelIds);
   const { data: folded } = useControlFold(community);
   const moderation = useModeration(community, memberPubkeys);
-  const { sendDirectInvite } = useInviteActions(community);
+  const { rescue, isRescuing } = useRescueStranded(community);
   const { setTier, isSettingTier } = useRoles(community);
   const selectable = canModerate || canManageRoles;
   const { actors: suspiciousActors } = useSuspiciousActivity(community, folded);
@@ -241,10 +242,13 @@ export function MembersView({
       toast({ title: t({ id: "membersView.roleFailed", defaultMessage: "Couldn't change role" }), description: e instanceof Error ? e.message : undefined, variant: "destructive" });
     }
   };
+  // Extending a rotation takes the authority that made it.
+  const canSendKeys = moderation.canRotateKeys;
   const healTargets = useMemo(() => {
-    const behind = new Set(visible.filter((r) => r.behind).map((r) => r.pubkey));
-    return selected.filter((pk) => behind.has(pk) && pk !== user?.pubkey);
-  }, [visible, selected, user]);
+    if (!canSendKeys) return [];
+    const stranded = new Set(visible.filter((r) => r.behind || r.omitted).map((r) => r.pubkey));
+    return selected.filter((pk) => stranded.has(pk) && pk !== user?.pubkey);
+  }, [canSendKeys, visible, selected, user]);
 
   const allVisibleSelected = visible.length > 0 && visible.every((r) => selection.selected.has(r.pubkey));
   const someVisibleSelected = visible.some((r) => selection.selected.has(r.pubkey));
@@ -259,7 +263,6 @@ export function MembersView({
 
   const [kickTargets, setKickTargets] = useState<string[] | null>(null);
   const [banTargets, setBanTargets] = useState<string[] | null>(null);
-  const [healing, setHealing] = useState<{ done: number; total: number } | null>(null);
 
   const banWillRotate =
     banTargets !== null &&
@@ -269,39 +272,70 @@ export function MembersView({
     moderation.canRekey;
 
   const runMassHeal = async () => {
-    if (healTargets.length === 0 || healing) return;
-    setHealing({ done: 0, total: healTargets.length });
-    let sent = 0;
-    const failed: string[] = [];
-    // Sequential: remote signers wedge under parallel load.
-    for (const [i, pk] of healTargets.entries()) {
-      try {
-        await sendDirectInvite({ recipientPubkey: pk });
-        sent += 1;
-      } catch {
-        failed.push(pk);
+    if (healTargets.length === 0 || isRescuing) return;
+    try {
+      const report = await rescue({ targets: healTargets });
+      const total = Number(community.rootEpoch);
+      const notes: string[] = [];
+      if (report.notMine > 0) {
+        notes.push(
+          t(
+            {
+              id: "membersView.keysNotMine",
+              defaultMessage:
+                "{count, plural, one {# key rotation was made by someone else, and only they can send its keys.} other {# key rotations were made by someone else, and only they can send their keys.}}",
+            },
+            { count: report.notMine },
+          ),
+        );
       }
-      setHealing({ done: i + 1, total: healTargets.length });
+      if (report.missingKeys > 0) {
+        notes.push(
+          t(
+            {
+              id: "membersView.keysMissing",
+              defaultMessage:
+                "{count, plural, one {This device doesn't hold the keys from before # earlier rotation.} other {This device doesn't hold the keys from before # earlier rotations.}}",
+            },
+            { count: report.missingKeys },
+          ),
+        );
+      }
+      if (report.hops === total && !report.relisted) {
+        notes.push(
+          t({
+            id: "membersView.keysNotListed",
+            defaultMessage: "They couldn't be added back to the member list. Send keys again shortly.",
+          }),
+        );
+      }
+      toast({
+        title:
+          report.hops === total
+            ? t(
+                {
+                  id: "membersView.keysSent",
+                  defaultMessage: "{count, plural, one {Sent current keys to # member} other {Sent current keys to # members}}",
+                },
+                { count: report.targets },
+              )
+            : report.hops > 0
+              ? t(
+                  { id: "membersView.keysPartial", defaultMessage: "Sent keys for {hops} of {total} key rotations" },
+                  { hops: report.hops, total },
+                )
+              : t({ id: "membersView.keysNotSent", defaultMessage: "Couldn't send keys" }),
+        description: notes.length > 0 ? notes.join(" ") : undefined,
+        variant: report.hops === total && report.relisted ? undefined : "destructive",
+      });
+      if (report.hops > 0) setSelection(emptySelection());
+    } catch (e) {
+      toast({
+        title: t({ id: "membersView.keysNotSent", defaultMessage: "Couldn't send keys" }),
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
     }
-    setHealing(null);
-    setSelection(emptySelection());
-    toast({
-      title: t(
-        {
-          id: "membersView.keysSent",
-          defaultMessage: "{count, plural, one {Sent current keys to # member} other {Sent current keys to # members}}",
-        },
-        { count: sent },
-      ),
-      description:
-        failed.length > 0
-          ? t(
-              { id: "membersView.keysFailed", defaultMessage: "{count} failed. Try them again shortly." },
-              { count: failed.length },
-            )
-          : undefined,
-      variant: failed.length > 0 ? "destructive" : undefined,
-    });
   };
 
   const inviters = useMemo(() => {
@@ -538,15 +572,11 @@ export function MembersView({
             </span>
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {healTargets.length > 0 && (
-                <Button type="button" size="sm" variant="secondary" disabled={healing !== null} onClick={runMassHeal}>
-                  {healing ? (
+                <Button type="button" size="sm" variant="secondary" disabled={isRescuing} onClick={runMassHeal}>
+                  {isRescuing ? (
                     <>
                       <Loader2 className="size-3.5 animate-spin" />
-                      <FormattedMessage
-                        id="membersView.sendingProgress"
-                        defaultMessage="Sending {done}/{total}"
-                        values={{ done: healing.done, total: healing.total }}
-                      />
+                      <FormattedMessage id="membersView.sendingKeys" defaultMessage="Sending keys…" />
                     </>
                   ) : (
                     <>
@@ -921,7 +951,7 @@ function MemberRow({
           <TooltipContent className="max-w-52 text-xs">
             <FormattedMessage
               id="membersView.omittedTooltip"
-              defaultMessage="Joined before the last key rotation and isn't on its member list, so they were never given the keys the community uses now."
+              defaultMessage="Joined before the last key rotation and isn't on its member list, so they were never given the keys the community uses now. Whoever rotated the keys can select them and use Send keys to bring them back."
             />
           </TooltipContent>
         </Tooltip>
@@ -937,7 +967,7 @@ function MemberRow({
           <TooltipContent className="max-w-52 text-xs">
             <FormattedMessage
               id="membersView.behindTooltip"
-              defaultMessage="Last seen posting under epoch {epoch}, but the community is on {current}. Select them and use Send keys to catch them up."
+              defaultMessage="Last seen posting under epoch {epoch}, but the community is on {current}. Whoever rotated the keys can select them and use Send keys to catch them up."
               values={{ epoch: row.epoch?.toString(), current: currentEpoch.toString() }}
             />
           </TooltipContent>

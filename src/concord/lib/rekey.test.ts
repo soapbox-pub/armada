@@ -177,6 +177,36 @@ describe("rekey events (CORD-06 §1–2)", () => {
     expect([...full[0].chunks.values()].flat().reduce((n, c) => n + c.blobs.length, 0)).toBe(150);
   });
 
+  it("extends a rotation with chunks numbered past the ones it has, re-stating its mark and citation (Vector `build_rekey_chunk_extension`)", () => {
+    const rotator = signer();
+    const rotation: RekeyRotation = { scope: { kind: "root" }, newEpoch: 1n, prevEpoch: 0n, prevCommit: bytesToHex(epochKeyCommitment(0n, random32())) };
+    const blobsOf = (count: number): RekeyBlob[] => Array.from({ length: count }, () => ({ locator: bytesToHex(random32()), wrapped: "AA" }));
+    const opened = (r: ReturnType<typeof buildRekeyRumors>[number]) =>
+      parseRekey({ rumorId: r.id, author: rotator.pubkey, kind: r.kind, content: r.content, tags: r.tags, ms: r.created_at * 1000, createdAt: r.created_at, wrapId: r.id, streamPk: "", sealKind: 20013, seal: {} as never });
+    const authority = { entityId: random32(), version: 3n, editionHash: random32() };
+
+    const original = buildRekeyRumors(rotator.pubkey, rotation, blobsOf(100), 1_000, authority).map(opened);
+    expect(original.map((p) => [p.chunkIndex, p.chunkCount])).toEqual([[1, 2], [2, 2]]);
+
+    const late = blobsOf(70);
+    const extension = buildRekeyRumors(rotator.pubkey, rotation, late, 9_000, authority, { startAfter: 2, severed: true }).map(opened);
+    // Each declares itself the last, so the set is whole after every one a relay takes.
+    expect(extension.map((p) => [p.chunkIndex, p.chunkCount])).toEqual([[3, 3], [4, 4]]);
+    expect(groupRotations([...original, extension[0]])[0].complete).toBe(true);
+    expect(extension.every((p) => p.severed)).toBe(true);
+    expect(extension.every((p) => p.authority?.version === 3n)).toBe(true);
+
+    // Alone it is no rotation; with the chunks it extends it is one, holding everyone.
+    expect(groupRotations(extension)[0].complete).toBe(false);
+    const [set] = groupRotations([...original, ...extension]);
+    expect(set.complete).toBe(true);
+    expect(set.chunkCount).toBe(4);
+    expect(set.severed).toBe(true);
+    expect(findBlob(set, late[69].locator)).toBeDefined();
+    expect(findBlob(set, original[0].blobs[0].locator)).toBeDefined();
+    expect(rotationPublishedAtMs(set)).toBe(1_000);
+  });
+
   it("continuity: match adopts, higher prevepoch is a gap, mismatch is a fork", () => {
     const key0 = random32();
     const commit0 = bytesToHex(epochKeyCommitment(0n, key0));

@@ -182,8 +182,15 @@ export function buildRekeyRumors(
    * holder can judge authority. Absent when the owner rotates.
    */
   authority?: AuthorityCitation,
+  /**
+   * `startAfter` EXTENDS a rotation already published with `startAfter` chunks, for
+   * members it left out (Vector `build_rekey_chunk_extension`): indices run on from
+   * it, never claiming a held one. `severed` re-states a Severing Refounding's mark.
+   */
+  opts?: { startAfter?: number; severed?: boolean },
 ): NostrRumor[] {
   const scopeHex = bytesToHex(rekeyScopeId(rotation.scope));
+  const startAfter = opts?.startAfter ?? 0;
   const tagsFor = (i: string, n: string) => [
     ["scope", scopeHex],
     ["newepoch", rotation.newEpoch.toString()],
@@ -191,11 +198,12 @@ export function buildRekeyRumors(
     ["prevcommit", rotation.prevCommit],
     ["chunk", i, n],
     ...(authority ? [citationToTag(authority)] : []),
+    ...(opts?.severed ? [["sever", "1"]] : []),
   ];
 
   // Chunk budget vs. the rumor envelope, measured once at the widest possible
   // ["chunk", i, n] (over-reserving only makes chunks smaller).
-  const widest = Math.max(1, blobs.length).toString();
+  const widest = (startAfter + Math.max(1, blobs.length)).toString();
   const envelope = utf8Len(JSON.stringify(
     buildRumor({ kind: KIND_REKEY, content: "", tags: tagsFor(widest, widest), pubkey: rotatorPubkey, ms }),
   ));
@@ -224,7 +232,9 @@ export function buildRekeyRumors(
     buildRumor({
       kind: KIND_REKEY,
       content: JSON.stringify(chunk),
-      tags: tagsFor((i + 1).toString(), n.toString()),
+      // An extension chunk declares itself the last: the set is then whole after each
+      // one a relay takes, where a total no relay ever reached would leave it incomplete for good.
+      tags: tagsFor((startAfter + i + 1).toString(), (startAfter > 0 ? startAfter + i + 1 : n).toString()),
       pubkey: rotatorPubkey,
       ms,
     }),

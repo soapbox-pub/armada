@@ -397,10 +397,13 @@
   "status": "todo"
  },
  "community/v2/service.rs::rescue_stranded_members::err::rescuing stranded members requires rotation authority (owner or BAN)": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/hooks/useRekey.test.tsx",
+  "title": "refuses a member with no authority to rotate, and never keys a banned one"
  },
  "community/v2/service.rs::rescue_stranded_members::ok_or::rescue requires a split community (no control pk held)": {
-  "status": "todo"
+  "status": "n/a",
+  "why": "Armada keeps each epoch's control pk beside its root and gives an epoch that has none the legacy 72-byte blob, so a rescue has nothing to refuse"
  },
  "community/v2/service.rs::dissolve_community::err::only the owner can dissolve a community": {
   "status": "todo"

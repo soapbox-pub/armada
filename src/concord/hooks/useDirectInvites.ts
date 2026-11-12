@@ -57,8 +57,9 @@ export interface ParkedInvite {
    */
   receivedAt: number;
   /**
-   * An invite for a community I'm ALREADY in with a strictly higher `root_epoch`:
-   * an admin healing me forward (CORD-05/06). Accepting merges forward only.
+   * An invite for a community I'm ALREADY in, on the base I hold, carrying
+   * private-channel keys I lack (`isCatchUpBundle`). Accepting only adds those:
+   * the base itself advances by a rekey, never by an invite.
    */
   catchUp?: boolean;
 }
