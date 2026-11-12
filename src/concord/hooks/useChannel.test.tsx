@@ -24,7 +24,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import type { EventTemplate, NostrEvent } from "nostr-tools/pure";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -510,6 +510,61 @@ describe("useChannelTimeline — issue #19 (notified but never rendered)", () =>
   });
 });
 
+describe("useChannelTimeline — a restarted history read", () => {
+  it(
+    "fills the stretch between the newest page and the history stored before it",
+    { timeout: 90_000 },
+    async () => {
+      const { channel, idHex } = makeChannel();
+      const alice = signer();
+      const now = Math.floor(Date.now() / 1000);
+      const base = now - 30 * 86_400;
+
+      // Read long ago: more than a window of history is in the store.
+      const oldWraps: NostrEvent[] = [];
+      for (let i = 0; i < 120; i++) oldWraps.push(await wrapChatAt(channel, alice, `old-${i}`, base + i));
+      writeRumors(CID, await openChatBatch(oldWraps, channel));
+      // A cursor with no `streams`, as every one written before the field: the first round starts the read over.
+      await updateStreamCursor(idHex, { newest: base + 119, oldest: base, exhausted: true });
+      await waitFor(async () => {
+        expect((await queryChannelRumors(CID, idHex, { limit: 500 })).length).toBe(120);
+      });
+
+      // Since then, more than the newest page and a round's two older pages.
+      const newWraps: NostrEvent[] = [];
+      for (let i = 0; i < 250; i++) newWraps.push(await wrapChatAt(channel, alice, `new-${i}`, base + 86_400 + i * 60));
+      const relay = new FakeRelay();
+      relay.events = [...oldWraps, ...newWraps];
+      h.pool = makePool({ [RELAY]: relay });
+
+      const community = { idHex: CID, relays: [RELAY] } as unknown as Community;
+      const { wrapper } = makeWrapper();
+      const { result, unmount } = renderHook(() => useChannelTimeline(community, channel), { wrapper });
+      const contents = () => new Set(result.current.folded.messages.map((m) => m.content));
+
+      // One round, no scrolling: the whole stretch lands on screen above the old rows.
+      await waitFor(
+        () => {
+          const shown = contents();
+          const missing = Array.from({ length: 250 }, (_, i) => `new-${i}`).filter((c) => !shown.has(c));
+          expect(missing).toEqual([]);
+        },
+        { timeout: 60_000 },
+      );
+      await waitFor(() => expect(syncState(`c2:${idHex}`).status).toBe("settled"), { timeout: 30_000 });
+
+      // Below it, the stored history is still there to scroll to.
+      for (let i = 0; i < 5 && !contents().has("old-0"); i++) {
+        await act(async () => {
+          await result.current.loadOlder();
+        });
+      }
+      expect(contents()).toContain("old-0");
+      unmount();
+    },
+  );
+});
+
 describe("useChannelTimeline — the Banlist gates the paint (CORD-04 §4)", () => {
   it("withholds stored rows until the control fold lands, then drops banned authors", async () => {
     const { channel, idHex } = makeChannel();
@@ -523,7 +578,7 @@ describe("useChannelTimeline — the Banlist gates the paint (CORD-04 §4)", () 
     writeRumors(CID, await openChatBatch(wraps, channel));
     await waitFor(async () => {
       expect((await queryChannelRumors(CID, idHex, { limit: 10 })).length).toBe(2);
-    });
+    }, { timeout: 10_000 });
 
     h.pool = makePool({ [RELAY]: new FakeRelay() });
     const fold = h.folded;

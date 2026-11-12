@@ -15,8 +15,10 @@ import { openChatBatch } from "@/concord/lib/chat";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { notePlaneWrapsSeen, unseenPlaneWraps, whenAuthSettled } from "@/concord/lib/planeSync";
 import {
+  CHAT_ROW_KINDS,
   clearStreamExhausted,
   queryChannelRumors,
+  queryChannelRumorsByIds,
   readStreamCursor,
   resetStreamCursor,
   updateStreamCursor,
@@ -135,6 +137,8 @@ export async function backfillStore(
     onProgress?: (coveredDownTo: number) => Promise<void>;
     /** An all-empty answer is conclusive (a `since`-bounded read of a quiet channel). */
     emptyOk?: boolean;
+    /** Asked before each page after the first, with the pages read; `false` ends the read short of `maxPages`. */
+    more?: (pagesRead: number) => boolean;
   } = {},
 ): Promise<BackfillResult> {
   const maxPages = opts.maxPages ?? BACKFILL_MAX_PAGES;
@@ -148,6 +152,7 @@ export async function backfillStore(
 
   for (let page = 0; page < maxPages && active.length > 0; page++) {
     if (signal.aborted) break;
+    if (page > 0 && opts.more && !opts.more(page)) break;
     pages++;
     const pageController = new AbortController();
     const pageSignal = AbortSignal.any([signal, pageController.signal]);
@@ -485,12 +490,17 @@ export async function syncChannelRound(
     let unopened = 0;
     // Wraps actually tried: those the memo skipped are stored already, not undecryptable.
     let tried = 0;
+    // Message rows the last tracked page opened that the store didn't hold yet.
+    let pageNewRows = 0;
     /**
      * Writes a page and returns the newest `created_at` among its wraps that are
      * KNOWN good — opened now or earlier. Wrap signatures are never checked, so an
      * unopened one's timestamp is relay-supplied and must not become a cursor.
+     * `track` counts the page's new rows into `pageNewRows`, asking the store rather
+     * than the seen-wrap memo (schema migration 6 emptied it).
      */
-    const writePage = async (events: NostrEvent[], ring?: ThrottledRing): Promise<number | undefined> => {
+    const writePage = async (events: NostrEvent[], ring?: ThrottledRing, track = false): Promise<number | undefined> => {
+      if (track) pageNewRows = 0;
       if (signal.aborted) return undefined;
       // Skip wraps whose rumors are already stored (the wire's persisted memo).
       const fresh = ignoreSeen ? events : await unseenPlaneWraps(events);
@@ -512,6 +522,13 @@ export async function syncChannelRound(
       if (opened.length === 0) return top;
       const openedIds = new Set(opened.flatMap((o) => o.wrapId ?? []));
       for (const ev of fresh) if (openedIds.has(ev.id)) consider(ev.created_at);
+      if (track) {
+        const rows = opened.filter((o) => CHAT_ROW_KINDS.includes(o.kind));
+        const held = await queryChannelRumorsByIds(community.idHex, idHex, rows.map((o) => o.rumorId), { signal })
+          .catch(() => []);
+        if (signal.aborted) return undefined;
+        pageNewRows = rows.length - held.length;
+      }
       const stored = await writeRumors(community.idHex, opened, { ring: !ring });
       if (stored) {
         ring?.ring();
@@ -610,19 +627,29 @@ export async function syncChannelRound(
     let older: BackfillResult = { events: [], count: 0, pages: 0, reachedBottom: true, exhausted: true, failed: false };
     try {
       // Nothing older once the bottom was reached; otherwise the budget's pages.
-      if (!saved?.exhausted && budget.olderPages > 0) older = await backfillStore(nostr, historyRelays(community), channel, signal, {
-        until: resumeFrom,
-        maxPages: budget.olderPages,
-        emptyOk: sealOnEmpty,
-        freezeRetired,
-        beforeRelay: authGate,
-        onPage: async (events) => {
-          await writePage(events, olderRing);
-        },
-        onProgress: async (coveredDownTo) => {
-          if (!writeFailed) await updateStreamCursor(idHex, { oldest: coveredDownTo });
-        },
-      });
+      if (!saved?.exhausted && budget.olderPages > 0) {
+        // Rows stored below the frontier were read before a restart, and the timeline
+        // shows them right under the rows above it: past the budget, page on while pages
+        // bring rows the store lacks, so the stretch between isn't left for the history
+        // walk. Cold channels have none.
+        const reconnect = resumeFrom !== undefined &&
+          (await queryChannelRumors(community.idHex, idHex, { limit: 1, before: resumeFrom + 1, signal }).catch(() => [])).length > 0;
+        if (signal.aborted) return ABORTED;
+        older = await backfillStore(nostr, historyRelays(community), channel, signal, {
+          until: resumeFrom,
+          maxPages: reconnect ? Math.max(budget.olderPages, BACKFILL_MAX_PAGES) : budget.olderPages,
+          emptyOk: sealOnEmpty,
+          freezeRetired,
+          beforeRelay: authGate,
+          more: reconnect ? (read) => read < budget.olderPages || pageNewRows > 0 : undefined,
+          onPage: async (events) => {
+            await writePage(events, olderRing, reconnect);
+          },
+          onProgress: async (coveredDownTo) => {
+            if (!writeFailed) await updateStreamCursor(idHex, { oldest: coveredDownTo });
+          },
+        });
+      }
     } finally {
       olderRing.flush();
     }

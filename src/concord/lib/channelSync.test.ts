@@ -263,6 +263,49 @@ describe("channelSync — the c2: topic handler", () => {
     release();
   });
 
+  it("a restarted read pages down to the history stored before it, then stops", { timeout: 60_000 }, async () => {
+    const m = await freshModules();
+    const channel = makeChannel(m);
+    const alice = signer();
+    const now = Math.floor(Date.now() / 1000);
+    const old = await Promise.all(Array.from({ length: 100 }, (_, i) => wrapChatAt(m, channel, alice, `old-${i}`, now - 200_000 + i)));
+    const recent = await Promise.all(Array.from({ length: 300 }, (_, i) => wrapChatAt(m, channel, alice, `new-${i}`, now - 100_000 + i * 60)));
+    const relay = new FakeRelay();
+    relay.events = old;
+    const community = { idHex: CID, relays: [RELAY] } as unknown as Community;
+    const ctx = { nostr: makePool({ [RELAY]: relay }), community, channel };
+    await m.syncChannelRound(ctx, new AbortController().signal);
+
+    // Later: 300 more posts, and a cursor whose addresses no longer match starts the read over.
+    relay.events = [...old, ...recent];
+    await m.updateStreamCursor(channel.idHex, { streams: "an-older-set" });
+    relay.asked = [];
+    await m.syncChannelRound(ctx, new AbortController().signal);
+
+    const stored = await m.queryChannelRumors(CID, channel.idHex, { limit: 1000 });
+    expect(stored.filter((r) => r.content.startsWith("new-"))).toHaveLength(300);
+    // The newest page, then five pages of the stretch and the one that met stored history.
+    expect(relay.asked.filter((f) => f.until !== undefined)).toHaveLength(6);
+  });
+
+  it("a restarted read over history the store already holds costs no more than a round's older pages", { timeout: 60_000 }, async () => {
+    const m = await freshModules();
+    const channel = makeChannel(m);
+    const alice = signer();
+    const now = Math.floor(Date.now() / 1000);
+    const relay = new FakeRelay();
+    relay.events = await Promise.all(Array.from({ length: 300 }, (_, i) => wrapChatAt(m, channel, alice, `h-${i}`, now - 100_000 + i * 60)));
+    const community = { idHex: CID, relays: [RELAY] } as unknown as Community;
+    const ctx = { nostr: makePool({ [RELAY]: relay }), community, channel };
+    for (let i = 0; i < 4; i++) await m.syncChannelRound(ctx, new AbortController().signal, { bridgePages: 20, olderPages: 20 });
+    expect(await m.queryChannelRumors(CID, channel.idHex, { limit: 1000 })).toHaveLength(300);
+
+    await m.updateStreamCursor(channel.idHex, { streams: "an-older-set" });
+    relay.asked = [];
+    await m.syncChannelRound(ctx, new AbortController().signal);
+    expect(relay.asked.filter((f) => f.until !== undefined)).toHaveLength(2);
+  });
+
   it("pages older history from two relays, two pages a round", { timeout: 30_000 }, async () => {
     const m = await freshModules();
     const channel = makeChannel(m);
