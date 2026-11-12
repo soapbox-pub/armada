@@ -528,6 +528,13 @@ export interface VoiceOtherTransport {
  */
 export function notePresence(latest: Map<string, VoicePresenceEntry>, entry: VoicePresenceEntry, nowMs: number): boolean {
   if (entry.ms > nowMs + VOICE_AHEAD_MS || entry.ms < nowMs - VOICE_BEHIND_MS) return false;
+  // One `joined` naming both an SFU identity and another transport is on both: noted as its two halves.
+  if (entry.status === "joined" && entry.transport && entry.identity) {
+    const { transport, ...brokered } = entry;
+    const { identity: _identity, identities: _identities, screenShareIdentities: _shares, broker: _broker, ...other } = entry;
+    const sfu = notePresence(latest, brokered, nowMs);
+    return notePresence(latest, { ...other, transport }, nowMs) || sfu;
+  }
   const prev = latest.get(entry.author);
   const live = prev?.status === "joined" && presenceLive(prev, nowMs) ? prev : undefined;
   if (entry.status === "left" && entry.leaves && live) {
@@ -763,7 +770,7 @@ export function isNewcomer(prev: VoicePresenceEntry | undefined, entry: VoicePre
   if (entry.status !== "joined") return false;
   if (!prev || prev.status !== "joined" || !presenceLive(prev, nowMs)) return true;
   // A member on two transports alternates between them; only a new transport or SFU identity is news.
-  if (entry.transport) return Boolean(prev.transport) && prev.transport !== entry.transport;
+  if (entry.transport && !entry.identity) return Boolean(prev.transport) && prev.transport !== entry.transport;
   return brokeredHalf(prev, nowMs)?.identity !== entry.identity;
 }
 

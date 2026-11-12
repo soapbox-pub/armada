@@ -615,6 +615,36 @@ describe("foldVoicePresence (§4)", () => {
       ]);
     });
 
+    it("one joined naming both an SFU identity and an iroh endpoint is present on both", () => {
+      const both = (ms: number, identity = "id-1") =>
+        parsePresence(openedPresence({
+          ms,
+          rumorId: `c${ms}`,
+          tags: [
+            ["identity", identity],
+            ["broker", "https://b.example"],
+            ["transport", "iroh"],
+            ["endpoint", "c".repeat(64)],
+            ["relay", "https://relay.example/"],
+          ],
+        }))!;
+      const latest = new Map<string, VoicePresenceEntry>();
+      expect(isNewcomer(undefined, both(now - 31_000), now - 31_000)).toBe(true);
+      expect(notePresence(latest, both(now - 31_000), now - 31_000)).toBe(true);
+      expect(notePresence(latest, both(now - 31_000), now - 30_000)).toBe(false);
+      expect(isNewcomer(latest.get("a".repeat(64)), both(now - 1000), now - 1000)).toBe(false);
+      expect(isNewcomer(latest.get("a".repeat(64)), both(now - 1000, "id-2"), now - 1000)).toBe(true);
+      expect(notePresence(latest, both(now - 1000), now - 1000)).toBe(true);
+      const after = fold(latest, now);
+      expect(verifiedAuthorOf(after, "id-1")).toBe("a".repeat(64));
+      expect(after.present.map((p) => [p.author, p.broker, p.alsoOn])).toEqual([["a".repeat(64), "https://b.example", "iroh"]]);
+      expect(after.otherTransport).toEqual([]);
+      // A left naming iroh ends that side alone.
+      expect(notePresence(latest, left({ transport: "iroh" }, now), now)).toBe(true);
+      expect(fold(latest, now).present.map((p) => p.alsoOn)).toEqual([undefined]);
+      expect(verifiedAuthorOf(fold(latest, now), "id-1")).toBe("a".repeat(64));
+    });
+
     it("counts a bridge only while its author is on the transport it names", () => {
       const latest = new Map<string, VoicePresenceEntry>();
       notePresence(latest, entry({ ms: now - 2000, rumorId: "b1", bridge: "iroh" }), now - 2000);
