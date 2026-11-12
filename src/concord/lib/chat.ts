@@ -55,6 +55,11 @@ export function isHeldAhead(kind: number, ms: number, nowMs: number): boolean {
 const decodeMemo = new Map<string, OpenedChat | null>();
 /** Memo keys that failed as "no held stream key" — retryable after a rekey catch-up. */
 const skippedNoKey = new Set<string>();
+/**
+ * Memo keys that failed only on a retired stream's cutoff, with that cutoff: one the
+ * Channel no longer applies (made public again, CORD-03 §2) opens the wrap again.
+ */
+const cutOff = new Map<string, number>();
 
 /** Working-set ceiling (~2KB/entry, so lower than verifyCache's id-only 20k). */
 const DECODE_MEMO_CAP = 5_000;
@@ -66,6 +71,7 @@ function rememberDecode(memoKey: string, value: OpenedChat | null): void {
     if (!oldest.done) {
       decodeMemo.delete(oldest.value);
       skippedNoKey.delete(oldest.value);
+      cutOff.delete(oldest.value);
     }
   }
   decodeMemo.set(memoKey, value);
@@ -81,6 +87,7 @@ export function forgetChatSkips(): void {
 export function clearChatDecodeMemo(): void {
   decodeMemo.clear();
   skippedNoKey.clear();
+  cutOff.clear();
 }
 
 /**
@@ -92,6 +99,7 @@ export function forgetChatRumor(rumorId: string): void {
     if (opened?.rumorId === rumorId) {
       decodeMemo.set(key, null);
       skippedNoKey.delete(key);
+      cutOff.delete(key);
     }
   }
 }
@@ -137,7 +145,13 @@ function openChatToSeal(
 ): { done: OpenedChat | null } | { pending: PendingChat } {
   const memoKey = `${wrap.id}|${channel.idHex}`;
   const cached = decodeMemo.get(memoKey);
-  if (cached !== undefined) return { done: cached };
+  if (cached !== undefined) {
+    const cut = cutOff.get(memoKey);
+    const lifted = cut !== undefined && channel.streams.some((s) => s.group.pk === wrap.pubkey && (s.retiredAt === undefined || s.retiredAt > cut));
+    if (!lifted) return { done: cached };
+    decodeMemo.delete(memoKey);
+    cutOff.delete(memoKey);
+  }
   // Never memoize under an id the event doesn't commit to: a failure cached for
   // a squatted id would hide the real wrap carrying it.
   if (!wrapIdIsHash(wrap)) return { done: null };
@@ -190,6 +204,7 @@ function finishChat(pending: PendingChat, channel: Channel, remember: boolean): 
     // A retired epoch's rotation time is a hard cutoff: key possession alone must
     // not let an ejected member keep writing into it.
     if (pending.retiredAt !== undefined && ev.createdAt > pending.retiredAt) {
+      cutOff.set(pending.memoKey, pending.retiredAt);
       throw new Error("sealed under a retired epoch after its rotation");
     }
     opened = { ...ev, channelIdHex: channel.idHex, epoch: pending.epoch };

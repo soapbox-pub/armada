@@ -413,10 +413,15 @@ export function _trustCursorForTests(idHex: string): void {
   storeChecked.add(idHex);
 }
 
-/** A channel's stream addresses, order-free: what its cursor was read over. */
+/**
+ * A channel's stream addresses and the window each is read for, order-free: what its
+ * cursor was read over. A cut lifted (a Private Channel made public again un-retires
+ * its root stream) reads the address anew, since a retired one leaves the REQs once
+ * history reached bottom and the cursor moved on without it.
+ */
 export function streamSetSig(channel: Channel): string {
-  const pks = [...new Set(channel.streams.map((s) => s.group.pk))].sort();
-  return bytesToHex(sha256(new TextEncoder().encode(pks.join(","))));
+  const reads = [...new Set(channel.streams.map((s) => `${s.group.pk}@${s.retiredAt ?? ""}`))].sort();
+  return bytesToHex(sha256(new TextEncoder().encode(`v2|${reads.join(",")}`)));
 }
 
 const ABORTED: RoundOutcome = { more: true, progressed: false, failed: false, mostlyUnopened: false };

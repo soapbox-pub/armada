@@ -394,6 +394,11 @@ describe("chat plane (CORD-03)", () => {
 
     const opened = await openChatBatch(wraps, channel);
     expect(opened.map((m) => m.content)).toEqual(["history"]);
+
+    // The cut lifted (a Channel made public again reads its root stream whole): the
+    // wrap the memo refused opens now, in the same session.
+    const lifted = { ...channel, streams: [newStream, { epoch: 0n, group: oldGroup }] };
+    expect((await openChatBatch(wraps, lifted)).map((m) => m.content)).toEqual(["history", "injected"]);
   });
 
   it("filterEpochCutoff re-applies the cutoff to stored rows (and is a no-op without one)", () => {

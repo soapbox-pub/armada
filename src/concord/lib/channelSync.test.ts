@@ -263,6 +263,26 @@ describe("channelSync — the c2: topic handler", () => {
     release();
   });
 
+  it("reads a stream again once its cut is lifted: a Private Channel made public again (CORD-03 §2)", { timeout: 30_000 }, async () => {
+    const m = await freshModules();
+    const channel = makeChannel(m);
+    const now = Math.floor(Date.now() / 1000);
+    const relay = new FakeRelay();
+    // Posted at the root after the cut, while this device read the Channel private and
+    // its exhausted cursor had dropped the retired root from every REQ.
+    relay.events = [await wrapChatAt(m, channel, signer(), "welcome", now - 1_800)];
+    const cut = { ...channel, isPrivate: true, streams: channel.streams.map((s) => ({ ...s, retiredAt: now - 7_200 })) };
+    await m.updateStreamCursor(channel.idHex, { newest: now - 600, oldest: now - 90_000, exhausted: true, streams: m.streamSetSig(cut) });
+    m._trustCursorForTests(channel.idHex);
+    expect(m.streamSetSig(cut)).not.toBe(m.streamSetSig(channel));
+    const community = { idHex: CID, relays: [RELAY] } as unknown as Community;
+    m.setChannelSyncContext(channel.idHex, { nostr: makePool({ [RELAY]: relay }), community, channel });
+
+    const release = m.want(`c2:${channel.idHex}`);
+    await vi.waitFor(async () => expect((await m.queryChannelRumors(CID, channel.idHex, { limit: 10 })).map((r) => r.content)).toEqual(["welcome"]), { timeout: 15_000 });
+    release();
+  });
+
   it("a restarted read pages down to the history stored before it, then stops", { timeout: 60_000 }, async () => {
     const m = await freshModules();
     const channel = makeChannel(m);
