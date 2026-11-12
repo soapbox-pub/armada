@@ -298,6 +298,11 @@ export function visibleChannels(channels: Channel[], folded: FoldedControl | und
 }
 
 /** A Channel's streams this member can sign for: what NIP-42 auth registers. Writer addresses (CORD-03 §1) hold no secret here. */
+/** A restricted Channel's live writer address at its current read epoch (CORD-03 §1), where its posts arrive. */
+export function liveWriterStreams(channel: Channel): Channel["streams"] {
+  return channel.streams.filter((s) => s.writer && s.writer.to === undefined && s.epoch === channel.current.epoch);
+}
+
 export function signingStreams(channel: Channel): GroupKey[] {
   return channel.streams.flatMap((s) => (s.group.sk !== undefined ? [s.group as GroupKey] : []));
 }

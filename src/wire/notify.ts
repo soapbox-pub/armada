@@ -56,6 +56,8 @@ export interface NotifyCandidate {
   threadRoot?: string;
   /** Concord channel id hex; set only for `plane === "c2"`. */
   channelIdHex?: string;
+  /** Concord: it came to a restricted Channel's writer address, whose posters differ from its read address's. */
+  atWriter?: boolean;
   /** The name the sender goes by in this Concord Community (CORD-04 §10), over their profile's. */
   authorNickname?: string;
   /** DM conversation key (`plane === "dm"`); see `dmConvKey`. */

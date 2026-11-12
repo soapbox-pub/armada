@@ -1,9 +1,9 @@
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-import { restrictedPostersIn, sendDeniedIn } from "@/concord/lib/channelJudges";
+import { restrictedPostersIn, restrictedWritersIn, sendDeniedIn } from "@/concord/lib/channelJudges";
 import { clockOffsetMs } from "@/lib/relayClock";
 import { heldRoleMentions, roleMentionAuthors, type HeldRoleMention } from "@/concord/lib/roleMentions";
-import { channelsView, signingStreams, visibleChannels } from "@/concord/lib/community";
+import { channelsView, liveWriterStreams, signingStreams, visibleChannels } from "@/concord/lib/community";
 import { messageExpirationOf } from "@/concord/lib/disappearing";
 import { channelGitRepositoryAttachments } from "@/concord/lib/types";
 import type { FoldedControl } from "@/concord/lib/control";
@@ -26,7 +26,7 @@ export interface ConcordStream {
 }
 
 /**
- * A native-notification subscription for one channel: relays, per-epoch stream
+ * A native-notification subscription for one channel address: relays, per-epoch stream
  * addresses + decrypt keys, and names/ids for the notification and deep link
  * (/c/<communityId>/<channelId>). The service filters `{kinds:[1059], authors}`
  * and opens wrap → seal → rumor.
@@ -38,7 +38,10 @@ export interface ConcordSub {
   /** Channel id (hex): deep-link segment + the rumor's `channel` binding tag. */
   channelId: string;
   channelName: string;
-  /** The CURRENT epoch's stream only — retired epochs are read-cutoff history and never notify. */
+  /**
+   * The CURRENT epoch's stream only — retired epochs are read-cutoff history and never notify.
+   * A restricted Channel gets a second sub for its live writer address.
+   */
   streams: ConcordStream[];
   /**
    * The community's banned authors (CORD-04), sorted hex, so background notifiers
@@ -61,7 +64,7 @@ export interface ConcordSub {
    * lacking SEND_MESSAGES in this open Channel, and the Timeouts running, by window.
    */
   sendDenied?: string[];
-  /** In a restricted Channel, the only authors whose posts ring: held posts never notify (CORD-03 §1). */
+  /** In a restricted Channel, the only authors whose posts at these streams ring: held posts never notify (CORD-03 §1). */
   postAuthors?: string[];
   timeouts?: { pk: string; fromSecs: number; until: number }[];
   /** The Nicknames members go by here (CORD-04 §10), which a notification names its sender by. */
@@ -125,7 +128,7 @@ export function buildConcordSubs(
     const mentionEveryoneAuthors = folded
       ? everyoneMentionAuthors(folded.roster, folded.ownerHex, [channel.idHex])
       : community.owner ? [community.owner] : [];
-    subs.push({
+    const sub: ConcordSub = {
       relays: community.relays,
       communityId: community.idHex,
       communityName,
@@ -152,7 +155,20 @@ export function buildConcordSubs(
       communityImage,
       timerSecs,
       gitAttachments: channelGitRepositoryAttachments(folded?.channels.get(channel.idHex)?.metadata ?? { name: channel.name, private: channel.isPrivate }),
-    });
+    };
+    subs.push(sub);
+    // A restricted Channel's posts arrive at its live writer address, which takes its
+    // own posters (CORD-03 §1): a second sub, since a notifier filters per stream.
+    const writers = restrictedWritersIn(folded, channel.idHex);
+    for (const s of liveWriterStreams(channel)) {
+      const { postAuthors: _readPosters, ...rest } = sub;
+      subs.push({
+        ...rest,
+        streams: [{ pk: s.group.pk, convKey: bytesToHex(s.group.convKey), epoch: s.epoch.toString() }],
+        ...(writers ? { postAuthors: writers } : {}),
+        gitAttachments: [],
+      });
+    }
   }
   // Deterministic order so a refetch/rename doesn't churn the native config.
   subs.sort((a, b) =>

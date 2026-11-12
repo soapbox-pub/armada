@@ -8,7 +8,8 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it, vi } from "vitest";
 
-import { channelRules, restrictedPostersIn, ruledOut, timelineRules, writerJudge } from "@/concord/lib/channelJudges";
+import { channelRules, restrictedPostersIn, restrictedWritersIn, ruledOut, timelineRules, writerJudge } from "@/concord/lib/channelJudges";
+import { buildConcordSubs } from "@/concord/lib/concordNotifications";
 import { foldTimeline, type OpenedChat } from "@/concord/lib/chat";
 import { channelsView } from "@/concord/lib/community";
 import { foldControlState } from "@/concord/lib/control";
@@ -17,6 +18,7 @@ import type { ParsedEdition } from "@/concord/lib/edition";
 import type { CoalescedMember } from "@/concord/lib/guestbook";
 import { KIND_EDIT } from "@/concord/lib/kinds";
 import { Permissions } from "@/concord/lib/roles";
+import { overwriteLocator } from "@/concord/lib/roster";
 import { ledgerExtends, parseLedger } from "@/concord/lib/writers";
 import { parseDelivery } from "@/concord/lib/delivery";
 import { resetClockOffset, syncClockWithRelays } from "@/lib/relayClock";
@@ -70,6 +72,47 @@ describe("who rings at a restricted Channel's read address (CORD-03 §1 Held pos
     expect(judge.stands(post(hexKey(), ch, T0 + 20 * MIN))).toBe(false);
     expect(judge.stands(post(admin, ch, T0 + 20 * MIN))).toBe(true);
     expect(restrictedPostersIn(folded, hexKey())).toBeUndefined();
+  });
+});
+
+describe("who rings at a restricted Channel's writer address (CORD-03 §1 What stands)", () => {
+  /** `restricted()` with `@everyone` denied Send there and a Writers role allowed it. */
+  function closed() {
+    const r = restricted();
+    const { c, base, ch } = r;
+    const role = hexKey();
+    const writer = hexKey();
+    const rule = (target: object, allow: bigint, deny: bigint) =>
+      c.edition({ vsk: "14", eid: overwriteLocator(c.id, { scope: ch, target } as never), author: c.owner, content: { scope: ch, target, allow: allow.toString(), deny: deny.toString() } });
+    const extra = [
+      c.role(role, "m", 0n, { name: "Writers" }),
+      c.grant(writer, [role]),
+      rule({ kind: "everyone" }, 0n, Permissions.SEND_MESSAGES),
+      rule({ kind: "role", id: role }, Permissions.SEND_MESSAGES, 0n),
+    ];
+    const ledgers = [...r.folded.headEditions.values()].filter((e) => e.vsk === "2" || e.vsk === "18");
+    return { ...r, writer, folded: foldControlState([...base, ...ledgers, ...extra], c.id, c.owner) };
+  }
+
+  it("names the managers and every member the Roster lets post there, and nobody it doesn't", () => {
+    const { c, ch, admin, writer, folded } = closed();
+    expect(restrictedWritersIn(folded, ch)).toEqual([c.owner, admin, writer].sort());
+    expect(restrictedPostersIn(folded, ch)).toEqual([c.owner, admin].sort());
+  });
+
+  it("names nobody where @everyone may still post", () => {
+    const { ch, folded } = restricted();
+    expect(restrictedWritersIn(folded, ch)).toBeUndefined();
+  });
+
+  it("gives background notifiers the writer address as its own sub, with its own posters", () => {
+    const { c, ch, writer, wpk, folded } = closed();
+    const { subs } = buildConcordSubs(heldCommunity(c), folded);
+    const here = subs.filter((s) => s.channelId === ch);
+    expect(here.map((s) => s.streams.map((st) => st.pk))).toEqual([[expect.not.stringMatching(wpk)], [wpk]]);
+    expect(here[0].postAuthors).not.toContain(writer);
+    expect(here[1].postAuthors).toContain(writer);
+    expect(here[1].gitAttachments).toEqual([]);
   });
 });
 

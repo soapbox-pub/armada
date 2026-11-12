@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { _resetChatMemoForTests } from "@/concord/lib/chat";
 import { unseenPlaneWraps } from "@/concord/lib/planeSync";
 import { _resetVerifyCacheForTests } from "@/lib/verifyCache";
-import { bytesToHex, channelGroupKey, controlGroupKey, guestbookGroupKey, voiceGroupKey, voiceMediaKey } from "@/concord/lib/derive";
+import { bytesToHex, channelGroupKey, controlGroupKey, guestbookGroupKey, voiceGroupKey, voiceMediaKey, type GroupKey } from "@/concord/lib/derive";
 import { KIND_CONTROL, KIND_KICK, KIND_MESSAGE, KIND_SEAL_ENCRYPTED, KIND_SEAL_PLAINTEXT } from "@/concord/lib/kinds";
 import { peekPendingWraps, queryPlane, queryChannelRumors } from "@/concord/lib/rumorStore";
 import { drainLiveDmWraps, resetLiveDmWraps } from "@/lib/nip17/dm17Store";
@@ -609,6 +609,33 @@ describe("ingestWireEvents — foreground notify candidates", () => {
       off();
     }
     expect(captured.map((c) => c.body)).toEqual(["news"]);
+  });
+
+  it("rings a writer's post at a restricted Channel's writer address, judged by its own posters (CORD-03 §1)", async () => {
+    const { channel, idHex } = makeChannel();
+    const wsk = generateSecretKey();
+    const read = channel.current.group;
+    const writerAddr: GroupKey = { sk: wsk, pk: getPublicKey(wsk), get convKey() { return read.convKey; } };
+    channel.streams.push({ epoch: 0n, group: writerAddr, writer: { epoch: 1n, from: 0 } });
+    const [writer, stranger] = [signer(), signer()];
+    const atWriter = async (s: ReturnType<typeof signer>, content: string) => {
+      const rumor = buildRumor({ kind: KIND_MESSAGE, content, tags: [...channelBindingTags(channel.idHex, 0n), ["wepoch", "1"]], pubkey: s.pubkey, ms: Date.now() });
+      return (await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, writerAddr, s), writerAddr)) as NostrEvent;
+    };
+    const wraps = [await atWriter(writer, "from a writer"), await atWriter(stranger, "from a stranger"), await wrapChat(channel, writer, "at the read address")];
+    const silence = { postAuthors: new Set<string>(), writerAuthors: new Set([writer.pubkey]), writerPks: new Set([writerAddr.pk]) };
+    const { captured, off, sinks } = withSink({
+      concordByPk: new Map([[read.pk, channel], [writerAddr.pk, channel]]),
+      concordCommunityByChannel: new Map([[idHex, "c".repeat(64)]]),
+      concordSilenceByChannel: new Map([[idHex, silence]]),
+    });
+    try {
+      await ingestWireEvents(sinks, wraps);
+    } finally {
+      off();
+    }
+    expect(captured.map((c) => c.body)).toEqual(["from a writer"]);
+    expect(captured[0].atWriter).toBe(true);
   });
 
   it("rings for a reaction to my message only when a row could render it (Vector `is_renderable_reaction`)", async () => {

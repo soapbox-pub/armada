@@ -22,7 +22,7 @@ import { chatRoute } from "@/lib/routes";
 import { isGitRepositoryAttachedAt, matchGitTicketRepository, parseGitComment, parseGitStatusEvent, parseGitTicket } from "@/lib/gitActivity";
 
 import type { OpenedChat } from "@/concord/lib/chat";
-import type { WireSpec } from "@/wire/spec";
+import type { ChannelSilence, WireSpec } from "@/wire/spec";
 import type { Channel } from "@/concord/lib/types";
 import type { NostrEvent } from "@nostrify/nostrify";
 
@@ -223,9 +223,10 @@ export async function ingestWireEvents(
     const silence = spec?.concordSilenceByChannel.get(channel.idHex);
     // A post its readers collapse rings nobody (CORD-04 §8, Vector `post_silenced`).
     const nowMs = clockNowMs();
-    const ringing = silence ? opened.filter((r) => !postSilenced(silence, r.author, r.kind, r.ms, nowMs)) : opened;
+    const atWriter = (r: OpenedChat) => r.streamPk !== undefined && (silence?.writerPks?.has(r.streamPk) ?? false);
+    const ringing = silence ? opened.filter((r) => !postSilenced(silence, r.author, r.kind, r.ms, nowMs, atWriter(r))) : opened;
     const nicknames = spec?.concordNicknamesByCommunity.get(communityIdHex);
-    for (const c of concordCandidates(ringing, channel, communityIdHex, self, banned, roleMentions)) {
+    for (const c of concordCandidates(ringing, channel, communityIdHex, self, banned, roleMentions, atWriter)) {
       const nick = nicknames?.[c.author];
       candidates.push(nick ? { ...c, authorNickname: nick } : c);
     }
@@ -356,13 +357,15 @@ export async function ingestWireEvents(
   noteWrapsOpened(openedChatWraps);
 }
 
-type ChannelSilence = NonNullable<ReturnType<WireSpec["concordSilenceByChannel"]["get"]>>;
-
-/** Whether readers collapse a post, so it rings nobody (CORD-04 §8, Vector `post_silenced`). */
-export function postSilenced(silence: ChannelSilence | undefined, author: string, kind: number, ms: number, nowMs: number): boolean {
+/**
+ * Whether readers collapse a post, so it rings nobody (CORD-04 §8, Vector `post_silenced`).
+ * A restricted Channel's read address and its writer address each take their own posters.
+ */
+export function postSilenced(silence: ChannelSilence | undefined, author: string, kind: number, ms: number, nowMs: number, atWriter = false): boolean {
   if (!silence) return false;
   if (silence.sendDenied?.has(author)) return true;
-  if (silence.postAuthors && kind !== KIND_REACTION && !silence.postAuthors.has(author)) return true;
+  const posters = atWriter ? silence.writerAuthors : silence.postAuthors;
+  if (posters && kind !== KIND_REACTION && !posters.has(author)) return true;
   return silence.timeouts?.some((t) => t.pk === author && t.until * 1000 > nowMs && ms >= t.fromSecs * 1000 && ms < t.until * 1000) ?? false;
 }
 
@@ -374,7 +377,7 @@ export function concordCandidateRings(spec: WireSpec | undefined, cand: NotifyCa
   if (cand.plane !== "c2" || !cand.channelIdHex || !spec) return true;
   const communityIdHex = spec.concordCommunityByChannel.get(cand.channelIdHex);
   if (communityIdHex && spec.concordBannedByCommunity.get(communityIdHex)?.has(cand.author)) return false;
-  return !postSilenced(spec.concordSilenceByChannel.get(cand.channelIdHex), cand.author, cand.kind, cand.ms ?? cand.createdAt * 1000, nowMs);
+  return !postSilenced(spec.concordSilenceByChannel.get(cand.channelIdHex), cand.author, cand.kind, cand.ms ?? cand.createdAt * 1000, nowMs, cand.atWriter === true);
 }
 
 /** Build notify candidates for a batch of decrypted Concord chat rumors. */
@@ -385,6 +388,7 @@ function concordCandidates(
   self: string | undefined,
   banned: Set<string> | undefined,
   roleMentions?: { held: HeldRoleMention[]; authors: Set<string> },
+  atWriter?: (r: OpenedChat) => boolean,
 ): NotifyCandidate[] {
   const out: NotifyCandidate[] = [];
   // Tap lands on the message; unknown `communityIdHex` means the hook drops it.
@@ -440,6 +444,7 @@ function concordCandidates(
       eventId: r.rumorId,
       wrapId: r.wrapId,
       channelIdHex: channel.idHex,
+      ...(atWriter?.(r) ? { atWriter: true } : {}),
     });
   }
   return out;

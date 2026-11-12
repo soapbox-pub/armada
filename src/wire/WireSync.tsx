@@ -1,5 +1,5 @@
 import { App as CapacitorApp } from "@capacitor/app";
-import { restrictedPostersIn, sendDeniedIn } from "@/concord/lib/channelJudges";
+import { restrictedPostersIn, restrictedWritersIn, sendDeniedIn } from "@/concord/lib/channelJudges";
 import { storedGuestbookExtras, type GuestbookExtras } from "@/concord/lib/guestbookExtras";
 import { accountClockRelays, CLOCK_RESYNC_MS, nowSecs, syncClock } from "@/lib/relayClock";
 import { drainWrapScrubs, purgeDeletedChannel, queuedWrapScrubs } from "@/concord/lib/channelPurge";
@@ -385,6 +385,7 @@ function useWireConcordChannels(): WireConcordChannel[] {
         for (const channel of channels) {
           const denied = sendDeniedIn(folded, channel.idHex);
           const posters = restrictedPostersIn(folded, channel.idHex);
+          const writers = restrictedWritersIn(folded, channel.idHex);
           out.push({
             relays: community.relays,
             channel,
@@ -394,6 +395,7 @@ function useWireConcordChannels(): WireConcordChannel[] {
             ...(roleMentionAuthorSet ? { roleMentions, roleMentionAuthors: roleMentionAuthorSet } : {}),
             ...(denied.length > 0 ? { sendDenied: new Set(denied) } : {}),
             ...(posters ? { postAuthors: new Set(posters) } : {}),
+            ...(writers ? { writerAuthors: new Set(writers) } : {}),
             gitAttachments: channelGitRepositoryAttachments(folded?.channels.get(channel.idHex)?.metadata ?? { name: channel.name, private: channel.isPrivate }),
           });
           keys.push(...signingStreams(channel));

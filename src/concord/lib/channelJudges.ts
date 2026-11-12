@@ -77,6 +77,27 @@ export function restrictedPostersIn(control: FoldedControl | undefined, channelI
   return [...out].sort();
 }
 
+/**
+ * Who may post at a restricted Channel's writer address, for notifiers that hold no
+ * ledger: the managers {@link restrictedPostersIn} names and every member the Roster
+ * lets post there (CORD-03 §1 "What stands", the writer vouch). Exact, since in a
+ * restricted Channel `@everyone` can't post, so only a Grant or a member's overwrite
+ * lets anyone in. Undefined where the Channel takes posts from everyone.
+ */
+export function restrictedWritersIn(control: FoldedControl | undefined, channelIdHex: string): string[] | undefined {
+  const posters = restrictedPostersIn(control, channelIdHex);
+  if (!control || !posters || everyoneSends(control.roster, channelIdHex)) return undefined;
+  const isPrivate = control.channels.get(channelIdHex)?.isPrivate ?? false;
+  const out = new Set(posters);
+  const candidates = new Set<string>(control.roster.grants.map((g) => g.member));
+  for (const o of control.roster.overwrites ?? []) if (o.target.kind === "member") candidates.add(o.target.id);
+  for (const pk of candidates) {
+    if (control.banned.has(pk)) continue;
+    if ((channelPermissions(control.roster, control.ownerHex, pk, channelIdHex, isPrivate) & Permissions.SEND_MESSAGES) !== 0n) out.add(pk);
+  }
+  return [...out].sort();
+}
+
 /** The running Timeouts (CORD-04 §8), judged against the Roster as it stands, as {@link useGuestbook} does. */
 export function runningTimeouts(
   opened: OpenedEvent[],

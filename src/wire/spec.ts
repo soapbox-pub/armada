@@ -9,6 +9,7 @@ import { GIT_ISSUE_KIND, GIT_PULL_REQUEST_KIND, GIT_STATUS_KINDS, matchGitTicket
 
 import type { StreamKeyView } from "@/concord/lib/derive";
 import type { Channel } from "@/concord/lib/types";
+import { liveWriterStreams } from "@/concord/lib/community";
 import type { NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
 
@@ -102,8 +103,10 @@ export interface WireInputs {
     roleMentionAuthors?: Set<string>;
     /** Authors whose posts readers collapse here (CORD-04 §8): no SEND in this open Channel, or a running Timeout. */
     sendDenied?: Set<string>;
-    /** In a restricted Channel, the only authors whose posts ring (CORD-03 §1). */
+    /** At a restricted Channel's read address, the only authors whose posts ring (CORD-03 §1). */
     postAuthors?: Set<string>;
+    /** At its live writer address, the only authors whose posts ring. */
+    writerAuthors?: Set<string>;
     timeouts?: { pk: string; fromSecs: number; until: number }[];
     /** The Nicknames members go by in the Community (CORD-04 §10). */
     nicknames?: Record<string, string>;
@@ -134,6 +137,17 @@ export interface WireInputs {
   gitTicketRoots?: NostrRumor[];
 }
 
+/** Whose posts in a Concord Channel ring nobody (CORD-04 §8, CORD-03 §1). */
+export interface ChannelSilence {
+  sendDenied?: Set<string>;
+  /** At the read address of a restricted Channel, the only authors whose posts ring. */
+  postAuthors?: Set<string>;
+  /** At its writer addresses (`writerPks`), the only authors whose posts ring. */
+  writerAuthors?: Set<string>;
+  writerPks?: Set<string>;
+  timeouts?: { pk: string; fromSecs: number; until: number }[];
+}
+
 /** One canonical repository and every channel interval that references it. */
 export interface GitRepositoryWireInput {
   address: string;
@@ -161,7 +175,7 @@ export interface WireSpec {
   /** Concord community id hex → the Nicknames its members go by (CORD-04 §10). */
   concordNicknamesByCommunity: Map<string, Record<string, string>>;
   /** Concord channel id hex → whose posts there ring nobody (CORD-04 §8). */
-  concordSilenceByChannel: Map<string, { sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[] }>;
+  concordSilenceByChannel: Map<string, ChannelSilence>;
   /** Concord community id hex → the Roles the viewer holds and who may ping any Role. */
   concordRoleMentionsByCommunity: Map<string, { held: HeldRoleMention[]; authors: Set<string> }>;
   /** Concord CONTROL stream address (wrap author) → its community, for decrypt + fold wake. */
@@ -233,11 +247,14 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
   const concordBannedByCommunity = new Map<string, Set<string>>();
   const concordRoleMentionsByCommunity = new Map<string, { held: HeldRoleMention[]; authors: Set<string> }>();
   const concordNicknamesByCommunity = new Map<string, Record<string, string>>();
-  const concordSilenceByChannel = new Map<string, { sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[] }>();
+  const concordSilenceByChannel = new Map<string, ChannelSilence>();
   const pksByRelay = new Map<string, Set<string>>();
-  for (const { relays, channel, communityIdHex, banned, roleMentions, roleMentionAuthors, sendDenied, postAuthors, timeouts, nicknames } of inputs.concord) {
+  for (const { relays, channel, communityIdHex, banned, roleMentions, roleMentionAuthors, sendDenied, postAuthors, writerAuthors, timeouts, nicknames } of inputs.concord) {
     if (nicknames && Object.keys(nicknames).length > 0) concordNicknamesByCommunity.set(communityIdHex, nicknames);
-    if (sendDenied?.size || postAuthors || timeouts?.length) concordSilenceByChannel.set(channel.idHex, { sendDenied, postAuthors, timeouts });
+    const writerPks = new Set(channel.streams.filter((s) => s.writer).map((s) => s.group.pk));
+    if (sendDenied?.size || postAuthors || writerAuthors || timeouts?.length) {
+      concordSilenceByChannel.set(channel.idHex, { sendDenied, postAuthors, timeouts, ...(writerAuthors ? { writerAuthors, writerPks } : {}) });
+    }
     if (roleMentions?.length) concordRoleMentionsByCommunity.set(communityIdHex, { held: roleMentions, authors: roleMentionAuthors ?? new Set() });
     for (const s of channel.streams) concordByPk.set(s.group.pk, channel);
     concordCommunityByChannel.set(channel.idHex, communityIdHex);
@@ -249,9 +266,7 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
       if (!set) pksByRelay.set(relay, (set = new Set()));
       set.add(channel.current.group.pk);
       // A restricted Channel's posts arrive at its live writer address (CORD-03 §1).
-      for (const s of channel.streams) {
-        if (s.writer && s.writer.to === undefined && s.epoch === channel.current.epoch) set.add(s.group.pk);
-      }
+      for (const s of liveWriterStreams(channel)) set.add(s.group.pk);
     }
   }
   for (const [relay, pks] of pksByRelay) {
