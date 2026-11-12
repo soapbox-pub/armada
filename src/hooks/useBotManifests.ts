@@ -1,4 +1,6 @@
 import { useNostr } from "@nostrify/react";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
@@ -39,17 +41,39 @@ const EMPTY: string[] = [];
 const EMPTY_ENTRIES: BotCommandEntry[] = [];
 const EMPTY_PROFILES: Record<string, BotRosterProfile> = {};
 
+/** How long a member's bot flag and profile are taken as read; the queries' own staleness. */
+const FLAG_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Each member's bot flag and picker profile as last read (`null`: no kind 0 found), so a
+ * member set that grows, or a community switched back to, reads only who it hasn't yet:
+ * a public community's roster is thousands of kind 0s.
+ */
+const flagMemo = new Map<string, { at: number; bot: boolean; profile: BotRosterProfile | null }>();
+
+/** The read filling {@link flagMemo}; the next waits on it, so a roster that changed while it ran reads only the rest. */
+let reading: Promise<unknown> = Promise.resolve();
+
+/** Forget the remembered flags (tests). */
+export function clearBotFlagMemory(): void {
+  flagMemo.clear();
+  reading = Promise.resolve();
+}
+
 /** Query `kinds` for `authors` in author-sized chunks, over an explicit relay set. */
 async function queryChunked(
   query: (filters: { kinds: number[]; authors: string[] }[], opts: { signal: AbortSignal }) => Promise<NostrEvent[]>,
   kinds: number[],
   authors: string[],
   signal: AbortSignal,
+  onChunk?: (authors: string[], events: NostrEvent[]) => void,
 ): Promise<NostrEvent[]> {
   const out: NostrEvent[] = [];
   for (let i = 0; i < authors.length; i += AUTHOR_CHUNK) {
     const chunk = authors.slice(i, i + AUTHOR_CHUNK);
-    out.push(...(await query([{ kinds, authors: chunk }], { signal })));
+    const events = await query([{ kinds, authors: chunk }], { signal });
+    onChunk?.(chunk, events);
+    out.push(...events);
   }
   return out;
 }
@@ -88,7 +112,8 @@ export function useBotManifests(
     () => (memberPubkeys ? [...new Set(memberPubkeys)].sort() : EMPTY),
     [memberPubkeys],
   );
-  const membersKey = members.join(",");
+  // Hashed: thousands of pubkeys in a query key are re-hashed by every observer on every render.
+  const membersKey = useMemo(() => bytesToHex(sha256(new TextEncoder().encode(members.join(",")))), [members]);
 
   // Search the conversation's relays plus app relays: a bot's kind-0 may never
   // have reached the pool.
@@ -101,37 +126,60 @@ export function useBotManifests(
   const botsQuery = useQuery({
     queryKey: ["bot-flags", membersKey, relayKey],
     queryFn: async ({ signal }) => {
-      const asked = new Set(members);
-      // Merge the local cache (what the Bot pill reads) with the network, asking
-      // the network only about uncached members — re-sweeping every kind 0 would be the
-      // largest network cost of reading a channel.
-      const store = await eventStore;
-      const cached = (await store.query([{ kinds: [0], authors: members }])) as NostrEvent[];
-      const known = new Set(cached.map((ev) => ev.pubkey));
-      const missing = members.filter((pk) => !known.has(pk));
-      const network = missing.length > 0
-        ? await queryChunked((filters, opts) => nostr.group(relays).query(filters, opts), [0], missing, signal)
-        : [];
-      const events = [...cached, ...network];
+      const read = reading.then(async () => {
+        const now = Date.now();
+        const unread = members.filter((pk) => {
+          const held = flagMemo.get(pk);
+          return !held || now - held.at >= FLAG_TTL_MS;
+        });
+        if (unread.length === 0) return;
+        // Each batch recorded as it lands: a switch away cancels the rest, and a
+        // roster of thousands without stored profiles is many relay round trips.
+        const record = (pubkeys: string[], events: NostrEvent[]) => {
+          const newest = newestPerAuthor(events, new Set(pubkeys), 0);
+          for (const pubkey of pubkeys) {
+            const ev = newest.get(pubkey);
+            let meta: { bot?: unknown; name?: unknown; display_name?: unknown; picture?: unknown } | undefined;
+            try {
+              meta = ev ? JSON.parse(ev.content) : undefined;
+            } catch {
+              // A profile we cannot parse is simply not a bot.
+            }
+            flagMemo.set(pubkey, {
+              at: now,
+              bot: meta?.bot === true,
+              profile: ev && meta ? {
+                name: typeof meta?.name === "string"
+                  ? meta.name
+                  : typeof meta?.display_name === "string"
+                    ? meta.display_name
+                    : undefined,
+                picture: typeof meta?.picture === "string" ? meta.picture : undefined,
+                pictureImeta: parseProfileImeta(ev.tags, meta)?.picture,
+              } : null,
+            });
+          }
+        };
+        // Merge the local cache (what the Bot pill reads) with the network, asking
+        // the network only about uncached members — re-sweeping every kind 0 would be the
+        // largest network cost of reading a channel.
+        const store = await eventStore;
+        const cached = (await store.query([{ kinds: [0], authors: unread }])) as NostrEvent[];
+        const known = new Set(cached.map((ev) => ev.pubkey));
+        record(unread.filter((pk) => known.has(pk)), cached);
+        const missing = unread.filter((pk) => !known.has(pk));
+        if (missing.length > 0) {
+          await queryChunked((filters, opts) => nostr.group(relays).query(filters, opts), [0], missing, signal, record);
+        }
+      });
+      reading = read.catch(() => undefined);
+      await read;
       const bots: string[] = [];
       const profiles: Record<string, BotRosterProfile> = {};
-      for (const [pubkey, ev] of newestPerAuthor(events, asked, 0)) {
-        let meta: { bot?: unknown; name?: unknown; display_name?: unknown; picture?: unknown };
-        try {
-          meta = JSON.parse(ev.content);
-        } catch {
-          continue; // A profile we cannot parse is simply not a bot.
-        }
-        if (meta?.bot === true) bots.push(pubkey);
-        profiles[pubkey] = {
-          name: typeof meta?.name === "string"
-            ? meta.name
-            : typeof meta?.display_name === "string"
-              ? meta.display_name
-              : undefined,
-          picture: typeof meta?.picture === "string" ? meta.picture : undefined,
-          pictureImeta: parseProfileImeta(ev.tags, meta)?.picture,
-        };
+      for (const pubkey of members) {
+        const held = flagMemo.get(pubkey);
+        if (held?.bot) bots.push(pubkey);
+        if (held?.profile) profiles[pubkey] = held.profile;
       }
       return { bots: bots.sort(), profiles };
     },

@@ -10,7 +10,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useBotManifests } from "./useBotManifests";
+import { clearBotFlagMemory, useBotManifests } from "./useBotManifests";
 
 import type { NostrEvent } from "@nostrify/nostrify";
 
@@ -27,6 +27,7 @@ const h = vi.hoisted(() => ({
   pool: [] as NostrEvent[], // what the network relays serve
   cache: [] as NostrEvent[], // what the local event store holds
   capturedManifestRelays: [] as string[],
+  storeAsked: [] as string[][], // the authors each local-store read named
 }));
 
 // A deliberately sloppy relay: it honours the AUTHOR filter but returns every
@@ -66,6 +67,7 @@ vi.mock("@/hooks/useEventStore", () => ({
   useEventStore: () =>
     Promise.resolve({
       query: async (filters: { authors?: string[] }[]) => {
+        for (const f of filters) if (f.authors) h.storeAsked.push(f.authors);
         const out: NostrEvent[] = [];
         for (const f of filters) for (const ev of h.cache) {
           if (f.authors && !f.authors.includes(ev.pubkey)) continue;
@@ -96,9 +98,11 @@ function render(members: string[] | undefined, relays?: string[]) {
 }
 
 beforeEach(() => {
+  clearBotFlagMemory();
   h.pool = [];
   h.cache = [];
   h.capturedManifestRelays = [];
+  h.storeAsked = [];
 });
 
 describe("useBotManifests", () => {
@@ -204,6 +208,18 @@ describe("useBotManifests", () => {
     // queried. Exact equality: discovery must never connect to a relay the user
     // has not configured and the conversation does not use.
     expect(h.capturedManifestRelays).toEqual(["wss://app.example", COMMUNITY_RELAY]);
+  });
+
+  it("reads only the members it hasn't read when the roster grows", async () => {
+    h.cache = [kind0(BOT_A, { bot: true, name: "Alice" }), kind0(HUMAN, { name: "Carol" })];
+    const first = render([BOT_A]);
+    await waitFor(() => expect(first.result.current.bots).toEqual([BOT_A]));
+    h.storeAsked = [];
+    const second = render([BOT_A, HUMAN]);
+    await waitFor(() => expect(second.result.current.profiles[HUMAN]?.name).toBe("Carol"));
+    expect(h.storeAsked).toEqual([[HUMAN]]);
+    expect(second.result.current.bots).toEqual([BOT_A]);
+    expect(second.result.current.profiles[BOT_A]?.name).toBe("Alice");
   });
 
   it("does nothing without a roster (a plain DM)", async () => {
