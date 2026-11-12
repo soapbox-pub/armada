@@ -190,7 +190,7 @@ describe("nsite deploy", () => {
     }
     expect(wrapperCalls).toEqual([
       "scripts/nsite-deploy.sh dist",
-      "scripts/nsite-deploy.sh dist --name armada-release --no-config --fallback /index.html",
+      "scripts/nsite-deploy.sh dist --name armada-stable --no-config --fallback /index.html",
     ]);
 
     // No step may reintroduce the OSTree repository fold.

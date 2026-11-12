@@ -403,11 +403,11 @@ describe("web site manifests", () => {
     const key = generateSecretKey();
     const authors = [getPublicKey(key)];
     expect(parseWebSite(manifest(key), { authors })?.siteId).toBe("armada");
-    const release = manifest(key, { site: "armada-release" });
+    const release = manifest(key, { site: "armada-stable" });
     // A stored manifest is re-verified without a track: either is the shell's own.
-    expect(parseWebSite(release, { authors })?.siteId).toBe("armada-release");
+    expect(parseWebSite(release, { authors })?.siteId).toBe("armada-stable");
     expect(parseWebSite(release, { authors, siteId: "armada" })).toBeUndefined();
-    expect(parseWebSite(manifest(key), { authors, siteId: "armada-release" })).toBeUndefined();
+    expect(parseWebSite(manifest(key), { authors, siteId: "armada-stable" })).toBeUndefined();
   });
 
   it("selects the newest acceptable manifest, past a newer forgery", () => {

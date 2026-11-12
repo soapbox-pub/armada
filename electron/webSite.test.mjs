@@ -130,10 +130,10 @@ describe("stageSite", () => {
 
   it("takes an older site from the other track, which is the user switching channel", async () => {
     await install(makeSite({ createdAt: 3_000 }));
-    const release = makeSite({ id: "release", createdAt: 2_500, track: "armada-release", extra: { "/assets/app.js": Buffer.from("release") } });
+    const release = makeSite({ id: "release", createdAt: 2_500, track: "armada-stable", extra: { "/assets/app.js": Buffer.from("release") } });
     expect(await install(release)).toEqual({ result: "installed", id: "release" });
     // Within the release track the rollback guard holds again.
-    expect(await install(makeSite({ id: "stale", createdAt: 2_400, track: "armada-release" }))).toEqual({ result: "unchanged" });
+    expect(await install(makeSite({ id: "stale", createdAt: 2_400, track: "armada-stable" }))).toEqual({ result: "unchanged" });
     expect(loadSite({ dir, parse, ...SHELL })?.id).toBe("release");
   });
 

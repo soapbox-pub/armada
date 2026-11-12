@@ -294,7 +294,7 @@ updates, `electron/webUpdateChannel.js`, a file in userData):
 | Channel | Follows |
 | --- | --- |
 | Every update (`latest`, default) | `d=armada`, every push to `main` |
-| Releases only (`release`) | `d=armada-release`, which `deploy-nsite.yml` publishes only for a `Release vX.Y.Z` commit |
+| Releases only (`release`) | `d=armada-stable`, which `deploy-nsite.yml` publishes only for a `Release vX.Y.Z` commit |
 | Off (`off`) | nothing; choosing it also discards a staged site, so the next launch serves what is running now |
 
 The rollback guard is per track: moving from `latest` to `release` may install
