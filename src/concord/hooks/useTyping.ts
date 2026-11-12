@@ -109,12 +109,13 @@ export function useTypingPublisher(community: Community | undefined, channel: Ch
 
   return useCallback(() => {
     if (!enabled || !user || !community || !channel) return;
-    // Where a post would land; one who can't post there doesn't type there either.
-    const at = sendTarget(channel.current.group, KIND_TYPING, folded, community.id, channel.idHex, user.pubkey, history);
-    if (!at) return;
+    // Throttle first: `sendTarget` verifies the writer certificate, too costly per keystroke.
     const now = Date.now();
     if (now - lastSent.current < TYPING_THROTTLE_MS) return;
     lastSent.current = now;
+    // Where a post would land; one who can't post there doesn't type there either.
+    const at = sendTarget(channel.current.group, KIND_TYPING, folded, community.id, channel.idHex, user.pubkey, history);
+    if (!at) return;
 
     void (async () => {
       try {
