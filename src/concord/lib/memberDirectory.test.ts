@@ -187,6 +187,65 @@ describe("suspicious members", () => {
   });
 });
 
+describe("members a key rotation left out", () => {
+  const LEFT_OUT = "12".repeat(32); // Joined before the rotation, absent from its snapshot
+  const BANNED = "34".repeat(32); // absent from it because they were banned
+  const BACK = "56".repeat(32); // absent from it, but seen posting since
+
+  function refounded(pubkey: string): [string, CoalescedMember] {
+    return [pubkey, { pubkey, state: "refounded", ms: 9_000, rumorId: "s".repeat(64), fromSnapshot: true }];
+  }
+
+  function buildWithOmitted(): MemberDirectoryRow[] {
+    return buildMemberRows({
+      members: new Set([OWNER, PLAIN, BACK]),
+      coalesced: new Map<string, CoalescedMember>([
+        joined(OWNER, 1_000),
+        joined(PLAIN, 4_000),
+        refounded(LEFT_OUT),
+        refounded(BANNED),
+        refounded(BACK),
+      ]),
+      history: new Map([
+        [LEFT_OUT, [joined(LEFT_OUT, 2_000, { invite: { creator: OWNER, label: "friends" } })[1]]],
+        [BANNED, [joined(BANNED, 3_000)[1]]],
+        [BACK, [joined(BACK, 3_500)[1]]],
+      ]),
+      banned: new Set([BANNED]),
+      observedEpochOf: new Map([[LEFT_OUT, 1n]]),
+      observedSeenMs: new Map([[LEFT_OUT, 5_000]]),
+      roster,
+      currentEpoch: 2n,
+      ownerHex: OWNER,
+      selfHex: OWNER,
+    });
+  }
+
+  it("gives each a row carrying the Join they held, and none to the banned", () => {
+    const rows = new Map(buildWithOmitted().map((r) => [r.pubkey, r]));
+    expect(rows.get(LEFT_OUT)).toMatchObject({
+      omitted: true,
+      joinKind: "join",
+      joinMs: 2_000,
+      invite: { creator: OWNER, label: "friends" },
+      lastSeenMs: 5_000,
+      epoch: 1n,
+    });
+    expect(rows.has(BANNED)).toBe(false);
+    // Listed again by what they posted since: an ordinary member.
+    expect(rows.get(BACK)?.omitted).toBe(false);
+    expect(rows.get(PLAIN)?.omitted).toBe(false);
+  });
+
+  it("keeps them out of the member list unless asked for", () => {
+    const rows = buildWithOmitted();
+    expect(new Set(filterMemberRows(rows, {}).map((r) => r.pubkey))).toEqual(new Set([OWNER, PLAIN, BACK]));
+    expect(filterMemberRows(rows, { behindOnly: true })).toEqual([]);
+    expect(filterMemberRows(rows, { omittedOnly: true }).map((r) => r.pubkey)).toEqual([LEFT_OUT]);
+    expect(filterMemberRows(rows, { omittedOnly: true, inviter: MOD })).toEqual([]);
+  });
+});
+
 describe("sortMemberRows by name", () => {
   it("orders by the injected name comparator", () => {
     const rows = ["c", "a", "b"].map((c) => ({ pubkey: c.repeat(64) }) as unknown as MemberDirectoryRow);

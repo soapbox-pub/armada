@@ -388,14 +388,14 @@ export function useGuestbook(community: Community | undefined) {
 export function useMembers(
   community: Community | undefined,
   observed: Map<string, number>,
-): { members: Set<string>; coalesced: Map<string, CoalescedMember> } {
-  const { coalesced, refound } = useGuestbook(community);
+): { members: Set<string>; coalesced: Map<string, CoalescedMember>; history: GuestbookHistory | undefined } {
+  const { coalesced, history, refound } = useGuestbook(community);
   const { data: folded } = useControlFold(community);
   const members = useMemo(
     () => completeMemberlist(coalesced, observed, folded?.banned ?? new Set(), folded?.bannedAt, refound),
     [coalesced, observed, folded, refound],
   );
-  return { members, coalesced };
+  return { members, coalesced, history };
 }
 
 /** How long a Guestbook Leave no relay has taken stays in the publish outbox. */

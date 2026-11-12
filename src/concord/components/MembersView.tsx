@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useQueries } from "@tanstack/react-query";
-import { Ban, Crown, KeyRound, Loader2, Shield, ShieldAlert, ShieldOff, TriangleAlert, UserMinus, Users } from "lucide-react";
+import { Ban, Crown, KeyRound, Loader2, Shield, ShieldAlert, ShieldOff, TriangleAlert, UserMinus, Users, UserX } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
@@ -106,7 +106,7 @@ export function MembersView({
     return { epochOf, seenMs };
   }, [byChannel]);
 
-  const { members, coalesced } = useMembers(community, observed.seenMs);
+  const { members, coalesced, history } = useMembers(community, observed.seenMs);
 
   // Muted people are hidden here too (unmute to act on them), since this view is open to all members.
   const allRows = useMemo(
@@ -114,6 +114,8 @@ export function MembersView({
       buildMemberRows({
         members,
         coalesced,
+        history,
+        banned: folded?.banned,
         observedEpochOf: observed.epochOf,
         observedSeenMs: observed.seenMs,
         roster: folded?.roster,
@@ -122,7 +124,7 @@ export function MembersView({
         selfHex: user?.pubkey,
         suspicious: suspiciousSet,
       }).filter((row) => !mutedPubkeys.has(row.pubkey)),
-    [members, coalesced, observed, folded, community, user, suspiciousSet, mutedPubkeys],
+    [members, coalesced, history, observed, folded, community, user, suspiciousSet, mutedPubkeys],
   );
 
   const [query, setQuery] = useState("");
@@ -130,11 +132,18 @@ export function MembersView({
   const [roleFilter, setRoleFilter] = useState<string>("all"); // "all" | "none" | roleId
   const [behindOnly, setBehindOnly] = useState(false);
   const [suspiciousOnly, setSuspiciousOnly] = useState(false);
+  // The members a key rotation left out are a list of their own, never mixed into the roster.
+  const [omittedOnly, setOmittedOnly] = useState(false);
   const [inviterFilter, setInviterFilter] = useState<string>("all"); // "all" | "any" | creator hex
   const [showAll, setShowAll] = useState(false);
 
+  const omittedCount = useMemo(() => allRows.filter((r) => r.omitted).length, [allRows]);
+  // The audit is a moderator's: only they can act on it.
+  const showOmitted = omittedOnly && canModerate && omittedCount > 0;
+  const listRows = useMemo(() => allRows.filter((r) => r.omitted === showOmitted), [allRows, showOmitted]);
+
   // Batch-resolve so search sees every member, not just rendered rows.
-  const pubkeys = useMemo(() => allRows.map((r) => r.pubkey), [allRows]);
+  const pubkeys = useMemo(() => listRows.map((r) => r.pubkey), [listRows]);
   const profileResults = useQueries({
     queries: pubkeys.map((pk) => authorQueryOptions(queryClient, eventStore, pk)),
   });
@@ -161,8 +170,9 @@ export function MembersView({
       },
       roleIds: roleFilter !== "all" && roleFilter !== "none" ? [roleFilter] : undefined,
       noRole: roleFilter === "none",
-      behindOnly,
-      suspiciousOnly,
+      behindOnly: behindOnly && !showOmitted,
+      suspiciousOnly: suspiciousOnly && !showOmitted,
+      omittedOnly: showOmitted,
       viaInvite: inviterFilter === "any",
       inviter: inviterFilter !== "all" && inviterFilter !== "any" ? inviterFilter : undefined,
     });
@@ -181,7 +191,7 @@ export function MembersView({
       return a < b ? -1 : 1;
     };
     return hoistSuspicious(sortMemberRows(filtered, sortKey, byName));
-  }, [allRows, query, roleFilter, behindOnly, suspiciousOnly, inviterFilter, sortKey, profileOf, intl.locale]);
+  }, [allRows, query, roleFilter, behindOnly, suspiciousOnly, showOmitted, inviterFilter, sortKey, profileOf, intl.locale]);
 
   const visible = showAll ? rows : rows.slice(0, RENDER_CAP);
   const visibleOrder = useMemo(() => visible.map((r) => r.pubkey), [visible]);
@@ -189,7 +199,7 @@ export function MembersView({
   const [selection, setSelection] = useState<SelectionState>(emptySelection());
 
   // Hidden-but-selected members must not ride into a mass action, so reset.
-  const filterSig = `${query}|${roleFilter}|${behindOnly}|${suspiciousOnly}|${inviterFilter}`;
+  const filterSig = `${query}|${roleFilter}|${behindOnly}|${suspiciousOnly}|${showOmitted}|${inviterFilter}`;
   const prevFilterSig = useRef(filterSig);
   useEffect(() => {
     if (prevFilterSig.current !== filterSig) {
@@ -296,10 +306,11 @@ export function MembersView({
 
   const inviters = useMemo(() => {
     const set = new Set<string>();
-    for (const r of allRows) if (r.invite) set.add(r.invite.creator);
+    for (const r of listRows) if (r.invite) set.add(r.invite.creator);
     return [...set].sort();
-  }, [allRows]);
-  const behindCount = allRows.filter((r) => r.behind).length;
+  }, [listRows]);
+  const memberCount = allRows.length - omittedCount;
+  const behindCount = allRows.filter((r) => r.behind && !r.omitted).length;
   const roles = useMemo(
     () => [...(folded?.roster.roles ?? [])].sort((a, b) => a.position - b.position),
     [folded],
@@ -326,10 +337,34 @@ export function MembersView({
         <h2 className="text-lg font-semibold">
           <FormattedMessage id="membersView.title" defaultMessage="Members" />
         </h2>
-        <span className="text-sm text-muted-foreground">{allRows.length}</span>
+        <span className="text-sm text-muted-foreground">{memberCount}</span>
       </div>
 
-      {suspiciousSet.size > 0 && (
+      {canModerate && omittedCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setOmittedOnly((v) => !v)}
+          className={`flex w-full items-center gap-2 clip-corner-lg px-3 py-2 text-left text-sm transition-colors ${
+            showOmitted ? "bg-warning/20 text-warning" : "bg-warning/10 text-warning"
+          }`}
+        >
+          <UserX className="size-4 shrink-0" />
+          <FormattedMessage
+            id="membersView.omittedBanner"
+            defaultMessage="{count, plural, one {# person joined before the last key rotation and was left out of it, without being banned.} other {# people joined before the last key rotation and were left out of it, without being banned.}}"
+            values={{ count: omittedCount }}
+          />
+          <span className="ml-auto shrink-0 text-xs underline">
+            {showOmitted ? (
+              <FormattedMessage id="membersView.showMembers" defaultMessage="Back to members" />
+            ) : (
+              <FormattedMessage id="membersView.showThem" defaultMessage="Show them" />
+            )}
+          </span>
+        </button>
+      )}
+
+      {!showOmitted && suspiciousSet.size > 0 && (
         <button
           type="button"
           onClick={() => setSuspiciousOnly((v) => !v)}
@@ -353,7 +388,7 @@ export function MembersView({
         </button>
       )}
 
-      {behindCount > 0 && (
+      {!showOmitted && behindCount > 0 && (
         <button
           type="button"
           onClick={() => setBehindOnly((v) => !v)}
@@ -460,7 +495,7 @@ export function MembersView({
       {visible.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-md bg-foreground/5 px-4 py-8 text-sm text-muted-foreground">
           <Users className="size-5" />
-          {allRows.length === 0 ? (
+          {listRows.length === 0 ? (
             <FormattedMessage id="membersView.noneObserved" defaultMessage="No members observed yet." />
           ) : (
             <FormattedMessage id="membersView.noneMatch" defaultMessage="No members match." />
@@ -875,7 +910,23 @@ function MemberRow({
         </span>
       )}
 
-      {row.behind && (
+      {row.omitted && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-3xs font-medium text-warning">
+              <UserX className="size-3" />
+              <FormattedMessage id="membersView.omittedChip" defaultMessage="left out" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-52 text-xs">
+            <FormattedMessage
+              id="membersView.omittedTooltip"
+              defaultMessage="Joined before the last key rotation and isn't on its member list, so they were never given the keys the community uses now."
+            />
+          </TooltipContent>
+        </Tooltip>
+      )}
+      {row.behind && !row.omitted && (
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-3xs font-medium text-warning">

@@ -1,4 +1,4 @@
-import type { CoalescedMember } from "@/concord/lib/guestbook";
+import type { CoalescedMember, GuestbookHistory } from "@/concord/lib/guestbook";
 import { type CommunityRoles, highestPosition, rolesOf } from "@/concord/lib/roles";
 
 /** Row building for the Members tab — pure data derived from existing folds. */
@@ -30,11 +30,20 @@ export interface MemberDirectoryRow {
   isSelf: boolean;
   /** Flagged by the control-plane watchdog: attempted unauthorized changes. */
   suspicious: boolean;
+  /**
+   * Not a member now: Joined when the community last rotated its keys, and absent
+   * from that rotation's snapshot (CORD-02 §5) without having been banned.
+   */
+  omitted: boolean;
 }
 
 export function buildMemberRows(input: {
   members: ReadonlySet<string>;
   coalesced: Map<string, CoalescedMember>;
+  /** Every member's entries, winner last: where an omitted member's own Join is read from. */
+  history?: GuestbookHistory;
+  /** Banned npubs, who get no omitted row: a rotation leaves them out on purpose. */
+  banned?: ReadonlySet<string>;
   observedEpochOf: Map<string, bigint>;
   observedSeenMs: Map<string, number>;
   roster: CommunityRoles | undefined;
@@ -44,14 +53,19 @@ export function buildMemberRows(input: {
   /** Watchdog-flagged authors; flagged NON-members still get a row. */
   suspicious?: ReadonlySet<string>;
 }): MemberDirectoryRow[] {
-  const { members, coalesced, observedEpochOf, observedSeenMs, roster, currentEpoch, ownerHex, selfHex, suspicious } = input;
+  const { members, coalesced, history, banned, observedEpochOf, observedSeenMs, roster, currentEpoch, ownerHex, selfHex, suspicious } = input;
   const rows: MemberDirectoryRow[] = [];
   const everyone = new Set(members);
   for (const pk of suspicious ?? []) everyone.add(pk);
+  const omitted = new Set<string>();
+  for (const [pk, m] of coalesced) {
+    if (m.state === "refounded" && !members.has(pk) && !banned?.has(pk)) omitted.add(pk);
+  }
+  for (const pk of omitted) everyone.add(pk);
   for (const pubkey of everyone) {
     const m = coalesced.get(pubkey);
-    // Only a winning Join carries a usable join time.
-    const joined = m?.state === "join" ? m : undefined;
+    // Only a winning Join carries a usable join time; an omitted member's is the one the rotation set aside.
+    const joined = m?.state === "join" ? m : omitted.has(pubkey) ? history?.get(pubkey)?.findLast((e) => e.state === "join") : undefined;
     const epoch = observedEpochOf.get(pubkey);
     const roleIds = roster ? rolesOf(roster, pubkey).map((r) => r.roleId) : [];
     rows.push({
@@ -67,6 +81,7 @@ export function buildMemberRows(input: {
       isOwner: pubkey === ownerHex,
       isSelf: pubkey === selfHex,
       suspicious: suspicious?.has(pubkey) ?? false,
+      omitted: omitted.has(pubkey),
     });
   }
   return rows;
@@ -140,6 +155,8 @@ export interface MemberFilter {
   /** Keep only members whose winning Join credits this link creator (hex). */
   inviter?: string;
   suspiciousOnly?: boolean;
+  /** Keep ONLY the members a key rotation left out; without it they are never listed. */
+  omittedOnly?: boolean;
 }
 
 export function filterMemberRows(
@@ -149,6 +166,7 @@ export function filterMemberRows(
   const query = filter.query?.trim().toLowerCase();
   const roleFilterActive = Boolean(filter.roleIds?.length) || Boolean(filter.noRole);
   return rows.filter((row) => {
+    if (Boolean(filter.omittedOnly) !== row.omitted) return false;
     if (filter.behindOnly && !row.behind) return false;
     if (filter.viaInvite && !row.invite) return false;
     if (filter.inviter && row.invite?.creator !== filter.inviter) return false;
