@@ -1808,13 +1808,8 @@ export function CallStage({
     const prev = prevStreamOwners.current;
     if (owners.some((o) => !prev.includes(o))) {
       playScreenShareSound();
-    } else if (
-      prev.some((o) => !owners.includes(o)) &&
-      prev.length > 0 &&
-      connectionState === ConnectionState.Connected
-    ) {
-      // Leaving the call also empties streamOwners as the room tears down;
-      // LeaveButton already plays its own chirp for that transition.
+    } else if (prev.some((o) => !owners.includes(o)) && connectionState === ConnectionState.Connected) {
+      // Our own reconnect reports every share as gone.
       playScreenShareEndSound();
     }
     prevStreamOwners.current = owners;

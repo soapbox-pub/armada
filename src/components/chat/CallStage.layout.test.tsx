@@ -4,11 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CallStage } from "./CallStage";
 import { ScreenShareWatchContext } from "@/contexts/ScreenShareWatchContext";
+import { playScreenShareEndSound, playScreenShareSound } from "@/lib/callSounds";
 
 const runtime = vi.hoisted(() => ({
   participants: [] as Array<Record<string, unknown>>,
   tracks: [] as Array<Record<string, unknown>>,
   streaming: new Set<string>(),
+  connectionState: "connected",
   call: {
     stageFloating: false,
     floatingVariant: null as "desktop" | "mobile" | null,
@@ -21,7 +23,7 @@ const runtime = vi.hoisted(() => ({
 const setStageOpen = vi.hoisted(() => vi.fn());
 
 vi.mock("@livekit/components-react", () => ({
-  useConnectionState: () => "connected",
+  useConnectionState: () => runtime.connectionState,
   useParticipants: () => runtime.participants,
   useSpeakingParticipants: () => [],
   useTracks: () => runtime.tracks,
@@ -70,7 +72,7 @@ vi.mock("@/hooks/useUserVolume", () => ({
   useUserVolume: () => [1, vi.fn()],
   useScreenShareVolume: () => [1, vi.fn()],
 }));
-vi.mock("@/lib/callSounds", () => ({ playScreenShareSound: vi.fn() }));
+vi.mock("@/lib/callSounds", () => ({ playScreenShareSound: vi.fn(), playScreenShareEndSound: vi.fn() }));
 vi.mock("@/lib/hevcScreenShare", () => ({ isHevcScreenShareParticipant: () => false }));
 
 function participant(identity: string, isLocal: boolean) {
@@ -103,6 +105,7 @@ afterEach(() => {
   runtime.participants = [];
   runtime.tracks = [];
   runtime.streaming = new Set();
+  runtime.connectionState = "connected";
   runtime.call.stageDocked = true;
   runtime.call.exiting = false;
   runtime.call.activeCall = null;
@@ -266,5 +269,34 @@ describe("docked call layout", () => {
     runtime.tracks = [camera(remote)];
     rerender(<CallStage open callLabel="Friend" />);
     expect(screen.queryByRole("dialog", { name: "Call" })).not.toBeInTheDocument();
+  });
+});
+
+describe("screen share chirps", () => {
+  const sharer = {
+    ...participant("sharer", false),
+    getTrackPublication: (source: Track.Source) => (source === Track.Source.ScreenShare ? {} : undefined),
+  };
+
+  it("chirps up when a share starts and down when it ends", () => {
+    runtime.participants = [local, remote];
+    const { rerender } = render(<CallStage open callLabel="#general" />);
+    runtime.participants = [local, remote, sharer];
+    rerender(<CallStage open callLabel="#general" />);
+    expect(playScreenShareSound).toHaveBeenCalledTimes(1);
+    expect(playScreenShareEndSound).not.toHaveBeenCalled();
+
+    runtime.participants = [local, remote];
+    rerender(<CallStage open callLabel="#general" />);
+    expect(playScreenShareEndSound).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays quiet when our own reconnect drops every share", () => {
+    runtime.participants = [local, remote, sharer];
+    const { rerender } = render(<CallStage open callLabel="#general" />);
+    runtime.connectionState = "reconnecting";
+    runtime.participants = [local];
+    rerender(<CallStage open callLabel="#general" />);
+    expect(playScreenShareEndSound).not.toHaveBeenCalled();
   });
 });
