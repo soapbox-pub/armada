@@ -3636,7 +3636,7 @@
   "relaysSettings.homeRelays": "ホームリレー",
   "relaysSettings.legendChecking": "確認中",
   "relaysSettings.legendDown": "接続できません",
-  "relaysSettings.legendNote": "各ランプは、そのリレーまたはサーバーが最近の確認に応答したかどうかを示します。横の数値は応答にかかった時間です。",
+  "relaysSettings.legendNote": "各ランプは、そのリレーまたはサーバーが最近の確認に応答したかどうかを示し、応答が速いほど速く点滅します。横の数値は応答にかかった時間です。",
   "relaysSettings.legendSlow": "遅い（1 秒以上）",
   "relaysSettings.legendUp": "接続可能",
   "relaysSettings.media": "メディア",

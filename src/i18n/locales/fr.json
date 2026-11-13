@@ -3636,7 +3636,7 @@
   "relaysSettings.homeRelays": "Relais principaux",
   "relaysSettings.legendChecking": "Vérification",
   "relaysSettings.legendDown": "Injoignable",
-  "relaysSettings.legendNote": "Chaque voyant indique si ce relais ou ce serveur a répondu à une vérification récente. Le nombre à côté est le temps qu’il a mis à répondre.",
+  "relaysSettings.legendNote": "Chaque voyant indique si ce relais ou ce serveur a répondu à une vérification récente, et clignote d’autant plus vite qu’il a répondu rapidement. Le nombre à côté est le temps qu’il a mis à répondre.",
   "relaysSettings.legendSlow": "Lent (plus d’1 s)",
   "relaysSettings.legendUp": "Joignable",
   "relaysSettings.media": "Médias",

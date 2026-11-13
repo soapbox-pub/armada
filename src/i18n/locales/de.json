@@ -3636,7 +3636,7 @@
   "relaysSettings.homeRelays": "Home-Relays",
   "relaysSettings.legendChecking": "Wird geprüft",
   "relaysSettings.legendDown": "Nicht erreichbar",
-  "relaysSettings.legendNote": "Jedes Licht zeigt, ob dieses Relay oder dieser Server auf eine aktuelle Prüfung geantwortet hat. Die Zahl daneben gibt an, wie lange die Antwort gedauert hat.",
+  "relaysSettings.legendNote": "Jedes Licht zeigt, ob dieses Relay oder dieser Server auf eine aktuelle Prüfung geantwortet hat, und blinkt umso schneller, je schneller die Antwort kam. Die Zahl daneben gibt an, wie lange die Antwort gedauert hat.",
   "relaysSettings.legendSlow": "Langsam (über 1 s)",
   "relaysSettings.legendUp": "Erreichbar",
   "relaysSettings.media": "Medien",

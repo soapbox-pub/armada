@@ -3636,7 +3636,7 @@
   "relaysSettings.homeRelays": "Hoofdrelays",
   "relaysSettings.legendChecking": "Controleren",
   "relaysSettings.legendDown": "Onbereikbaar",
-  "relaysSettings.legendNote": "Elk lampje toont of die relay of server op een recente controle heeft geantwoord. Het getal ernaast is hoe lang het antwoord duurde.",
+  "relaysSettings.legendNote": "Elk lampje toont of die relay of server op een recente controle heeft geantwoord, en knippert sneller naarmate het antwoord sneller kwam. Het getal ernaast is hoe lang het antwoord duurde.",
   "relaysSettings.legendSlow": "Traag (meer dan 1 s)",
   "relaysSettings.legendUp": "Bereikbaar",
   "relaysSettings.media": "Media",

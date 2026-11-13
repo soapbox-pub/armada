@@ -3636,7 +3636,7 @@
   "relaysSettings.homeRelays": "Relays principais",
   "relaysSettings.legendChecking": "Verificando",
   "relaysSettings.legendDown": "Inacessível",
-  "relaysSettings.legendNote": "Cada luz mostra se aquele relay ou servidor respondeu a uma verificação recente. O número ao lado é quanto tempo a resposta levou.",
+  "relaysSettings.legendNote": "Cada luz mostra se aquele relay ou servidor respondeu a uma verificação recente, e pisca mais rápido quanto mais rápido ele respondeu. O número ao lado é quanto tempo a resposta levou.",
   "relaysSettings.legendSlow": "Lento (mais de 1 s)",
   "relaysSettings.legendUp": "Acessível",
   "relaysSettings.media": "Mídia",
