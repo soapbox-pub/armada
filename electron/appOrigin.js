@@ -84,6 +84,19 @@ function isNsiteUrl(value) {
 }
 
 /**
+ * Whether a URL is a `bitcoin:` or `lightning:` payment link, handed to the
+ * OS's wallet app only for a click in the app's own top frame, like a magnet link.
+ */
+function isPaymentUrl(value) {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "bitcoin:" || protocol === "lightning:";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The in-app router path of a link to our OWN public web host, or null.
  *
  * A "Copy message link" produces `https://<host>/<chat-path>/m/<id>` — the same
@@ -122,5 +135,6 @@ module.exports = {
   isSignerHandoffUrl,
   isMagnetUrl,
   isNsiteUrl,
+  isPaymentUrl,
   internalAppLinkPath,
 };

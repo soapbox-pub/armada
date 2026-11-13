@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { isArmadaAppUrl, isExternallyOpenableUrl, isSignerHandoffUrl, isMagnetUrl, isNsiteUrl, internalAppLinkPath } =
+const { isArmadaAppUrl, isExternallyOpenableUrl, isSignerHandoffUrl, isMagnetUrl, isNsiteUrl, isPaymentUrl, internalAppLinkPath } =
   require("./appOrigin.js");
 
 describe("packaged Electron origin", () => {
@@ -64,6 +64,17 @@ describe("handing an nsite link to the OS's nsite browser", () => {
     expect(isNsiteUrl("https://example.com/nsite://x")).toBe(false);
     expect(isNsiteUrl("not a URL")).toBe(false);
     expect(isExternallyOpenableUrl("nsite://npub1abc/")).toBe(false);
+  });
+});
+
+describe("handing a payment link to the wallet app", () => {
+  it("recognizes bitcoin: and lightning: only, and keeps them out of what window.open may reach", () => {
+    expect(isPaymentUrl("bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")).toBe(true);
+    expect(isPaymentUrl("lightning:alice@example.com")).toBe(true);
+    expect(isPaymentUrl("https://example.com/bitcoin:x")).toBe(false);
+    expect(isPaymentUrl("not a URL")).toBe(false);
+    expect(isExternallyOpenableUrl("bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq")).toBe(false);
+    expect(isExternallyOpenableUrl("lightning:alice@example.com")).toBe(false);
   });
 });
 

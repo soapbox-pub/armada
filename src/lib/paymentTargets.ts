@@ -10,6 +10,7 @@ import type { NostrEvent } from '@nostrify/nostrify';
 
 import { t } from '@/i18n';
 import { validateBitcoinAddress } from '@/lib/bitcoinAddress';
+import { parseBitcoinUri } from '@/lib/esploraApi';
 import { isSilentPaymentAddress, validateSilentPaymentAddress } from '@/lib/silentPaymentsCore';
 
 /** Replaceable kind for NIP-A3 payment targets. */
@@ -247,4 +248,16 @@ export function findLightningTarget(targets: PaymentTarget[]): PaymentTarget | u
 /** Whether a bitcoin authority is a BIP-352 silent-payment code (`sp1…`). */
 export function isSilentPaymentLike(authority: string): boolean {
   return isSilentPaymentAddress(authority.trim());
+}
+
+/**
+ * Whether `raw` is a `bitcoin:` (BIP-21) or `lightning:` URI naming a
+ * well-formed address, the only shapes message content links. A `lightning:`
+ * BOLT11 invoice is the invoice card's, not this.
+ */
+export function isPaymentUri(raw: string): boolean {
+  const bip21 = parseBitcoinUri(raw);
+  if (bip21) return bip21.address ? isBitcoinAuthority(bip21.address) : !!bip21.sp && isBitcoinAuthority(bip21.sp);
+  const lightning = /^lightning:(.+)$/i.exec(raw);
+  return !!lightning && isLightningAuthority(lightning[1]);
 }

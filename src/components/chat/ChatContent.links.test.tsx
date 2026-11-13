@@ -193,3 +193,27 @@ describe("ChatContent nsite links", () => {
     expect(container.textContent).toContain("package.json/scripts");
   });
 });
+
+describe("ChatContent payment links", () => {
+  const BITCOIN = "bitcoin:1111111111111111111114oLvT2";
+  const LIGHTNING = "lightning:stl1988@blink.sv";
+
+  it("links bitcoin: and lightning: addresses as top-frame navigations, leaving trailing punctuation as text", () => {
+    const { container } = renderContent(`Bitcoin\n${BITCOIN}\n\nLightning\n${LIGHTNING}.`);
+    expect(hrefs(container)).toEqual([BITCOIN, LIGHTNING]);
+    for (const link of container.querySelectorAll("a")) expect(link.hasAttribute("target")).toBe(false);
+    expect(container.textContent).toContain(`${LIGHTNING}.`);
+  });
+
+  it("links a BIP-21 URI with parameters", () => {
+    const withAmount = "bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq?amount=0.001&label=Tip";
+    const { container } = renderContent(`pay ${withAmount} please`);
+    expect(hrefs(container)).toEqual([withAmount]);
+  });
+
+  it("leaves a malformed address and a bare email address as text", () => {
+    const { container } = renderContent("bitcoin:nope and lightning:nope and me@example.com");
+    expect(hrefs(container)).toEqual([]);
+    expect(container.textContent).toBe("bitcoin:nope and lightning:nope and me@example.com");
+  });
+});
