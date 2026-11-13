@@ -179,3 +179,15 @@ export function playScreenShareSound(): void {
     0.11,
   );
 }
+
+/** Screenshare ended: falling three-note arpeggio (G6 → E6 → C6), the reverse of the start chirp. */
+export function playScreenShareEndSound(): void {
+  playNotes(
+    [
+      { freq: 1568, start: 0, dur: 0.1 },
+      { freq: 1318.5, start: 0.09, dur: 0.1 },
+      { freq: 1046.5, start: 0.18, dur: 0.18 },
+    ],
+    0.11,
+  );
+}

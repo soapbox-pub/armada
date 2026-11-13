@@ -70,7 +70,7 @@ import { useCallSignals } from "@/contexts/CallSignalsContext";
 import type { VoiceReactionEntry } from "@/concord/lib/voice";
 import { useVoiceIdentity } from "@/contexts/VoiceIdentityContext";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
-import { playScreenShareSound } from "@/lib/callSounds";
+import { playScreenShareEndSound, playScreenShareSound } from "@/lib/callSounds";
 import { pickVisible, type CallActivity } from "@/lib/callRanking";
 import {
   getAvatarShape,
@@ -1700,6 +1700,7 @@ export function CallStage({
   const isDesktop = useIsDesktop();
   const intl = useIntl();
   const { enabled: endToEndEncrypted, hevcScreenShare } = useCallSignals();
+  const connectionState = useConnectionState();
   const participants = useParticipants();
   const resolveIdentity = useVoiceIdentity();
   const participantCount = uniqueParticipantCount(participants, resolveIdentity);
@@ -1804,9 +1805,20 @@ export function CallStage({
   const prevStreamOwners = useRef<string[]>([]);
   useEffect(() => {
     const owners = streamOwnersSig ? streamOwnersSig.split("|") : [];
-    if (owners.some((o) => !prevStreamOwners.current.includes(o))) playScreenShareSound();
+    const prev = prevStreamOwners.current;
+    if (owners.some((o) => !prev.includes(o))) {
+      playScreenShareSound();
+    } else if (
+      prev.some((o) => !owners.includes(o)) &&
+      prev.length > 0 &&
+      connectionState === ConnectionState.Connected
+    ) {
+      // Leaving the call also empties streamOwners as the room tears down;
+      // LeaveButton already plays its own chirp for that transition.
+      playScreenShareEndSound();
+    }
     prevStreamOwners.current = owners;
-  }, [streamOwnersSig]);
+  }, [streamOwnersSig, connectionState]);
 
   // Auto-expand and spotlight only on a NEW visible share (ours, or one just
   // watched), so a user-closed stage stays closed.
