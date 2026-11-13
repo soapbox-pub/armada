@@ -115,6 +115,13 @@ function writeCachedInfo(relayUrl: string, info: RelayInfoDocument): void {
   relayInfoCache.set(relayUrl, info);
 }
 
+const latencies = new Map<string, number>();
+
+/** Milliseconds the relay's last answered NIP-11 GET took to respond, this session. */
+export function relayLatency(relayUrl: string | undefined): number | undefined {
+  return relayUrl ? latencies.get(relayUrl) : undefined;
+}
+
 /**
  * Direct NIP-11 fetch, so useRelayGroups can get the signing key without gating on this
  * hook's query. Persists the last-known-good doc.
@@ -129,10 +136,12 @@ export async function fetchRelayInfoDoc(
   }
 
   const signals = [AbortSignal.timeout(8000), ...(signal ? [signal] : [])];
+  const started = performance.now();
   const response = await fetch(httpUrl, {
     headers: { Accept: 'application/nostr+json' },
     signal: AbortSignal.any(signals),
   });
+  latencies.set(relayUrl, Math.round(performance.now() - started));
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);

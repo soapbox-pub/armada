@@ -2,7 +2,7 @@ import { Plus, RotateCcw, X } from "lucide-react";
 import { useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { RelayLed } from "@/components/RelayLed";
+import { RelayLed, RelayPing } from "@/components/RelayLed";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRelayInfo } from "@/hooks/useRelayInfo";
@@ -50,6 +50,7 @@ function RelayIdentity({ url }: { url: string }) {
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono leading-tight">
           <RelayLed url={url} />
           <span className="truncate">{host}</span>
+          <RelayPing url={url} />
         </div>
       </div>
       <div className="flex items-center gap-1 ml-auto shrink-0">

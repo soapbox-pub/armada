@@ -1,66 +1,87 @@
 import { useBlossomReachable } from "@/hooks/useBlossomReachable";
-import { useRelayReachable } from "@/hooks/useRelayReachable";
+import { useRelayReachable, type Reachability } from "@/hooks/useRelayReachable";
 import { useIntl } from "@/i18n";
 import { cn } from "@/lib/utils";
 
-/** Cheap stable hash so each light blinks out of phase without a caller-supplied index. */
-function phase(url: string): number {
-  let h = 0;
-  for (let i = 0; i < url.length; i++) h = (h * 31 + url.charCodeAt(i)) | 0;
-  return (h >>> 0) % 7;
+/** An answer slower than this turns the light amber. */
+export const SLOW_MS = 1000;
+
+type LedState = "checking" | "up" | "slow" | "down";
+
+function ledState({ alive, ms }: Reachability): LedState {
+  if (alive === undefined) return "checking";
+  if (!alive) return "down";
+  return ms !== undefined && ms >= SLOW_MS ? "slow" : "up";
 }
 
-export function RelayLed({ url, phase: phaseIndex, className }: { url: string; phase?: number; className?: string }) {
-  const alive = useRelayReachable(url);
-  return <StatusLed alive={alive} url={url} phase={phaseIndex} noun="relay" className={className} />;
+export function RelayLed({ url, phase, className }: { url: string; phase?: number; className?: string }) {
+  return <StatusLed {...useRelayReachable(url)} phase={phase} noun="relay" className={className} />;
 }
 
 export function BlossomLed({ url, className }: { url: string; className?: string }) {
-  const alive = useBlossomReachable(url);
-  return <StatusLed alive={alive} url={url} noun="server" className={className} />;
+  return <StatusLed {...useBlossomReachable(url)} noun="server" className={className} />;
 }
 
-/** Status light (keyframes in index.css): grey while checking, blinking green when up, a red fault pulse when down. */
-export function StatusLed({ alive, url, phase: phaseIndex, noun, className }: {
-  alive: boolean | undefined;
-  /** Seeds the blink phase, so lights in one list don't blink in step. */
-  url: string;
+/** The last measured response time, e.g. "142 ms"; nothing until there is one. */
+export function RelayPing({ url, className }: { url: string; className?: string }) {
+  return <Ping {...useRelayReachable(url)} className={className} />;
+}
+
+export function BlossomPing({ url, className }: { url: string; className?: string }) {
+  return <Ping {...useBlossomReachable(url)} className={className} />;
+}
+
+function Ping({ alive, ms, className }: Reachability & { className?: string }) {
+  const intl = useIntl();
+  if (!alive || ms === undefined) return null;
+  return (
+    <span className={cn("shrink-0 tabular-nums", ms >= SLOW_MS && "text-amber-400", className)}>
+      {intl.formatNumber(ms, { style: "unit", unit: "millisecond", unitDisplay: "short" })}
+    </span>
+  );
+}
+
+const LED_CLASS: Record<LedState, string> = {
+  checking: "animate-pulse bg-muted-foreground/40 ring-transparent",
+  up: "animate-[armada-led-up_2s_steps(1,end)_infinite] bg-emerald-400 text-emerald-400/60 ring-emerald-400/20 shadow-[0_0_5px_1px_currentColor]",
+  slow: "animate-[armada-led-up_2s_steps(1,end)_infinite] bg-amber-400 text-amber-400/60 ring-amber-400/20 shadow-[0_0_5px_1px_currentColor]",
+  down: "animate-[armada-led-fault_1.9s_steps(1,end)_infinite] bg-red-400 text-red-400/50 ring-red-400/15 shadow-[0_0_4px_0_currentColor]",
+};
+
+/**
+ * Status light (keyframes in index.css): grey while checking, green when up, amber when slow,
+ * red when down. Every light of a state blinks at the same rate, so the rate never reads as load.
+ */
+export function StatusLed({ alive, ms, phase, noun, decorative, className }: Reachability & {
+  /** Offsets the blink (not its rate), for a decorative list that shouldn't flash in step. */
   phase?: number;
   noun: "relay" | "server";
+  /** Hidden from assistive tech, for a legend whose text already says what it is. */
+  decorative?: boolean;
   className?: string;
 }) {
   const intl = useIntl();
-  const p = phaseIndex ?? phase(url);
-  const label = intl.formatMessage(
+  const state = ledState({ alive, ms });
+  const status = intl.formatMessage(
     {
       id: "relayLed.status",
       defaultMessage:
-        "{state, select, checking {Checking {noun, select, relay {relay} other {server}}} up {{noun, select, relay {Relay} other {Server}} reachable} other {{noun, select, relay {Relay} other {Server}} unreachable}}",
+        "{state, select, checking {Checking {noun, select, relay {relay} other {server}}} up {{noun, select, relay {Relay} other {Server}} reachable} slow {{noun, select, relay {Relay} other {Server}} slow to answer} other {{noun, select, relay {Relay} other {Server}} unreachable}}",
     },
-    { state: alive === undefined ? "checking" : alive ? "up" : "down", noun },
+    { state, noun },
   );
+  const label = alive && ms !== undefined
+    ? intl.formatMessage(
+      { id: "relayLed.statusLatency", defaultMessage: "{status} ({latency})" },
+      { status, latency: intl.formatNumber(ms, { style: "unit", unit: "millisecond", unitDisplay: "short" }) },
+    )
+    : status;
 
   return (
     <span
-      role="img"
-      aria-label={label}
-      title={label}
-      style={
-        alive === undefined
-          ? undefined
-          : alive
-            ? { animationDelay: `${p * 0.29}s`, animationDuration: `${1.15 + p * 0.13}s` }
-            : { animationDelay: `${p * 0.11}s` }
-      }
-      className={cn(
-        "size-1.5 shrink-0 rounded-full ring-2",
-        alive === undefined && "animate-pulse bg-muted-foreground/40 ring-transparent motion-reduce:animate-none",
-        alive === true &&
-          "animate-[armada-led-busy_1.15s_steps(1,end)_infinite] bg-emerald-400 text-emerald-400/60 ring-emerald-400/20 shadow-[0_0_5px_1px_currentColor] motion-reduce:animate-none",
-        alive === false &&
-          "animate-[armada-led-fault_1.9s_steps(1,end)_infinite] bg-red-400 text-red-400/50 ring-red-400/15 shadow-[0_0_4px_0_currentColor] motion-reduce:animate-none",
-        className,
-      )}
+      {...(decorative ? { "aria-hidden": true } : { role: "img", "aria-label": label, title: label })}
+      style={phase !== undefined && state !== "checking" ? { animationDelay: `${phase * 0.29}s` } : undefined}
+      className={cn("size-1.5 shrink-0 rounded-full ring-2 motion-reduce:animate-none", LED_CLASS[state], className)}
     />
   );
 }

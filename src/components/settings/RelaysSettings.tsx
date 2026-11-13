@@ -4,6 +4,7 @@ import { useContext, useState } from "react";
 import { BlossomServerListEditor } from "@/components/BlossomServerListEditor";
 import { DmInboxNotice } from "@/components/DmInboxNotice";
 import { RelayBootstrapForm } from "@/components/RelayBootstrapForm";
+import { SLOW_MS, StatusLed } from "@/components/RelayLed";
 import { RelayListEditor } from "@/components/RelayListEditor";
 import { SetupListRow } from "@/components/SetupListRow";
 import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
@@ -39,6 +40,35 @@ function hostList(urls: string[]): ReactNode {
       <span className="font-mono text-foreground">{url.replace(/^[a-z]+:\/\//i, "").replace(/\/+$/, "")}</span>
     </span>
   ));
+}
+
+/** What the lights beside each relay and server mean, since a tooltip never shows on touch. */
+function StatusLegend() {
+  const intl = useIntl();
+  const items = [
+    { alive: true, label: intl.formatMessage({ id: "relaysSettings.legendUp", defaultMessage: "Reachable" }) },
+    { alive: true, ms: SLOW_MS, label: intl.formatMessage({ id: "relaysSettings.legendSlow", defaultMessage: "Slow (over 1 s)" }) },
+    { alive: false, label: intl.formatMessage({ id: "relaysSettings.legendDown", defaultMessage: "Unreachable" }) },
+    { alive: undefined, label: intl.formatMessage({ id: "relaysSettings.legendChecking", defaultMessage: "Checking" }) },
+  ];
+  return (
+    <div className="space-y-1.5 text-xs leading-snug text-muted-foreground">
+      <ul className="flex flex-wrap gap-x-4 gap-y-1">
+        {items.map(({ alive, ms, label }) => (
+          <li key={label} className="flex items-center gap-1.5">
+            <StatusLed alive={alive} ms={ms} noun="relay" decorative />
+            {label}
+          </li>
+        ))}
+      </ul>
+      <p>
+        <FormattedMessage
+          id="relaysSettings.legendNote"
+          defaultMessage="Each light shows whether that relay or server answered a recent check. The number beside it is how long the answer took."
+        />
+      </p>
+    </div>
+  );
 }
 
 /** Settings › Relays: every relay and media-server list, as at sign-up. */
@@ -293,6 +323,9 @@ export function RelaysSettings() {
             emptyText={intl.formatMessage({ id: "relaysSettings.broadcastEmpty", defaultMessage: "None. Your public profile goes only to your home relays." })}
           />
         </SetupListRow>
+        <SettingsRow>
+          <StatusLegend />
+        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup

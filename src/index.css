@@ -766,23 +766,12 @@
    a static shadow that dims with it, since animating box-shadow runs on the
    main thread and restyles the page every frame. */
 
-/* A live relay: fast, uneven, mostly lit — traffic, not a heartbeat. */
-@keyframes armada-led-busy {
+/* A live relay: lit, with one brief dip per cycle. The same beat for every
+   relay, so the rhythm can't be mistaken for load. */
+@keyframes armada-led-up {
   0%   { opacity: 1; }
-  7%   { opacity: 0.2; }
-  11%  { opacity: 1; }
-  15%  { opacity: 0.2; }
-  23%  { opacity: 1; }
-  34%  { opacity: 0.2; }
-  38%  { opacity: 1; }
-  45%  { opacity: 0.2; }
-  49%  { opacity: 1; }
-  61%  { opacity: 0.2; }
-  66%  { opacity: 1; }
-  72%  { opacity: 0.2; }
-  76%  { opacity: 1; }
-  88%  { opacity: 0.2; }
-  93%  { opacity: 1; }
+  88%  { opacity: 0.25; }
+  94%  { opacity: 1; }
 }
 
 /* A dead relay: one short pulse per cycle, same beat every time. */
