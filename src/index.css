@@ -766,8 +766,8 @@
    a static shadow that dims with it, since animating box-shadow runs on the
    main thread and restyles the page every frame. */
 
-/* A live relay: lit, with one brief dip per cycle. The same beat for every
-   relay, so the rhythm can't be mistaken for load. */
+/* A live relay: lit, with one brief dip per cycle. RelayLed sets the period
+   from the response time, so a quicker beat is a quicker relay. */
 @keyframes armada-led-up {
   0%   { opacity: 1; }
   88%  { opacity: 0.25; }

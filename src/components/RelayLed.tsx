@@ -48,9 +48,15 @@ const LED_CLASS: Record<LedState, string> = {
   down: "animate-[armada-led-fault_1.9s_steps(1,end)_infinite] bg-red-400 text-red-400/50 ring-red-400/15 shadow-[0_0_4px_0_currentColor]",
 };
 
+/** Blink period for a live light: the quicker the answer, the quicker the beat (0.8 s to 4 s). */
+export function blinkSeconds(ms: number | undefined): number {
+  if (ms === undefined) return 2;
+  return Math.min(4, Math.max(0.8, 0.8 + ms / 625));
+}
+
 /**
  * Status light (keyframes in index.css): grey while checking, green when up, amber when slow,
- * red when down. Every light of a state blinks at the same rate, so the rate never reads as load.
+ * red when down. A live light blinks at a rate set by its response time, and by nothing else.
  */
 export function StatusLed({ alive, ms, phase, noun, decorative, className }: Reachability & {
   /** Offsets the blink (not its rate), for a decorative list that shouldn't flash in step. */
@@ -80,7 +86,10 @@ export function StatusLed({ alive, ms, phase, noun, decorative, className }: Rea
   return (
     <span
       {...(decorative ? { "aria-hidden": true } : { role: "img", "aria-label": label, title: label })}
-      style={phase !== undefined && state !== "checking" ? { animationDelay: `${phase * 0.29}s` } : undefined}
+      style={{
+        ...(alive && { animationDuration: `${blinkSeconds(ms).toFixed(2)}s` }),
+        ...(phase !== undefined && state !== "checking" && { animationDelay: `${phase * 0.29}s` }),
+      }}
       className={cn("size-1.5 shrink-0 rounded-full ring-2 motion-reduce:animate-none", LED_CLASS[state], className)}
     />
   );

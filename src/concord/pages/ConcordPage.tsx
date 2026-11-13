@@ -207,7 +207,7 @@ import { resolveVoiceBroker, useVoiceBroker, useVoicePresence } from "@/concord/
 import { communityAvBrokers, voiceRowTransports } from "@/concord/lib/voice";
 import { useRegisterChannelStreamKeys } from "@/concord/hooks/useStreamAuth";
 import { completeMemberlist, timeoutRunning } from "@/concord/lib/guestbook";
-import { badgeOf, byDisplayOrder, canActOnMember, canActOnPosition, channelPermissions, isAuthorized, isAuthorizedIn, MAX_ROLES_PER_MEMBER, Permissions, stockTierOf, tierMoves } from "@/concord/lib/roles";
+import { badgeOf, byDisplayOrder, canActOnMember, canActOnPosition, channelPermissions, everyoneSends, isAuthorized, isAuthorizedIn, MAX_ROLES_PER_MEMBER, Permissions, stockTierOf, tierMoves } from "@/concord/lib/roles";
 import { channelGitRepositoryAttachments, type Channel, type Community, type ImagePointer } from "@/concord/lib/types";
 import { matchGitTicketRepository, parseGitRepositoryAddress, sortAndDedupeGitTimelineActivities, trustedGitStatusAuthors, type GitComment, type GitStatusKind, type GitTicket } from "@/lib/gitActivity";
 import { tierChangeConfirm } from "@/lib/memberTierConfirm";
@@ -1671,6 +1671,7 @@ function ConcordCommunityPage() {
   // A restricted Channel takes posts from its writers alone (CORD-03 §1); reactions still go.
   const canPost = useCanPost(community, channel?.idHex);
   const sendDenied = Boolean(user && channel && !sendsIn(folded, channel.idHex, user.pubkey));
+  const restrictedChannel = Boolean(folded && channel && !everyoneSends(folded.roster, channel.idHex));
 
   // Audit log and invite links are open to every member, so "Moderation" always shows.
   const moderationAccess: ModerationAccess = useMemo(
@@ -4205,10 +4206,25 @@ function ConcordCommunityPage() {
                             communityPaused
                               ? intl.formatMessage({ id: "concordPage.composer.paused", defaultMessage: "This community is paused" })
                               : user
-                                ? intl.formatMessage(
-                                    { id: "concordPage.composer.placeholder", defaultMessage: "Message #{channel}" },
-                                    { channel: channel.name },
-                                  )
+                                ? channel.isPrivate && restrictedChannel
+                                  ? intl.formatMessage(
+                                      { id: "concordPage.composer.placeholderPrivateRestricted", defaultMessage: "Message #{channel} · Private, only some members can post" },
+                                      { channel: channel.name },
+                                    )
+                                  : channel.isPrivate
+                                    ? intl.formatMessage(
+                                        { id: "concordPage.composer.placeholderPrivate", defaultMessage: "Message #{channel} · Private" },
+                                        { channel: channel.name },
+                                      )
+                                    : restrictedChannel
+                                      ? intl.formatMessage(
+                                          { id: "concordPage.composer.placeholderRestricted", defaultMessage: "Message #{channel} · Only some members can post" },
+                                          { channel: channel.name },
+                                        )
+                                      : intl.formatMessage(
+                                          { id: "concordPage.composer.placeholder", defaultMessage: "Message #{channel}" },
+                                          { channel: channel.name },
+                                        )
                                 : intl.formatMessage({ id: "concordPage.composer.signIn", defaultMessage: "Sign in to send" })
                           }
                           // Android Direct Share: named community-first. No icon:

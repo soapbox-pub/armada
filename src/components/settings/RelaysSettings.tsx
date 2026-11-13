@@ -64,7 +64,7 @@ function StatusLegend() {
       <p>
         <FormattedMessage
           id="relaysSettings.legendNote"
-          defaultMessage="Each light shows whether that relay or server answered a recent check. The number beside it is how long the answer took."
+          defaultMessage="Each light shows whether that relay or server answered a recent check, and blinks faster the quicker it answered. The number beside it is how long the answer took."
         />
       </p>
     </div>
