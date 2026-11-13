@@ -230,6 +230,8 @@ interface ArmadaDesktopBridge {
   armadaDb?: ArmadaDesktopDb;
   requestAttention?: () => void;
   showNotification?: (input: DesktopNotification) => Promise<void>;
+  /** Restore the app and route a worker notification click without opening a browser. */
+  openNotification?: (path: string) => Promise<boolean>;
   openNotificationSettings?: () => Promise<boolean>;
   clearNotifications?: () => Promise<void>;
 }

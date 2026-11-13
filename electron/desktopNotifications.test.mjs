@@ -3,9 +3,9 @@ import { createRequire } from "node:module";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { createDesktopNotifications } = createRequire(import.meta.url)("./desktopNotifications.js");
+const { createDesktopNotifications, createNotificationNavigation } = createRequire(import.meta.url)("./desktopNotifications.js");
 
-function setup() {
+function setup(onClick = vi.fn()) {
   const instances = [];
   class Notification extends EventEmitter {
     static isSupported() { return true; }
@@ -13,11 +13,78 @@ function setup() {
     show() {}
     close() { this.emit("close"); }
   }
-  const onClick = vi.fn();
   return { presenter: createDesktopNotifications({ Notification, onClick }), instances, onClick };
 }
 const input = { title: "Alice", body: "hello", tag: "dm-alice", url: "/dm/alice" };
 afterEach(() => vi.useRealTimers());
+
+describe("notification click navigation", () => {
+  function setupNavigation() {
+    let contents = null;
+    const makeContents = () => ({ send: vi.fn(), isDestroyed: () => false });
+    const showWindow = vi.fn(() => { contents ??= makeContents(); });
+    const navigation = createNotificationNavigation({ showWindow, getWebContents: () => contents });
+    return { navigation, showWindow, makeContents, getContents: () => contents, replace: () => { contents = makeContents(); } };
+  }
+
+  it("raises the app and delivers the exact route after its router subscribes", () => {
+    const { navigation, showWindow, getContents } = setupNavigation();
+    const path = "/dm/alice?from=push#message";
+    expect(navigation.open(path)).toBe(true);
+    expect(showWindow).toHaveBeenCalledOnce();
+    expect(getContents().send).not.toHaveBeenCalled();
+    navigation.setReady(getContents(), true);
+    expect(getContents().send).toHaveBeenCalledExactlyOnceWith("armada:deep-link", path);
+    navigation.setReady(getContents(), true);
+    expect(getContents().send).toHaveBeenCalledOnce();
+  });
+
+  it("delivers warm native clicks immediately through the app route", async () => {
+    const { navigation, getContents, showWindow } = setupNavigation();
+    showWindow();
+    navigation.setReady(getContents(), true);
+    const { presenter, instances } = setup((path) => navigation.open(path));
+    const shown = presenter.show({ ...input, url: "/c/community/channel/m/event" });
+    instances[0].emit("show");
+    await shown;
+    instances[0].emit("click");
+    expect(getContents().send).toHaveBeenCalledWith("armada:deep-link", "/c/community/channel/m/event");
+    expect(showWindow).toHaveBeenCalledTimes(2);
+  });
+
+  it("queues the last click across a reload and ignores the old renderer", () => {
+    const { navigation, getContents, showWindow, replace } = setupNavigation();
+    showWindow();
+    const old = getContents();
+    navigation.setReady(old, true);
+    navigation.reset();
+    replace();
+    navigation.open("/dm/alice");
+    navigation.open("/dm/bob");
+    navigation.setReady(old, true);
+    expect(getContents().send).not.toHaveBeenCalled();
+    navigation.setReady(getContents(), true);
+    expect(getContents().send).toHaveBeenCalledExactlyOnceWith("armada:deep-link", "/dm/bob");
+  });
+
+  it("clears a queued plaintext route without disconnecting an already subscribed router", () => {
+    const { navigation, getContents } = setupNavigation();
+    navigation.open("/dm/alice");
+    navigation.clearPending();
+    navigation.setReady(getContents(), true);
+    expect(getContents().send).not.toHaveBeenCalled();
+    navigation.clearPending();
+    navigation.open("/dm/bob");
+    expect(getContents().send).toHaveBeenCalledExactlyOnceWith("armada:deep-link", "/dm/bob");
+    navigation.reset(true);
+  });
+
+  it.each(["https://armada.buzz/dm/alice", "//evil.example", "/\\evil.example", "/dm/\n", undefined])("never hands an unsafe destination to the OS: %j", (path) => {
+    const { navigation, showWindow } = setupNavigation();
+    expect(navigation.open(path)).toBe(false);
+    expect(showWindow).not.toHaveBeenCalled();
+  });
+});
 
 describe("native desktop delivery", () => {
   it("waits for native acceptance, retains content and opens its internal route", async () => {

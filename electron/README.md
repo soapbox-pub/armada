@@ -172,6 +172,14 @@ style and previews; native acceptance alone cannot prove a banner was visible.
 The signed bundle supplies the icon, avoiding failures creating avatar
 attachments. Logout and renderer teardown clear retained plaintext notifications.
 
+Both native and service-worker notification clicks restore Armada and route
+inside its existing window. Worker clicks use the optional `openNotification`
+bridge; older shells route them in the page. The shell waits until the router's
+`onDeepLink` listener subscribes before delivering a pending click, so a reload
+does not lose the conversation. Only internal paths reach this bridge. The
+worker also converts links to this build's public web origin into paths, while
+rejecting other origins (including other `app://` hosts).
+
 Other desktops and older shells use the renderer's `new Notification()`, backed
 by libnotify on Linux and the Action Center on Windows. Two
 platforms need an identity set before `ready` for those toasts to appear and

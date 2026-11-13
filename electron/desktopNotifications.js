@@ -1,5 +1,46 @@
 "use strict";
 
+function isNotificationPath(path) {
+  return typeof path === "string" && path.startsWith("/") &&
+    !path.startsWith("//") && !/[\\\x00-\x1f]/.test(path);
+}
+
+/** Focus the app and retain a click until its router has subscribed. Never open an OS URL. */
+function createNotificationNavigation({ showWindow, getWebContents }) {
+  let readyContents = null;
+  let pendingPath = null;
+
+  function flush() {
+    const contents = getWebContents();
+    if (!pendingPath || !contents || contents.isDestroyed() || contents !== readyContents) return;
+    const path = pendingPath;
+    pendingPath = null;
+    contents.send("armada:deep-link", path);
+  }
+
+  return {
+    open(path) {
+      if (!isNotificationPath(path)) return false;
+      pendingPath = path;
+      showWindow();
+      flush();
+      return true;
+    },
+    setReady(contents, ready) {
+      if (contents !== getWebContents()) return;
+      readyContents = ready ? contents : null;
+      flush();
+    },
+    reset(clearPending = false) {
+      readyContents = null;
+      if (clearPending) pendingPath = null;
+    },
+    clearPending() {
+      pendingPath = null;
+    },
+  };
+}
+
 /** Keep native notifications alive until macOS dismisses or replaces them. */
 function createDesktopNotifications({ Notification, onClick, timeoutMs = 10_000 }) {
   const active = new Map();
@@ -8,8 +49,7 @@ function createDesktopNotifications({ Notification, onClick, timeoutMs = 10_000 
     if (!Notification.isSupported()) return Promise.reject(new Error("Notifications unavailable"));
     if (!input || typeof input.title !== "string" || typeof input.body !== "string" ||
         typeof input.tag !== "string" || !input.tag || input.tag.length > 128 ||
-        typeof input.url !== "string" || !input.url.startsWith("/") ||
-        input.url.startsWith("//") || /[\\\x00-\x1f]/.test(input.url)) {
+        !isNotificationPath(input.url)) {
       return Promise.reject(new Error("Invalid notification"));
     }
     return new Promise((resolve, reject) => {
@@ -72,4 +112,4 @@ function createDesktopNotifications({ Notification, onClick, timeoutMs = 10_000 
   return { show, clear };
 }
 
-module.exports = { createDesktopNotifications };
+module.exports = { createDesktopNotifications, createNotificationNavigation };

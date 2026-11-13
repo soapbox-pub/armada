@@ -122,7 +122,7 @@ const { installYouTubeEmbedIdentity } = require("./youtubeEmbedIdentity");
 const { allowPermissionCheck, allowPermissionRequest } = require("./permissionPolicy");
 const { configureLowMemory, readLowMemoryMode, writeLowMemoryMode } = require("./lowMemory");
 const { fetchImage } = require("./imageFetch");
-const { createDesktopNotifications } = require("./desktopNotifications");
+const { createDesktopNotifications, createNotificationNavigation } = require("./desktopNotifications");
 
 // Encoder selection is process-wide in Chromium and must be installed before
 // app readiness (and therefore before the GPU process starts). Software is the
@@ -348,14 +348,11 @@ let deepLinkHost = null;
 /**
  * Ask the renderer to route an in-app path through its own router.
  *
- * Only ever called for a link the renderer itself just produced and clicked, so
- * the window is up; there is no cold-start buffering to do. A soft navigation
- * there reuses the warm store, query cache and live subscriptions rather than
- * reloading the document.
+ * Notification clicks can arrive with a hidden window or during a reload. Keep
+ * the path until the router subscribes; never hand a notification to the browser.
  */
 function dispatchInternalDeepLink(path) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send("armada:deep-link", path);
+  return notificationNavigation.open(path);
 }
 
 // Dark background matching the app theme (index.html theme-color #100b15).
@@ -388,12 +385,13 @@ function renderLinuxIcon(size) {
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
 let lastWindowBlurAt = 0;
+const notificationNavigation = createNotificationNavigation({
+  showWindow,
+  getWebContents: () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null,
+});
 const desktopNotifications = createDesktopNotifications({
   Notification,
-  onClick: (path) => {
-    showWindow();
-    dispatchInternalDeepLink(path);
-  },
+  onClick: dispatchInternalDeepLink,
 });
 
 /**
@@ -633,6 +631,7 @@ function createWindow({ show = !startHidden || !closeToTraySupported } = {}) {
   });
   mainWindow.on("closed", () => {
     desktopNotifications.clear();
+    notificationNavigation.reset(true);
     mainWindow = null;
   });
   // Tell the page whether anyone can see it (armada:window-visibility). With
@@ -645,6 +644,9 @@ function createWindow({ show = !startHidden || !closeToTraySupported } = {}) {
   };
   for (const event of ["show", "hide", "minimize", "restore"]) mainWindow.on(event, sendVisibility);
   mainWindow.webContents.on("did-finish-load", sendVisibility);
+  mainWindow.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) notificationNavigation.reset();
+  });
 
   // A flash requested for a notification ends the moment the user is looking
   // (Windows keeps the taskbar entry highlighted until told otherwise).
@@ -682,6 +684,7 @@ function createWindow({ show = !startHidden || !closeToTraySupported } = {}) {
   let lastRendererReload = 0;
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     desktopNotifications.clear();
+    notificationNavigation.reset(true);
     console.error(`[shell] renderer gone: ${details.reason} (exit ${details.exitCode})`);
     if (isQuitting || details.reason === "clean-exit") return;
     const now = Date.now();
@@ -1921,9 +1924,16 @@ async function closeDb() {
 // ── IPC from the renderer (preload bridge) ──────────────────────────────────
 
 function installIpc() {
+  onFromMainWindow("armada:deep-link-ready", (event, ready) => {
+    notificationNavigation.setReady(event.sender, ready === true);
+  });
   if (process.platform === "darwin") {
     handleFromMainWindow("armada:show-notification", (_event, input) => desktopNotifications.show(input));
-    handleFromMainWindow("armada:clear-notifications", () => desktopNotifications.clear());
+    handleFromMainWindow("armada:open-notification", (_event, path) => dispatchInternalDeepLink(path));
+    handleFromMainWindow("armada:clear-notifications", () => {
+      desktopNotifications.clear();
+      notificationNavigation.clearPending();
+    });
     handleFromMainWindow("armada:open-notification-settings", async () => {
       await shell.openExternal("x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=buzz.armada.app");
       return true;

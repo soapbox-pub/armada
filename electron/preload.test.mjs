@@ -43,9 +43,11 @@ describe("desktop database preload bridge", () => {
     const { api, ipcRenderer } = loadPreload({ platform: "darwin" });
     const input = { title: "Alice", body: "hello", tag: "dm-a", url: "/dm/a" };
     api.showNotification(input);
+    api.openNotification("/dm/a");
     api.openNotificationSettings();
     api.clearNotifications();
     expect(ipcRenderer.invoke).toHaveBeenCalledWith("armada:show-notification", input);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith("armada:open-notification", "/dm/a");
     expect(ipcRenderer.invoke).toHaveBeenCalledWith("armada:open-notification-settings");
     expect(ipcRenderer.invoke).toHaveBeenCalledWith("armada:clear-notifications");
   });
@@ -68,6 +70,18 @@ describe("desktop database preload bridge", () => {
 });
 
 describe("notification attention preload bridge", () => {
+  it("announces readiness after subscribing and withdraws it on cleanup", () => {
+    const { api, ipcRenderer, listeners } = loadPreload();
+    const handler = vi.fn();
+    const off = api.onDeepLink(handler);
+    expect(ipcRenderer.on.mock.invocationCallOrder.at(-1)).toBeLessThan(ipcRenderer.send.mock.invocationCallOrder.at(-1));
+    expect(ipcRenderer.send).toHaveBeenLastCalledWith("armada:deep-link-ready", true);
+    listeners.get("armada:deep-link")({}, "/dm/alice");
+    expect(handler).toHaveBeenCalledWith("/dm/alice");
+    off();
+    expect(ipcRenderer.send).toHaveBeenLastCalledWith("armada:deep-link-ready", false);
+    expect(listeners.has("armada:deep-link")).toBe(false);
+  });
   it("forwards a taskbar-attention request to the main process", () => {
     const { api, ipcRenderer } = loadPreload();
     api.requestAttention();
