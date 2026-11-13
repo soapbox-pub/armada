@@ -490,6 +490,30 @@ describe("splitMarkdownLinks", () => {
     ]);
   });
 
+  it("keeps balanced parens in a destination", () => {
+    expect(splitMarkdownLinks("[Foo](https://en.wikipedia.org/wiki/Foo_(bar)).")).toEqual([
+      { type: "link", text: "Foo", url: "https://en.wikipedia.org/wiki/Foo_(bar)" },
+      { type: "text", value: "." },
+    ]);
+  });
+
+  it("accepts an angle-bracketed destination", () => {
+    expect(splitMarkdownLinks("[docs](<https://example.com/a b>) [x](<https://example.com/x>)")).toEqual([
+      { type: "text", value: "[docs](<https://example.com/a b>) " },
+      { type: "link", text: "x", url: "https://example.com/x" },
+    ]);
+  });
+
+  it("leaves an escaped opening bracket literal", () => {
+    expect(splitMarkdownLinks("\\[x](https://example.com)")).toEqual([
+      { type: "text", value: "\\[x](https://example.com)" },
+    ]);
+    expect(splitMarkdownLinks("\\\\[x](https://example.com)")).toEqual([
+      { type: "text", value: "\\\\" },
+      { type: "link", text: "x", url: "https://example.com" },
+    ]);
+  });
+
   it("leaves a link literal when its label names another host", () => {
     const src = "[https://armada.buzz/free/nitro/claim](https://nyan.cat/)";
     expect(splitMarkdownLinks(`go ${src}`)).toEqual([

@@ -376,8 +376,13 @@ export type MdLinkSegment =
   /** A link whose label names another host: shown as its literal source, never masked. */
   | { type: "spoof"; text: string; url: string };
 
-/** `[text](url)` / `![alt](url)`, http(s) only so pseudo-scheme URLs stay literal. */
-const MD_LINK_RE = /(!?)\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
+/**
+ * `[text](url)` / `![alt](url)`, http(s) only so pseudo-scheme URLs stay literal.
+ * The destination may be `<url>` or hold balanced parens (`/wiki/Foo_(bar)`), as in
+ * CommonMark; an opening bracket after an odd run of backslashes is escaped.
+ */
+const MD_LINK_RE =
+  /(?<=(?:^|[^\\])(?:\\\\)*)(!?)\[([^\]\n]+)\]\((?:<(https?:\/\/[^\s<>]+)>|(https?:\/\/(?:[^\s()]|\([^\s()]*\))+))\)/g;
 
 /** A domain-like token, with or without a scheme, in any script and with fullwidth/ideographic dots. */
 const LABEL_DOMAIN_RE = /(?:https?:\/\/)?((?:[\p{L}\p{N}-]+[.．。｡])+\p{L}{2,})/giu;
@@ -423,9 +428,10 @@ export function splitMarkdownLinks(src: string): MdLinkSegment[] {
   let m: RegExpExecArray | null;
   while ((m = MD_LINK_RE.exec(src)) !== null) {
     if (m.index > last) out.push({ type: "text", value: src.slice(last, m.index) });
-    if (m[1]) out.push({ type: "text", value: m[3] });
-    else if (linkLabelSpoofs(m[2], m[3])) out.push({ type: "spoof", text: m[2], url: m[3] });
-    else out.push({ type: "link", text: m[2], url: m[3] });
+    const url = m[3] ?? m[4];
+    if (m[1]) out.push({ type: "text", value: url });
+    else if (linkLabelSpoofs(m[2], url)) out.push({ type: "spoof", text: m[2], url });
+    else out.push({ type: "link", text: m[2], url });
     last = m.index + m[0].length;
   }
   if (last < src.length) out.push({ type: "text", value: src.slice(last) });

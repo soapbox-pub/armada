@@ -105,6 +105,12 @@ describe("ChatContent link canonicalization", () => {
     expect(hrefs(container)).toEqual(["https://youtu.be/dQw4w9WgXcQ?si=aBcDeFgH"]);
   });
 
+  it("ends a quoted URL at its closing quote", () => {
+    const { container } = renderContent('he said "https://example.com/post" twice');
+    expect(hrefs(container)).toEqual(["https://example.com/post"]);
+    expect(container.textContent).toContain('/post" twice');
+  });
+
   it("keeps the surrounding text and the sentence's punctuation", () => {
     const { container } = renderContent("watch https://youtu.be/abc12345678?si=xy, then reply");
     expect(container.textContent).toContain("watch ");

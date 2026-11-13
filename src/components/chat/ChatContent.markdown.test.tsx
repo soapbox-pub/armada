@@ -191,6 +191,12 @@ describe("ChatContent chat markdown", () => {
     expect(container.querySelector("hr")).not.toBeNull();
   });
 
+  it("renders an escaped [text](url) as its source", () => {
+    const { container } = renderContent("\\[docs](https://example.com/docs) here");
+    expect(container.querySelector(".font-medium")).toBeNull();
+    expect(container.textContent).toBe("[docs](https://example.com/docs) here");
+  });
+
   it("drops the backslash of an escape", () => {
     const { container } = renderContent("\\*not italic\\*");
     expect(container.querySelector("em")).toBeNull();
