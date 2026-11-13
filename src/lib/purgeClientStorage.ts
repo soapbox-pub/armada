@@ -1,4 +1,5 @@
 import { clearImageDims } from "@/components/chat/imageDims";
+import { desktop } from "@/lib/desktop";
 import { clearAccessDutyMemory } from "@/concord/hooks/useAccessDuty";
 import { clearPurgedChannelsMemory } from "@/wire/WireSync";
 import { clearWriterDutyMemory } from "@/concord/hooks/writerDutyRun";
@@ -191,6 +192,8 @@ function clearSessionMemos(): void {
 /** Local and idempotent; bounded so a native call that never answers can't stall the purge. */
 async function clearNativePushConfigs(): Promise<void> {
   const clears = [clearIosPushConfig()];
+  const clearNotifications = desktop()?.clearNotifications;
+  if (clearNotifications) clears.push(clearNotifications().catch(() => {}));
   if (hasNativeNotificationService()) {
     clears.push(ArmadaNotification.configure({ enabled: false, locale: getLanguage() }).catch(() => {}));
   }

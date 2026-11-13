@@ -122,6 +122,7 @@ const { installYouTubeEmbedIdentity } = require("./youtubeEmbedIdentity");
 const { allowPermissionCheck, allowPermissionRequest } = require("./permissionPolicy");
 const { configureLowMemory, readLowMemoryMode, writeLowMemoryMode } = require("./lowMemory");
 const { fetchImage } = require("./imageFetch");
+const { createDesktopNotifications } = require("./desktopNotifications");
 
 // Encoder selection is process-wide in Chromium and must be installed before
 // app readiness (and therefore before the GPU process starts). Software is the
@@ -387,6 +388,13 @@ function renderLinuxIcon(size) {
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
 let lastWindowBlurAt = 0;
+const desktopNotifications = createDesktopNotifications({
+  Notification,
+  onClick: (path) => {
+    showWindow();
+    dispatchInternalDeepLink(path);
+  },
+});
 
 /**
  * IPC for the bridge, answered for the main window only. Only it has the
@@ -624,6 +632,7 @@ function createWindow({ show = !startHidden || !closeToTraySupported } = {}) {
       });
   });
   mainWindow.on("closed", () => {
+    desktopNotifications.clear();
     mainWindow = null;
   });
   // Tell the page whether anyone can see it (armada:window-visibility). With
@@ -672,6 +681,7 @@ function createWindow({ show = !startHidden || !closeToTraySupported } = {}) {
   // a page that dies on boot from spinning in a crash loop.
   let lastRendererReload = 0;
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    desktopNotifications.clear();
     console.error(`[shell] renderer gone: ${details.reason} (exit ${details.exitCode})`);
     if (isQuitting || details.reason === "clean-exit") return;
     const now = Date.now();
@@ -1911,6 +1921,14 @@ async function closeDb() {
 // ── IPC from the renderer (preload bridge) ──────────────────────────────────
 
 function installIpc() {
+  if (process.platform === "darwin") {
+    handleFromMainWindow("armada:show-notification", (_event, input) => desktopNotifications.show(input));
+    handleFromMainWindow("armada:clear-notifications", () => desktopNotifications.clear());
+    handleFromMainWindow("armada:open-notification-settings", async () => {
+      await shell.openExternal("x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=buzz.armada.app");
+      return true;
+    });
+  }
   onFromMainWindow("armada:set-badge", (_event, count) => setUnreadBadge(count));
   // The renderer presented an OS notification: draw attention to the window
   // without raising it — the taskbar flash on Windows, urgency on Linux, a
@@ -2215,6 +2233,7 @@ if (!gotLock) {
   });
 
   app.on("before-quit", () => {
+    desktopNotifications.clear();
     isQuitting = true;
     stopHiddenTrayMonitor();
     hevcScreenShare.stop("app-quit");

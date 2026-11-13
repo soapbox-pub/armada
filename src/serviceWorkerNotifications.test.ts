@@ -480,6 +480,24 @@ describe("page / service-worker presentation ownership", () => {
     expect(pageConstructor).toHaveBeenCalledWith("Alice", { body: "hello" });
   });
 
+  it("awaits the macOS native presenter without creating a second browser notification", async () => {
+    const showNotification = vi.fn(async () => undefined);
+    vi.stubGlobal("window", { armadaDesktop: { isDesktop: true, showNotification } });
+    const pageConstructor = vi.fn();
+    vi.stubGlobal("Notification", pageConstructor);
+    await expect(showPageOsNotification("Alice", { body: "hello", tag: "dm-a", data: { url: "/dm/alice" } })).resolves.toBeUndefined();
+    expect(showNotification).toHaveBeenCalledWith({ title: "Alice", body: "hello", tag: "dm-a", url: "/dm/alice" });
+    expect(pageConstructor).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to a duplicate browser notification after native rejection", async () => {
+    vi.stubGlobal("window", { armadaDesktop: { isDesktop: true, showNotification: vi.fn(async () => { throw new Error("denied"); }) } });
+    const pageConstructor = vi.fn();
+    vi.stubGlobal("Notification", pageConstructor);
+    await expect(showPageOsNotification("Alice", { body: "hello" })).rejects.toThrow("denied");
+    expect(pageConstructor).not.toHaveBeenCalled();
+  });
+
   it("re-checks ownership at presentation and never races an active PushEvent", async () => {
     const showNotification = vi.fn(async () => undefined);
     const registration = {

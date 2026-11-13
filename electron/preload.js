@@ -69,6 +69,13 @@ contextBridge.exposeInMainWorld("armadaDesktop", {
    */
   requestAttention: () => ipcRenderer.send("armada:request-attention"),
 
+  // Feature detection keeps web updates compatible with older desktop shells.
+  ...(process.platform === "darwin" ? {
+    showNotification: (input) => ipcRenderer.invoke("armada:show-notification", input),
+    openNotificationSettings: () => ipcRenderer.invoke("armada:open-notification-settings"),
+    clearNotifications: () => ipcRenderer.invoke("armada:clear-notifications"),
+  } : {}),
+
   /**
    * Tell the shell the web app actually painted. The shell serves the site it
    * stored from Armada's nsite, and this is how it learns the one it chose
