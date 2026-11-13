@@ -1,7 +1,7 @@
 import {
-  Award, Brain, CalendarDays, Check, Copy, Eye, EyeOff, ExternalLink, FileDigit,
+  Award, BookOpen, Brain, CalendarDays, Check, Copy, Eye, EyeOff, ExternalLink, FileDigit,
   FileQuestion, FileText, Film, FolderGit2, Gem, Highlighter, Image as ImageIcon, Layers, List, MapPin,
-  Mic, Mountain, Music, Package, Palette, RotateCw, Server, Shield, Sparkles, Swords,
+  Mic, Mountain, Music, Newspaper, Package, Palette, RotateCw, Server, Shield, Sparkles, Swords,
   Tag, User, Users, Zap,
 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -17,6 +17,7 @@ import { BannedTombstone } from "@/components/chat/BannedTombstone";
 import { ChatContent } from "@/components/chat/ChatContent";
 import { CustomEmojiImg, EmojifiedText } from "@/components/chat/CustomEmoji";
 import { EmojiPackCard } from "@/components/chat/EmojiPackCard";
+import { MagazineCover } from "@/components/chat/MagazineCover";
 import { Lightbox, type LightboxItem } from "@/components/chat/Lightbox";
 import { PollView } from "@/components/chat/PollView";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
@@ -42,6 +43,7 @@ import { faviconUrl } from "@/lib/faviconUrl";
 import { shortTimeAgo } from "@/lib/formatTime";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { parseImetaMap } from "@/lib/imeta";
+import { EBOOK_KIND, MAGAZINE_ISSUE_KIND, MAGAZINE_KIND } from "@/lib/publications";
 import { scryfallImageUrl, type CardRef } from "@/lib/scryfall";
 import { tryNaddrEncode, tryNeventEncode } from "@/lib/safeNip19";
 import { displayHost, externalUrl, sanitizeImageSrc } from "@/lib/sanitizeUrl";
@@ -107,6 +109,9 @@ const KIND_LABELS = defineMessages({
   magicDeck: { id: "embeddedNote.kind.magicDeck", defaultMessage: "Magic deck" },
   treasure: { id: "embeddedNote.kind.treasure", defaultMessage: "Treasure" },
   repository: { id: "embeddedNote.kind.repository", defaultMessage: "Repository" },
+  magazine: { id: "embeddedNote.kind.magazine", defaultMessage: "Magazine" },
+  magazineIssue: { id: "embeddedNote.kind.magazineIssue", defaultMessage: "Magazine issue" },
+  ebook: { id: "embeddedNote.kind.ebook", defaultMessage: "Ebook" },
 });
 
 const KIND_META: Record<number, KindMeta> = {
@@ -134,12 +139,15 @@ const KIND_META: Record<number, KindMeta> = {
   30617: { label: KIND_LABELS.repository, Icon: FolderGit2 },
   31922: { label: KIND_LABELS.calendarEvent, Icon: CalendarDays },
   31923: { label: KIND_LABELS.calendarEvent, Icon: CalendarDays },
+  [EBOOK_KIND]: { label: KIND_LABELS.ebook, Icon: BookOpen },
   34139: { label: KIND_LABELS.playlist, Icon: Music },
   34236: { label: KIND_LABELS.shortVideo, Icon: Film },
+  [MAGAZINE_KIND]: { label: KIND_LABELS.magazine, Icon: Newspaper },
   36787: { label: KIND_LABELS.music, Icon: Music },
   37381: { label: KIND_LABELS.magicDeck, Icon: Layers },
   37516: { label: KIND_LABELS.treasure, Icon: Gem },
   39089: { label: KIND_LABELS.peopleList, Icon: Users },
+  [MAGAZINE_ISSUE_KIND]: { label: KIND_LABELS.magazineIssue, Icon: Newspaper },
 };
 
 /** NIP-68 photo kinds (images in imeta). */
@@ -340,6 +348,8 @@ function GenericEventCard({ event, sourceUrl, className }: { event: NostrRumor; 
           <EmbeddedTreasureCard event={event} />
         ) : event.kind === 9802 ? (
           <EmbeddedHighlightCard event={event} />
+        ) : (event.kind === MAGAZINE_KIND || event.kind === MAGAZINE_ISSUE_KIND) ? (
+          <MagazineCover event={event} />
         ) : repository ? (
           <EmbeddedRepositoryCard repository={repository} />
         ) : meta ? (
