@@ -4,8 +4,9 @@
  *
  * Push-only: receive push notifications — Web Push from the nostr-push2
  * gateway, or Tenna's `window.napp.push` delivery when Armada is an nsite
- * there — and route notificationclick to the correct conversation. It
- * deliberately does NOT cache or intercept fetches: a cached app shell
+ * there — and route notificationclick to the correct conversation. Beyond
+ * the Web Share Target's POST (`webShareInbox.ts`) it deliberately does NOT
+ * cache or intercept fetches: a cached app shell
  * references old chunk hashes and outlives the chunk-error recovery reload,
  * booting a release into the error screen. HTTP caching of the build
  * (immutable hashed /assets/*, revalidated index.html) covers fast loads.
@@ -26,6 +27,7 @@ import { notificationMessages } from "@/lib/notificationPreview";
 import { deletePushState, readPushState, trimPushState, writePushState } from "@/lib/pushState";
 import type { PushScope } from "@/lib/pushSubscriptions";
 import type { SwPushConfig } from "@/lib/swPushConfig";
+import { receiveSharePost, SHARE_ACTION } from "@/lib/webShareInbox";
 import type { PreparedPush, PushData } from "@/sw/pushRuntime";
 
 declare const self: ServiceWorkerGlobalScope;
@@ -1227,10 +1229,30 @@ async function openNotificationTarget(target: string): Promise<WindowClient | nu
 export function installServiceWorker(runtime: PushRuntime): void {
   const runPush = pushRunner(runtime);
 
-  self.addEventListener("install", () => {
+  self.addEventListener("install", (event) => {
     // Take over immediately: this worker holds no per-build state, so there
     // is no old-build/new-build consistency to preserve across a swap.
     void self.skipWaiting();
+    // Static routing: GETs go straight to the network without starting this
+    // worker, so the share target's fetch handler costs page loads nothing.
+    const routed = event as ExtendableEvent & {
+      addRoutes?: (rules: unknown) => Promise<void>;
+    };
+    if (typeof routed.addRoutes === "function") {
+      try {
+        event.waitUntil(
+          routed.addRoutes({ condition: { requestMethod: "GET" }, source: "network" }).catch(() => undefined),
+        );
+      } catch { /* unsupported condition: the handler below passes GETs through */ }
+    }
+  });
+
+  self.addEventListener("fetch", (event) => {
+    const { request } = event;
+    if (request.method !== "POST") return;
+    const url = new URL(request.url);
+    if (url.origin !== self.location.origin || url.pathname !== SHARE_ACTION) return;
+    event.respondWith(receiveSharePost(request, caches, self.location.origin));
   });
 
   self.addEventListener("activate", (event) => {

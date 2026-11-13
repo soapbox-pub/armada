@@ -28,6 +28,7 @@ import { flattenLayout, mergeLayout } from "@/lib/railLayout";
 import { chatRoute } from "@/lib/routes";
 import {
   assignShareRoute,
+  claimWebShare,
   discardShare,
   hasShareTarget,
   onShareStashChanged,
@@ -80,9 +81,10 @@ function DmDestination({
 /**
  * Share destination picker, for Android plain shares (payload staged by
  * `shareTarget.ts`) and the PWA Web Share Target (`title`/`text`/`url`
- * params). The pick routes the payload through the share stash to that
- * conversation's ChatComposer. Destinations use the quick switcher's
- * local-cache model ({@link buildSwitcherEntries}) plus DMs.
+ * params, plus files parked by sw.js under `inbox`). The pick routes the
+ * payload through the share stash to that conversation's ChatComposer.
+ * Destinations use the quick switcher's local-cache model
+ * ({@link buildSwitcherEntries}) plus DMs.
  */
 export function SharePage() {
   const intl = useIntl();
@@ -99,7 +101,7 @@ export function SharePage() {
   const { conversations } = useDm17Conversations({ interactive: true });
   const { pinned } = usePinnedDms();
 
-  // May land after mount: stream copies resolve in the background.
+  // May land after mount: stream copies and parked Web Share files resolve in the background.
   const [nativeShare, setNativeShare] = useState<SharePayload | null>(pendingSharePreview);
   useEffect(() => onShareStashChanged(() => setNativeShare(pendingSharePreview())), []);
 
@@ -114,6 +116,20 @@ export function SharePage() {
     if (url && !rawText.includes(url)) parts.push(url);
     return parts.join("\n");
   }, [title, rawText, url]);
+
+  // Files from a POSTed Web Share, parked by sw.js.
+  const inbox = params.get("inbox");
+  const [claimingFiles, setClaimingFiles] = useState(() => !!inbox && nativeShare === null);
+  useEffect(() => {
+    if (!inbox) return;
+    let live = true;
+    void claimWebShare(inbox, webText).then(() => {
+      if (live) setClaimingFiles(false);
+    });
+    return () => {
+      live = false;
+    };
+  }, [inbox, webText]);
 
   const payload = useMemo<SharePayload>(
     () => nativeShare ?? { text: webText, files: [] },
@@ -159,6 +175,8 @@ export function SharePage() {
   }, [conversations, pinned]);
 
   const pick = (route: string) => {
+    // Routing before the files land would send the text alone.
+    if (claimingFiles) return;
     if (nativeShare) assignShareRoute(route);
     else stashShare(payload, route);
     navigate(route, { replace: true });
@@ -202,9 +220,9 @@ export function SharePage() {
               <span className="shrink-0 text-xs text-muted-foreground">{formatSize(f.size)}</span>
             </div>
           ))}
-          {!hasContent && (
+          {(claimingFiles || !hasContent) && (
             <p className="text-sm italic text-muted-foreground">
-              {hasShareTarget()
+              {hasShareTarget() || claimingFiles
                 ? <FormattedMessage id="sharePage.preparing" defaultMessage="Preparing shared content…" />
                 : <FormattedMessage id="sharePage.nothingShared" defaultMessage="Nothing shared" />}
             </p>

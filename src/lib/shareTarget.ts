@@ -1,6 +1,7 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 
 import { chatRoute, parseChatRoute } from "@/lib/routes";
+import { takeSharedFiles } from "@/lib/webShareInbox";
 
 /**
  * Android share-target bridge (ShareTargetPlugin.java) + the in-memory share
@@ -182,6 +183,27 @@ export function shortcutShareRoute(path: string): string | null {
         ? !!route.groupId
         : !!route.channelId;
   return hasRoom ? chatRoute(route) : null;
+}
+
+const webShareClaims = new Map<string, Promise<void>>();
+
+/**
+ * Stage the files a Web Share Target POST parked under `inbox` (see
+ * `webShareInbox.ts`), with the share's text, awaiting a destination. Once per
+ * id: a remount awaits the same claim rather than finding the inbox emptied.
+ */
+export function claimWebShare(inbox: string, text: string): Promise<void> {
+  let claim = webShareClaims.get(inbox);
+  if (!claim) {
+    claim = (typeof caches === "undefined"
+      ? Promise.resolve<File[]>([])
+      : takeSharedFiles(inbox, caches).catch(() => [] as File[])
+    ).then((files) => {
+      if (files.length > 0) stashShare({ text, files }, null);
+    });
+    webShareClaims.set(inbox, claim);
+  }
+  return claim;
 }
 
 async function sharedFileToFile(meta: SharedFileMeta): Promise<File | null> {
