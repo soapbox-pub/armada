@@ -5,6 +5,7 @@ import { useMagazineIssues } from "@/hooks/useMagazineIssues";
 import { FormattedMessage } from "@/i18n";
 import { loadThemeFont } from "@/lib/fontLoader";
 import { MAGAZINE_KIND, parsePublication, type Publication } from "@/lib/publications";
+import { cn } from "@/lib/utils";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
 
@@ -61,7 +62,9 @@ export function MagazineCover({ event }: { event: NostrRumor }) {
   }), []);
 
   return (
-    <div className="flex flex-col items-center gap-2 px-6 pt-4 pb-1">
+    // The sticker pokes 16px above the cover and the fanned issues ~30px, so
+    // the top padding keeps both clear of the card's header row.
+    <div className={cn("isolate flex flex-col items-center gap-2 px-6 pb-1", stacked.length > 0 ? "pt-10" : "pt-6")}>
       <div
         className="relative w-36 sm:w-44 -rotate-2 shadow-[2px_3px_2px_rgba(0,0,0,0.3),8px_12px_18px_rgba(0,0,0,0.25)]"
         role="img"
