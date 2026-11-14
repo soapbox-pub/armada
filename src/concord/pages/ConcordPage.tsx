@@ -4093,7 +4093,7 @@ function ConcordCommunityPage() {
 
                   {presentation !== "feed" && typingPubkeys.length > 0 && <TypingIndicator pubkeys={typingPubkeys} />}
                   {dissolved ? (
-                    <div className="mx-gutter mb-3 mt-1 px-3 py-3 clip-corner-lg bg-destructive/10 flex items-center gap-3">
+                    <div className="mx-gutter mb-[max(0.75rem,var(--bottom-chrome-pad))] sidebar:mb-3 mt-1 px-3 py-3 clip-corner-lg bg-destructive/10 flex items-center gap-3">
                       <Trash2 className="size-5 shrink-0 text-destructive" />
                       <div className="min-w-0 flex-1 text-sm">
                         <p className="font-medium text-destructive">
@@ -4114,7 +4114,7 @@ function ConcordCommunityPage() {
                       </Button>
                     </div>
                   ) : excluded ? (
-                    <div className="mx-gutter mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
+                    <div className="mx-gutter mb-[max(0.75rem,var(--bottom-chrome-pad))] sidebar:mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
                       <Lock className="size-5 shrink-0 text-muted-foreground" />
                       <div className="min-w-0 flex-1 text-sm">
                         <p className="font-medium">
@@ -4135,7 +4135,7 @@ function ConcordCommunityPage() {
                       </Button>
                     </div>
                   ) : user && channel && timedOut && presentation !== "feed" ? (
-                    <div className="mx-gutter mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
+                    <div className="mx-gutter mb-[max(0.75rem,var(--bottom-chrome-pad))] sidebar:mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
                       <Lock className="size-5 shrink-0 text-muted-foreground" />
                       <p className="min-w-0 flex-1 text-sm text-muted-foreground">
                         <FormattedMessage
@@ -4147,7 +4147,7 @@ function ConcordCommunityPage() {
                     </div>
                   ) : user && channel && !canPost && presentation !== "feed" ? (
                     // Locked, not refused on send (Vector `channelAllowsSend`, `channelAwaitsWriterKey`).
-                    <div className="mx-gutter mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
+                    <div className="mx-gutter mb-[max(0.75rem,var(--bottom-chrome-pad))] sidebar:mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
                       <Lock className="size-5 shrink-0 text-muted-foreground" />
                       <p className="min-w-0 flex-1 text-sm text-muted-foreground">
                         {sendDenied
@@ -4156,7 +4156,7 @@ function ConcordCommunityPage() {
                       </p>
                     </div>
                   ) : stranded ? (
-                    <div className="mx-gutter mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
+                    <div className="mx-gutter mb-[max(0.75rem,var(--bottom-chrome-pad))] sidebar:mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
                       <Lock className="size-5 shrink-0 text-muted-foreground" />
                       <div className="min-w-0 flex-1 text-sm">
                         <p className="font-medium">
