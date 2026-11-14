@@ -67,7 +67,10 @@ export function mintCommunity(name: string, ownerPubkeyHex: string, relays: stri
 export function deletedChannels(community: Community, folded: FoldedControl | undefined): Channel[] {
   const dead = [...(folded?.channels.values() ?? [])].filter((d) => d.deleted);
   if (!folded || dead.length === 0) return [];
-  return channelsView(community, { ...folded, channels: new Map(dead.map((d) => [d.channelIdHex, { ...d, deleted: false }])) });
+  // channelsView also lists held keys the map doesn't name; those Channels are live.
+  const ids = new Set(dead.map((d) => d.channelIdHex));
+  return channelsView(community, { ...folded, channels: new Map(dead.map((d) => [d.channelIdHex, { ...d, deleted: false }])) })
+    .filter((c) => ids.has(c.idHex));
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { channelsView, mintCommunity } from "./community";
+import { channelsView, deletedChannels, mintCommunity } from "./community";
 import { bytesToHex, channelGroupKey, random32 } from "./derive";
 import { emptyRoles } from "./roles";
 
@@ -132,5 +132,28 @@ describe("channelsView (CORD-03 channel kinds)", () => {
     // control-plane tombstone is authoritative and must keep it out of the
     // live channel list.
     expect(channelsView(community, foldWith([deleted]))).toEqual([]);
+  });
+});
+
+describe("deletedChannels", () => {
+  it("names only the Channels the fold deleted, never a live one whose key is held", () => {
+    // A purge drops every row of what this returns and deletes the member's own wraps there.
+    const { community: base, generalChannelId } = mintCommunity("Fleet", OWNER, ["wss://a.test"]);
+    const goneId = random32();
+    const liveId = random32();
+    const community: Community = {
+      ...base,
+      privateChannels: [
+        { id: liveId, key: random32(), epoch: 0n, name: "live" },
+        { id: generalChannelId, key: base.root, epoch: 0n, name: "general" },
+      ],
+    };
+    const folded = foldWith([
+      channelDef(generalChannelId, { name: "general", private: false }),
+      channelDef(liveId, { name: "live", private: true }),
+      channelDef(goneId, { name: "gone", private: false, deleted: true }),
+    ]);
+
+    expect(deletedChannels(community, folded).map((c) => c.idHex)).toEqual([bytesToHex(goneId)]);
   });
 });
