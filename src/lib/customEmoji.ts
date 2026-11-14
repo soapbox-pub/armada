@@ -86,3 +86,18 @@ export function paletteSections(emojis: CustomEmoji[]): CustomEmojiSection[] {
   }
   return [...sections.values()];
 }
+
+const PICKER_ID_PREFIX = "custom:";
+
+/**
+ * A custom emoji's id in emoji-mart, whose one table also holds the native set:
+ * a pack's bare `heart` would replace ❤️ there, and picking it send the pack's image.
+ */
+export function customEmojiPickerId(shortcode: string): string {
+  return PICKER_ID_PREFIX + shortcode;
+}
+
+/** The shortcode behind a {@link customEmojiPickerId}, or undefined for a native id. */
+export function shortcodeOfPickerId(id: string): string | undefined {
+  return id.startsWith(PICKER_ID_PREFIX) ? id.slice(PICKER_ID_PREFIX.length) : undefined;
+}

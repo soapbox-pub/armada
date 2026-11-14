@@ -4,11 +4,17 @@
  * freezing the picker's pack sections at whatever existed on first open.
  */
 
-import data from "@emoji-mart/data";
-import { Data, init } from "emoji-mart";
+import data, { type EmojiMartData } from "@emoji-mart/data";
+import { Data, init, SearchIndex } from "emoji-mart";
 import { describe, expect, it } from "vitest";
 
-import { syncEmojiMartCategories, type EmojiMartCustomCategory } from "@/lib/emojiMartCategories";
+import { customEmojiPickerId } from "@/lib/customEmoji";
+import {
+  customCategoryId,
+  pruneFrequentlyUsed,
+  syncEmojiMartCategories,
+  type EmojiMartCustomCategory,
+} from "@/lib/emojiMartCategories";
 
 function pack(id: string, emojiIds: string[]): EmojiMartCustomCategory {
   return {
@@ -77,5 +83,56 @@ describe("syncEmojiMartCategories", () => {
     expect(customNavEntries).toHaveLength(1);
     // …while all four still render as their own labelled sections.
     for (const id of ["a", "b", "c", "d"]) expect(categoryIds()).toContain(id);
+  });
+});
+
+describe("custom emoji in emoji-mart's shared table", () => {
+  type Entry = { skins: { native?: string; src?: string }[] };
+  const emojis = () => (Data as unknown as { emojis: Record<string, Entry> }).emojis;
+  // Shaped as EmojiPicker builds them: a prefixed id, found by its bare shortcode.
+  const custom = (index: number, shortcodes: string[]): EmojiMartCustomCategory => ({
+    id: customCategoryId(index),
+    name: `Pack ${index}`,
+    emojis: shortcodes.map((s) => ({
+      id: customEmojiPickerId(s),
+      name: s,
+      keywords: [s],
+      skins: [{ src: `https://e/${s}.png` }],
+    })),
+  });
+
+  it("leaves a native emoji alone when a pack has an emoji of the same name", async () => {
+    await initWith([custom(0, ["heart"])]);
+
+    expect(emojis().heart.skins[0].native).toBe("❤️");
+    expect(emojis()["custom:heart"].skins[0].src).toBe("https://e/heart.png");
+  });
+
+  it("forgets the emoji of a palette that is gone, in search too", async () => {
+    await initWith([custom(0, ["blobwave"])]);
+    expect((await SearchIndex.search("blobwave"))?.length).toBe(1);
+
+    await initWith([]);
+
+    expect(emojis()["custom:blobwave"]).toBeUndefined();
+    expect(await SearchIndex.search("blobwave")).toEqual([]);
+  });
+
+  it("drops a section of a palette that is gone, whatever its position", async () => {
+    await initWith([custom(0, ["a1"]), custom(1, ["b1"])]);
+    await initWith([custom(0, ["a1"])]);
+
+    const original = (Data as unknown as { originalCategories: { id: string }[] }).originalCategories;
+    expect(original.map((c) => c.id)).not.toContain(customCategoryId(1));
+  });
+});
+
+describe("pruneFrequentlyUsed", () => {
+  it("drops ids that resolve to nothing, keeping native and custom ones", () => {
+    localStorage.setItem("emoji-mart.frequently", JSON.stringify({ heart: 5, blobcat: 9, "custom:blobcat": 9 }));
+
+    pruneFrequentlyUsed((data as unknown as EmojiMartData).emojis);
+
+    expect(JSON.parse(localStorage.getItem("emoji-mart.frequently")!)).toEqual({ heart: 5, "custom:blobcat": 9 });
   });
 });

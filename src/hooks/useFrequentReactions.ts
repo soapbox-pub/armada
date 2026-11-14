@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 
+import { customEmojiPickerId } from "@/lib/customEmoji";
 import type { QuickReaction } from "@/lib/quickReactions";
 import { nowSecs } from "@/lib/relayClock";
 
@@ -63,7 +64,9 @@ function save(pubkey: string, entries: FrequentReaction[]): void {
     }
     for (const entry of entries) {
       if (!entry.pickerId) continue;
-      pickerCounts[entry.pickerId] = Math.max(pickerCounts[entry.pickerId] ?? 0, entry.count);
+      // A custom pick's `pickerId` is its shortcode, synced as such; emoji-mart knows it prefixed.
+      const id = entry.url ? customEmojiPickerId(entry.pickerId) : entry.pickerId;
+      pickerCounts[id] = Math.max(pickerCounts[id] ?? 0, entry.count);
     }
     localStorage.setItem("emoji-mart.frequently", JSON.stringify(pickerCounts));
   } catch {

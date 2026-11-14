@@ -65,6 +65,12 @@ describe("useFrequentReactions", () => {
     expect(JSON.parse(localStorage.getItem("emoji-mart.frequently") ?? "{}")).toEqual({ fire: 1 });
   });
 
+  it("keeps a custom favorite's shortcode, and hands emoji-mart its prefixed id", () => {
+    act(() => recordReaction(SELF, ":heart:", "https://e/heart.png", "heart"));
+    expect(getFrequentReactions(SELF)[0]).toMatchObject({ key: ":heart:", pickerId: "heart" });
+    expect(JSON.parse(localStorage.getItem("emoji-mart.frequently") ?? "{}")).toEqual({ "custom:heart": 1 });
+  });
+
   it("re-renders subscribers when a reaction is recorded", () => {
     const { result } = renderHook(() => useFrequentReactions(SELF, 3));
     expect(result.current[0].key).toBe("👍");

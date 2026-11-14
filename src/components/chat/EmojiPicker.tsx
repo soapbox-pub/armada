@@ -1,4 +1,4 @@
-import data from "@emoji-mart/data";
+import data, { type EmojiMartData } from "@emoji-mart/data";
 import { Picker } from "emoji-mart";
 import { Compass } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -8,10 +8,10 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useStableNavigate } from "@/hooks/useStableNavigate";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { recordReaction } from "@/hooks/useFrequentReactions";
-import { syncEmojiMartCategories } from "@/lib/emojiMartCategories";
+import { customCategoryId, pruneFrequentlyUsed, syncEmojiMartCategories } from "@/lib/emojiMartCategories";
 import { FormattedMessage, useIntl } from "@/i18n";
 
-import { paletteSections } from "@/lib/customEmoji";
+import { customEmojiPickerId, paletteSections, shortcodeOfPickerId } from "@/lib/customEmoji";
 
 import type { CustomEmoji } from "@/hooks/useCustomEmojis";
 
@@ -80,11 +80,12 @@ export function EmojiPicker({ onSelect, customEmojis, onBrowsePacks, packsLinkIn
   onSelectRef.current = onSelect;
 
   const handleSelect = useCallback((emoji: EmojiMartEmoji) => {
-    if (emoji.src) {
-      if (recordUsage) recordReaction(user?.pubkey, `:${emoji.id}:`, emoji.src, emoji.id);
+    const shortcode = shortcodeOfPickerId(emoji.id);
+    if (shortcode !== undefined && emoji.src) {
+      if (recordUsage) recordReaction(user?.pubkey, `:${shortcode}:`, emoji.src, shortcode);
       onSelectRef.current({
         type: "custom",
-        shortcode: emoji.id,
+        shortcode,
         url: emoji.src,
       });
     } else if (emoji.native) {
@@ -102,21 +103,15 @@ export function EmojiPicker({ onSelect, customEmojis, onBrowsePacks, packsLinkIn
 
     // No per-category `icon`: each would get its own nav button and overflow the
     // single-row nav. Without one, packs share the first's nav entry.
-    return paletteSections(customEmojis).map((section) => ({
-      // Used for DOM ids, so keep a safe charset.
-      id:
-        section.source === "pack"
-          ? `custom-${section.key.replace(/[^a-zA-Z0-9]+/g, "-")}`
-          : section.source === "workspace"
-            ? "custom-workspace"
-            : "custom-nostr",
+    return paletteSections(customEmojis).map((section, i) => ({
+      id: customCategoryId(i),
       name:
         section.source === "workspace"
           ? intl.formatMessage({ id: "emojiPicker.workspace", defaultMessage: "Workspace" })
           : section.name ?? intl.formatMessage({ id: "emojiPicker.custom", defaultMessage: "Custom" }),
       emojis: section.emojis.map(
         (e): EmojiMartCustomEmoji => ({
-          id: e.shortcode,
+          id: customEmojiPickerId(e.shortcode),
           name: e.shortcode,
           keywords: [e.shortcode],
           skins: [{ src: e.url }],
@@ -148,10 +143,11 @@ export function EmojiPicker({ onSelect, customEmojis, onBrowsePacks, packsLinkIn
     const width = container.getBoundingClientRect().width;
     if (width > 0) pickerOptions.perLine = Math.max(1, Math.floor(width / EMOJI_CELL));
 
+    // Before the constructor: reconciles emoji-mart's global tables (see
+    // syncEmojiMartCategories), including with no custom emoji left at all.
+    pruneFrequentlyUsed((data as unknown as EmojiMartData).emojis);
+    syncEmojiMartCategories(customCategories ?? []);
     if (customCategories) {
-      // Before the constructor: reconciles emoji-mart's global category table (see
-      // syncEmojiMartCategories).
-      syncEmojiMartCategories(customCategories);
       pickerOptions.custom = customCategories;
       pickerOptions.categories = [
         "frequent",
