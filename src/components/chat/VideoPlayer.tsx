@@ -25,6 +25,7 @@ import { t, useIntl } from "@/i18n";
 import type { MessageActionItem } from "@/components/chat/messageActions";
 import type { ImetaEncryption } from "@/lib/imeta";
 import type { MutableRefObject, Ref } from "react";
+import { holdScrollThroughFullscreen } from "@/lib/holdScrollThroughFullscreen";
 
 interface VideoPlayerProps {
   src: string;
@@ -323,6 +324,7 @@ export function VideoPlayer({
       else void (video?.requestFullscreen?.() as Promise<void> | undefined)?.catch(() => {});
     };
     setWatchingFullscreen(true);
+    holdScrollThroughFullscreen(container);
     if (container.requestFullscreen) {
       void (container.requestFullscreen({ navigationUI: "hide" }) as Promise<void> | undefined)?.catch(nativeFallback);
     } else if (container.webkitRequestFullscreen) {
@@ -534,9 +536,11 @@ export function VideoPlayer({
           className={cn(
             "absolute bottom-0 left-0 right-0 transition-opacity duration-200",
             "bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-8 pb-2 px-3",
-            // Clear the home indicator and a landscape notch in fullscreen.
+            // Clear the home indicator and a landscape notch in fullscreen. On
+            // Android the hidden navigation bar reads as no inset, but its
+            // swipe-up gesture zone is still there: touch screens keep clear of it.
             isFullscreen &&
-              "pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))]",
+              "pb-[max(0.5rem,env(safe-area-inset-bottom))] [@media(pointer:coarse)]:pb-[max(2rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))]",
             showControls ? "opacity-100" : "opacity-0 pointer-events-none",
           )}
         >
