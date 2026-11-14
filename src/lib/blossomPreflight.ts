@@ -105,6 +105,18 @@ export function uploadFailureReason(error: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * Why an encrypted upload failed, when a server refused it: ciphertext can't
+ * be sniffed as media, so a refusal is almost always the server's type policy.
+ */
+export function encryptedUploadFailureReason(error: unknown): string | undefined {
+  if (uploadFailureReason(error) === undefined) return undefined;
+  return t({
+    id: "blossomPreflight.encryptedRefused",
+    defaultMessage: "Your media servers don't accept encrypted files. Add one that does in Relays › Media.",
+  });
+}
+
 /** Per-PUT timeout scaled by size (a flat 30 s killed large files on mobile data). */
 export function uploadTimeoutMs(size: number): number {
   const FLOOR_MS = 30_000;

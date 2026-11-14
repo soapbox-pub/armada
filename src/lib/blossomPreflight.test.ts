@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   describeRefusal,
+  encryptedUploadFailureReason,
   preflightRefusal,
   preflightUpload,
   uploadFailureReason,
@@ -94,6 +95,20 @@ describe("uploadFailureReason", () => {
   it("has nothing to say about an error that isn't a server's answer", () => {
     expect(uploadFailureReason(new AggregateError([new TypeError("Failed to fetch")]))).toBeUndefined();
     expect(uploadFailureReason("weird")).toBeUndefined();
+  });
+});
+
+describe("encryptedUploadFailureReason", () => {
+  it("names the encrypted-file policy when a server refused", () => {
+    const error = new AggregateError([
+      new Error("Blossom request failed (401): "),
+      new Error("Blossom request failed (415): File type not allowed"),
+    ]);
+    expect(encryptedUploadFailureReason(error)).toMatch(/don't accept encrypted files/);
+  });
+
+  it("has nothing to say when no server answered", () => {
+    expect(encryptedUploadFailureReason(new AggregateError([new TypeError("Failed to fetch")]))).toBeUndefined();
   });
 });
 

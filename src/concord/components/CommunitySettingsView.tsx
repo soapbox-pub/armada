@@ -96,6 +96,7 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { toast } from "@/hooks/useToast";
 import { useUploadFile } from "@/hooks/useUploadFile";
+import { encryptedUploadFailureReason } from "@/lib/blossomPreflight";
 import { COMMUNITY_BANNER_EDGE, COMMUNITY_ICON_EDGE, encryptImageBlob } from "@/concord/lib/image";
 import { mirrorHistoryToRelays, type MirrorProgress } from "@/concord/lib/relayMirror";
 import { canonicalOrigin, communityAvBrokers, probeAvBroker } from "@/concord/lib/voice";
@@ -246,7 +247,7 @@ export function CommunitySettingsView({
           : t({ id: "communitySettingsView.bannerUpdated", defaultMessage: "Banner updated" }),
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : t({ id: "communitySettingsView.uploadFailed", defaultMessage: "Upload failed." }));
+      setError(encryptedUploadFailureReason(e) ?? (e instanceof Error ? e.message : t({ id: "communitySettingsView.uploadFailed", defaultMessage: "Upload failed." })));
     } finally {
       setUploading(null);
     }

@@ -243,6 +243,7 @@
   "bitcoin.spVersion": "Silent payment send: address version {version} is not yet supported.",
   "bitcoinMoney.satsAmount": "{count, plural, one {# sat} other {# sats}}",
   "blossomPreflight.badType": "Your media servers don't accept this type of file.",
+  "blossomPreflight.encryptedRefused": "Your media servers don't accept encrypted files. Add one that does in Relays › Media.",
   "blossomPreflight.paymentRequired": "Your media servers require payment for this upload.",
   "blossomPreflight.refused": "Your media servers refused this file.",
   "blossomPreflight.tooLarge": "The file is larger than your media servers accept.",

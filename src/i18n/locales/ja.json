@@ -243,6 +243,7 @@
   "bitcoin.spVersion": "サイレントペイメント送金: アドレスバージョン {version} にはまだ対応していません。",
   "bitcoinMoney.satsAmount": "{count, plural, other {# sats}}",
   "blossomPreflight.badType": "メディアサーバーがこの種類のファイルを受け付けていません。",
+  "blossomPreflight.encryptedRefused": "メディアサーバーが暗号化ファイルを受け付けていません。受け付けるサーバーを リレー › メディア で追加してください。",
   "blossomPreflight.paymentRequired": "このアップロードにはメディアサーバーへの支払いが必要です。",
   "blossomPreflight.refused": "メディアサーバーがこのファイルを拒否しました。",
   "blossomPreflight.tooLarge": "ファイルがメディアサーバーの上限を超えています。",

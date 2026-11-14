@@ -243,6 +243,7 @@
   "bitcoin.spVersion": "Silent payment verzenden: adresversie {version} wordt nog niet ondersteund.",
   "bitcoinMoney.satsAmount": "{count, plural, one {# sat} other {# sats}}",
   "blossomPreflight.badType": "Je mediaservers accepteren dit bestandstype niet.",
+  "blossomPreflight.encryptedRefused": "Je mediaservers accepteren geen versleutelde bestanden. Voeg er een toe die dat wel doet onder Relays › Media.",
   "blossomPreflight.paymentRequired": "Je mediaservers vragen betaling voor deze upload.",
   "blossomPreflight.refused": "Je mediaservers hebben dit bestand geweigerd.",
   "blossomPreflight.tooLarge": "Het bestand is groter dan je mediaservers accepteren.",

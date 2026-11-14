@@ -243,6 +243,7 @@
   "bitcoin.spVersion": "Envoi par paiement silencieux : la version d’adresse {version} n’est pas encore prise en charge.",
   "bitcoinMoney.satsAmount": "{count, plural, one {# sat} other {# sats}}",
   "blossomPreflight.badType": "Vos serveurs de médias n’acceptent pas ce type de fichier.",
+  "blossomPreflight.encryptedRefused": "Vos serveurs de médias n'acceptent pas les fichiers chiffrés. Ajoutez-en un qui les accepte dans Relais › Médias.",
   "blossomPreflight.paymentRequired": "Vos serveurs de médias exigent un paiement pour cet envoi.",
   "blossomPreflight.refused": "Vos serveurs de médias ont refusé ce fichier.",
   "blossomPreflight.tooLarge": "Le fichier dépasse la taille acceptée par vos serveurs de médias.",
