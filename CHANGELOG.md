@@ -4,6 +4,37 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.5] - 2026-11-14
+
+Stickers and emoji are grouped by pack, relay settings show response times,
+files can be shared into the installed web app, and a round of fixes for
+channels, notifications, touch menus and fullscreen video.
+
+### Added
+- Stickers, and a Buzz workspace's emoji, are grouped into one section per pack
+- Settings › Relays shows each relay's and media server's response time, with an amber "slow" state and a legend
+- Share files into Armada from other apps when it is installed as a web app
+- bitcoin: and lightning: links in messages open your wallet app
+- Quoted magazines and issues show as a cover, and quoted ebooks are labelled
+- A sound plays when a screen share ends
+- A private or restricted channel's composer placeholder names the channel
+
+### Changed
+- Settings › Relays opens on Messages until your account has messaging relays set
+- Links in messages handle parentheses and angle brackets the way markdown does
+
+### Fixed
+- A channel's history reloads when your access to older messages changes
+- Notifications for channels only some members can post in, including in the background
+- Long-press menus open reliably on touch devices when the app is busy
+- The emoji picker no longer confuses custom emoji with standard ones, and drops ones that no longer exist
+- Fullscreen video controls stay above Android's gesture bar, and the chat keeps its place when leaving fullscreen
+- Reactions and reply counts in relay-hosted groups update as new messages scroll into view
+- A clearer message when a media server refuses a community image upload
+- The call audio settings menu fits on screen
+- Notices that replace the message box are no longer hidden behind the bottom edge on phones
+- Switching between communities is lighter on memory
+
 ## [0.69.4] - 2026-11-12
 
 Quicker ways to manage roles and channel permissions, sturdier direct
