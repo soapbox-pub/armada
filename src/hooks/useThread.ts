@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo } from "react";
 
 import { useNostrPublish } from "@/hooks/useNostrPublish";
+import { recordAskedIds, useRefetchOnNewIds } from "@/hooks/useRefetchOnNewIds";
 import { KIND_COMMENT, KIND_GROUP_CHAT } from "@/lib/nip29";
 import { buildNip29ThreadReplyTags, nip29ThreadRootOf } from "@/lib/nip29Threads";
 
@@ -46,6 +47,7 @@ export function useGroupThreads(
     queryKey,
     queryFn: async ({ signal }) => {
       const ids = idsSig ? idsSig.split(",") : [];
+      recordAskedIds(queryClient, queryKey, ids);
       if (!relayUrl || !groupId || ids.length === 0) return new Map();
       const events = await nostr.relay(relayUrl).query(
         threadFilters(ids, groupId, { limit: ids.length * 20 }),
@@ -56,6 +58,7 @@ export function useGroupThreads(
     enabled: Boolean(relayUrl && groupId) && Boolean(idsSig),
     staleTime: 30_000,
   });
+  useRefetchOnNewIds(queryKey, idsSig, Boolean(relayUrl && groupId));
 
   useEffect(() => {
     if (!relayUrl || !groupId || !idsSig) return;

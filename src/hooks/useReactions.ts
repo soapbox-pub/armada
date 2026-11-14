@@ -6,6 +6,7 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useEventStore } from "@/hooks/useEventStore";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useNostrPublish } from "@/hooks/useNostrPublish";
+import { recordAskedIds, useRefetchOnNewIds } from "@/hooks/useRefetchOnNewIds";
 import { KIND_DELETE, KIND_REACTION } from "@/lib/nip29";
 
 import type { MessageReactions } from "@/components/chat/transport";
@@ -137,6 +138,7 @@ export function useGroupReactions(
     queryKey,
     queryFn: async ({ signal }) => {
       const ids = idsSig ? idsSig.split(",") : [];
+      recordAskedIds(queryClient, queryKey, ids);
       if (!relayUrl || !groupId || ids.length === 0) return new Map();
       const store = await eventStore;
 
@@ -181,6 +183,7 @@ export function useGroupReactions(
     enabled: Boolean(relayUrl && groupId) && Boolean(idsSig),
     staleTime: 15_000,
   });
+  useRefetchOnNewIds(queryKey, idsSig, Boolean(relayUrl && groupId));
 
   useEffect(() => {
     if (!relayUrl || !groupId || !idsSig) return;
