@@ -1155,7 +1155,9 @@ export function ConcordPage() {
   const route = parseChatRoute(pathname);
   const communityId = route?.kind === "concord" ? route.communityId : undefined;
   if (communityId && isBlocked(communityId)) return <Suspense fallback={null}><CommunityBlocked /></Suspense>;
-  return <ConcordCommunityPage />;
+  // One mount per community: a reused page kept every earlier render's scope alive through its
+  // memoized callbacks, a chain that grew by a link each hop.
+  return <ConcordCommunityPage key={communityId} />;
 }
 
 /** Communities last left from the All messages pane, this session. */
