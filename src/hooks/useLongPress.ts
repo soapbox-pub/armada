@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
+import { holdTimeout } from "@/lib/holdTimeout";
+
 /**
  * Deliberately under the platform long-press (~500ms on Android/iOS): a tie loses the gesture
  * to the OS, which cancels our pointer stream.
@@ -25,7 +27,7 @@ export function useLongPress(
   onLongPress: (() => void) | undefined,
   { allowInteractive = false }: { allowInteractive?: boolean } = {},
 ) {
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timer = useRef<(() => void) | null>(null);
   const origin = useRef<{ x: number; y: number } | null>(null);
   // So the click and context menu after release don't act on top of the menu.
   const fired = useRef(false);
@@ -38,7 +40,7 @@ export function useLongPress(
   callback.current = onLongPress;
 
   const cancel = useCallback(() => {
-    if (timer.current) clearTimeout(timer.current);
+    timer.current?.();
     timer.current = null;
     origin.current = null;
     unwatch.current?.();
@@ -108,8 +110,8 @@ export function useLongPress(
       fired.current = false;
       origin.current = { x: e.clientX, y: e.clientY };
       downStamp.current = e.timeStamp;
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => {
+      timer.current?.();
+      timer.current = holdTimeout(() => {
         timer.current = null;
         cancel();
         fired.current = true;

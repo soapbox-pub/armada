@@ -3,11 +3,120 @@ import * as ContextMenuPrimitive from "@radix-ui/react-context-menu"
 import { Check, ChevronRight, Circle } from "lucide-react"
 
 import { usePortalContainer } from "@/hooks/usePortalContainer"
+import { holdTimeout } from "@/lib/holdTimeout"
 import { cn } from "@/lib/utils"
 
-const ContextMenu = ContextMenuPrimitive.Root
+/** Radix's touch hold. */
+const TOUCH_HOLD_MS = 700
 
-const ContextMenuTrigger = ContextMenuPrimitive.Trigger
+/**
+ * Radix opens a touch hold on a bare setTimeout, which a tap released during a main-thread stall
+ * outlasts. The Root defers that open until the press's own {@link holdTimeout} confirms it. A
+ * `contextmenu` event is a hold the platform measured (or a right-click) and passes.
+ */
+interface TouchHoldGate {
+  /** A touch press is down and its hold not yet confirmed. */
+  pending: boolean
+  /** Radix asked to open while `pending`. */
+  deferred: boolean
+  viaContextMenu: boolean
+  cancel: (() => void) | null
+}
+
+const TouchHoldContext = React.createContext<{
+  gate: TouchHoldGate
+  open: () => void
+} | null>(null)
+
+const ContextMenu = ({
+  onOpenChange,
+  ...props
+}: Omit<React.ComponentProps<typeof ContextMenuPrimitive.Root>, "open">) => {
+  const [open, setOpen] = React.useState(false)
+  const onOpenChangeRef = React.useRef(onOpenChange)
+  onOpenChangeRef.current = onOpenChange
+  const gate = React.useRef<TouchHoldGate>({
+    pending: false,
+    deferred: false,
+    viaContextMenu: false,
+    cancel: null,
+  }).current
+  const change = React.useCallback((next: boolean) => {
+    if (next && gate.pending && !gate.viaContextMenu) {
+      gate.deferred = true
+      return
+    }
+    gate.viaContextMenu = false
+    setOpen(next)
+    onOpenChangeRef.current?.(next)
+  }, [gate])
+  React.useEffect(() => () => gate.cancel?.(), [gate])
+  const hold = React.useMemo(() => ({ gate, open: () => change(true) }), [gate, change])
+  return (
+    <TouchHoldContext.Provider value={hold}>
+      <ContextMenuPrimitive.Root {...props} open={open} onOpenChange={change} />
+    </TouchHoldContext.Provider>
+  )
+}
+
+const ContextMenuTrigger = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Trigger>
+>(({ onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onContextMenu, ...props }, ref) => {
+  const hold = React.useContext(TouchHoldContext)
+  const release = () => {
+    if (!hold) return
+    hold.gate.cancel?.()
+    hold.gate.cancel = null
+    hold.gate.pending = false
+    hold.gate.deferred = false
+  }
+  return (
+    <ContextMenuPrimitive.Trigger
+      ref={ref}
+      {...props}
+      onPointerDown={(e) => {
+        onPointerDown?.(e)
+        if (!hold || e.defaultPrevented || e.pointerType === "mouse" || props.disabled) return
+        release()
+        const { gate } = hold
+        gate.viaContextMenu = false
+        gate.pending = true
+        gate.cancel = holdTimeout(() => {
+          gate.cancel = null
+          gate.pending = false
+          if (!gate.deferred) return
+          gate.deferred = false
+          hold.open()
+        }, TOUCH_HOLD_MS)
+      }}
+      // Radix drops its hold on any move, so the deferred open goes with it.
+      onPointerMove={(e) => {
+        onPointerMove?.(e)
+        if (e.pointerType !== "mouse") release()
+      }}
+      onPointerUp={(e) => {
+        onPointerUp?.(e)
+        if (e.pointerType !== "mouse") release()
+      }}
+      onPointerCancel={(e) => {
+        onPointerCancel?.(e)
+        if (e.pointerType !== "mouse") release()
+      }}
+      onContextMenu={(e) => {
+        if (hold) {
+          hold.gate.viaContextMenu = true
+          // Radix opens within this dispatch; a handler that prevented it leaves no pass behind.
+          queueMicrotask(() => {
+            hold.gate.viaContextMenu = false
+          })
+        }
+        onContextMenu?.(e)
+      }}
+    />
+  )
+})
+ContextMenuTrigger.displayName = ContextMenuPrimitive.Trigger.displayName
 
 const ContextMenuGroup = ContextMenuPrimitive.Group
 

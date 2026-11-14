@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cancelPressUnder, isCancellingPress } from "@/lib/cancelPress";
+import { holdTimeout } from "@/lib/holdTimeout";
 import { impact } from "@/lib/haptics";
 
 /** How long a press rests before it becomes a drag, on every pointer type. */
@@ -114,7 +115,7 @@ export function usePressDrag<T>({
   const lastPress = useRef<PointerEvent | null>(null);
   /** Read inside listeners where state would be stale. */
   const active = useRef<T | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timer = useRef<(() => void) | null>(null);
   /** Set briefly after a drag so the ensuing click doesn't navigate/toggle. */
   const didDrag = useRef(false);
   const flingRaf = useRef<number | null>(null);
@@ -312,7 +313,7 @@ export function usePressDrag<T>({
 
       const clear = () => {
         liveGestures.current.delete(clear);
-        if (timer.current) clearTimeout(timer.current);
+        timer.current?.();
         timer.current = null;
         stopAutoScroll();
         handScrolling.delete(pointerId);
@@ -376,7 +377,7 @@ export function usePressDrag<T>({
               return;
             }
             // Early touch movement is a scroll; hand the rest to the manual panner.
-            if (timer.current) clearTimeout(timer.current);
+            timer.current?.();
             timer.current = null;
             manualScroll = true;
             panning.current = true;
@@ -444,7 +445,7 @@ export function usePressDrag<T>({
       liveGestures.current.add(clear);
 
       function pickup() {
-        if (timer.current) clearTimeout(timer.current);
+        timer.current?.();
         timer.current = null;
         if (active.current !== null || from === null) return;
         active.current = from;
@@ -482,7 +483,7 @@ export function usePressDrag<T>({
       // A touch that became a scroll cleared the timer. An armed entry moves to pick up,
       // leaving a still hold to its menu.
       if (from !== null && !armedHere) {
-        timer.current = setTimeout(heldTouchOpensMenu && !isMouse ? holdForMenu : pickup, PICKUP_MS);
+        timer.current = holdTimeout(heldTouchOpensMenu && !isMouse ? holdForMenu : pickup, PICKUP_MS);
       }
     },
     [containerRef, fling, stopFling, pickupOnMove, touchHold, heldTouchOpensMenu, disarm, suppressClick],
@@ -519,7 +520,7 @@ export function usePressDrag<T>({
     return () => {
       active.current = null;
       for (const clear of [...gestures]) clear();
-      if (timer.current) clearTimeout(timer.current);
+      timer.current?.();
       stopFling();
     };
   }, [stopFling]);
