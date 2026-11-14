@@ -245,7 +245,7 @@ export function DeviceMenu({ className }: { className?: string }) {
         </TooltipTrigger>
         <TooltipContent>{intl.formatMessage({ id: "voiceBar.audioSettings", defaultMessage: "Audio settings" })}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="max-w-72 max-h-[70vh] overflow-y-auto">
+      <DropdownMenuContent align="end" className="max-w-72 max-h-[min(70vh,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto">
         {platformRoutesCallAudio() && <CallRouteGroup />}
         {!platformRoutesCallAudio() && (
           <>
