@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAppContext } from "@/hooks/useAppContext";
 import { useBlossomServerList } from "@/hooks/useBlossomServerList";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { recommendedDmInbox } from "@/hooks/useDmInboxSetup";
+import { recommendedDmInbox, useDmInboxSetup } from "@/hooks/useDmInboxSetup";
 import { useDmRelayList } from "@/hooks/useDmRelayList";
 import { useSearchRelayList } from "@/hooks/useSearchRelayList";
 import { FormattedMessage, useIntl } from "@/i18n";
@@ -83,9 +83,17 @@ export function RelaysSettings() {
 
   // One list open at a time, as in the signup wizard; searching mounts them all so search can match them.
   const [openRelayRow, setOpenRelayRow] = useState<RelayRow | null>(null);
+  const [relayRowTouched, setRelayRowTouched] = useState(false);
   const [publishedListOpen, setPublishedListOpen] = useState(false);
   const relayRowOpen = (row: RelayRow) => searching || openRelayRow === row;
-  const setRelayRowOpen = (row: RelayRow) => (open: boolean) => setOpenRelayRow(open ? row : null);
+  const setRelayRowOpen = (row: RelayRow) => (open: boolean) => {
+    setRelayRowTouched(true);
+    setOpenRelayRow(open ? row : null);
+  };
+
+  // Open Messages while the account has no kind 10050, so the inbox setup inside it is in view.
+  const { missing: dmInboxMissing } = useDmInboxSetup();
+  if (dmInboxMissing && !relayRowTouched && openRelayRow !== "dm") setOpenRelayRow("dm");
 
   /**
    * App relays travel in encrypted NIP-78; search relays also publish their
