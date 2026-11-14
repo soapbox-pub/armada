@@ -64,6 +64,33 @@ describe("StickerPicker", () => {
     ]);
   });
 
+  it("puts a workspace's sets in one section, without their members' names", () => {
+    const workspace: CustomEmoji[] = [
+      { shortcode: "ship", url: "https://example.com/ship.webp", packCoord: "30030:cc:buzz:custom-emoji", packName: "Cats", workspace: true },
+      { shortcode: "anchor", url: "https://example.com/anchor.webp", packCoord: "30030:dd:buzz:custom-emoji", packName: "Official", workspace: true },
+    ];
+    render(<StickerPicker customEmojis={[...palette, ...workspace]} onSelect={vi.fn()} autoFocus={false} />);
+
+    expect(sections()).toEqual([
+      { name: "Custom", stickers: ["wave"] },
+      { name: "Cats", stickers: ["cat_happy", "cat_sad"] },
+      { name: "Dogs", stickers: ["dog_happy"] },
+      { name: "Workspace", stickers: ["ship", "anchor"] },
+    ]);
+  });
+
+  it("names a pack with no name by its identifier", () => {
+    render(
+      <StickerPicker
+        customEmojis={[{ shortcode: "owl", url: "https://example.com/owl.webp", packCoord: `30030:${"a".repeat(64)}:birds` }]}
+        onSelect={vi.fn()}
+        autoFocus={false}
+      />,
+    );
+
+    expect(sections()).toEqual([{ name: "birds", stickers: ["owl"] }]);
+  });
+
   it("shows the empty result when nothing matches", () => {
     render(<StickerPicker customEmojis={palette} onSelect={vi.fn()} autoFocus={false} />);
 

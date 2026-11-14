@@ -21,6 +21,8 @@ export interface CustomEmoji {
   packCoord?: string;
   /** The source pack's human name, resolved at read time for display. */
   packName?: string;
+  /** From a Buzz workspace's palette (any member's set), not the user's own list. */
+  workspace?: boolean;
 }
 
 // The durable per-user palette lives in `@/lib/emojiPalette` (shared with `useEmojiPacks`).

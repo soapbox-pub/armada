@@ -34,7 +34,7 @@ export function useBuzzEmojiPalette(relayUrl: string | undefined): CustomEmoji[]
         for (const [n, shortcode, url] of ev.tags) {
           if (n === "emoji" && shortcode && url && !seen.has(shortcode)) {
             seen.add(shortcode);
-            out.push({ shortcode, url, packCoord, packName });
+            out.push({ shortcode, url, packCoord, packName, workspace: true });
           }
         }
       }

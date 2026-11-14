@@ -11,6 +11,8 @@ import { recordReaction } from "@/hooks/useFrequentReactions";
 import { syncEmojiMartCategories } from "@/lib/emojiMartCategories";
 import { FormattedMessage, useIntl } from "@/i18n";
 
+import { paletteSections } from "@/lib/customEmoji";
+
 import type { CustomEmoji } from "@/hooks/useCustomEmojis";
 
 export interface NativeEmojiSelection {
@@ -94,38 +96,33 @@ export function EmojiPicker({ onSelect, customEmojis, onBrowsePacks, packsLinkIn
     }
   }, [user?.pubkey, recordUsage]);
 
-  // One custom category PER SOURCE PACK (like Discord per server); list-inlined
-  // emojis go in a generic "Custom" group.
+  // One custom category PER SOURCE PACK (like Discord per server).
   const customCategories = useMemo(() => {
     if (!customEmojis || customEmojis.length === 0) return undefined;
-    const customLabel = intl.formatMessage({ id: "emojiPicker.custom", defaultMessage: "Custom" });
-
-    const groups = new Map<string, { id: string; name: string; emojis: EmojiMartCustomEmoji[] }>();
-    for (const e of customEmojis) {
-      const key = e.packCoord ?? "";
-      let group = groups.get(key);
-      if (!group) {
-        groups.set(
-          key,
-          (group = {
-            // Used for DOM ids, so keep a safe charset.
-            id: key ? `custom-${key.replace(/[^a-zA-Z0-9]+/g, "-")}` : "custom-nostr",
-            name: (key && e.packName) || customLabel,
-            emojis: [],
-          }),
-        );
-      }
-      group.emojis.push({
-        id: e.shortcode,
-        name: e.shortcode,
-        keywords: [e.shortcode],
-        skins: [{ src: e.url }],
-      });
-    }
 
     // No per-category `icon`: each would get its own nav button and overflow the
     // single-row nav. Without one, packs share the first's nav entry.
-    return [...groups.values()];
+    return paletteSections(customEmojis).map((section) => ({
+      // Used for DOM ids, so keep a safe charset.
+      id:
+        section.source === "pack"
+          ? `custom-${section.key.replace(/[^a-zA-Z0-9]+/g, "-")}`
+          : section.source === "workspace"
+            ? "custom-workspace"
+            : "custom-nostr",
+      name:
+        section.source === "workspace"
+          ? intl.formatMessage({ id: "emojiPicker.workspace", defaultMessage: "Workspace" })
+          : section.name ?? intl.formatMessage({ id: "emojiPicker.custom", defaultMessage: "Custom" }),
+      emojis: section.emojis.map(
+        (e): EmojiMartCustomEmoji => ({
+          id: e.shortcode,
+          name: e.shortcode,
+          keywords: [e.shortcode],
+          skins: [{ src: e.url }],
+        }),
+      ),
+    }));
   }, [customEmojis, intl]);
 
   useEffect(() => {
