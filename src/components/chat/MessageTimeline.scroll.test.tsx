@@ -136,6 +136,26 @@ describe("MessageTimeline reading anchor", () => {
     expect(scroller.scrollTop).toBe(3_700);
   });
 
+  it("holds reveals through a touch scroll and its momentum, then reveals with the row kept", async () => {
+    const { scroller, content } = await mountedTimeline(100);
+    scroll(scroller, 2_500);
+
+    fireEvent.touchStart(scroller);
+    scroll(scroller, 500);
+    fireEvent.touchEnd(scroller);
+    // Momentum carries on after the lift.
+    scroll(scroller, 400);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    scroll(scroller, 400);
+
+    // Nothing was prepended under the moving reader, so nothing had to be corrected.
+    expect(screen.queryByText("chat:m69")).toBeNull();
+    expect(scroller.scrollTop).toBe(400);
+
+    await waitFor(() => expect(screen.getByText("chat:m54")).toBeInTheDocument());
+    expect(rowViewportOffset(content, scroller, "m74")).toBe(0);
+  });
+
   it("requests the next older page while loaded rows are still hidden above the window", async () => {
     const loadOlder = vi.fn<() => Promise<number>>(async () => 0);
     const messages = Array.from({ length: 100 }, (_, index) => message(index));
