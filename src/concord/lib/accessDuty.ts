@@ -82,8 +82,6 @@ export function planChannelDuty(o: {
   minted: readonly MintingRotation[];
   prior: readonly MintingRotation[];
   handled?: ReadonlySet<string>;
-  /** The fold before a change this pass settles: whoever it let in and `control` doesn't is cut, evidence or not (Vector `settle_access`). */
-  settledFrom?: FoldedControl;
 }): ChannelDuty | undefined {
   const { control, me, channelIdHex, epoch } = o;
   const owner = control.ownerHex;
@@ -96,15 +94,15 @@ export function planChannelDuty(o: {
   const entitled = o.candidates.filter((pk) => pk !== me && entitledHere(pk) && !o.handled?.has(pk));
   if (entitled.length === 0 && !mayRotate) return undefined;
   const prev = epoch > 0n ? epoch - 1n : 0n;
-  const before = o.settledFrom;
-  const wasEntitled = (pk: string) =>
-    before !== undefined && (pk === owner || (channelPermissions(before.roster, owner, pk, channelIdHex, true) & Permissions.VIEW_CHANNEL) !== 0n);
 
   let cut: string[] = [];
   if (mayRotate) {
+    // Only on evidence that they hold this epoch (Vector `access_duty`): a change's own
+    // cut is its actor's to make, inline (`settle_access`), and a remembered Roster
+    // cuts again at every epoch it never reached.
     cut = [...new Set([...o.candidates, ...control.banned])]
       .filter((pk) => pk !== me && !entitledHere(pk))
-      .filter((pk) => wasEntitled(pk) || carries(o.minted, rotatorOk, pk, channelIdHex, epoch) || servedOnPlane(o.deliveries, pk, channelIdHex, epoch, entitledHere))
+      .filter((pk) => carries(o.minted, rotatorOk, pk, channelIdHex, epoch) || servedOnPlane(o.deliveries, pk, channelIdHex, epoch, entitledHere))
       .filter((pk) => me === owner || canActOnMember(control.roster, me, owner, pk, Permissions.MANAGE_CHANNELS))
       .sort();
     // Whoever is owed the Channel is owed its next epoch: the next run serves them.
@@ -202,3 +200,10 @@ export function rotationRecipients(control: FoldedControl, me: string, channelId
   return [...out];
 }
 
+/** What the access duty is judged on: the Roster, the Banlist and the live invite links. */
+export function authoritySig(folded: FoldedControl): string {
+  return JSON.stringify(
+    [folded.roster, [...folded.banned].sort(), [...folded.liveInviteLinks].sort()],
+    (_k, v) => (typeof v === "bigint" ? v.toString() : v instanceof Set ? [...v].sort() : v),
+  );
+}

@@ -144,15 +144,24 @@ describe("a duty's rotation, judged again on the store", () => {
   it("drops a cut its read planned when a Grant this device published since let the member back in", () => {
     const w = world();
     const [, B] = w.ids;
-    const F1 = w.setRole(true);
+    w.setRole(true);
     const F2 = w.setRole(false);
     const F3 = w.setRole(true);
-    // The OFF settle pass plans on F2: it would cut U.
-    const plan = planChannelDuty({ control: F2, me: w.O, channelIdHex: B, epoch: 1n, candidates: [w.U], deliveries: [delivery(w.O, B, 1n, [w.U])], minted: [rotation(w.O, B, 1n, [w.O])], prior: [], settledFrom: F1 });
+    // A pass reading F2 finds U served at the current epoch: evidence, so it would cut.
+    const plan = planChannelDuty({ control: F2, me: w.O, channelIdHex: B, epoch: 1n, candidates: [w.U], deliveries: [delivery(w.O, B, 1n, [w.U])], minted: [rotation(w.O, B, 1n, [w.O])], prior: [] });
     expect(plan?.cut).toEqual([w.U]);
     // Under the settle lock the store holds the ON Grant: nobody is left to cut.
     expect(stillShutOut(F3, B, plan!.cut)).toEqual([]);
     expect(stillShutOut(F2, B, plan!.cut)).toEqual([w.U]);
+  });
+
+  it("never cuts again at the epoch after: the evidence was the epoch it rotated away", () => {
+    const w = world();
+    const [, B] = w.ids;
+    w.setRole(true);
+    const F2 = w.setRole(false);
+    const next = planChannelDuty({ control: F2, me: w.O, channelIdHex: B, epoch: 2n, candidates: [w.U], deliveries: [delivery(w.O, B, 1n, [w.U])], minted: [rotation(w.O, B, 2n, [w.O])], prior: [rotation(w.O, B, 1n, [w.O])] });
+    expect(next).toBeUndefined();
   });
 
   it("reads no plane for a Channel it can neither serve nor rotate", () => {

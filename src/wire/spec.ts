@@ -131,6 +131,11 @@ export interface WireInputs {
     idHex: string;
     groups: StreamKeyView[];
   }>;
+  /**
+   * Concord addresses heard live with no key the wire holds: rekey addresses and owed
+   * access planes (`wire/watched.ts`). Their wraps park and ring `c2park:<pk>`.
+   */
+  concordWatch?: Array<{ relays: string[]; pks: string[] }>;
   /** Repository activity planes attached through folded Concord channel metadata. */
   gitRepositories?: GitRepositoryWireInput[];
   /** Cache/history-discovered NIP-34 issue and PR roots for dynamic child filters. */
@@ -313,6 +318,19 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
     }
   }
   for (const [relay, pks] of gbPksByRelay) {
+    add(relay, { kinds: [KIND_WRAP], authors: [...pks].sort() });
+  }
+
+  const watchByRelay = new Map<string, Set<string>>();
+  for (const { relays, pks } of inputs.concordWatch ?? []) {
+    for (const url of relays) {
+      const relay = normalizeRelayUrl(url);
+      if (!relay) continue;
+      const set = watchByRelay.get(relay) ?? watchByRelay.set(relay, new Set()).get(relay)!;
+      for (const pk of pks) set.add(pk);
+    }
+  }
+  for (const [relay, pks] of watchByRelay) {
     add(relay, { kinds: [KIND_WRAP], authors: [...pks].sort() });
   }
 

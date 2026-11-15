@@ -2,7 +2,7 @@ import { settleAccepted } from "@/concord/lib/settleAccepted";
 import { clockNowMs, nowSecs } from "@/lib/relayClock";
 import { useNostr } from "@nostrify/react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { citationFor, foldStoredControl, publishEdition, useControlFold, useDissolved, withControlWrite } from "@/concord/hooks/useControlPlane";
@@ -59,6 +59,10 @@ import { buildRefreshedBundleEvents, buildRevocationEvent, capBundleDescription,
 import { fetchInviteList } from "@/concord/hooks/useInvites";
 import { toast } from "@/hooks/useToast";
 import { emitWireScopes } from "@/wire/bus";
+import { useWireScopes } from "@/wire/useWireScopes";
+import { setWatched } from "@/wire/watched";
+import { accessKeyRefuted } from "@/concord/lib/delivery";
+import { walkTargets } from "@/concord/lib/rekeyWalk";
 import type { CommunityMetadata, Community, HeldRoot, PrivateChannelKey } from "@/concord/lib/types";
 
 import type { NostrEvent } from "@nostrify/nostrify";
@@ -732,34 +736,49 @@ export function useChannelRekeyWatch(community: Community | undefined) {
   const queryClient = useQueryClient();
   const handled = useRef(new Set<string>());
 
+  // Every Private Channel the walk follows (Vector `follow_rekeys`): those held from the
+  // epoch after the key, and those the fold lets this member read but no key reached yet,
+  // from the sealed head's epoch (CORD-03 §2), whose minting rotation carries every reader
+  // it let in. A keyless member a rotation carries adopts it there.
+  const targets = useMemo(() => walkTargets(community, folded, user?.pubkey, entry?.channel_cuts), [community, folded, user?.pubkey, entry?.channel_cuts]);
   // Re-keys when an adoption moves any channel forward.
-  const watchKey = (community?.privateChannels ?? [])
-    .map((ch) => `${bytesToHex(ch.id)}:${(ch.epoch + 1n).toString()}`)
-    .sort()
-    .join(",");
+  const watchKey = targets.map((t) => `${t.idHex}:${t.from}${t.key ? "" : "k"}`).sort().join(",");
+  const addresses = useMemo(() => {
+    if (!community) return new Map<string, ReturnType<typeof channelRekeyGroupKey>>();
+    // Under EVERY held root: a refound-driven channel rekey is sealed under the
+    // then-prior root (§3).
+    const roots = community.heldRoots.length > 0 ? community.heldRoots : [{ epoch: community.rootEpoch, key: community.root }];
+    const byPk = new Map<string, ReturnType<typeof channelRekeyGroupKey>>();
+    for (const t of targets) {
+      for (const r of roots) {
+        // A WINDOW of epochs, so a member who missed a rotation can still catch up.
+        for (let i = 0n; i < BigInt(CHANNEL_REKEY_LOOKAHEAD); i++) {
+          const address = channelRekeyGroupKey(r.key, t.id, t.from + i);
+          byPk.set(address.pk, address);
+        }
+      }
+    }
+    return byPk;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [community?.idHex, community?.heldRoots, watchKey]);
+
+  // Heard live, as Vector subscribes `rekey_authors`: a rotation wakes the walk at once.
+  useEffect(() => {
+    if (!community) return;
+    const owner = `chrekey:${community.idHex}`;
+    setWatched(owner, community.relays, [...addresses.keys()]);
+    return () => setWatched(owner, [], []);
+  }, [community, addresses]);
 
   const query = useQuery<OpenedEvent[]>({
     queryKey: ["concord", "chrekey", community?.idHex ?? null, watchKey],
-    enabled: Boolean(community && community.privateChannels.length > 0),
+    enabled: Boolean(community && targets.length > 0),
     staleTime: 15_000,
-    // Faster than the base watcher: a lagging cut reads as "revoking did nothing"
-    // to the moderator. The REQ is cheap.
+    // The live subscription wakes this; the poll is the backstop for a relay that drops it.
     refetchInterval: 45_000,
-    refetchIntervalInBackground: false,
+    refetchIntervalInBackground: true,
     queryFn: async ({ signal }) => {
-      // Under EVERY held root: a refound-driven channel rekey is sealed under the
-      // then-prior root (§3).
-      const roots = community!.heldRoots.length > 0 ? community!.heldRoots : [{ epoch: community!.rootEpoch, key: community!.root }];
-      const byPk = new Map<string, ReturnType<typeof channelRekeyGroupKey>>();
-      for (const ch of community!.privateChannels) {
-        for (const r of roots) {
-          // A WINDOW of epochs, so a member who missed a rotation can still catch up.
-          for (let ahead = 1n; ahead <= BigInt(CHANNEL_REKEY_LOOKAHEAD); ahead++) {
-            const address = channelRekeyGroupKey(r.key, ch.id, ch.epoch + ahead);
-            byPk.set(address.pk, address);
-          }
-        }
-      }
+      const byPk = addresses;
       const authors = [...byPk.keys()];
 
       // PER-RELAY `since` cursors, as in the base watcher.
@@ -797,10 +816,10 @@ export function useChannelRekeyWatch(community: Community | undefined) {
       // Roots collapse here (a round names scope and epoch, not its sealing root).
       const stored = await queryRekeyRounds(
         community!.idHex,
-        community!.privateChannels.flatMap((ch) =>
+        targets.flatMap((t) =>
           Array.from({ length: CHANNEL_REKEY_LOOKAHEAD }, (_, i) => ({
-            scopeIdHex: bytesToHex(ch.id),
-            newEpoch: ch.epoch + BigInt(i + 1),
+            scopeIdHex: t.idHex,
+            newEpoch: t.from + BigInt(i),
           })),
         ),
       );
@@ -810,10 +829,19 @@ export function useChannelRekeyWatch(community: Community | undefined) {
       return [...byId.values()];
     },
   });
+  const refetch = query.refetch;
+  useWireScopes((scopes) => {
+    for (const pk of addresses.keys()) {
+      if (scopes.has(`c2park:${pk}`)) {
+        void refetch();
+        return;
+      }
+    }
+  });
 
   useEffect(() => {
     if (!community || !user || !folded || !query.data || query.data.length === 0) return;
-    if (community.privateChannels.length === 0) return;
+    if (targets.length === 0) return;
     if (!entry) return; // the removal decision needs my join time
     if (dissolved) return; // death wins every race (CORD-02 §9)
     const nip44 = user.signer.nip44;
@@ -846,8 +874,8 @@ export function useChannelRekeyWatch(community: Community | undefined) {
       };
       let changed = false;
 
-      for (const ch of community.privateChannels) {
-        const chIdHex = bytesToHex(ch.id);
+      for (const ch of targets) {
+        const chIdHex = ch.idHex;
 
         // Authorized rotators only (CORD-06); key possession is never authority. EVERY
         // rotation past my epoch counts, since a missed one leaves the next address
@@ -856,7 +884,7 @@ export function useChannelRekeyWatch(community: Community | undefined) {
           .filter(
             (set) =>
               set.scopeIdHex === chIdHex &&
-              set.newEpoch > ch.epoch &&
+              set.newEpoch >= ch.from &&
               set.complete && // a missing chunk is never a removal
               !folded.banned.has(set.rotator) &&
               (set.rotator === folded.ownerHex ||
@@ -884,7 +912,9 @@ export function useChannelRekeyWatch(community: Community | undefined) {
         const epochsAscending = [...byEpoch.keys()].sort((a, b) => (a === b ? 0 : a < b ? -1 : 1));
 
         let chainEpoch = ch.epoch;
-        let chainKey = ch.key;
+        // Absent for a keyless Channel: nothing to check continuity against, so it adopts on
+        // the rotator's authority and the blob's binding alone (CORD-06 §2).
+        let chainKey: Uint8Array | undefined = ch.key;
         let adopted: { key: Uint8Array; epoch: bigint } | undefined;
         let excludedAt: bigint | undefined; // ascending scan → the newest wins
         // Every key the walk steps OFF, newest first, retained as priors (each reads
@@ -902,11 +932,13 @@ export function useChannelRekeyWatch(community: Community | undefined) {
             if (!blob) continue;
             addressedHere = true;
             // Only a rotation off the key I hold can hand me the next one.
-            if (!checkContinuity(set, chainEpoch, chainKey).ok) continue;
+            if (chainKey && !checkContinuity(set, chainEpoch, chainKey).ok) continue;
             try {
               const plainB64 = await nip44.decrypt(set.rotator, blob.wrapped);
               // Scope binds INSIDE the ciphertext, so blobs can't be spliced across channels.
               const newKey = decodeWrappedKey(base64ToBytes(plainB64), ch.id, epoch);
+              // Keyless, the seal is what authenticates a key at its epoch.
+              if (!chainKey && accessKeyRefuted(ch.sealed, chIdHex, epoch, newKey)) continue;
               // Two rotators racing to one epoch converge on the lower key.
               keyHere = keyHere ? lowerKeyWins(keyHere, newKey) : newKey;
               // Retirement is the EARLIEST honored rotation at this epoch.
@@ -917,11 +949,13 @@ export function useChannelRekeyWatch(community: Community | undefined) {
           if (cancelled) return releaseClaims();
 
           if (keyHere) {
-            steppedOver.unshift({
-              key: chainKey,
-              epoch: chainEpoch,
-              ...(publishedHereMs !== undefined ? { retiredAt: Math.floor(publishedHereMs / 1000) } : {}),
-            });
+            if (chainKey) {
+              steppedOver.unshift({
+                key: chainKey,
+                epoch: chainEpoch,
+                ...(publishedHereMs !== undefined ? { retiredAt: Math.floor(publishedHereMs / 1000) } : {}),
+              });
+            }
             adopted = { key: keyHere, epoch };
             chainEpoch = epoch;
             chainKey = keyHere;
@@ -929,6 +963,8 @@ export function useChannelRekeyWatch(community: Community | undefined) {
           }
           // Addressed to me but not off a verifiable key: neither adopt nor remove; keep polling.
           if (addressedHere) continue;
+          // Keyless and not carried: nothing held to cut, and nothing adopted yet to lose.
+          if (!chainKey) continue;
           // A rotation that could have carried my blob and didn't is the read-cut
           // (CORD-06 §2) — but only from a rotator who STRICTLY OUTRANKS me (§Authority).
           if (
@@ -952,8 +988,8 @@ export function useChannelRekeyWatch(community: Community | undefined) {
           marked.push(handle);
           const keyHex = bytesToHex(adopted.key);
           const adoptedEpoch = Number(adopted.epoch);
-          const was = heldNow.find((c) => c.id.toLowerCase() === chIdHex);
-          if (was) {
+          const was: (typeof heldNow)[number] = heldNow.find((c) => c.id.toLowerCase() === chIdHex) ?? { id: chIdHex, key: keyHex, epoch: adoptedEpoch, name: "" };
+          {
             adoptions.push({
               ...was,
               key: keyHex,

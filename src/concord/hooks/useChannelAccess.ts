@@ -10,7 +10,7 @@ import { noteRefused, refusedBefore } from "@/concord/lib/blobOnce";
 import type { NostrEvent, NPool } from "@nostrify/nostrify";
 import { useNostr } from "@nostrify/react";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { useControlFold } from "@/concord/hooks/useControlPlane";
@@ -23,6 +23,9 @@ import { adoptHistoryDeliveries, historyViewsReady, parseHistoryDelivery } from 
 import { openWrap } from "@/concord/lib/stream";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { useWireScopes } from "@/wire/useWireScopes";
+import { setWatched } from "@/wire/watched";
+import { authoritySig } from "@/concord/lib/accessDuty";
 
 /** Pages of the access plane read per relay, and their size (Vector reads 6×200). */
 const ACCESS_PAGES = 6;
@@ -98,10 +101,39 @@ export function useChannelAccess(community: Community | undefined): void {
     queryKey: ["concord", "channel-access", community?.idHex ?? null, community?.rootEpoch.toString() ?? null, owedKey],
     enabled: Boolean(community && owed.length > 0),
     staleTime: 15_000,
+    // Not paused in the background: Vector's member reads every 60 s whatever has focus.
     refetchInterval: 60_000,
-    refetchIntervalInBackground: false,
+    refetchIntervalInBackground: true,
     queryFn: ({ signal }) => readAccessPlanes(nostr, community!, owed, signal),
   });
+  const refetch = query.refetch;
+
+  // The owed planes, heard live: a holder's delivery wakes the read the moment it lands.
+  const planePks = useMemo(
+    () => (community ? owed.map((id) => accessPlane(community, hex32(id)).pk) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [community?.idHex, community?.rootEpoch, owedKey],
+  );
+  useEffect(() => {
+    if (!community) return;
+    const owner = `access:${community.idHex}`;
+    setWatched(owner, community.relays, planePks);
+    return () => setWatched(owner, [], []);
+  }, [community, planePks]);
+  useWireScopes((scopes) => {
+    if (planePks.some((pk) => scopes.has(`c2park:${pk}`))) void refetch();
+  });
+
+  // Holders deliver a few seconds after the change that entitled this member: read again
+  // then, as Vector's follow does 20 s after an authority change.
+  const authority = folded?.rankedRoster ? authoritySig(folded) : "";
+  useEffect(() => {
+    if (!authority || owed.length === 0) return;
+    void refetch();
+    const again = setTimeout(() => void refetch(), 20_000);
+    return () => clearTimeout(again);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authority, owedKey]);
 
   useEffect(() => {
     if (!community || !folded || !me || !entry || !query.data?.length) return;

@@ -30,7 +30,7 @@ import { mintCommunity } from "@/concord/lib/community";
 import { refreshChannels, rehydrateCommunity } from "@/concord/lib/communityList";
 import { refoundJournal, refoundJournalReady, writeRefoundJournal } from "@/concord/lib/refoundJournal";
 import { buildGrantEdition, buildRoleEdition, currentControlWriteGroup, sealEdition } from "@/concord/lib/control";
-import { adminRole, Permissions, type Role } from "@/concord/lib/roles";
+import { adminRole, EVERYONE_DEFAULT, Permissions, type Role } from "@/concord/lib/roles";
 import {
   baseRekeyGroupKey,
   bytesToHex,
@@ -1151,6 +1151,75 @@ describe("useChannelRekeyWatch (CORD-06 §2 channel rotations)", () => {
       );
     },
   );
+
+  describe("a Channel the fold lets me read but no key reached (Vector `follow_rekeys`)", () => {
+    /** A ranked fold letting `me` read `ch`, sealed at epoch 1 under `sealKey`. */
+    function keylessFold(ownerPk: string, me: string, ch: { id: Uint8Array }, sealKey: Uint8Array, letIn = true) {
+      const idHex = bytesToHex(ch.id);
+      const roleId = "bb".repeat(32);
+      return {
+        ...(foldedFor(ownerPk) as object),
+        rankedRoster: true,
+        roster: {
+          everyone: EVERYONE_DEFAULT,
+          roles: [{ roleId, name: "Testers", position: 1, rank: "a", permissions: 0n, scope: { kind: "server" }, color: 0 }],
+          grants: [{ member: me, roleIds: [roleId] }],
+          overwrites: letIn ? [{ scope: idHex, target: { kind: "role", id: roleId }, allow: Permissions.VIEW_CHANNEL, deny: 0n }] : [],
+        },
+        channels: new Map([[idHex, { channelIdHex: idHex, name: "", isPrivate: true, deleted: false, metadata: { name: "", private: true }, sealed: readChannelContent(sealChannelMetadata({ name: "sec", private: true }, sealKey, ch.id, 1n, undefined))!.sealed! }]]),
+      };
+    }
+
+    async function keylessRun(o: { carried: boolean; letIn?: boolean; sealWith?: "rotated" | "other" }) {
+      const { owner, me, community, ch } = setupChannel();
+      const minted = random32();
+      const wraps = await channelRotationWraps(owner, community.root, ch, minted, o.carried ? [owner.pubkey, me.pubkey] : [owner.pubkey], Date.now());
+      const relay = new FakeRelay();
+      relay.events = [...wraps];
+      h.pool = { relay: () => relay, query: async () => [] };
+      h.user = asNUser(me);
+      h.folded = keylessFold(owner.pubkey, me.pubkey, ch, o.sealWith === "other" ? random32() : minted, o.letIn ?? true);
+      h.updateList = vi.fn(async () => {});
+      const keyless: Community = { ...community, privateChannels: [] };
+      const jm = jmOf(keyless, owner.pubkey);
+      h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+      const { wrapper } = makeWrapper();
+      renderHook(() => useChannelRekeyWatch(keyless), { wrapper });
+      return { ch, minted, relay };
+    }
+
+    it("adopts the rotation minting the sealed epoch when it carries me", { timeout: 30_000 }, async () => {
+      const { ch, minted } = await keylessRun({ carried: true });
+      await waitFor(
+        () =>
+          expect(h.updateList).toHaveBeenCalledWith(
+            expect.objectContaining({ type: "refresh-channels", upsert: true, channels: [expect.objectContaining({ id: bytesToHex(ch.id), key: bytesToHex(minted), epoch: 1 })] }),
+          ),
+        { timeout: 10_000 },
+      );
+    });
+
+    it("takes nothing from a rotation that leaves me out, and records no cut for a key never held", { timeout: 30_000 }, async () => {
+      const { relay } = await keylessRun({ carried: false });
+      await waitFor(() => expect(relay.queries.length).toBeGreaterThan(0), { timeout: 10_000 });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(h.updateList).not.toHaveBeenCalled();
+    });
+
+    it("refuses a key the sealed head doesn't open", { timeout: 30_000 }, async () => {
+      const { relay } = await keylessRun({ carried: true, sealWith: "other" });
+      await waitFor(() => expect(relay.queries.length).toBeGreaterThan(0), { timeout: 10_000 });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(h.updateList).not.toHaveBeenCalled();
+    });
+
+    it("walks no Channel the fold doesn't let me read", { timeout: 30_000 }, async () => {
+      const { relay } = await keylessRun({ carried: true, letIn: false });
+      await new Promise((r) => setTimeout(r, 500));
+      expect(relay.queries).toEqual([]);
+      expect(h.updateList).not.toHaveBeenCalled();
+    });
+  });
 
   it(
     "a cut writes only the floor, so a key at that epoch adopted while the walk ran survives it",

@@ -350,16 +350,14 @@ describe("keys follow a rule change (CORD-03 §5, Vector `settle_access`, done b
     expect(duty(deny.folded, c.owner, secret, [member], carried)?.cut).toEqual([member]);
   });
 
-  it("settling a change rotates away a holder it shut out, with no evidence of how they got the key", () => {
-    // A Direct Invite leaves no trace on the access plane or in a rotation, so only the
-    // change itself says they held it (Vector `settle_access`: `was && !now`).
+  it("never cuts without evidence that they hold the current epoch: the change's actor cuts inline", () => {
+    // A cut remembered from an older Roster would repeat at every epoch it never reached,
+    // rotating the same set forever (Vector `access_duty` cuts on evidence alone).
     const { c, all, folded, secret, member } = privateChannel();
     const allow = after(c, all, [planOverwrite(folded, c.id, c.owner, new Set([secret]), secret, { kind: "member", id: member }, Permissions.VIEW_CHANNEL, 0n)]);
     const deny = after(c, allow.all, [planOverwrite(allow.folded, c.id, c.owner, new Set([secret]), secret, { kind: "member", id: member }, 0n, Permissions.VIEW_CHANNEL)]);
-    const settle = (me: string) =>
-      planChannelDuty({ control: deny.folded, me, channelIdHex: secret, epoch: 1n, candidates: [member], deliveries: [], minted: [], prior: [], settledFrom: allow.folded });
-    expect(settle(c.owner)?.cut).toEqual([member]);
-    expect(duty(deny.folded, c.owner, secret, [member]), "a periodic pass still needs evidence").toBeUndefined();
+    expect(duty(deny.folded, c.owner, secret, [member])).toBeUndefined();
+    void allow;
   });
 
   it("carries Armada's sidebar across as Categories and rank keys, and drops the old fields", () => {

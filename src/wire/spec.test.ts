@@ -152,6 +152,22 @@ describe("buildWireSpec", () => {
     expect(anon.subs[0].filters.filter((f) => f["#p"])).toEqual([]);
   });
 
+  it("holds watched rekey and access-plane addresses live, merged per relay (Vector `rekey_authors`)", () => {
+    const spec = buildWireSpec({
+      pubkey: PUBKEY,
+      groups: [],
+      dmRelays: [],
+      dmFollows: [],
+      concord: [],
+      concordWatch: [
+        { relays: ["wss://c.relay"], pks: ["rk2", "rk1"] },
+        { relays: ["wss://c.relay", "wss://d.relay"], pks: ["acc"] },
+      ],
+    });
+    expect(spec.subs.find((s) => s.relay === "wss://c.relay")!.filters).toEqual([{ kinds: [1059], authors: ["acc", "rk1", "rk2"] }]);
+    expect(spec.subs.find((s) => s.relay === "wss://d.relay")!.filters).toEqual([{ kinds: [1059], authors: ["acc"] }]);
+  });
+
   it("subscribes to Concord guestbook authors and maps guestbook pk → community", () => {
     // A Kick lands nowhere else: it publishes no control edition and rolls no
     // epoch, so without this author set the plane is only ever polled.

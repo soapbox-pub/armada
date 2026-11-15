@@ -17,7 +17,7 @@ import { runWriterDuty } from "@/concord/hooks/writerDutyRun";
 import { useChannelRekey } from "@/concord/hooks/useRekey";
 import { onDutyNow } from "@/concord/lib/dutyNow";
 import { sweepControl, sweepGuestbook } from "@/concord/lib/planeSync";
-import { accessCandidates, dutyMayAct, mintingRotations, planChannelDuty, rotationRecipients, stillShutOut, type MintingRotation } from "@/concord/lib/accessDuty";
+import { accessCandidates, authoritySig, dutyMayAct, mintingRotations, planChannelDuty, rotationRecipients, stillShutOut, type MintingRotation } from "@/concord/lib/accessDuty";
 import { cachedCommunity } from "@/concord/hooks/useCommunityList";
 import { isEntitled } from "@/concord/lib/channelAccess";
 import { withKeySettle } from "@/concord/lib/keySettle";
@@ -111,13 +111,7 @@ export async function readMintingRotations(nostr: NPool, community: Community, c
   return found;
 }
 
-/** What the access duty is judged on: the Roster, the Banlist and the live invite links. */
-export function authoritySig(folded: FoldedControl): string {
-  return JSON.stringify(
-    [folded.roster, [...folded.banned].sort(), [...folded.liveInviteLinks].sort()],
-    (_k, v) => (typeof v === "bigint" ? v.toString() : v instanceof Set ? [...v].sort() : v),
-  );
-}
+export { authoritySig } from "@/concord/lib/accessDuty";
 
 export function useAccessDuty(community: Community | undefined): void {
   const { nostr } = useNostr();
@@ -134,8 +128,14 @@ export function useAccessDuty(community: Community | undefined): void {
   const foldSig = useMemo(() => (folded?.rankedRoster ? authoritySig(folded) : ""), [folded]);
   const keySig = (community?.privateChannels ?? []).map((c) => `${bytesToHex(c.id)}@${c.epoch}`).sort().join(",");
 
+  const ready = Boolean(community && user && folded?.rankedRoster && !dissolved && user.signer.nip44);
+  const runNow = useRef<(() => void) | undefined>(undefined);
+
   useEffect(() => {
-    if (!community || !user || !folded?.rankedRoster || dissolved || !user.signer.nip44) return;
+    if (!ready || !community || !user) return;
+    // Aborted only when the Community or account goes: a pass runs to its end, as
+    // Vector's spawned duty does. Aborting on a key change cancelled the very pass whose
+    // rotation changed the keys, so it never settled and ran again.
     const controller = new AbortController();
     /** Read the Control Plane, and the Guestbook if asked, from the relays again and let the fold catch up; false on a short read. */
     const freshen = async (guestbook: boolean): Promise<boolean> => {
@@ -206,18 +206,25 @@ export function useAccessDuty(community: Community | undefined): void {
         if (again) void run();
       }
     };
-    // Every holder sees the same gap: a random wait lets the first delivery serve them all.
-    const first = setTimeout(() => void run(), 3_000 + Math.random() * 12_000);
+    runNow.current = () => void run();
     const again = setInterval(() => void run(), ACCESS_DUTY_PERIOD_MS);
     const offNow = onDutyNow(community.idHex, (before) => void run(true, before));
     return () => {
+      runNow.current = undefined;
       offNow();
       controller.abort();
-      clearTimeout(first);
       clearInterval(again);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nostr, community?.idHex, user?.pubkey, foldSig, keySig, dissolved]);
+  }, [nostr, community?.idHex, user?.pubkey, ready]);
+
+  // Every holder sees the same gap: a random wait after the Roster or the keys move lets
+  // the first delivery serve them all (Vector `authority_changed`).
+  useEffect(() => {
+    if (!ready) return;
+    const first = setTimeout(() => runNow.current?.(), 3_000 + Math.random() * 12_000);
+    return () => clearTimeout(first);
+  }, [ready, foldSig, keySig]);
 }
 
 type DutyUser = { pubkey: string; signer: Parameters<typeof sealRumor>[3] & { nip44?: { encrypt(pk: string, plain: string): Promise<string> } } };
@@ -313,7 +320,7 @@ async function runAccessDuty(
     const idHex = bytesToHex(ch.id);
     const deliveries = planes.filter((p) => p.channelIdHex === idHex).flatMap((p) => parseDelivery(p.opened) ?? []);
     const [mintedNow, prior] = rotations[i];
-    const duty = planChannelDuty({ control: folded, me: user.pubkey, channelIdHex: idHex, epoch: ch.epoch, candidates, deliveries, minted: mintedNow, prior, handled: doneFor(idHex, ch.epoch), ...(settledFrom ? { settledFrom } : {}) });
+    const duty = planChannelDuty({ control: folded, me: user.pubkey, channelIdHex: idHex, epoch: ch.epoch, candidates, deliveries, minted: mintedNow, prior, handled: doneFor(idHex, ch.epoch) });
     if (!duty) continue;
     if (duty.cut.length > 0) {
       await rotate(idHex, duty.epoch, duty.cut, []);

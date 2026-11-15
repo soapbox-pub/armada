@@ -67,6 +67,7 @@ import type { GroupKey, StreamKeyView } from "@/concord/lib/derive";
 import type { Channel, Community } from "@/concord/lib/types";
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { useWatchedAddresses } from "@/wire/watched";
 
 /** `since` floor with no cursor (fresh device); deeper history comes from hydration pulls. */
 const FRESH_LOOKBACK_SECONDS = 5 * 60;
@@ -725,6 +726,7 @@ function WireSyncInner() {
   const concord = useWireConcordChannels();
   const concordControl = useWireConcordControl();
   const concordGuestbook = useWireConcordGuestbook();
+  const concordWatch = useWatchedAddresses();
   const nip29Groups = useWireNip29Groups();
   const gitRepositories = useMemo(() => wireGitRepositories(concord), [concord]);
   const gitTicketRoots = useWireGitTicketRoots(gitRepositories);
@@ -769,10 +771,11 @@ function WireSyncInner() {
         concord,
         concordControl,
         concordGuestbook,
+        concordWatch,
         gitRepositories,
         gitTicketRoots,
       }),
-    [user?.pubkey, groups, dmRelays, dmKnownPeers, concord, concordControl, concordGuestbook, gitRepositories, gitTicketRoots],
+    [user?.pubkey, groups, dmRelays, dmKnownPeers, concord, concordControl, concordGuestbook, concordWatch, gitRepositories, gitTicketRoots],
   );
 
   // Read lazily so long-lived subs decrypt/scope with the latest keys.

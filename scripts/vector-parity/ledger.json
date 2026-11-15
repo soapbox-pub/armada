@@ -662,8 +662,8 @@
  },
  "community/v2/service.rs::settle_access::branch::everyone.is_none()": {
   "status": "covered",
-  "test": "src/concord/lib/rankedWrites.test.ts",
-  "title": "settling a change rotates away a holder it shut out"
+  "test": "src/concord/hooks/useRosterSettler.test.ts",
+  "title": "rotates each Channel a member lost, each from the list the last rotation wrote"
  },
  "community/v2/service.rs::settle_access::ok_or::v2 community not found": {
   "status": "n/a",
@@ -766,8 +766,8 @@
  },
  "community/v2/service.rs::settle_channel_keys::branch::everyone.is_some()": {
   "status": "covered",
-  "test": "src/concord/lib/rankedWrites.test.ts",
-  "title": "settling a change rotates away a holder it shut out"
+  "test": "src/concord/hooks/useRosterSettler.test.ts",
+  "title": "rotates each Channel a member lost, each from the list the last rotation wrote"
  },
  "community/v2/service.rs::require_grant_head::err::malformed member key": {
   "status": "n/a",
