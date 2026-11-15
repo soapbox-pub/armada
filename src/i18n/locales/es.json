@@ -4239,6 +4239,7 @@
   "stickerPicker.noPacksHint": "Añade paquetes de emoji a tu perfil para usar stickers",
   "stickerPicker.noResults": "No se encontraron stickers",
   "stickerPicker.noResultsHint": "Prueba con otro término de búsqueda",
+  "stickerPicker.packs": "Paquetes de stickers",
   "stickerPicker.search": "Buscar stickers",
   "stickerPicker.workspace": "Espacio de trabajo",
   "storageSettings.cachesFooter": "Vaciar una caché solo libera espacio. Armada vuelve a descargar lo que necesite.",

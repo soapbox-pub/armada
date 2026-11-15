@@ -4239,6 +4239,7 @@
   "stickerPicker.noPacksHint": "Add emoji packs to your profile to use stickers",
   "stickerPicker.noResults": "No stickers found",
   "stickerPicker.noResultsHint": "Try a different search term",
+  "stickerPicker.packs": "Sticker packs",
   "stickerPicker.search": "Search stickers",
   "stickerPicker.workspace": "Workspace",
   "storageSettings.cachesFooter": "Clearing a cache only frees space. Armada downloads what it needs again.",
