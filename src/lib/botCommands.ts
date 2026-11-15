@@ -288,6 +288,42 @@ export interface BotCommandEntry {
   command: BotCommand;
 }
 
+/** What picking a command from the `/` menu does. */
+export type BotCommandPick =
+  | { kind: "send" }
+  | { kind: "draft"; text: string }
+  | { kind: "fields" };
+
+/**
+ * As the manifest declares it: a command that takes nothing sends on pick; one whose
+ * only argument is a free-text string is just the rest of the line (the greedy tail),
+ * so it becomes a `/name ` draft; anything richer opens the typed fields.
+ */
+export function botCommandPick(command: BotCommand): BotCommandPick {
+  if (command.args.length === 0) return { kind: "send" };
+  if (command.args.length === 1 && command.args[0].type === "string") {
+    return { kind: "draft", text: `/${command.name} ` };
+  }
+  return { kind: "fields" };
+}
+
+/** A command picked from one bot's section of the `/` menu, still sitting in the draft. */
+export interface ArmedCommand {
+  /** Hex pubkey. */
+  bot: string;
+  name: string;
+}
+
+/**
+ * Whether `content` still begins with the picked command's word. Once the draft stops
+ * naming it, the pick no longer says which bot the text is for, and a later hand-typed
+ * command must not inherit its routing.
+ */
+export function draftNamesCommand(content: string, name: string): boolean {
+  const match = content.trimStart().match(/^\/(\S+)/);
+  return match?.[1].toLowerCase() === name;
+}
+
 /**
  * Match `content` against the conversation's commands. Undefined when not an
  * invocation (an unknown `/word` is ordinary chat and must still send).

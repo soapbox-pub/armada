@@ -100,7 +100,7 @@ import { recordSent } from "@/lib/shareTargets";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
 import { stripTrackingParamsInText } from "@/lib/trackingParams";
 import { processVideo } from "@/lib/video/processVideo";
-import { invocationTags, parseInvocation, usageLine, validateInvocation, type BotCommandEntry } from "@/lib/botCommands";
+import { botCommandPick, draftNamesCommand, invocationTags, parseInvocation, usageLine, validateInvocation, type ArmedCommand, type BotCommandEntry } from "@/lib/botCommands";
 import { executeSlashCommand, parseSlashCommand, resolveNpubArg, type SlashAction, type SlashCapability, type SlashCommand } from "@/lib/slashCommands";
 import { buildPollTags, KIND_POLL } from "@/lib/polls";
 import { cn } from "@/lib/utils";
@@ -572,8 +572,14 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
   // `botDmPeer`), never inferred from the roster: routing tags must not reach a
   // transport that can't hide them.
   const [botCommand, setBotCommand] = useState<BotCommandEntry | null>(null);
-  /** The bot the user picked from, so a name two bots share still routes correctly. */
-  const armedBotRef = useRef<string | undefined>(undefined);
+  /** The command the user picked from a bot's menu, so a name two bots share still routes correctly. */
+  const armedRef = useRef<ArmedCommand | undefined>(undefined);
+  // A pick routes only the draft it filled: once that stops naming the command (cleared,
+  // sent, rewritten), hand-typed text goes back to local commands first.
+  useEffect(() => {
+    const armed = armedRef.current;
+    if (armed && !draftNamesCommand(content, armed.name)) armedRef.current = undefined;
+  }, [content]);
   // Concord rides the "dm" sentinel and hands in its community's relays.
   const botRelays = useMemo(
     () => conversationRelays ?? (isDM ? undefined : [relayUrl]),
@@ -1834,29 +1840,42 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
    */
   const sendInvocation = useCallback(async (bot: string, name: string, text: string) => {
     rememberBotCommand(bot, name);
-    armedBotRef.current = undefined;
+    armedRef.current = undefined;
     await publishMessage(text, invocationTags(bot, { dm: botDmPeer !== undefined }));
   }, [publishMessage, rememberBotCommand, botDmPeer]);
 
   const sendInvocationRef = useRef(sendInvocation);
   sendInvocationRef.current = sendInvocation;
   const runBotFromMenu = useCallback((entry: BotCommandEntry) => {
-    armedBotRef.current = entry.bot;
-    // Nothing to fill in, so picking it IS the send.
-    if (entry.command.args.length === 0) {
+    const pick = botCommandPick(entry.command);
+    if (pick.kind === "send") {
+      armedRef.current = undefined;
       setContent("");
       void sendInvocationRef.current(entry.bot, entry.command.name, `/${entry.command.name}`);
       return;
     }
-    setContent("");
-    setBotCommand(entry);
+    if (pick.kind === "fields") {
+      armedRef.current = undefined;
+      setContent("");
+      setBotCommand(entry);
+      return;
+    }
+    // Free text only: a draft, as a built-in "/name " is, and Enter sends it.
+    const draft = pick.text;
+    armedRef.current = { bot: entry.bot, name: entry.command.name };
+    setContent(draft);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      el?.focus();
+      el?.setSelectionRange(draft.length, draft.length);
+    });
   }, []);
 
   /** Seed the draft with a command; the picker watches for that shape and opens itself. */
   const startCommand = useCallback((name: string) => {
     setPlusOpen(false);
     setBotCommand(null);
-    armedBotRef.current = undefined;
+    armedRef.current = undefined;
     const draft = `/${name}`;
     setContent(draft);
     requestAnimationFrame(() => {
@@ -1873,7 +1892,7 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
 
   const cancelBotCommand = useCallback(() => {
     setBotCommand(null);
-    armedBotRef.current = undefined;
+    armedRef.current = undefined;
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, []);
 
@@ -1892,14 +1911,19 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
     const text = canonicalizeLinks(content.trim());
 
     if (text.startsWith("/") && attachments.length === 0) {
-      const parsed = parseSlashCommand(text);
+      const armed = armedRef.current;
+      const invocation = parseInvocation(text, botEntries, armed?.bot);
+      // A command picked from a bot's menu names that bot, so it outranks a built-in of
+      // the same name; text typed by hand still tries local commands first.
+      const picked = invocation !== undefined && armed !== undefined
+        && invocation.bot === armed.bot && invocation.command.name === armed.name;
+      const parsed = picked ? undefined : parseSlashCommand(text);
       if (parsed) {
         await executeSlash(parsed.command, parsed.arg);
         return;
       }
 
-      // A hand-typed bot command. Local commands are matched first.
-      const invocation = parseInvocation(text, botEntries, armedBotRef.current);
+      // A bot command: hand-typed, or picked (which skipped the local lookup above).
       if (invocation) {
         // Block bad arguments (the draft would be gone for a rejected invocation).
         const error = validateInvocation(invocation.command, invocation.args);
@@ -1913,7 +1937,7 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
         }
         // Ambiguous between bots: send untagged rather than silencing one.
         if (invocation.ambiguous) {
-          armedBotRef.current = undefined;
+          armedRef.current = undefined;
           await publishMessage(text);
           return;
         }
