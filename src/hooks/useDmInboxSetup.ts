@@ -41,16 +41,19 @@ export function useDmInboxSetup() {
     && dmRelayList.isReady
     && dmRelayList.event === null;
 
+  /** Resolves with the relays it published. */
   const publish = useCallback(async () => {
     const relays = recommendedDmInbox(config);
     setPublishing(true);
     try {
       await dmRelayList.publish(relays);
       updateConfig((current) => ({ ...current, dmRelays: relays }));
+      return relays;
     } finally {
       setPublishing(false);
     }
   }, [config, dmRelayList, updateConfig]);
+
 
   const dismiss = useCallback(() => {
     setDismissed(true);

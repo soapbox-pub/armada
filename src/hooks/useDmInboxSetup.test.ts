@@ -39,6 +39,7 @@ beforeEach(() => {
   h.list.publish.mockReset().mockResolvedValue([]);
   h.updateConfig.mockReset();
   h.config.dmsDisabled = false;
+  h.config.dmRelays = [];
   h.nip44 = true;
 });
 
@@ -69,6 +70,13 @@ describe("useDmInboxSetup", () => {
     expect(h.list.publish).toHaveBeenCalledWith(expected);
     const next = h.updateConfig.mock.calls[0][0](h.config);
     expect(next).toMatchObject({ dmRelays: expected });
+  });
+
+  it("resolves with the relays it published", async () => {
+    const { result } = renderHook(() => useDmInboxSetup());
+    let published: string[] | undefined;
+    await act(async () => { published = await result.current.publish(); });
+    expect(published).toEqual(h.list.publish.mock.calls[0][0]);
   });
 
   it("does not touch config when the publish is refused", async () => {
