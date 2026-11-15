@@ -131,6 +131,8 @@ export class Nip46Transport {
   private backgroundedAt: number | undefined;
   private appStateHandle?: { remove: () => Promise<void> };
   private reopenListeners = new Set<(url: string) => void>();
+  private resumeListeners = new Set<() => void>();
+  private onVisibility?: () => void;
 
   constructor(relays: string[]) {
     this.conns = relays.map(
@@ -146,6 +148,7 @@ export class Nip46Transport {
           this.backgroundedAt = Date.now();
           return;
         }
+        for (const fn of this.resumeListeners) fn();
         const away = this.backgroundedAt === undefined ? 0 : Date.now() - this.backgroundedAt;
         this.backgroundedAt = undefined;
         if (away < RESUME_RECYCLE_MS) return;
@@ -154,7 +157,20 @@ export class Nip46Transport {
       }).then((handle) => {
         this.appStateHandle = handle;
       });
+    } else if (typeof document !== "undefined") {
+      this.onVisibility = () => {
+        if (document.visibilityState === "visible") for (const fn of this.resumeListeners) fn();
+      };
+      document.addEventListener("visibilitychange", this.onVisibility);
     }
+  }
+
+  /** Called when the user returns to the app, typically from their signer app. */
+  onResume(fn: () => void): () => void {
+    this.resumeListeners.add(fn);
+    return () => {
+      this.resumeListeners.delete(fn);
+    };
   }
 
   private route(url: string, data: string): void {
@@ -312,6 +328,8 @@ export class Nip46Transport {
     for (const p of pending) p.reject(new Error("transport closed"));
     void this.appStateHandle?.remove();
     this.appStateHandle = undefined;
+    if (this.onVisibility) document.removeEventListener("visibilitychange", this.onVisibility);
+    this.onVisibility = undefined;
   }
 
   /** Whether any bunker relay socket is OPEN (drives "approve in signer" vs "unreachable"). */

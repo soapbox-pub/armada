@@ -16,6 +16,14 @@
  * new id makes such a signer look again. A signature waits minutes, since the
  * user may have to go approve it.
  *
+ * Returning to the app is the exception: a request still unanswered
+ * `RESUME_REFRESH_MS` after the user comes back (from the signer, usually) is
+ * re-signed at once. A signer that was suspended answers within a second of
+ * waking, so the wait spares one that merely has its answer in flight; past it,
+ * the signer most likely dropped its socket and resubscribed with `since: now`
+ * (nak does), which filters out every copy carrying the first publish's
+ * created_at, and relays dedupe a byte-identical copy anyway.
+ *
  * Every copy can cost the signer a wake-up (a push, for Clave), so copies back
  * off, in-flight RPCs are capped, and user-visible work goes ahead of decrypts.
  */
@@ -58,6 +66,9 @@ const NIP46_KIND = 24133;
 /** Re-publish gaps double from `attemptTimeoutMs` up to this multiple of it. */
 const MAX_GAP_FACTOR = 4;
 
+/** How long after the user returns an unanswered request waits before a re-signed copy. */
+const RESUME_REFRESH_MS = 5_000;
+
 /** Bulk work that may wait behind anything the user is looking at. */
 const BACKGROUND_METHODS = new Set(["nip04_decrypt", "nip44_decrypt"]);
 
@@ -99,9 +110,10 @@ export class Nip46Signer implements NostrSigner, BtcSigner {
   /** RPCs waiting for a slot: foreground ones ahead of background ones. */
   private readonly waiting: { start: () => void; background: boolean }[] = [];
   private readonly pending = new Map<string, PendingRpc>();
-  /** Re-publish of each unanswered request, by request id. */
-  private readonly republish = new Map<string, (relay?: string) => Promise<void>>();
+  /** Re-publish of each unanswered request, by request id; `fresh` re-signs it. */
+  private readonly republish = new Map<string, (relay?: string, fresh?: boolean) => Promise<void>>();
   private readonly abort = new AbortController();
+  private resumeTimer: ReturnType<typeof setTimeout> | undefined;
   private clientPubkey: string | undefined;
 
   /** Resolves once the persistent response subscription is installed. */
@@ -119,6 +131,27 @@ export class Nip46Signer implements NostrSigner, BtcSigner {
     // A copy sent on a socket that then dropped never reached the relay.
     const off = this.transport.onReopen?.((relay) => this.resendPending(relay));
     if (off) this.abort.signal.addEventListener("abort", off, { once: true });
+    const offResume = this.transport.onResume?.(() => this.refreshAfterResume());
+    if (offResume) this.abort.signal.addEventListener("abort", offResume, { once: true });
+  }
+
+  /**
+   * Re-sign every request that was already unanswered when the user came back
+   * and still is `RESUME_REFRESH_MS` later. Ones sent after the return are left
+   * alone: a fresh copy of those could only prompt a manual signer twice.
+   */
+  private refreshAfterResume(): void {
+    const outstanding = [...this.republish.keys()];
+    if (outstanding.length === 0) return;
+    clearTimeout(this.resumeTimer);
+    this.resumeTimer = setTimeout(() => {
+      for (const id of outstanding) {
+        const publish = this.republish.get(id);
+        if (!publish) continue;
+        logSync("nip46", `… ${id.slice(0, 8)} unanswered ${RESUME_REFRESH_MS}ms after resume, re-signing`);
+        void publish(undefined, true).catch(() => undefined);
+      }
+    }, RESUME_REFRESH_MS);
   }
 
   /** Re-publish every unanswered request now (same ids, so no duplicate prompts). */
@@ -223,9 +256,9 @@ export class Nip46Signer implements NostrSigner, BtcSigner {
         created_at: nowSecs(),
         tags: [["p", this.bunkerPubkey]],
       }, await this.clientSigner.getPublicKey()));
-    const publish = async (relay?: string) => {
+    const publish = async (relay?: string, fresh = false) => {
       copies++;
-      if (!signed || Date.now() - signed.at >= refreshMs) {
+      if (!signed || fresh || Date.now() - signed.at >= refreshMs) {
         const at = Date.now();
         const event = sign().catch((err: unknown) => {
           if (signed?.at === at) signed = undefined;

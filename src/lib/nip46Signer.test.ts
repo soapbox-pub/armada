@@ -20,6 +20,7 @@ function makeFakeTransport() {
   const publishedTo: (string | undefined)[] = [];
   const listeners = new Set<(event: NostrEvent) => void>();
   const reopenListeners = new Set<(url: string) => void>();
+  const resumeListeners = new Set<() => void>();
   let onPublish: ((event: NostrEvent) => void) | undefined;
 
   const transport = {
@@ -33,6 +34,15 @@ function makeFakeTransport() {
     },
     reopen(url: string) {
       for (const fn of reopenListeners) fn(url);
+    },
+    onResume(fn: () => void) {
+      resumeListeners.add(fn);
+      return () => {
+        resumeListeners.delete(fn);
+      };
+    },
+    resume() {
+      for (const fn of resumeListeners) fn();
     },
     emit(event: NostrEvent) {
       for (const l of [...listeners]) l(event);
@@ -402,6 +412,86 @@ describe("Nip46Signer", () => {
     // ...and the signer that didn't miss it saw nothing new.
     expect(prompts).toBe(1);
     expect(pendingSize(signer)).toBe(0);
+  });
+
+  it("re-signs a request still unanswered a few seconds after the user returns", async () => {
+    // A signer that resubscribed with `since: now` never sees a copy dated at the first publish.
+    const transport = makeFakeTransport();
+    let answer: (() => void) | undefined;
+    attachBunker(transport, (req, event) =>
+      event.id === transport.published[0].id
+        ? Promise.resolve(null)
+        : new Promise((r) => (answer = () => r({ result: JSON.stringify(finalizeEvent(JSON.parse(req.params[0]), bunkerSk)) }))),
+    );
+    const signer = makeSigner(transport, { attemptTimeoutMs: 60_000, signTimeoutMs: 120_000 });
+
+    vi.useFakeTimers();
+    try {
+      const pending = signer.signEvent({ kind: 20013, content: "", tags: [], created_at: 1 });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(transport.published).toHaveLength(1);
+
+      transport.resume();
+      await vi.advanceTimersByTimeAsync(4_900);
+      expect(transport.published).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(transport.published).toHaveLength(2);
+      expect(transport.published[1].id).not.toBe(transport.published[0].id);
+      expect(new Set(await publishedRequestIds(transport)).size).toBe(1);
+
+      answer?.();
+      await expect(pending).resolves.toMatchObject({ kind: 20013 });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(pendingSize(signer)).toBe(0);
+  });
+
+  it("sends no re-signed copy when the answer lands within the grace after return", async () => {
+    // Amber after a once-only approval: a new event would prompt again.
+    const transport = makeFakeTransport();
+    let answer: (() => void) | undefined;
+    attachBunker(transport, (req) =>
+      new Promise((r) => (answer = () => r({ result: JSON.stringify(finalizeEvent(JSON.parse(req.params[0]), bunkerSk)) }))),
+    );
+    const signer = makeSigner(transport, { attemptTimeoutMs: 60_000, signTimeoutMs: 120_000 });
+
+    vi.useFakeTimers();
+    try {
+      const pending = signer.signEvent({ kind: 20013, content: "", tags: [], created_at: 1 });
+      await vi.advanceTimersByTimeAsync(10);
+      transport.resume();
+      await vi.advanceTimersByTimeAsync(300);
+      answer?.();
+      await expect(pending).resolves.toMatchObject({ kind: 20013 });
+      await vi.advanceTimersByTimeAsync(10_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(transport.published).toHaveLength(1);
+  });
+
+  it("does not re-sign a request first sent after the user returned", async () => {
+    const transport = makeFakeTransport();
+    attachBunker(transport, async () => null);
+    const signer = makeSigner(transport, { attemptTimeoutMs: 60_000, signTimeoutMs: 120_000 });
+
+    vi.useFakeTimers();
+    try {
+      const first = signer.signEvent({ kind: 20013, content: "a", tags: [], created_at: 1 }).catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(10);
+      transport.resume();
+      const second = signer.signEvent({ kind: 20013, content: "b", tags: [], created_at: 1 }).catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(5_100);
+      // The first request was re-signed; the second, sent after the return, was not.
+      expect(transport.published).toHaveLength(3);
+      const ids = await publishedRequestIds(transport);
+      expect(ids[2]).toBe(ids[0]);
+      await vi.advanceTimersByTimeAsync(130_000);
+      await Promise.all([first, second]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails after all attempts when the bunker stays silent", async () => {
