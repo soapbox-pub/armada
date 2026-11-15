@@ -44,6 +44,16 @@ describe("StickerPicker", () => {
     expect(screen.getByRole("group", { name: "Cats" })).toBeInTheDocument();
   });
 
+  it("sizes columns by sticker width, so a wide panel gets more of them and a small pack stays small", () => {
+    render(<StickerPicker customEmojis={palette} onSelect={vi.fn()} autoFocus={false} />);
+
+    for (const name of ["Custom", "Cats", "Dogs"]) {
+      const grid = within(screen.getByRole("group", { name })).getAllByRole("button")[0].parentElement;
+      expect(grid?.className).toContain("grid-cols-[repeat(auto-fill,minmax(80px,1fr))]");
+      expect(grid?.className).not.toContain("grid-cols-4");
+    }
+  });
+
   it("sends the sticker that was clicked", () => {
     const onSelect = vi.fn();
     render(<StickerPicker customEmojis={palette} onSelect={onSelect} autoFocus={false} />);

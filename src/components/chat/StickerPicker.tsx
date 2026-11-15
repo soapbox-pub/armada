@@ -91,7 +91,7 @@ function StickerSection({ section, onSelect }: { section: CustomEmojiSection; on
       <div id={headingId} className="pb-1.5 text-2xs font-medium text-muted-foreground uppercase tracking-wider truncate">
         {name}
       </div>
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(80px,1fr))] gap-1.5">
         {section.emojis.map((emoji) => (
           <button
             key={emoji.shortcode}
