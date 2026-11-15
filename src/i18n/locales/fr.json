@@ -1107,7 +1107,6 @@
   "concordPage.keys.notRotated": "Clés du salon non renouvelées",
   "concordPage.keys.notRotatedDescription": "Cette personne a perdu l’accès à un salon privé, mais renouveler sa clé nécessite l’autorisation Gérer les salons. Demandez à un administrateur de la renouveler.",
   "concordPage.keys.rotationFailed": "Échec du renouvellement de la clé du salon",
-  "concordPage.keys.rotationFailedDescription": "Cette personne pourra peut-être encore lire #{channel} jusqu’à ce qu’il réussisse.",
   "concordPage.keys.rotationFailedDetail": "Cette personne pourra peut-être encore lire #{channel} jusqu’à ce qu’il réussisse : {error}",
   "concordPage.keys.sendFailed": "Impossible d’envoyer les clés du salon",
   "concordPage.keys.sendFailedDescription": "Le rôle a été attribué, mais la remise de ses clés de salons privés a échoué. Désactivez puis réactivez le rôle pour réessayer.",

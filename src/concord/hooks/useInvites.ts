@@ -11,7 +11,7 @@ import { useAppContext } from "@/hooks/useAppContext";
 import { selfStateRelays } from "@/contexts/AppContext";
 import { buildRegistryEdition } from "@/concord/lib/control";
 import { vendableChannels, type VendAudience } from "@/concord/lib/channelAccess";
-import { isAuthorized, Permissions } from "@/concord/lib/roles";
+import { isAuthorized, Permissions, type CommunityRoles } from "@/concord/lib/roles";
 import { bytesToHex, grantLocator, hexToBytes, inviteLinksLocator, hex32 } from "@/concord/lib/derive";
 import {
   buildDirectInviteRumor,
@@ -468,10 +468,12 @@ export function useInviteActions(community: Community | undefined) {
       label?: string;
       /** Narrow further (a role-grant vend hands over just that role's channels). */
       onlyChannelIdHexes?: ReadonlySet<string>;
+      /** The snapshot to vend from, when the caller holds a fresher one than the render. */
+      source?: Community;
     },
   ): InviteBundle => {
     if (!user) throw new Error(t({ id: "useInvites.notReady", defaultMessage: "Not ready." }));
-    const src = bundleSource();
+    const src = opts?.source ?? bundleSource();
     if (!src) throw new Error(t({ id: "useInvites.notReady", defaultMessage: "Not ready." }));
     const vendable = vendableChannels(src.privateChannels, audience, {
       only: opts?.onlyChannelIdHexes,
@@ -742,9 +744,14 @@ export function useInviteActions(community: Community | undefined) {
        * grant-driven vend would otherwise find the recipient unentitled.
        */
       entitlementOverlay?: { withRoleIds?: string[]; withoutRoleIds?: string[] };
+      /** A role change's settle vends from the state it just wrote, not the render's. */
+      source?: Community;
+      roster?: CommunityRoles;
+      /** Also published here: a member's catch-up goes to the Community's relays, as Vector's does. */
+      alsoRelays?: string[];
     }
   >({
-    mutationFn: async ({ recipientPubkey, expiresAtMs, onlyChannelIdHexes, entitlementOverlay }) => {
+    mutationFn: async ({ recipientPubkey, expiresAtMs, onlyChannelIdHexes, entitlementOverlay, source, roster, alsoRelays }) => {
       if (!user || !community) throw new Error(t({ id: "useInvites.notReady", defaultMessage: "Not ready." }));
       if (!user.signer.nip44) throw new Error(t({ id: "useInvites.signerCantSendDirect", defaultMessage: "This signer can't send direct invites (NIP-44 unsupported)." }));
 
@@ -752,12 +759,12 @@ export function useInviteActions(community: Community | undefined) {
       const bundle = buildBundle(
         {
           kind: "member",
-          roster: folded?.roster,
+          roster: roster ?? folded?.roster,
           ownerHex: folded?.ownerHex ?? community.owner,
           memberHex: recipientPubkey,
           overlay: entitlementOverlay,
         },
-        { expiresAtMs, onlyChannelIdHexes },
+        { expiresAtMs, onlyChannelIdHexes, ...(source ? { source } : {}) },
       );
       const rumor = buildDirectInviteRumor(bundle, user.pubkey);
       const seal = await sealDirectInvite(rumor, recipientPubkey, user.signer);
@@ -768,7 +775,7 @@ export function useInviteActions(community: Community | undefined) {
       const inbox = await recipientInboxRelays(nostr, recipientPubkey);
       // A FAILED lookup isn't "no list"; falling back to stock could misdeliver.
       if (inbox === null) throw new Error(t({ id: "useInvites.networkUnreachable", defaultMessage: "Couldn't reach the network to send the invite. Please try again." }));
-      const relays = inviteDeliveryRelays(inbox);
+      const relays = [...new Set([...inviteDeliveryRelays(inbox), ...(alsoRelays ?? [])])];
       await publishToAnyRelay(nostr, relays, wrap, t({ id: "useInvites.noRelayAcceptedInvite", defaultMessage: "No relay accepted the invite." }));
     },
   });

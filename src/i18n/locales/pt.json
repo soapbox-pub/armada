@@ -1107,7 +1107,6 @@
   "concordPage.keys.notRotated": "Chaves do canal não trocadas",
   "concordPage.keys.notRotatedDescription": "Essa pessoa perdeu o acesso a um canal privado, mas trocar a chave dele exige a permissão Gerenciar canais. Peça a um administrador para trocá-la.",
   "concordPage.keys.rotationFailed": "Falha na troca da chave do canal",
-  "concordPage.keys.rotationFailedDescription": "Essa pessoa ainda pode ler #{channel} até a troca dar certo.",
   "concordPage.keys.rotationFailedDetail": "Essa pessoa ainda pode ler #{channel} até a troca dar certo: {error}",
   "concordPage.keys.sendFailed": "Não foi possível enviar as chaves do canal",
   "concordPage.keys.sendFailedDescription": "O cargo foi atribuído, mas a entrega das chaves dos seus canais privados falhou. Desative e reative o cargo para tentar de novo.",

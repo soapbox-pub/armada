@@ -136,9 +136,20 @@ describe("buildWireSpec", () => {
     });
 
     expect(spec.subs).toHaveLength(1);
-    expect(spec.subs[0].filters).toEqual([{ kinds: [1059], authors: ["ctlA1", "ctlA2"] }]);
+    expect(spec.subs[0].filters).toEqual([{ kinds: [1059], "#p": [PUBKEY], "#k": ["3313"] }, { kinds: [1059], authors: ["ctlA1", "ctlA2"] }]);
     expect(spec.concordCtlByPk.get("ctlA1")?.idHex).toBe("a".repeat(64));
     expect(spec.concordCtlByPk.get("ctlA2")?.idHex).toBe("a".repeat(64));
+  });
+
+  it("listens for Direct Invites on each Community's relays, where a role change's catch-up is sent", () => {
+    const control = (relays: string[]) => [{ relays, idHex: "a".repeat(64), groups: [{ pk: "ctl" } as unknown as GroupKey], refounded: false }];
+    const spec = buildWireSpec({ pubkey: PUBKEY, groups: [], dmRelays: ["wss://dm.relay"], dmFollows: [], concord: [], concordControl: control(["wss://c.relay", "wss://dm.relay"]) });
+    const on = (url: string) => spec.subs.find((s) => s.relay === url)!.filters;
+    expect(on("wss://c.relay")).toContainEqual({ kinds: [1059], "#p": [PUBKEY], "#k": ["3313"] });
+    // The inbox relay's wide wrap filter already carries them.
+    expect(on("wss://dm.relay").filter((f) => f["#k"])).toEqual([]);
+    const anon = buildWireSpec({ groups: [], dmRelays: [], dmFollows: [], concord: [], concordControl: control(["wss://c.relay"]) });
+    expect(anon.subs[0].filters.filter((f) => f["#p"])).toEqual([]);
   });
 
   it("subscribes to Concord guestbook authors and maps guestbook pk → community", () => {
@@ -194,6 +205,7 @@ describe("buildWireSpec", () => {
     // Three author sets, three filters — the planes decode with different keys
     // and wake different readers, so they must not be merged into one.
     expect(spec.subs[0].filters).toEqual([
+      { kinds: [1059], "#p": [PUBKEY], "#k": ["3313"] },
       { kinds: [1059], authors: ["pkA1"] },
       { kinds: [1059], authors: ["ctlA1"] },
       { kinds: [1059], authors: ["gbA1"] },

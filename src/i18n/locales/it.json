@@ -1107,7 +1107,6 @@
   "concordPage.keys.notRotated": "Chiavi del canale non ruotate",
   "concordPage.keys.notRotatedDescription": "Ha perso l’accesso a un canale privato, ma per ruotarne la chiave serve il permesso Gestisci canali. Chiedi a un amministratore di ruotarla.",
   "concordPage.keys.rotationFailed": "Rotazione della chiave del canale non riuscita",
-  "concordPage.keys.rotationFailedDescription": "Potrebbe ancora leggere #{channel} finché non riesce.",
   "concordPage.keys.rotationFailedDetail": "Potrebbe ancora leggere #{channel} finché non riesce: {error}",
   "concordPage.keys.sendFailed": "Impossibile inviare le chiavi del canale",
   "concordPage.keys.sendFailedDescription": "Il ruolo è stato assegnato, ma la consegna delle sue chiavi dei canali privati non è riuscita. Disattiva e riattiva il ruolo per riprovare.",

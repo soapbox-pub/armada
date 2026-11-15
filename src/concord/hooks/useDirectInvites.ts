@@ -104,6 +104,8 @@ export async function sweepInviteInbox(
   nostr: ReturnType<typeof useNostr>["nostr"],
   user: InviteUser,
   signal?: AbortSignal,
+  /** The joined Communities' relays, where a role change's catch-up is sent (Vector `settle_access`). */
+  communityRelays: readonly string[] = [],
 ): Promise<boolean> {
   const pubkey = user.pubkey;
   // No consent: nothing fetched could be opened or kept, and the cursor stays
@@ -123,7 +125,7 @@ export async function sweepInviteInbox(
   // `#p` REQ — so skip this round.
   const myInbox = await recipientInboxRelays(nostr, pubkey);
   if (myInbox === null) return false;
-  const scanRelays = inviteDeliveryRelays(myInbox);
+  const scanRelays = [...new Set([...inviteDeliveryRelays(myInbox), ...communityRelays])];
   const timeout = AbortSignal.timeout(8000);
   const perRelay = await Promise.all(
     scanRelays.map((url) =>
@@ -290,6 +292,7 @@ export function useDirectInvites() {
   const listReady = !decryptFailed && (list !== undefined || listFetched);
 
   const filter: ParkFilter = { known, tombstonedAt, heldByCommunity };
+  const communityRelays = list ? [...new Set(liveEntries(list.list).flatMap((e) => e.current.relays ?? []))] : [];
   const queryKey = [
     "concord",
     "direct-invites",
@@ -324,7 +327,7 @@ export function useDirectInvites() {
       const pubkey = user!.pubkey;
 
       // Un-awaited network sweep; catches invites that arrived while the wire was deaf.
-      void sweepInviteInbox(nostr, user!, signal)
+      void sweepInviteInbox(nostr, user!, signal, communityRelays)
         .then((changed) => (changed ? readParkedInvites(pubkey, filter) : undefined))
         .then((rows) => {
           if (rows) queryClient.setQueryData<ParkedInvite[]>(queryKey, rows);

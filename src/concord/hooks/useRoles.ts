@@ -155,7 +155,8 @@ export function useRoles(community: Community | undefined) {
     onSuccess: invalidate,
   });
 
-  const setMemberRoles = useMutation<void, Error, { member: string; roleIds: string[] }>({
+  /** Resolves to the fold the Grant was planned on and the roles it set: what a key settle moves from. */
+  const setMemberRoles = useMutation<{ before: FoldedControl; roleIds: string[] }, Error, { member: string; roleIds: string[] }>({
     mutationFn: ({ member, roleIds: asked }) => write(async (folded) => {
       let roleIds = asked;
       if (!user || !community) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
@@ -193,6 +194,7 @@ export function useRoles(community: Community | undefined) {
           authority: citationFor(community, folded, user.pubkey),
         }),
       );
+      return { before: folded, roleIds };
     }),
     onSuccess: invalidate,
   });

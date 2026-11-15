@@ -1107,7 +1107,6 @@
   "concordPage.keys.notRotated": "Channel keys not rotated",
   "concordPage.keys.notRotatedDescription": "They lost access to a private channel, but rotating its key needs the Manage channels permission. Ask an admin to rotate it.",
   "concordPage.keys.rotationFailed": "Channel key rotation failed",
-  "concordPage.keys.rotationFailedDescription": "They may still read #{channel} until it succeeds.",
   "concordPage.keys.rotationFailedDetail": "They may still read #{channel} until it succeeds: {error}",
   "concordPage.keys.sendFailed": "Couldn't send the channel keys",
   "concordPage.keys.sendFailedDescription": "The role was granted, but delivering its private channel keys failed. Toggle the role off and on to retry.",

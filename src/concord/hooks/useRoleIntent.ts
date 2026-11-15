@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** What a role toggle publishes: the member's complete new role set. */
-export type PublishRoles = (args: { member: string; roleIds: string[] }) => Promise<unknown>;
+export type PublishRoles<R = unknown> = (args: { member: string; roleIds: string[] }) => Promise<R>;
 
 const keyOf = (member: string, roleId: string) => `${member}:${roleId}`;
 
@@ -12,9 +12,9 @@ const keyOf = (member: string, roleId: string) => `${member}:${roleId}`;
  * changes made elsewhere take over. Repeat toggles in flight are ignored (they'd
  * double-publish and, for gated channels, start two rotations).
  */
-export function useRoleIntent(
+export function useRoleIntent<R = unknown>(
   memberRoleIds: Record<string, string[] | undefined>,
-  publish: PublishRoles,
+  publish: PublishRoles<R>,
 ) {
   // A ref because intent is read and written in one synchronous toggle; mirrored
   // into state only for the UI's pending flags.
@@ -41,7 +41,8 @@ export function useRoleIntent(
   );
 
   const toggle = useCallback(
-    async (member: string, roleId: string, on: boolean): Promise<string[] | undefined> => {
+    /** Resolves to the set published and what `publish` returned, or undefined for a repeat in flight. */
+    async (member: string, roleId: string, on: boolean): Promise<{ roleIds: string[]; published: R } | undefined> => {
       const k = keyOf(member, roleId);
       if (inFlight.current.has(k)) return undefined;
 
@@ -59,8 +60,8 @@ export function useRoleIntent(
       inFlight.current.add(k);
       syncPending();
       try {
-        await publish({ member, roleIds });
-        return roleIds;
+        const published = await publish({ member, roleIds });
+        return { roleIds, published };
       } catch (e) {
         // Roll back to the set that was true before this toggle, not the lagging fold.
         if (hadIntent) intent.current.set(member, base);

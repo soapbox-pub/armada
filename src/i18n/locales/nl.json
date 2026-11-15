@@ -1107,7 +1107,6 @@
   "concordPage.keys.notRotated": "Kanaalsleutels niet geroteerd",
   "concordPage.keys.notRotatedDescription": "Deze persoon heeft de toegang tot een privékanaal verloren, maar voor het roteren van de sleutel is de machtiging Kanalen beheren nodig. Vraag een beheerder om hem te roteren.",
   "concordPage.keys.rotationFailed": "Rotatie van kanaalsleutel mislukt",
-  "concordPage.keys.rotationFailedDescription": "Deze persoon kan #{channel} mogelijk nog lezen tot het lukt.",
   "concordPage.keys.rotationFailedDetail": "Deze persoon kan #{channel} mogelijk nog lezen tot het lukt: {error}",
   "concordPage.keys.sendFailed": "Kan de kanaalsleutels niet verzenden",
   "concordPage.keys.sendFailedDescription": "De rol is toegekend, maar het bezorgen van de bijbehorende privékanaalsleutels is mislukt. Zet de rol uit en weer aan om het opnieuw te proberen.",

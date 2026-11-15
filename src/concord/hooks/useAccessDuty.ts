@@ -17,7 +17,10 @@ import { runWriterDuty } from "@/concord/hooks/writerDutyRun";
 import { useChannelRekey } from "@/concord/hooks/useRekey";
 import { onDutyNow } from "@/concord/lib/dutyNow";
 import { sweepControl, sweepGuestbook } from "@/concord/lib/planeSync";
-import { accessCandidates, mintingRotations, planChannelDuty, rotationRecipients, type MintingRotation } from "@/concord/lib/accessDuty";
+import { accessCandidates, dutyMayAct, mintingRotations, planChannelDuty, rotationRecipients, stillShutOut, type MintingRotation } from "@/concord/lib/accessDuty";
+import { cachedCommunity } from "@/concord/hooks/useCommunityList";
+import { isEntitled } from "@/concord/lib/channelAccess";
+import { withKeySettle } from "@/concord/lib/keySettle";
 import { resealedChannelContent } from "@/concord/lib/channelSeal";
 import { buildChannelContentEdition, type FoldedControl } from "@/concord/lib/control";
 import { settleBook } from "@/concord/lib/owedSettle";
@@ -41,9 +44,13 @@ const running = new Set<string>();
 /** Members delivered to this session, by `community:channel:epoch:member` (Vector `AccessLedger`). */
 const delivered = new Set<string>();
 
+/** Complete rotations by `community:channel:epoch`: a complete rotation never changes (Vector `MintedRotations`). */
+const minted = new Map<string, MintingRotation[]>();
+
 /** Forget whom this session delivered to, so the next account starts afresh. */
 export function clearAccessDutyMemory(): void {
   delivered.clear();
+  minted.clear();
 }
 
 /** Rekey wraps per page, and pages read, at most (Vector `REKEY_PAGE`, `REKEY_MAX_PAGES`). */
@@ -79,6 +86,9 @@ async function pageRekeyWraps(nostr: NPool, url: string, authors: string[], sign
 /** The complete rotations minting a Channel's `epoch`, under every held root. */
 export async function readMintingRotations(nostr: NPool, community: Community, channelId: Uint8Array, epoch: bigint, signal: AbortSignal): Promise<MintingRotation[]> {
   if (epoch <= 0n) return [];
+  const cacheKey = `${community.idHex}:${bytesToHex(channelId)}:${epoch}`;
+  const held = minted.get(cacheKey);
+  if (held) return held;
   const roots = community.heldRoots.length > 0 ? community.heldRoots : [{ epoch: community.rootEpoch, key: community.root }];
   const addresses = new Map(roots.map((r) => {
     const a = channelRekeyGroupKey(r.key, channelId, epoch);
@@ -96,7 +106,9 @@ export async function readMintingRotations(nostr: NPool, community: Community, c
       return [];
     }
   });
-  return mintingRotations(groupRotations(parsed), bytesToHex(channelId), epoch);
+  const found = mintingRotations(groupRotations(parsed), bytesToHex(channelId), epoch);
+  if (found.length > 0) minted.set(cacheKey, found);
+  return found;
 }
 
 /** What the access duty is judged on: the Roster, the Banlist and the live invite links. */
@@ -160,10 +172,17 @@ export function useAccessDuty(community: Community | undefined): void {
           failedAny = true;
           logSync("access", `${now.community!.idHex.slice(0, 8)}: ${what} failed: ${err instanceof Error ? err.message : String(err)}`);
         };
-        // A rotation from an epoch that moved since it was judged would fork the Channel (Vector `judged`).
-        const epochNow = (id: string) => latest.current.community?.privateChannels.find((c) => bytesToHex(c.id) === id)?.epoch;
+        // A rotation from an epoch that moved since it was judged would fork the Channel (Vector `judged`),
+        // so the epoch is read from the list as written, which a render lags.
+        const dutyNow = {
+          community: () => cachedCommunity(queryClient, user.pubkey, idHex) ?? latest.current.community,
+          stored: async () => {
+            const c = latest.current.community;
+            return c ? foldStoredControl(c) : undefined;
+          },
+        };
         // One half's failure never stops the other: the writer duty runs whatever the keys did.
-        const judged = await runAccessDuty(nostr, now.community, now.folded, user, now.coalesced, now.canRekeyChannel ? now.rekeyChannel : undefined, epochNow, controller.signal, owed.from).catch(failed("access duty"));
+        const judged = await runAccessDuty(nostr, now.community, now.folded, user, now.coalesced, now.canRekeyChannel ? now.rekeyChannel : undefined, dutyNow, controller.signal, owed.from).catch(failed("access duty"));
         await runWriterDuty({
           nostr,
           user,
@@ -202,7 +221,45 @@ export function useAccessDuty(community: Community | undefined): void {
 }
 
 type DutyUser = { pubkey: string; signer: Parameters<typeof sealRumor>[3] & { nip44?: { encrypt(pk: string, plain: string): Promise<string> } } };
-type Rekey = (o: { channelIdHex: string; keepRecipients: string[]; removedTargets: string[] }) => Promise<void>;
+type Rekey = (o: { channelIdHex: string; keepRecipients: string[]; removedTargets: string[]; community?: Community }) => Promise<void>;
+
+/**
+ * Deliver `ch`'s key on its access plane to `recipients`, with every earlier epoch this
+ * device can read as read-only history (CORD-03 §5, Vector `deliver_access` + `deliver_history`).
+ */
+export async function deliverKeysOnPlane(nostr: NPool, community: Community, ch: PrivateChannelKey, recipients: readonly string[], user: DutyUser): Promise<number> {
+  const nip44 = user.signer.nip44;
+  if (!nip44) throw new Error("this signer can't encrypt a delivery");
+  await historyViewsReady();
+  const idHex = bytesToHex(ch.id);
+  const atSecs = Math.floor(clockNowMs() / 1000);
+  const views = [
+    ...(ch.priors ?? []).filter((p) => p.epoch < ch.epoch).map((p) => {
+      const g = channelGroupKey(p.key, ch.id, p.epoch);
+      return { epoch: p.epoch, view: { address: g.pk, convKey: bytesToHex(g.convKey) } };
+    }),
+    ...heldHistoryViews(community.idHex, idHex).filter((v) => v.epoch < ch.epoch && !(ch.priors ?? []).some((p) => p.epoch === v.epoch)),
+  ];
+  const encrypt = (pk: string, plain: string) => nip44.encrypt(pk, plain);
+  const rumors = [
+    ...(await buildAccessDeliveries(user.pubkey, encrypt, { scopeIdHex: idHex, epoch: ch.epoch, key: ch.key, recipients: [...recipients], atSecs })),
+    ...(await buildHistoryDeliveries(user.pubkey, encrypt, { channelIdHex: idHex, views, recipients: [...recipients], atSecs })),
+  ];
+  const plane = accessPlane(community, ch.id);
+  for (const rumor of rumors) {
+    const wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, plane, user.signer), plane);
+    const sent = await Promise.allSettled(community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })));
+    if (!sent.some((r) => r.status === "fulfilled")) throw new Error("no relay took the delivery");
+  }
+  for (const pk of recipients) delivered.add(`${community.idHex}:${idHex}:${ch.epoch}:${pk}`);
+  return views.length;
+}
+
+/** What a duty pass reads again before it rotates: the store's fold and the community as held now. */
+interface DutyNow {
+  stored: () => Promise<FoldedControl | undefined>;
+  community: () => Community | undefined;
+}
 
 async function runAccessDuty(
   nostr: NPool,
@@ -211,66 +268,62 @@ async function runAccessDuty(
   user: DutyUser,
   members: Parameters<typeof accessCandidates>[1],
   rekey: Rekey | undefined,
-  epochNow: (channelIdHex: string) => bigint | undefined,
+  now: DutyNow,
   signal: AbortSignal,
   settledFrom?: FoldedControl,
 ): Promise<boolean> {
   // Judged on a whole read: a stale entitlement would hand a new epoch's key to someone its rotation just cut.
   if (folded.incomplete.length > 0) return false;
-  const nip44 = user.signer.nip44;
-  if (!nip44) return false;
-  await historyViewsReady();
+  if (!user.signer.nip44) return false;
   // Before's too: someone only a removed overwrite named still holds what it let them read.
   const candidates = [...new Set([...accessCandidates(folded, members), ...(settledFrom ? accessCandidates(settledFrom, members) : [])])].sort();
+  const doneFor = (idHex: string, epoch: bigint) => new Set(candidates.filter((pk) => delivered.has(`${community.idHex}:${idHex}:${epoch}:${pk}`)));
   const held: PrivateChannelKey[] = community.privateChannels.filter((c) => {
-    const def = folded.channels.get(bytesToHex(c.id));
-    return def?.isPrivate && !def.deleted;
+    const idHex = bytesToHex(c.id);
+    const def = folded.channels.get(idHex);
+    return def?.isPrivate && !def.deleted && dutyMayAct(folded, user.pubkey, idHex, candidates, doneFor(idHex, c.epoch));
   });
-  for (const ch of held) {
+  if (held.length === 0) return true;
+  // One paged read covers every Channel's access plane.
+  const planes = await readAccessPlanes(nostr, community, held.map((c) => bytesToHex(c.id)), signal);
+  const rotations = await Promise.all(held.map((ch) => Promise.all([
+    readMintingRotations(nostr, community, ch.id, ch.epoch, signal),
+    readMintingRotations(nostr, community, ch.id, ch.epoch - 1n, signal),
+  ])));
+
+  /**
+   * Rotate under the settle lock, judged again on the store's fold: a role change this
+   * device made since the read may have let someone back in, and its key is already out.
+   */
+  const rotate = (idHex: string, epoch: bigint, cut: string[], fresh: string[]) =>
+    withKeySettle(community.idHex, async () => {
+      const c = now.community();
+      const ch = c?.privateChannels.find((k) => bytesToHex(k.id) === idHex);
+      if (!rekey || !c || ch?.epoch !== epoch || signal.aborted) return;
+      const stored = (await now.stored().catch(() => undefined)) ?? folded;
+      const removed = stillShutOut(stored, idHex, cut);
+      const letIn = fresh.filter((pk) => isEntitled(stored.roster, stored.ownerHex, pk, idHex) && !stored.banned.has(pk));
+      if (removed.length === 0 && letIn.length === 0) return;
+      logSync("access", `${community.idHex.slice(0, 8)} #${idHex.slice(0, 8)}: rotating out ${removed.length}, letting in ${letIn.length} by a fresh epoch`);
+      await rekey({ channelIdHex: idHex, keepRecipients: rotationRecipients(stored, user.pubkey, idHex, [...new Set([...candidates, ...letIn])], removed), removedTargets: removed, community: c });
+    });
+
+  for (const [i, ch] of held.entries()) {
     if (signal.aborted) return false;
     const idHex = bytesToHex(ch.id);
-    const done = new Set(candidates.filter((pk) => delivered.has(`${community.idHex}:${idHex}:${ch.epoch}:${pk}`)));
-    const planes = await readAccessPlanes(nostr, community, [idHex], signal);
-    const deliveries = planes.flatMap((p) => parseDelivery(p.opened) ?? []);
-    const [minted, prior] = await Promise.all([
-      readMintingRotations(nostr, community, ch.id, ch.epoch, signal),
-      readMintingRotations(nostr, community, ch.id, ch.epoch - 1n, signal),
-    ]);
-    const duty = planChannelDuty({ control: folded, me: user.pubkey, channelIdHex: idHex, epoch: ch.epoch, candidates, deliveries, minted, prior, handled: done, ...(settledFrom ? { settledFrom } : {}) });
+    const deliveries = planes.filter((p) => p.channelIdHex === idHex).flatMap((p) => parseDelivery(p.opened) ?? []);
+    const [mintedNow, prior] = rotations[i];
+    const duty = planChannelDuty({ control: folded, me: user.pubkey, channelIdHex: idHex, epoch: ch.epoch, candidates, deliveries, minted: mintedNow, prior, handled: doneFor(idHex, ch.epoch), ...(settledFrom ? { settledFrom } : {}) });
     if (!duty) continue;
     if (duty.cut.length > 0) {
-      if (!rekey || epochNow(idHex) !== duty.epoch) continue;
-      logSync("access", `${community.idHex.slice(0, 8)} #${idHex.slice(0, 8)}: rotating out ${duty.cut.length} holder(s) the Channel no longer lets in`);
-      await rekey({ channelIdHex: idHex, keepRecipients: rotationRecipients(folded, user.pubkey, idHex, candidates, duty.cut), removedTargets: duty.cut });
+      await rotate(idHex, duty.epoch, duty.cut, []);
       continue;
     }
     if (duty.deliver.length > 0) {
-      const atSecs = Math.floor(clockNowMs() / 1000);
-      const views = [
-        ...(ch.priors ?? []).filter((p) => p.epoch < ch.epoch).map((p) => {
-          const g = channelGroupKey(p.key, ch.id, p.epoch);
-          return { epoch: p.epoch, view: { address: g.pk, convKey: bytesToHex(g.convKey) } };
-        }),
-        ...heldHistoryViews(community.idHex, idHex).filter((v) => v.epoch < ch.epoch && !(ch.priors ?? []).some((p) => p.epoch === v.epoch)),
-      ];
-      const encrypt = (pk: string, plain: string) => nip44.encrypt(pk, plain);
-      const rumors = [
-        ...(await buildAccessDeliveries(user.pubkey, encrypt, { scopeIdHex: idHex, epoch: ch.epoch, key: ch.key, recipients: duty.deliver, atSecs })),
-        ...(await buildHistoryDeliveries(user.pubkey, encrypt, { channelIdHex: idHex, views, recipients: duty.deliver, atSecs })),
-      ];
-      const plane = accessPlane(community, ch.id);
-      for (const rumor of rumors) {
-        const wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, plane, user.signer), plane);
-        const sent = await Promise.allSettled(community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })));
-        if (!sent.some((r) => r.status === "fulfilled")) throw new Error("no relay took the delivery");
-      }
-      for (const pk of duty.deliver) delivered.add(`${community.idHex}:${idHex}:${ch.epoch}:${pk}`);
-      logSync("access", `${community.idHex.slice(0, 8)} #${idHex.slice(0, 8)}: delivered the key to ${duty.deliver.length} member(s), with ${views.length} past epoch(s)`);
+      const past = await deliverKeysOnPlane(nostr, community, ch, duty.deliver, user);
+      logSync("access", `${community.idHex.slice(0, 8)} #${idHex.slice(0, 8)}: delivered the key to ${duty.deliver.length} member(s), with ${past} past epoch(s)`);
     }
-    if (duty.fresh.length > 0 && rekey && epochNow(idHex) === duty.epoch) {
-      logSync("access", `${community.idHex.slice(0, 8)} #${idHex.slice(0, 8)}: a fresh epoch for ${duty.fresh.length} member(s) denied history`);
-      await rekey({ channelIdHex: idHex, keepRecipients: rotationRecipients(folded, user.pubkey, idHex, candidates, []), removedTargets: [] });
-    }
+    if (duty.fresh.length > 0) await rotate(idHex, duty.epoch, [], duty.fresh);
   }
   return true;
 }

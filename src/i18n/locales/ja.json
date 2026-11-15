@@ -1107,7 +1107,6 @@
   "concordPage.keys.notRotated": "チャンネルの鍵はローテーションされていません",
   "concordPage.keys.notRotatedDescription": "相手はプライベートチャンネルへのアクセス権を失いましたが、その鍵のローテーションには「チャンネルの管理」権限が必要です。管理者にローテーションを依頼してください。",
   "concordPage.keys.rotationFailed": "チャンネルの鍵のローテーションに失敗しました",
-  "concordPage.keys.rotationFailedDescription": "成功するまで、相手は#{channel}を引き続き閲覧できる可能性があります。",
   "concordPage.keys.rotationFailedDetail": "成功するまで、相手は#{channel}を引き続き閲覧できる可能性があります：{error}",
   "concordPage.keys.sendFailed": "チャンネルの鍵を送信できませんでした",
   "concordPage.keys.sendFailedDescription": "ロールは付与されましたが、プライベートチャンネルの鍵を届けられませんでした。再試行するには、ロールをオフにしてから再度オンにしてください。",

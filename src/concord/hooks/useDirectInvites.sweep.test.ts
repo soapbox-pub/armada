@@ -32,4 +32,15 @@ describe("sweepInviteInbox()", () => {
     await sweepInviteInbox(nostr, user);
     expect(query).toHaveBeenCalledTimes(1);
   });
+
+  it("scans the joined Communities' relays too, where a role change's catch-up is sent (Vector `settle_access`)", async () => {
+    h.consent = "allowed";
+    const asked: string[] = [];
+    const nostr = { relay: (url: string) => ({ query: async () => {
+      asked.push(url);
+      return [];
+    } }) } as never;
+    await sweepInviteInbox(nostr, user, undefined, ["wss://community.test", "wss://inbox.test"]);
+    expect(asked.sort()).toEqual(["wss://community.test", "wss://inbox.test"]);
+  });
 });

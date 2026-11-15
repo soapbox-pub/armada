@@ -4,7 +4,7 @@ import { isGitAnnouncementDiscoveryRelay, normalizeRelayUrl } from "@/lib/platfo
 import { BUZZ_WIRE_KINDS } from "@/buzz/kinds";
 import { MAX_WRAP_BACKDATE_SECS } from "@/lib/nip17/protocol";
 import { KIND_GROUP_CHAT } from "@/lib/nip29";
-import { KIND_WRAP } from "@/concord/lib/kinds";
+import { KIND_DIRECT_INVITE, KIND_WRAP } from "@/concord/lib/kinds";
 import { GIT_ISSUE_KIND, GIT_PULL_REQUEST_KIND, GIT_STATUS_KINDS, matchGitTicketRepository, NIP22_COMMENT_KIND, parseGitTicket, type GitRepositoryAttachment } from "@/lib/gitActivity";
 
 import type { StreamKeyView } from "@/concord/lib/derive";
@@ -235,6 +235,13 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
       }
       // NIP-17 wraps to the viewer; the wrap author hides the sender, so no `authors`.
       add(url, { kinds: [KIND_GIFT_WRAP], "#p": [inputs.pubkey] });
+    }
+    // Direct Invites on each Community's relays, where a role change's catch-up is sent
+    // (Vector `settle_access`): a member reads those, and their DM inbox may be elsewhere.
+    const inbox = new Set(inputs.dmRelays.map(normalizeRelayUrl));
+    const communityRelays = new Set((inputs.concordControl ?? []).flatMap((c) => c.relays.map(normalizeRelayUrl)));
+    for (const url of communityRelays) {
+      if (url && !inbox.has(url)) add(url, { kinds: [KIND_GIFT_WRAP], "#p": [inputs.pubkey], "#k": [String(KIND_DIRECT_INVITE)] });
     }
   }
 

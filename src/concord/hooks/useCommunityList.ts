@@ -1355,6 +1355,16 @@ export function useCommunity(idHex: string | undefined): Community | undefined {
 }
 
 /**
+ * The community as the cached list holds it now. A list write lands here before
+ * the page re-renders, so a step that follows a rotation reads its key from this.
+ */
+export function cachedCommunity(queryClient: QueryClient, pubkey: string, idHex: string): Community | undefined {
+  const list = queryClient.getQueryData<ListData>(listQueryKey(pubkey))?.list;
+  const entry = list && isLive(list, idHex) ? list.entries.find((e) => e.community_id === idHex) : undefined;
+  return entry ? rehydrateCommunity(entry) : undefined;
+}
+
+/**
  * The raw list entry for a community (to round-trip unknown fields). LIVE
  * memberships only: a tombstoned entry must not mount the page, whose watchers
  * (`useRekeyWatch`, `useStrandedRecovery`) would bump `added_at` and undo the leave.

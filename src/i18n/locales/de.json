@@ -1107,7 +1107,6 @@
   "concordPage.keys.notRotated": "Kanalschlüssel nicht rotiert",
   "concordPage.keys.notRotatedDescription": "Die Person hat den Zugriff auf einen privaten Kanal verloren, aber zum Rotieren seines Schlüssels braucht es die Berechtigung „Kanäle verwalten“. Bitte einen Admin, ihn zu rotieren.",
   "concordPage.keys.rotationFailed": "Rotation des Kanalschlüssels fehlgeschlagen",
-  "concordPage.keys.rotationFailedDescription": "Die Person kann #{channel} eventuell weiter lesen, bis sie gelingt.",
   "concordPage.keys.rotationFailedDetail": "Die Person kann #{channel} eventuell weiter lesen, bis sie gelingt: {error}",
   "concordPage.keys.sendFailed": "Die Kanalschlüssel konnten nicht gesendet werden",
   "concordPage.keys.sendFailedDescription": "Die Rolle wurde vergeben, aber die Zustellung ihrer privaten Kanalschlüssel ist fehlgeschlagen. Schalte die Rolle aus und wieder ein, um es erneut zu versuchen.",

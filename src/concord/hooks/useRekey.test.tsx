@@ -27,7 +27,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { useSyncExternalStore, type ReactNode } from "react";
 
 import { mintCommunity } from "@/concord/lib/community";
-import { rehydrateCommunity } from "@/concord/lib/communityList";
+import { refreshChannels, rehydrateCommunity } from "@/concord/lib/communityList";
 import { refoundJournal, refoundJournalReady, writeRefoundJournal } from "@/concord/lib/refoundJournal";
 import { buildGrantEdition, buildRoleEdition, currentControlWriteGroup, sealEdition } from "@/concord/lib/control";
 import { adminRole, Permissions, type Role } from "@/concord/lib/roles";
@@ -1149,6 +1149,35 @@ describe("useChannelRekeyWatch (CORD-06 §2 channel rotations)", () => {
           ),
         { timeout: 10_000 },
       );
+    },
+  );
+
+  it(
+    "a cut writes only the floor, so a key at that epoch adopted while the walk ran survives it",
+    { timeout: 30_000 },
+    async () => {
+      const { owner, me, community, ch } = setupChannel();
+      const wraps = await channelRotationWraps(owner, community.root, ch, random32(), [owner.pubkey], Date.now());
+      const relay = new FakeRelay();
+      relay.events = [...wraps];
+      h.pool = { relay: () => relay, query: async () => [] };
+      h.user = asNUser(me);
+      h.folded = foldedFor(owner.pubkey);
+      h.updateList = vi.fn(async () => {});
+      const jm = jmOf(community, owner.pubkey);
+      h.entry = { community_id: community.idHex, seed: jm, current: jm, added_at: 1 } satisfies CommunityListEntry;
+
+      const { wrapper } = makeWrapper();
+      renderHook(() => useChannelRekeyWatch(community), { wrapper });
+      await waitFor(() => expect(h.updateList).toHaveBeenCalled(), { timeout: 10_000 });
+      const action = (h.updateList as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(action).toMatchObject({ type: "refresh-channels", channels: [], upsert: true, cuts: [{ id: bytesToHex(ch.id), epoch: 1 }] });
+
+      // A re-grant's catch-up landed B@1 meanwhile: the write must not take it away.
+      const regranted = { ...jm, channels: [{ id: bytesToHex(ch.id), key: "ab".repeat(32), epoch: 1, name: "sec" }] };
+      const list = { entries: [{ community_id: community.idHex, seed: jm, current: regranted, added_at: 1 }], tombstones: [] };
+      const after = refreshChannels(list, community.idHex, action.channels, action.cuts, action.upsert);
+      expect(after.entries[0].current.channels.map((c) => c.epoch)).toEqual([1]);
     },
   );
 

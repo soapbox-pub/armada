@@ -832,7 +832,10 @@ export function useChannelRekeyWatch(community: Community | undefined) {
       const sets = groupRotations(parsed);
       const joinedAt = entry?.added_at ?? 0;
 
-      let nextChannels = heldChannelKeys(entry.current.channels).map((c) => ({ ...c }));
+      const heldNow = heldChannelKeys(entry.current.channels);
+      // Written as an upsert of only what this pass changed: a full set built before the
+      // decrypts below would drop a key another path adopted meanwhile.
+      const adoptions: typeof heldNow = [];
       const cuts: Array<{ id: string; epoch: number }> = [];
       // Claimed handles, released if nothing is written so a failed rotation can retry.
       const marked: string[] = [];
@@ -949,24 +952,23 @@ export function useChannelRekeyWatch(community: Community | undefined) {
           marked.push(handle);
           const keyHex = bytesToHex(adopted.key);
           const adoptedEpoch = Number(adopted.epoch);
-          nextChannels = nextChannels.map((c) =>
-            c.id.toLowerCase() === chIdHex
-              ? {
-                  ...c,
-                  key: keyHex,
-                  epoch: adoptedEpoch,
-                  // Retain every key the walk stepped off; each reads its own history.
-                  priors: [
-                    ...steppedOver.map((p) => ({
-                      key: bytesToHex(p.key),
-                      epoch: Number(p.epoch),
-                      ...(p.retiredAt !== undefined ? { retired_at: p.retiredAt } : {}),
-                    })),
-                    ...(c.priors ?? []),
-                  ],
-                }
-              : c,
-          );
+          const was = heldNow.find((c) => c.id.toLowerCase() === chIdHex);
+          if (was) {
+            adoptions.push({
+              ...was,
+              key: keyHex,
+              epoch: adoptedEpoch,
+              // Retain every key the walk stepped off; each reads its own history.
+              priors: [
+                ...steppedOver.map((p) => ({
+                  key: bytesToHex(p.key),
+                  epoch: Number(p.epoch),
+                  ...(p.retiredAt !== undefined ? { retired_at: p.retiredAt } : {}),
+                })),
+                ...(was.priors ?? []),
+              ],
+            });
+          }
           changed = true;
         } else if (excludedAt !== undefined) {
           // Removed: drop from `current` (`seed` keeps the original). The cut is RECORDED
@@ -975,7 +977,7 @@ export function useChannelRekeyWatch(community: Community | undefined) {
           if (handled.current.has(handle)) continue;
           handled.current.add(handle);
           marked.push(handle);
-          nextChannels = nextChannels.filter((c) => c.id.toLowerCase() !== chIdHex);
+          // The floor drops the key held below it; one adopted meanwhile at or past it stays.
           cuts.push({ id: chIdHex, epoch: Number(excludedAt) });
           changed = true;
         }
@@ -986,7 +988,8 @@ export function useChannelRekeyWatch(community: Community | undefined) {
       await updateList({
         type: "refresh-channels",
         communityId: community.idHex,
-        channels: nextChannels,
+        channels: adoptions,
+        upsert: true,
         ...(cuts.length > 0 ? { cuts } : {}),
       }).catch(() => {
         // The write failed: un-claim so the next poll retries.
@@ -1007,7 +1010,8 @@ export function useChannelRekeyWatch(community: Community | undefined) {
  * it locally. Others see it as their removal (the read-cut behind revoking a
  * role-gated channel; channelAccess.ts). Requires MANAGE_CHANNELS or ownership.
  */
-export function useChannelRekey(community: Community | undefined) {
+export function useChannelRekey(hookCommunity: Community | undefined) {
+  const community = hookCommunity;
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
   const { data: folded } = useControlFold(community);
@@ -1028,10 +1032,13 @@ export function useChannelRekey(community: Community | undefined) {
       removedTargets: string[];
       /** Severing a ban's reads, which BAN authorizes too (CORD-06 §3). */
       forBan?: boolean;
+      /** The community as the caller last wrote it: a render lags a rotation it just made. */
+      community?: Community;
     }
   >({
-    scope: { id: `concord-chrekey:${community?.idHex}` },
-    mutationFn: async ({ channelIdHex, keepRecipients, removedTargets, forBan }) => {
+    scope: { id: `concord-chrekey:${hookCommunity?.idHex}` },
+    mutationFn: async ({ channelIdHex, keepRecipients, removedTargets, forBan, community: given }) => {
+      const community = given ?? hookCommunity;
       if (!user || !community) throw new Error(t({ id: "useRekey.notReady", defaultMessage: "Not ready." }));
       if (dissolved) throw new Error(t({ id: "useRekey.dissolved", defaultMessage: "This community was dissolved." }));
       const nip44 = user.signer.nip44;

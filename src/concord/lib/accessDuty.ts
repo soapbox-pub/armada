@@ -10,7 +10,8 @@ import type { FoldedControl } from "@/concord/lib/control";
 import type { ParsedDelivery } from "@/concord/lib/delivery";
 import type { CoalescedMember } from "@/concord/lib/guestbook";
 import { myLocator, type RekeyBlob, type RekeyRotationSet } from "@/concord/lib/rekey";
-import { canActOnMember, channelPermissions, hasPermission, Permissions } from "@/concord/lib/roles";
+import { isEntitled, readsHistory } from "@/concord/lib/channelAccess";
+import { canActOnMember, channelPermissions, hasPermission, Permissions, type CommunityRoles } from "@/concord/lib/roles";
 
 /** A complete rotation that minted an epoch: its rotator and every blob it carried. */
 export interface MintingRotation {
@@ -122,6 +123,72 @@ export function planChannelDuty(o: {
   const fresh = mayRotate ? unserved.filter((pk) => !readsHistory(pk)) : [];
   if (deliver.length === 0 && fresh.length === 0) return undefined;
   return { channelIdHex, epoch, deliver, fresh, cut: [] };
+}
+
+/** What one Roster change moves in one Private Channel (Vector `settle_access`). */
+export interface ChannelSettle {
+  channelIdHex: string;
+  /** Let in with Read Message History: the key, by Direct Invite and on the access plane. */
+  gained: string[];
+  /** Let in without it: a fresh epoch, minted by a manager. */
+  fresh: string[];
+  /** Shut out: a rotation that leaves them out. */
+  lost: string[];
+}
+
+/**
+ * Judged on the change itself, `before` against `after`, never on a fold that may
+ * lag or lead it: the actor knows exactly whom its own change moved. The owner and
+ * the actor are never moved; a banned member is the ban's to cut.
+ */
+export function planSettle(o: {
+  before: CommunityRoles;
+  after: CommunityRoles;
+  ownerHex: string;
+  banned: ReadonlySet<string>;
+  me: string;
+  members: readonly string[];
+  channels: readonly string[];
+}): ChannelSettle[] {
+  const out: ChannelSettle[] = [];
+  for (const channelIdHex of o.channels) {
+    const s: ChannelSettle = { channelIdHex, gained: [], fresh: [], lost: [] };
+    for (const pk of new Set(o.members)) {
+      if (pk === o.me || pk === o.ownerHex || o.banned.has(pk)) continue;
+      const was = isEntitled(o.before, o.ownerHex, pk, channelIdHex);
+      const now = isEntitled(o.after, o.ownerHex, pk, channelIdHex);
+      if (now && !was) (readsHistory(o.after, o.ownerHex, pk, channelIdHex) ? s.gained : s.fresh).push(pk);
+      else if (was && !now) s.lost.push(pk);
+    }
+    if (s.gained.length || s.fresh.length || s.lost.length) out.push(s);
+  }
+  return out;
+}
+
+/** `roster` with `member`'s Grant replaced by `roleIds`: the Roster a Grant leaves. */
+export function withGrant(roster: CommunityRoles, member: string, roleIds: readonly string[]): CommunityRoles {
+  return { ...roster, grants: [...roster.grants.filter((g) => g.member !== member), { member, roleIds: [...roleIds] }] };
+}
+
+/**
+ * The members of `cut` the store's fold still shuts out of the Channel. A duty plans
+ * on the fold it read; a change this device made since (a Grant that let them back
+ * in) is in the store, and rotating them out after its key went out strands them.
+ */
+export function stillShutOut(stored: FoldedControl, channelIdHex: string, cut: readonly string[]): string[] {
+  return cut.filter((pk) => pk !== stored.ownerHex && (stored.banned.has(pk) || !isEntitled(stored.roster, stored.ownerHex, pk, channelIdHex)));
+}
+
+/**
+ * Whether the duty has anything to do for a Channel before it reads a plane (Vector
+ * `access_duty`): a manager may owe a cut, anyone else only a member it may serve.
+ */
+export function dutyMayAct(control: FoldedControl, me: string, channelIdHex: string, candidates: readonly string[], handled: ReadonlySet<string>): boolean {
+  const owner = control.ownerHex;
+  const entitledHere = (pk: string) => pk === owner || (!control.banned.has(pk) && (channelPermissions(control.roster, owner, pk, channelIdHex, true) & Permissions.VIEW_CHANNEL) !== 0n);
+  if (!entitledHere(me)) return false;
+  if (me === owner || hasPermission(control.roster, me, Permissions.MANAGE_CHANNELS)) return true;
+  return candidates.some((pk) => pk !== me && !handled.has(pk) && entitledHere(pk));
 }
 
 /** Everyone a Channel rotation hands the new key (Vector `rekey_channel_at`): this member, the owner, and every candidate the Channel lets in, but `removed`. */
