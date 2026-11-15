@@ -174,7 +174,7 @@ export function EmojiPicker({ onSelect, customEmojis, onBrowsePacks, packsLinkIn
           ":host { width: 100% !important; height: 100% !important; min-height: 0 !important; border-radius: 0 !important; box-shadow: none !important; }",
           "#root { width: 100% !important; background-color: transparent !important; --sidebar-width: 0px !important; }",
           ".scroll { padding-right: var(--padding) !important; }",
-          ".sticky { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background-color: transparent !important; }",
+          ".sticky { backdrop-filter: blur(8px) !important; -webkit-backdrop-filter: blur(8px) !important; background-color: hsl(var(--background) / 0.7) !important; }",
           // Mirrors SearchField: a `clip-corner-lg` chrome well with no focus ring.
           ".search input[type='search'] { background-color: hsl(var(--chrome)) !important; border: 0 !important; border-radius: 0.55rem !important; clip-path: polygon(0.7rem 0, 100% 0, 100% calc(100% - 0.7rem), calc(100% - 0.7rem) 100%, 0 100%, 0 0.7rem) !important; padding: 0.5rem 46px 0.5rem 34px !important; height: 36px !important; }",
           "@media (pointer: coarse) { .search input[type='search'] { height: 44px !important; } }",
