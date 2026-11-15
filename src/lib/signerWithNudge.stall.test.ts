@@ -9,18 +9,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NostrSigner } from "@nostrify/types";
 
 const h = vi.hoisted(() => ({
-  shown: [] as Array<{ title: string; dismissed: boolean }>,
+  /** Each toast's titles in order: an in-place update appends rather than adding a toast. */
+  shown: [] as Array<{ titles: string[]; dismissed: boolean }>,
   skip: undefined as (() => void) | undefined,
 }));
 
 vi.mock("@/hooks/useToast", () => ({
   toast: vi.fn(({ title, description }: { title: string; description?: { props?: { onCancel?: () => void } } }) => {
-    const entry = { title, dismissed: false };
+    const entry = { titles: [title], dismissed: false };
     if (description?.props?.onCancel) h.skip = description.props.onCancel;
     h.shown.push(entry);
-    return { id: String(h.shown.length), dismiss: () => { entry.dismissed = true; }, update: () => {} };
+    return {
+      id: String(h.shown.length),
+      dismiss: () => { entry.dismissed = true; },
+      update: ({ title: next }: { title: string }) => { entry.titles.push(next); },
+    };
   }),
 }));
+
+vi.mock("@/lib/haptics", () => ({ notify: () => {} }));
 
 /**
  * A remote signer that AUTO-APPROVES but is slow: the nth sign takes
@@ -44,9 +51,10 @@ function slowSigner(...durations: number[]): NostrSigner {
 
 const message = (n = 0) => ({ kind: 9, content: `hi ${n}`, tags: [], created_at: 1_700_000_000 + n });
 
-const titles = () => h.shown.map((t) => t.title);
+const titles = () => h.shown.flatMap((t) => t.titles);
 /** A prompt still on screen. */
-const prompting = () => h.shown.some((t) => t.title.startsWith("Approve") && !t.dismissed);
+const prompting = () => h.shown.some((t) => t.titles.at(-1)!.startsWith("Approve") && !t.dismissed);
+const toastCount = () => h.shown.length;
 
 async function wrap(...durations: number[]) {
   const { signerWithNudge } = await import("@/lib/signerWithNudge");
@@ -91,6 +99,8 @@ describe("the signer nudge with a slow, auto-approving signer", () => {
     await vi.advanceTimersByTimeAsync(6_000 + 3 * 1_000);
     await Promise.all(sends);
     expect(titles()).toEqual(["Approve message", "Signing approved"]);
+    // One toast that changed in place, never a second one stacked on it.
+    expect(toastCount()).toBe(1);
   });
 
   it("a stall inside the throttle window is prompted when the window ends, not dropped", async () => {

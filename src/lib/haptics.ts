@@ -6,7 +6,7 @@
 import { Capacitor } from "@capacitor/core";
 import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
 
-const native = Capacitor.isNativePlatform();
+const native = () => Capacitor.isNativePlatform();
 
 function webVibrate(pattern: number | number[]): void {
   try {
@@ -16,7 +16,7 @@ function webVibrate(pattern: number | number[]): void {
 
 /** A light selection tick — toggles, segmented controls, picking an item. */
 export function selectionChanged(): void {
-  if (native) {
+  if (native()) {
     void Haptics.selectionChanged().catch(() => undefined);
     return;
   }
@@ -25,7 +25,7 @@ export function selectionChanged(): void {
 
 /** A discrete impact — taps that commit an action, picking up a draggable. */
 export function impact(style: "light" | "medium" | "heavy" = "medium"): void {
-  if (native) {
+  if (native()) {
     const map = {
       light: ImpactStyle.Light,
       medium: ImpactStyle.Medium,
@@ -39,7 +39,7 @@ export function impact(style: "light" | "medium" | "heavy" = "medium"): void {
 
 /** A success/warning/error notification buzz. */
 export function notify(type: "success" | "warning" | "error" = "success"): void {
-  if (native) {
+  if (native()) {
     const map = {
       success: NotificationType.Success,
       warning: NotificationType.Warning,

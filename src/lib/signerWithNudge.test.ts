@@ -6,9 +6,13 @@ import type { NostrSigner } from "@nostrify/types";
 import { toast } from "@/hooks/useToast";
 import { signerWithNudge } from "@/lib/signerWithNudge";
 
+const h = vi.hoisted(() => ({ update: vi.fn(), dismiss: vi.fn(), notify: vi.fn() }));
+
 vi.mock("@/hooks/useToast", () => ({
-  toast: vi.fn(() => ({ id: "t", dismiss: vi.fn(), update: vi.fn() })),
+  toast: vi.fn(() => ({ id: "t", dismiss: h.dismiss, update: h.update })),
 }));
+
+vi.mock("@/lib/haptics", () => ({ notify: h.notify }));
 
 const toastMock = vi.mocked(toast);
 
@@ -45,6 +49,9 @@ const TEMPLATE = { kind: 9, content: "hi", tags: [], created_at: 1_700_000_000 }
 beforeEach(() => {
   vi.useFakeTimers();
   toastMock.mockClear();
+  h.update.mockClear();
+  h.dismiss.mockClear();
+  h.notify.mockClear();
 });
 
 afterEach(() => {
@@ -62,7 +69,7 @@ describe("signerWithNudge", () => {
     expect(toastMock).not.toHaveBeenCalled();
   });
 
-  it("nudges after 4s on a slow op, then confirms when it lands", async () => {
+  it("nudges after 4s on a slow op, then turns the same toast into a brief confirmation", async () => {
     const { upstream, gate } = makeUpstream();
     const wrapped = signerWithNudge(upstream, () => true);
 
@@ -74,9 +81,28 @@ describe("signerWithNudge", () => {
 
     gate.resolve();
     await expect(p).resolves.toMatchObject({ id: "x" });
-    expect(toastMock).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Signing approved", variant: "success" }),
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(h.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "t", title: "Signing approved", variant: "success", description: undefined }),
     );
+    expect(h.notify).toHaveBeenCalledWith("success");
+    expect(h.dismiss).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(h.dismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("dismisses without a confirmation or a buzz when the op fails", async () => {
+    await vi.advanceTimersByTimeAsync(9_000);
+    const { upstream, gate } = makeUpstream();
+    const wrapped = signerWithNudge(upstream, () => true);
+
+    const p = wrapped.signEvent(TEMPLATE);
+    await vi.advanceTimersByTimeAsync(4_000);
+    gate.reject(new Error("rejected"));
+    await expect(p).rejects.toThrow("rejected");
+    expect(h.dismiss).toHaveBeenCalledTimes(1);
+    expect(h.update).not.toHaveBeenCalled();
+    expect(h.notify).not.toHaveBeenCalled();
   });
 
   it("warns about relay connectivity instead when no bunker socket is open", async () => {

@@ -6,6 +6,7 @@ import { NudgeToastContent, type SignerAppLink } from "@/components/SignerToastC
 import { toast } from "@/hooks/useToast";
 import { defineMessages, t, type MessageDescriptor } from "@/i18n";
 import { type BtcSigner, hasBtcSigning } from "@/lib/bitcoin-signers";
+import { notify } from "@/lib/haptics";
 
 /** Show the nudge once the signer has answered nothing for this long with work pending. */
 const NUDGE_DELAY_MS = 4_000;
@@ -117,7 +118,7 @@ function showNudgeToast(opts: {
   signerRelays: string[] | undefined;
   durationMs: number;
   onCancel: () => void;
-}): { dismiss: () => void } {
+}): ShownNudge {
   const { kind, opType, isBunkerConnected, remote, signerRelays, durationMs, onCancel } = opts;
   const relayOk = isBunkerConnected ? isBunkerConnected() : true;
 
@@ -146,20 +147,34 @@ function showNudgeToast(opts: {
   });
 
   // Finite so Radix swipe-to-dismiss works on mobile; as long as the op may wait.
-  const { dismiss } = toast({ title, description, duration: durationMs });
+  const { id, dismiss, update } = toast({ title, description, duration: durationMs });
   dismissRef.fn = dismiss;
 
-  return { dismiss };
+  return {
+    dismiss,
+    // The same toast turns into the confirmation, so it never stacks a second one.
+    confirm: (opType) => {
+      update({ id, title: approvedTitle(opType), description: undefined, variant: "success", duration: CONFIRM_MS });
+      notify("success");
+      setTimeout(dismiss, CONFIRM_MS);
+    },
+  };
 }
 
-function showSuccessToast(opType: OpType): void {
-  const title =
-    opType === "encrypt"
-      ? t({ id: "signerWithNudge.approved.encryption", defaultMessage: "Encryption approved" })
-      : opType === "decrypt"
-        ? t({ id: "signerWithNudge.approved.decryption", defaultMessage: "Decryption approved" })
-        : t({ id: "signerWithNudge.approved.signing", defaultMessage: "Signing approved" });
-  toast({ title, duration: 3000, variant: "success" });
+interface ShownNudge {
+  dismiss: () => void;
+  confirm: (opType: OpType) => void;
+}
+
+/** How long a nudge shows its confirmation before it goes. */
+const CONFIRM_MS = 1_500;
+
+function approvedTitle(opType: OpType): string {
+  return opType === "encrypt"
+    ? t({ id: "signerWithNudge.approved.encryption", defaultMessage: "Encryption approved" })
+    : opType === "decrypt"
+      ? t({ id: "signerWithNudge.approved.decryption", defaultMessage: "Decryption approved" })
+      : t({ id: "signerWithNudge.approved.signing", defaultMessage: "Signing approved" });
 }
 
 interface PendingOp {
@@ -181,7 +196,7 @@ class Nudger {
   readonly hardTimeoutMs: number;
   readonly #pending = new Set<PendingOp>();
   #timer: ReturnType<typeof setTimeout> | undefined;
-  #shown: { dismiss: () => void } | undefined;
+  #shown: ShownNudge | undefined;
   #lastShownAt = -Infinity;
 
   constructor(
@@ -206,9 +221,9 @@ class Nudger {
     this.#pending.delete(op);
     this.#disarm();
     if (this.#shown) {
-      this.#shown.dismiss();
+      if (approved) this.#shown.confirm(op.opType);
+      else this.#shown.dismiss();
       this.#shown = undefined;
-      if (approved) showSuccessToast(op.opType);
     }
     if (this.#pending.size > 0) this.#arm(NUDGE_DELAY_MS);
   }
