@@ -6,7 +6,6 @@ import { NudgeToastContent, type SignerAppLink } from "@/components/SignerToastC
 import { toast } from "@/hooks/useToast";
 import { defineMessages, t, type MessageDescriptor } from "@/i18n";
 import { type BtcSigner, hasBtcSigning } from "@/lib/bitcoin-signers";
-import { notify } from "@/lib/haptics";
 
 /** Show the nudge once the signer has answered nothing for this long with work pending. */
 const NUDGE_DELAY_MS = 4_000;
@@ -155,7 +154,6 @@ function showNudgeToast(opts: {
     // The same toast turns into the confirmation, so it never stacks a second one.
     confirm: (opType) => {
       update({ id, title: approvedTitle(opType), description: undefined, variant: "success", duration: CONFIRM_MS });
-      notify("success");
       setTimeout(dismiss, CONFIRM_MS);
     },
   };

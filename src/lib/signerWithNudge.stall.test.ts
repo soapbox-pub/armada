@@ -27,8 +27,6 @@ vi.mock("@/hooks/useToast", () => ({
   }),
 }));
 
-vi.mock("@/lib/haptics", () => ({ notify: () => {} }));
-
 /**
  * A remote signer that AUTO-APPROVES but is slow: the nth sign takes
  * `durations[n]` (the last repeats), served one at a time as a NIP-46 bunker
