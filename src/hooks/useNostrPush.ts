@@ -405,6 +405,7 @@ export function useNostrPush(): UsePushNotificationsReturn {
             pk: s.pk,
             convKey: s.convKey,
             epoch: s.epoch,
+            ...(s.wepoch !== undefined && { wepoch: s.wepoch }),
             communityId: sub.communityId,
             channelId: sub.channelId,
             banned: sub.banned,

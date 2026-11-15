@@ -27,6 +27,8 @@ export interface SwConcordStream {
   convKey: string;
   /** Epoch (decimal string) the rumor's `epoch` binding tag must equal. */
   epoch: string;
+  /** At a restricted Channel's writer address, the writer epoch its rumors' `wepoch` must equal (CORD-03 §3). */
+  wepoch?: string;
   /** Community id (hex) — the deep link and the ArmadaDB tenant. */
   communityId: string;
   /** Channel id (hex) — the deep link and the rumor's `channel` binding tag. */

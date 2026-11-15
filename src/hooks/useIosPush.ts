@@ -219,6 +219,7 @@ export function useIosPush(): UsePushNotificationsReturn {
             pk: stream.pk,
             convKey: stream.convKey,
             epoch: stream.epoch,
+            ...(stream.wepoch !== undefined && { wepoch: stream.wepoch }),
             communityId: sub.communityId,
             channelId: sub.channelId,
             banned: sub.banned,

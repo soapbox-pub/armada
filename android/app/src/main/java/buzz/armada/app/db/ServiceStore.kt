@@ -348,14 +348,17 @@ object ServiceStore {
     }
 
     @JvmStatic
+    @JvmOverloads
     fun storeConcordRumor(
         context: Context,
         communityIdHex: String,
         sealKind: Int,
         rumor: JSONObject,
+        /** The writer epoch of the address that opened it, at a restricted Channel's writer address. */
+        wepoch: String? = null,
     ) {
         val opened = Rumor.parse(rumor) ?: return
-        if (!Concord.storable(communityIdHex, sealKind, opened, System.currentTimeMillis() / 1000)) {
+        if (!Concord.storable(communityIdHex, sealKind, opened, System.currentTimeMillis() / 1000, wepoch)) {
             Log.w(TAG, "refusing a Concord chat rumor the chat plane may not carry")
             return
         }

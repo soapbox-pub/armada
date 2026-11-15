@@ -118,9 +118,9 @@ enum Concord {
         // a private channel, or one in another community.
         guard rumor.uniqueTag("channel") == stream.channelId else { return nil }
         guard rumor.uniqueTag("epoch") == stream.epoch else { return nil }
-        // Only read addresses are listened on, where a `wepoch` is forged (CORD-03 §3):
-        // stored, the timeline would stand it as a writer's post.
-        guard !rumor.tags.contains(where: { $0.first == "wepoch" }) else { return nil }
+        // A writer address's rumor commits its writer epoch, and a `wepoch` at a read
+        // address is forged (CORD-03 §3): stored, the timeline would stand it as a writer's post.
+        guard writerBound(rumor.tags, wepoch: stream.wepoch) else { return nil }
 
         guard rumor.kind == kindMessage || rumor.kind == kindReaction else { return nil }
         guard let ms = resolvedMs(createdAt: rumor.createdAt, tags: rumor.tags) else { return .malformed }
@@ -135,6 +135,17 @@ enum Concord {
             ms: ms,
             channelIdHex: stream.channelId
         ))
+    }
+
+    /// Exactly one canonical `wepoch` equal to the writer address's, or none at a read
+    /// address — the web client's `checkWriterBinding`.
+    static func writerBound(_ tags: [[String]], wepoch: String?) -> Bool {
+        let found = tags.filter { $0.first == "wepoch" }
+        guard let wepoch else { return found.isEmpty }
+        guard found.count == 1, found[0].count > 1 else { return false }
+        let raw = found[0][1]
+        let digits = !raw.isEmpty && raw.utf8.allSatisfy { $0 >= 0x30 && $0 <= 0x39 }
+        return digits && (raw == "0" || !raw.hasPrefix("0")) && raw == wepoch
     }
 
     /// A rumor's time in ms: `createdAt` plus its first `ms` tag, or nil when that tag is

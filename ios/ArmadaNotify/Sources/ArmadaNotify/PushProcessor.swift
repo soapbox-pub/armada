@@ -422,7 +422,9 @@ struct PushProcessor {
         }
         guard case .chat(let opened) = read else {
             trace("c2-open-failed")
-            return nil
+            // In a restricted Channel only some authors' posts ring (CORD-03 §1),
+            // and an unopened wrap names none.
+            return stream.postAuthors == nil ? nil : dropped
         }
 
         // Store it either way: a message we won't announce is still a message,
@@ -457,7 +459,7 @@ struct PushProcessor {
         // A post its readers collapse rings nobody (CORD-04 §8): no SEND in this open
         // Channel, or inside a running Timeout's window.
         if stream.sendDenied.contains(opened.author) { return dropped }
-        // At a restricted Channel's read address a post stands only from those who manage it (CORD-03 §1).
+        // In a restricted Channel a post rings only from the authors its address takes (CORD-03 §1).
         if let posters = stream.postAuthors, opened.kind != Concord.kindReaction, !posters.contains(opened.author) { return dropped }
         if let t = stream.timeouts[opened.author],
            t.until * 1000 > now * 1000 + stream.clockOffsetMs,

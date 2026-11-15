@@ -10,6 +10,9 @@ struct ConcordStream {
     let conversationKey: String
     /// Epoch (decimal string) the rumor's `epoch` binding tag must equal.
     let epoch: String
+    /// At a restricted Channel's writer address, the writer epoch its rumors'
+    /// `wepoch` must equal (CORD-03 §3); nil at a read address.
+    let wepoch: String?
     /// Community id (hex) — the deep link and the ArmadaDB tenant.
     let communityId: String
     /// Channel id (hex) — the deep link and the rumor's `channel` binding tag.
@@ -53,6 +56,7 @@ struct ConcordStream {
         pubkey: String,
         conversationKey: String,
         epoch: String,
+        wepoch: String? = nil,
         communityId: String,
         channelId: String,
         banned: Set<String>,
@@ -72,6 +76,7 @@ struct ConcordStream {
         self.pubkey = pubkey
         self.conversationKey = conversationKey
         self.epoch = epoch
+        self.wepoch = wepoch
         self.communityId = communityId
         self.channelId = channelId
         self.banned = banned
@@ -259,6 +264,7 @@ struct PushConfig {
                 pubkey: pubkey,
                 conversationKey: convKey,
                 epoch: epoch,
+                wepoch: entry["wepoch"] as? String,
                 communityId: communityId,
                 channelId: channelId,
                 banned: Set((entry["banned"] as? [String]) ?? []),

@@ -72,6 +72,14 @@ class ConcordTest {
     }
 
     @Test
+    fun `files a writer address's rumor only under the writer epoch that opened it`() {
+        val post = rumor(kind = 9, tags = listOf(listOf("wepoch", "2")))
+        assertTrue(Concord.storable(community, Concord.SEAL_ENCRYPTED, post, now, wepoch = "2"))
+        assertFalse(Concord.storable(community, Concord.SEAL_ENCRYPTED, post, now, wepoch = "3"))
+        assertFalse(Concord.storable(community, Concord.SEAL_ENCRYPTED, rumor(kind = 9), now, wepoch = "2"))
+    }
+
+    @Test
     fun `refuses a chat rumor whose NIP-40 deadline has passed`() {
         // CORD-08 §3: the WebView refuses an expired rumor at ingest and its
         // sweep only walks what the read filter already hides — a second

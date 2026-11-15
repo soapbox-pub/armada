@@ -452,6 +452,23 @@ final class StorelessTests: XCTestCase {
         XCTAssertEqual(prepared(["00" + String(repeating: "1", count: 62)]), true, "a post nobody vouches for")
     }
 
+    /// A wrap a restricted Channel's stream can't open names no author to judge, so it rings nobody.
+    func testAnUnopenedWrapInARestrictedChannelRingsNobody() {
+        let concord = vectorObject("concord")
+        let wrap: [AnyHashable: Any] = napp(concord["wrap"] as! [String: Any])
+        func prepared(_ posters: Set<String>?) -> PreparedPush? {
+            let stream = ConcordStream(
+                pubkey: concord["streamPk"] as! String, conversationKey: String(repeating: "ab", count: 32),
+                epoch: concord["epoch"] as! String, communityId: "cc", channelId: concord["channelId"] as! String,
+                banned: [], postAuthors: posters
+            )
+            let config = PushConfig(policy: .generic, selfPubkey: self_, knownPeers: [], secretKey: nil, nip46: nil, concord: [stream])
+            return PushProcessor(store: nil, config: config, now: 1_700_000_600).prepare(userInfo: wrap)
+        }
+        XCTAssertNotEqual(prepared(nil)?.drop, true, "an unrestricted Channel keeps its fallback")
+        XCTAssertEqual(prepared([vectorString("bobPk")])?.drop, true)
+    }
+
     /// A Community sender is named by the Nickname they go by there (CORD-04 §10, Vector `sender_in`).
     func testNamesTheSenderByTheirNickname() {
         let concord = vectorObject("concord")

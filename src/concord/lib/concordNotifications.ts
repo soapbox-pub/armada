@@ -23,6 +23,8 @@ export interface ConcordStream {
   convKey: string;
   /** Epoch (decimal string) the rumor's `epoch` binding tag must equal. */
   epoch: string;
+  /** At a restricted Channel's writer address, the writer epoch its rumors' `wepoch` must equal (CORD-03 §3); absent at a read address. */
+  wepoch?: string;
 }
 
 /**
@@ -164,7 +166,7 @@ export function buildConcordSubs(
       const { postAuthors: _readPosters, ...rest } = sub;
       subs.push({
         ...rest,
-        streams: [{ pk: s.group.pk, convKey: bytesToHex(s.group.convKey), epoch: s.epoch.toString() }],
+        streams: [{ pk: s.group.pk, convKey: bytesToHex(s.group.convKey), epoch: s.epoch.toString(), wepoch: s.writer?.epoch.toString() }],
         ...(writers ? { postAuthors: writers } : {}),
         gitAttachments: [],
       });

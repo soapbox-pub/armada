@@ -70,13 +70,16 @@ internal object Concord {
      * rumor's author IS the seal's signer, and that the channel/epoch binding
      * matches the stream whose key opened the wrap.
      */
-    fun storable(communityIdHex: String, sealKind: Int, rumor: Rumor, now: Long): Boolean {
+    fun storable(communityIdHex: String, sealKind: Int, rumor: Rumor, now: Long, wepoch: String? = null): Boolean {
         if (communityIdHex.isEmpty()) return false
         if (sealKind != SEAL_ENCRYPTED) return false
         if (rumor.kind in PLANE_KINDS) return false
         if (resolvedMs(rumor.createdAt, rumor.tags) == null) return false
-        // The service opens read addresses only, where a `wepoch` is forged (CORD-03 §3).
-        if (rumor.tags.any { it.firstOrNull() == "wepoch" }) return false
+        // A `wepoch` stands only as the writer epoch of the address that opened it;
+        // at a read address it is forged (CORD-03 §3).
+        val found = rumor.tags.filter { it.firstOrNull() == "wepoch" }
+        if (wepoch == null && found.isNotEmpty()) return false
+        if (wepoch != null && (found.size != 1 || found[0].getOrNull(1) != wepoch)) return false
         return !Dm17.isExpired(rumor.tags, now)
     }
 }

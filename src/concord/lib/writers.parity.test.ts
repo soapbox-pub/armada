@@ -112,6 +112,9 @@ describe("who rings at a restricted Channel's writer address (CORD-03 §1 What s
     expect(here.map((s) => s.streams.map((st) => st.pk))).toEqual([[expect.not.stringMatching(wpk)], [wpk]]);
     expect(here[0].postAuthors).not.toContain(writer);
     expect(here[1].postAuthors).toContain(writer);
+    // Its rumors commit their writer epoch, which the notifiers' openers check (CORD-03 §3).
+    expect(here[0].streams[0].wepoch).toBeUndefined();
+    expect(here[1].streams[0].wepoch).toBe("1");
     expect(here[1].gitAttachments).toEqual([]);
   });
 });

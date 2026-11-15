@@ -219,6 +219,29 @@ final class ProtocolTests: XCTestCase {
         XCTAssertNil(Concord.open(wrap: NostrEvent.parse(v["forged"] as! [String: Any])!, stream: stream))
     }
 
+    func testBindsAWriterAddressRumorToItsWriterEpoch() {
+        // CORD-03 §3: at a writer address the rumor must commit that address's writer epoch.
+        let v = vectorObject("concordWepoch")
+        func writer(_ wepoch: String) -> ConcordStream {
+            ConcordStream(
+                pubkey: v["streamPk"] as! String,
+                conversationKey: v["convKey"] as! String,
+                epoch: v["epoch"] as! String,
+                wepoch: wepoch,
+                communityId: "cc",
+                channelId: v["channelId"] as! String,
+                banned: []
+            )
+        }
+        let posted = NostrEvent.parse(v["forged"] as! [String: Any])!
+        XCTAssertNotNil(Concord.open(wrap: posted, stream: writer("1")))
+        XCTAssertNil(Concord.open(wrap: posted, stream: writer("2")))
+        XCTAssertNil(Concord.open(wrap: NostrEvent.parse(v["plain"] as! [String: Any])!, stream: writer("1")))
+        XCTAssertTrue(Concord.writerBound([["wepoch", "1"]], wepoch: "1"))
+        XCTAssertFalse(Concord.writerBound([["wepoch", "01"]], wepoch: "01"))
+        XCTAssertFalse(Concord.writerBound([["wepoch", "1"], ["wepoch", "1"]], wepoch: "1"))
+    }
+
     func testRefusesTheWrongConversationKey() {
         let wrong = ConcordStream(
             pubkey: concordStream.pubkey,

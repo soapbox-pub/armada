@@ -868,12 +868,15 @@ public class NotificationRelayService extends Service {
         // When this membership began (ms, the vault entry's `added_at`; 0 =
         // unknown). Nothing sent earlier notifies: the viewer wasn't there.
         final long joinedAtMs;
+        // At a restricted Channel's writer address, the writer epoch its rumors' `wepoch`
+        // must equal (CORD-03 §3); null at a read address.
+        final String wepoch;
         ConcordStream(byte[] convKey, String communityId, String channelId, String epoch,
                        String name, String url, CommunityRef community, long timerSecs,
                        boolean mentionOnly, Set<String> banned, Set<String> mentionEveryoneAuthors,
                        boolean mentionEveryoneAnyone, List<RoleMentions.Held> roleMentions, Set<String> roleMentionAuthors,
                        long clockOffsetMs, Set<String> sendDenied, Set<String> postAuthors, Map<String, long[]> timeouts,
-                       Map<String, String> nicknames, long joinedAtMs) {
+                       Map<String, String> nicknames, long joinedAtMs, String wepoch) {
             this.convKey = convKey;
             this.communityId = communityId;
             this.channelId = channelId;
@@ -894,6 +897,7 @@ public class NotificationRelayService extends Service {
             this.timeouts = timeouts;
             this.nicknames = nicknames;
             this.joinedAtMs = joinedAtMs;
+            this.wepoch = wepoch;
         }
     }
 
@@ -2315,7 +2319,8 @@ public class NotificationRelayService extends Service {
                             name, url, ref, Math.max(0, sub.optLong("timerSecs", 0)),
                             mentionOnly, banned, mentionEveryoneAuthors, sub.optBoolean("mentionEveryoneAnyone", false),
                             roleMentions, roleMentionAuthors, sub.optLong("clockOffsetMs", 0), sendDenied, postAuthors, timeouts, nicknames,
-                            Math.max(0, sub.optLong("joinedAtMs", 0))));
+                            Math.max(0, sub.optLong("joinedAtMs", 0)),
+                            s.has("wepoch") ? s.optString("wepoch", "") : null));
                 }
                 Set<String> listed = communityRelays.computeIfAbsent(communityId, k -> new LinkedHashSet<>());
                 communityPks.computeIfAbsent(communityId, k -> new LinkedHashSet<>()).addAll(pkList);
@@ -4428,7 +4433,7 @@ public class NotificationRelayService extends Service {
             // tags, so requiring them here can only drop what it drops too —
             // and keeps the notification from naming a channel the payload
             // never committed to.
-            if (!concordBound(rumor, st.channelId, st.epoch)) return null;
+            if (!concordBound(rumor, st.channelId, st.epoch, st.wepoch)) return null;
             return new ConcordOpen(rumor, sealKind);
         } catch (Exception e) {
             return null;
@@ -5551,6 +5556,9 @@ public class NotificationRelayService extends Service {
                 // silent — the wrap is parked either way, so the WebView (which
                 // holds the full key history) still surfaces it on open.
                 if (!wantsOpaqueResolvedGroupMessage(st.mentionOnly)) return;
+                // In a restricted Channel only some authors' posts ring (CORD-03 §1),
+                // and an unopened wrap names none.
+                if (st.postAuthors != null) return;
                 enqueueRoomMessage(
                         st.community, "c2:" + st.channelId, st.name, st.url,
                         /*senderPubkey=*/null, str(R.string.notif_someone), /*picture=*/null,
@@ -5574,7 +5582,7 @@ public class NotificationRelayService extends Service {
             // signer, and that the channel/epoch binding matches the stream key
             // that opened the wrap — the checks the WebView's write path makes
             // before it will file a rumor under a channel.
-            ServiceStore.storeConcordRumor(this, st.communityId, opened.sealKind, rumor);
+            ServiceStore.storeConcordRumor(this, st.communityId, opened.sealKind, rumor, st.wepoch);
 
             // Every chat-plane kind rides an identical wrap. Messages (kind 9),
             // thread replies (kind 1111), and reactions (kind 7) to YOUR own
@@ -5601,7 +5609,7 @@ public class NotificationRelayService extends Service {
             // A post its readers collapse rings nobody (CORD-04 §8): no SEND in this
             // open Channel, or inside a running Timeout's window.
             if (st.sendDenied.contains(author2)) return;
-            // At a restricted Channel's read address a post stands only from those who manage it (CORD-03 §1).
+            // In a restricted Channel a post rings only from the authors its address takes (CORD-03 §1).
             if (st.postAuthors != null && rumorKind != 7 && !st.postAuthors.contains(author2)) return;
             long[] timeout = st.timeouts.get(author2);
             if (timeout != null) {
@@ -7193,7 +7201,8 @@ public class NotificationRelayService extends Service {
         ConcordStream best = null;
         for (Map.Entry<String, ConcordStream> e : pkToStream2.entrySet()) {
             ConcordStream cand = e.getValue();
-            if (!cand.channelId.equals(channelId) || cand.epoch.isEmpty()) continue;
+            // A writer address holds no secret here (CORD-03 §1): replies go to the read address.
+            if (!cand.channelId.equals(channelId) || cand.epoch.isEmpty() || cand.wepoch != null) continue;
             if (best == null || parseEpoch(cand.epoch) > parseEpoch(best.epoch)) {
                 best = cand;
                 bestPk = e.getKey();
@@ -8468,18 +8477,23 @@ public class NotificationRelayService extends Service {
         return found;
     }
 
+    private static final Pattern CANONICAL_EPOCH = Pattern.compile("^(0|[1-9][0-9]*)$");
+
     /**
-     * Whether a chat rumor is bound to the read stream that opened it: exactly one
+     * Whether a chat rumor is bound to the stream that opened it: exactly one
      * `channel` and one `epoch`, equal to the stream's, as the WebView's uniqueTag
-     * requires, and no `wepoch`. Only read addresses are listened on, and a `wepoch`
-     * there is forged (CORD-03 §3), as the WebView's checkWriterBinding refuses it.
+     * requires, and the WebView's checkWriterBinding (CORD-03 §3): at a writer
+     * address ({@code wepoch} non-null) one canonical `wepoch` equal to its writer
+     * epoch, and at a read address none, where it is forged.
      */
-    static boolean concordBound(JSONObject rumor, String channelId, String epoch) {
+    static boolean concordBound(JSONObject rumor, String channelId, String epoch, String wepoch) {
         String ch = uniqueTagValue(rumor, "channel");
         String ep = uniqueTagValue(rumor, "epoch");
         if (ch == null || !channelId.equals(ch)) return false;
         if (ep == null || epoch.isEmpty() || !epoch.equals(ep)) return false;
-        return !hasTag(rumor, "wepoch");
+        if (wepoch == null) return !hasTag(rumor, "wepoch");
+        String we = uniqueTagValue(rumor, "wepoch");
+        return we != null && CANONICAL_EPOCH.matcher(we).matches() && wepoch.equals(we);
     }
 
     private static boolean hasTag(JSONObject event, String name) {
