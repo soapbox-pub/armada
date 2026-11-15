@@ -41,7 +41,8 @@ function keyAt(held: PrivateChannelKey, epoch: bigint): Uint8Array | undefined {
   return held.priors?.find((p) => p.epoch === epoch)?.key;
 }
 
-const CHANNEL_TOPIC_MAX_BYTES = 1024;
+/** A Channel's topic cap (CORD-03 §2). */
+export const CHANNEL_TOPIC_MAX_BYTES = 1024;
 const UTF8 = new TextEncoder();
 
 /**

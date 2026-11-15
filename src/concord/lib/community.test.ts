@@ -63,6 +63,12 @@ describe("channelsView (CORD-03 channel kinds)", () => {
     expect(byName.get("orphan")?.isPrivate).toBe(true);
   });
 
+  it("carries a channel's topic on the legacy Roster too (CORD-03 §2)", () => {
+    const { community, generalChannelId } = mintCommunity("Fleet", OWNER, ["wss://a.test"]);
+    const folded = foldWith([channelDef(generalChannelId, { name: "general", private: false, topic: "Say hi" })]);
+    expect(channelsView(community, folded)[0]?.topic).toBe("Say hi");
+  });
+
   it("public channels are never private", () => {
     const { community, generalChannelId } = mintCommunity("Fleet", OWNER, ["wss://a.test"]);
     const folded = foldWith([channelDef(generalChannelId, { name: "general", private: false })]);

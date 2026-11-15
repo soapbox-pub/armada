@@ -20,7 +20,7 @@ import { verifyEventOnce } from "@/lib/verifyCache";
 import { preferPortableRelays, unusableRelaysReason } from "@/lib/relayUsability";
 import { channelKeysToWire, isLive, nextChannelEpoch, toJoinMaterial, rehydrateCommunity, type CommunityListEntry, type JoinMaterial } from "@/concord/lib/communityList";
 import { channelsView, mintCommunity, visibleChannels } from "@/concord/lib/community";
-import { openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
+import { CHANNEL_TOPIC_MAX_BYTES, openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
 import { rekeyOrder } from "@/concord/lib/rankKey";
 import { planCreateCategory, planRenameCategory, planSync } from "@/concord/lib/rankedWrites";
 import { maySwapOverwrites } from "@/concord/lib/roster";
@@ -1137,6 +1137,23 @@ export function useCommunityManagement(community: Community | undefined) {
     },
   });
 
+  /** Set or clear a Channel's topic (CORD-03 §2); empty removes it (Vector `edit_channel_details`). */
+  const setChannelTopic = useMutation<void, Error, { channelIdHex: string; topic: string }>({
+    mutationFn: async ({ channelIdHex, topic }) => {
+      if (!user || !community) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
+      const trimmed = topic.trim();
+      if (utf8Len(trimmed) > CHANNEL_TOPIC_MAX_BYTES) {
+        throw new Error(t({ id: "useCommunityActions.topicTooLong", defaultMessage: "A channel topic can be at most {max} bytes." }, { max: CHANNEL_TOPIC_MAX_BYTES }));
+      }
+      // Round-trip untouched metadata (CORD-02 §6).
+      await writeChannel(channelIdHex, (meta) => {
+        const { topic: _topic, ...rest } = meta;
+        return trimmed ? { ...rest, topic: trimmed } : rest;
+      });
+      invalidateControl(queryClient, community.idHex);
+    },
+  });
+
   /**
    * Convert Public → Private on ranked roles (CORD-03 §2): mint a key at the next
    * channel epoch (stored before the edition), deliver it, and seal the details.
@@ -1616,6 +1633,8 @@ export function useCommunityManagement(community: Community | undefined) {
     createChannel: createChannel.mutateAsync,
     isAddingChannel: createChannel.isPending,
     renameChannel: renameChannel.mutateAsync,
+    setChannelTopic: setChannelTopic.mutateAsync,
+    isSettingTopic: setChannelTopic.isPending,
     setChannelCategory: setChannelCategory.mutateAsync,
     isFiling: setChannelCategory.isPending,
     nameCategory: nameCategory.mutateAsync,

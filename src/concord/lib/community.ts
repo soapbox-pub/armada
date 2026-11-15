@@ -111,15 +111,16 @@ export function channelsView(community: Community, folded: FoldedControl | undef
     const cat = typeof meta.category === "string" ? folded?.categories?.get(meta.category) : undefined;
     const live = cat && !cat.deleted ? cat : undefined;
     // A legacy Roster files under Vector's Category id when it names one, else Armada's conventions.
+    const topic = typeof meta.topic === "string" ? { topic: meta.topic } : {};
     if (!ranked) {
       return live
-        ? { category: live.name || live.idHex.slice(0, 8), categoryId: live.idHex, position: channelPosition(meta) }
-        : { category: channelCategory(meta), position: channelPosition(meta) };
+        ? { category: live.name || live.idHex.slice(0, 8), categoryId: live.idHex, position: channelPosition(meta), ...topic }
+        : { category: channelCategory(meta), position: channelPosition(meta), ...topic };
     }
     return {
       ...(live ? { category: live.name || live.idHex.slice(0, 8), categoryId: live.idHex } : {}),
       ...(isRankKey(meta.position) ? { positionKey: meta.position } : {}),
-      ...(typeof meta.topic === "string" ? { topic: meta.topic } : {}),
+      ...topic,
     };
   };
 

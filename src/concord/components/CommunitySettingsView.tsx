@@ -1,4 +1,5 @@
 import {
+  AlignLeft,
   ArrowDown,
   ArrowLeft,
   ArrowUp,
@@ -82,6 +83,7 @@ import {
 } from "@/concord/lib/channelArrangement";
 import { ChannelCategoryHeading } from "@/concord/components/ChannelCategoryHeading";
 import { CategoryNameDialog } from "@/concord/components/CategoryNameDialog";
+import { ChannelTopicDialog } from "@/concord/components/ChannelTopicDialog";
 import { useRankedCategoryControls } from "@/concord/components/RankedCategoryControls";
 import { useChannelDrag, type ChannelDrop, type ChannelDropSlot } from "@/concord/hooks/useChannelDrag";
 import { useCommunityManagement } from "@/concord/hooks/useCommunityActions";
@@ -928,7 +930,7 @@ function ChannelsSection({
 }) {
   const intl = useIntl();
   const channels = useChannels(community);
-  const { renameChannel, isRenaming, setChannelCategory, isFiling, setChannelView, deleteChannel, createChannel, isAddingChannel, arrangeChannels, nameCategory, publiciseChannel } =
+  const { renameChannel, isRenaming, setChannelTopic, isSettingTopic, setChannelCategory, isFiling, setChannelView, deleteChannel, createChannel, isAddingChannel, arrangeChannels, nameCategory, publiciseChannel } =
     useCommunityManagement(community);
   const rankedControls = useRankedCategoryControls(community, canManage);
 
@@ -1144,9 +1146,10 @@ function ChannelsSection({
           <ChannelRow
             channel={ch}
             canManage={canManage}
-            disabled={isRenaming || isFiling}
+            disabled={isRenaming || isSettingTopic || isFiling}
             categories={categoryPicklist}
             onRename={(name) => renameChannel({ channelIdHex: ch.idHex, name })}
+            onSetTopic={(topic) => setChannelTopic({ channelIdHex: ch.idHex, topic })}
             accessRoles={channelRoles?.get(ch.idHex) ?? []}
             onPrivatise={onPrivatiseChannel ? (roleName) => onPrivatiseChannel(ch.idHex, roleName) : undefined}
             onPublicise={canManage ? () => publiciseChannel({ channelIdHex: ch.idHex }) : undefined}
@@ -1446,6 +1449,7 @@ function ChannelRow({
   disabled,
   categories,
   onRename,
+  onSetTopic,
   onSetCategory,
   onSetView,
   onNewCategory,
@@ -1463,6 +1467,8 @@ function ChannelRow({
   disabled: boolean;
   categories: string[];
   onRename: (name: string) => Promise<void>;
+  /** Set or clear the channel's topic (CORD-03 §2); empty removes it. */
+  onSetTopic: (topic: string) => Promise<void>;
   onSetCategory: (name: string | undefined) => Promise<void>;
   /** Flip what the channel opens to — forum feed or chat (CORD-03 §2 `view`). */
   onSetView?: (view: ChannelView) => Promise<void>;
@@ -1485,6 +1491,7 @@ function ChannelRow({
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(channel.name);
   const [accessOpen, setAccessOpen] = useState(false);
+  const [topicOpen, setTopicOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [roleDraft, setRoleDraft] = useState("");
   const [addingRole, setAddingRole] = useState(false);
@@ -1585,11 +1592,14 @@ function ChannelRow({
         </form>
       ) : (
         <>
-          <span className="flex-1 min-w-0 truncate text-sm">
-            {channel.name}
-            {channel.category && (
-              <span className="ml-1.5 text-xs text-muted-foreground">{channel.category}</span>
-            )}
+          <span className="flex-1 min-w-0">
+            <span className="block truncate text-sm">
+              {channel.name}
+              {channel.category && (
+                <span className="ml-1.5 text-xs text-muted-foreground">{channel.category}</span>
+              )}
+            </span>
+            {channel.topic && <span className="block truncate text-xs text-muted-foreground">{channel.topic}</span>}
           </span>
           {canManage && (
             <DropdownMenu>
@@ -1609,6 +1619,12 @@ function ChannelRow({
                 <DropdownMenuItem onSelect={() => setEditing(true)}>
                   <Pencil className="size-3.5" />
                   <FormattedMessage id="communitySettingsView.channel.rename" defaultMessage="Rename" />
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setTopicOpen(true)}>
+                  <AlignLeft className="size-3.5" />
+                  {channel.topic
+                    ? <FormattedMessage id="communitySettingsView.channel.editTopic" defaultMessage="Edit topic" />
+                    : <FormattedMessage id="communitySettingsView.channel.setTopic" defaultMessage="Set topic" />}
                 </DropdownMenuItem>
                 {onSetView && (
                   // Same channel id: history stays valid whatever it opens as.
@@ -1916,6 +1932,20 @@ function ChannelRow({
           </Button>
         </div>
       </div>
+    )}
+    {canManage && (
+      <ChannelTopicDialog
+        open={topicOpen}
+        channelName={channel.name}
+        initial={channel.topic ?? ""}
+        onOpenChange={setTopicOpen}
+        onSubmit={(topic) =>
+          void run(
+            () => onSetTopic(topic),
+            t({ id: "communitySettingsView.channel.setTopicFailed", defaultMessage: "Couldn't change the topic" }),
+          )
+        }
+      />
     )}
     </div>
   );

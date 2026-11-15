@@ -3595,6 +3595,7 @@ function ConcordCommunityPage() {
                 )
               }
               title={paneHeader ? paneHeader.label : channel?.name ?? "…"}
+              topic={paneHeader ? undefined : channel?.topic}
               avatar={<TitleAvatar icon={folded?.metadata?.icon} name={community?.name} />}
               context={community?.name ?? "…"}
               onContextClick={community ? () => selectPane("settings") : undefined}
