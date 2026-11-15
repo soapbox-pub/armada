@@ -10,11 +10,10 @@ import { ColorPicker } from "@/components/ui/color-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useChannelRekey } from "@/concord/hooks/useRekey";
+import { settledScope } from "@/concord/hooks/rosterSettle";
 import { RankedRolesBody, RankedRolesSwitch } from "@/concord/components/RankedRolesView";
 import { useRoles } from "@/concord/hooks/useRoles";
-import { roleRevokeCut } from "@/concord/lib/channelAccess";
-import { bytesToHex } from "@/concord/lib/derive";
+import type { SettleReport } from "@/concord/lib/keySettle";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { toast } from "@/hooks/useToast";
@@ -84,7 +83,6 @@ function RolesBody({ community }: { community: Community }) {
 
 function LegacyRolesBody({ community }: { community: Community }) {
   const { folded, saveRole, isSavingRole, setMemberRoles, isSettingRoles, newRoleId } = useRoles(community);
-  const { rekeyChannel, isRekeyingChannel, canRekeyChannel } = useChannelRekey(community);
   const { user } = useCurrentUser();
   const intl = useIntl();
   const [editing, setEditing] = useState<Role | null>(null);
@@ -98,7 +96,7 @@ function LegacyRolesBody({ community }: { community: Community }) {
 
   const roster = folded?.roster ?? emptyRoles();
   const actor = user?.pubkey;
-  const busy = isSavingRole || isSettingRoles || isRekeyingChannel;
+  const busy = isSavingRole || isSettingRoles;
 
   const roles = useMemo(
     () => [...(folded?.roster.roles ?? [])].sort(byDisplayOrder),
@@ -110,11 +108,6 @@ function LegacyRolesBody({ community }: { community: Community }) {
     () => [...(folded?.channels.values() ?? [])].filter((c) => !c.deleted),
     [folded],
   );
-  // Every live Private Channel, flagged by whether I hold its key (see roleRevokeCut).
-  const privateChannels = useMemo(() => {
-    const heldIds = new Set(community.privateChannels.map((ch) => bytesToHex(ch.id)));
-    return channels.filter((c) => c.isPrivate).map((c) => ({ idHex: c.channelIdHex, heldByMe: heldIds.has(c.channelIdHex) }));
-  }, [community, channels]);
   const liveChannel = (channelId: string) => {
     const c = folded?.channels.get(channelId);
     return c && !c.deleted ? c : undefined;
@@ -342,40 +335,41 @@ function LegacyRolesBody({ community }: { community: Community }) {
     void commitOrder(next);
   };
 
-  /** Rotate a revoked role's channel key away from the members it cut; the reason it couldn't, else null. */
-  const rotateAway = async (cut: NonNullable<ReturnType<typeof roleRevokeCut>>): Promise<string | null> => {
-    const channel = `#${channelDisplayName(community, folded, cut.channelIdHex)}`;
-    if (!cut.heldByMe) {
-      return t(
-        {
-          id: "rolesView.keyNotHeld",
-          defaultMessage: "You don't hold the key to {channel}, so its former holders keep reading until a member who does rotates it.",
-        },
-        { channel },
-      );
-    }
-    if (!canRekeyChannel) {
-      return t(
-        {
-          id: "rolesView.keyNeedsPermission",
-          defaultMessage:
-            "Its former holders still have the key to {channel}, and rotating it needs the Manage channels permission. Ask an admin to rotate it.",
-        },
-        { channel },
-      );
-    }
-    try {
-      await rekeyChannel({ channelIdHex: cut.channelIdHex, keepRecipients: cut.keep, removedTargets: cut.removed });
-      return null;
-    } catch (e) {
-      return t(
-        {
-          id: "rolesView.keyRotationFailed",
-          defaultMessage: "Rotating the key to {channel} failed, so its former holders can still read it: {error} Rotate it from the channel's access settings.",
-        },
-        { channel, error: e instanceof Error ? e.message : String(e) },
-      );
-    }
+  /** Why the Channel keys a revoke moved didn't all move, else null. */
+  const keysLeft = (report: SettleReport | undefined): string | null => {
+    if (!report) return null;
+    const name = (id: string) => `#${channelDisplayName(community, folded, id)}`;
+    const why = [
+      ...report.unheldLost.map((id) =>
+        t(
+          {
+            id: "rolesView.keyNotHeld",
+            defaultMessage: "You don't hold the key to {channel}, so its former holders keep reading until a member who does rotates it.",
+          },
+          { channel: name(id) },
+        ),
+      ),
+      ...report.notRotated.map((id) =>
+        t(
+          {
+            id: "rolesView.keyNeedsPermission",
+            defaultMessage:
+              "Its former holders still have the key to {channel}, and rotating it needs the Manage channels permission. Ask an admin to rotate it.",
+          },
+          { channel: name(id) },
+        ),
+      ),
+      ...report.rotationFailed.map(({ channelIdHex, error }) =>
+        t(
+          {
+            id: "rolesView.keyRotationFailed",
+            defaultMessage: "Rotating the key to {channel} failed, so its former holders can still read it: {error} Rotate it from the channel's access settings.",
+          },
+          { channel: name(channelIdHex), error },
+        ),
+      ),
+    ];
+    return why.length > 0 ? why.join(" ") : null;
   };
 
   /**
@@ -387,18 +381,19 @@ function LegacyRolesBody({ community }: { community: Community }) {
     setError(null);
     setEvenOut(null);
     const { strippable, skippedOwner, skippedRank } = holdersOf(role);
-    // Judged on the pre-strip roster: once the Grants land, nobody holds the role to cut.
-    const cut = roleRevokeCut(roster, ownerHex, role, strippable.map((g) => g.member), privateChannels, folded?.banned);
     let stripped = 0;
     try {
-      for (const g of strippable) {
-        await setMemberRoles({ member: g.member, roleIds: g.roleIds.filter((r) => r !== role.roleId) });
-        stripped++;
-      }
-      // The stripped members still hold the channel key; only a rotation cuts them (CORD-06).
-      const keyLeft = cut ? await rotateAway(cut) : null;
-      // Clear `display` too: un-outranked holders keep the role, so a hoisted section would linger.
-      await saveRole({ role: { ...role, permissions: 0n, display: undefined } });
+      // One settle for the whole revoke: every strip, then the Role emptied, then the keys
+      // they moved, in one rotation per Channel rather than one per member (CORD-06).
+      const { report } = await settledScope(community, async () => {
+        for (const g of strippable) {
+          await setMemberRoles({ member: g.member, roleIds: g.roleIds.filter((r) => r !== role.roleId), unsettled: true });
+          stripped++;
+        }
+        // Clear `display` too: un-outranked holders keep the role, so a hoisted section would linger.
+        await saveRole({ role: { ...role, permissions: 0n, display: undefined }, unsettled: true });
+      });
+      const keyLeft = keysLeft(report);
       // Owner is separated: `canActOnMember` refuses them as a target outright.
       const description =
         skippedRank.length > 0 && skippedOwner.length > 0

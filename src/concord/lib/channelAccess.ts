@@ -112,56 +112,6 @@ export function vendableChannels<T extends { id: Uint8Array }>(
   });
 }
 
-/**
- * Channels whose access for `memberHex` HINGES on `roleId`, split by whether this
- * client holds the key. `unheld` channels still need rotating by someone who
- * holds them, or a revoke reports success while the target keeps reading.
- */
-export function channelsHingingOn(
-  roster: CommunityRoles,
-  ownerHex: string | undefined,
-  memberHex: string,
-  roleId: string,
-  channels: ReadonlyArray<{ idHex: string; heldByMe: boolean }>,
-): { held: string[]; unheld: string[] } {
-  const held: string[] = [];
-  const unheld: string[] = [];
-  for (const ch of channels) {
-    if (!isEntitled(roster, ownerHex, memberHex, ch.idHex, { withRoleIds: [roleId] })) continue;
-    if (isEntitled(roster, ownerHex, memberHex, ch.idHex, { withoutRoleIds: [roleId] })) continue;
-    (ch.heldByMe ? held : unheld).push(ch.idHex);
-  }
-  return { held, unheld };
-}
-
-/**
- * The channel rekey a bulk role revoke owes (CORD-06 §1): `role`'s private
- * channel, the `stripped` members who lose it, and everyone still entitled.
- * `null` when the role gates no live private channel or nobody is cut.
- */
-export function roleRevokeCut(
-  roster: CommunityRoles,
-  ownerHex: string | undefined,
-  role: Role,
-  stripped: readonly string[],
-  channels: ReadonlyArray<{ idHex: string; heldByMe: boolean }>,
-  banned?: ReadonlySet<string>,
-): { channelIdHex: string; heldByMe: boolean; keep: string[]; removed: string[] } | null {
-  if (role.scope.kind !== "channel") return null;
-  const wanted = role.scope.channelId.toLowerCase();
-  const channel = channels.find((ch) => ch.idHex.toLowerCase() === wanted);
-  if (!channel) return null;
-  const strippedSet = new Set(stripped);
-  const entitledAfter = (pk: string) =>
-    isEntitled(roster, ownerHex, pk, channel.idHex, strippedSet.has(pk) ? { withoutRoleIds: [role.roleId] } : undefined);
-  const removed = stripped.filter((pk) => !entitledAfter(pk));
-  if (removed.length === 0) return null;
-  const candidates = new Set(roster.grants.map((g) => g.member));
-  if (ownerHex) candidates.add(ownerHex);
-  const keep = [...candidates].filter((pk) => !banned?.has(pk) && entitledAfter(pk));
-  return { channelIdHex: channel.idHex, heldByMe: channel.heldByMe, keep, removed };
-}
-
 type ChannelCut = { channelIdHex: string; heldByMe: boolean; keep: string[]; removed: string[] };
 
 /**

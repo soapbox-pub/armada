@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAccessDuty } from "@/concord/hooks/useAccessDuty";
 import { useChannelAccess, useHistoryAccess } from "@/concord/hooks/useChannelAccess";
 import { useJoinedCommunities } from "@/concord/hooks/useCommunityList";
+import { useRosterSettler } from "@/concord/hooks/useRosterSettler";
 import { useWriterAccess } from "@/concord/hooks/useWriterAccess";
 import { rehydrateCommunity } from "@/concord/lib/communityList";
 import { controlFoldKey, readControlFold } from "@/concord/lib/control";
@@ -27,6 +28,8 @@ function Duties({ community }: { community: Community }) {
   useHistoryAccess(community);
   useWriterAccess(community);
   useAccessDuty(community);
+  // What a Roster write this member makes moves, settled with the write (`settledWrite`).
+  useRosterSettler(community);
   return null;
 }
 

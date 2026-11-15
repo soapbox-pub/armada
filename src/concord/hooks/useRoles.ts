@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { useControlFold, citationFor, foldStoredControl, invalidateControl, publishEdition, readControlWhole, withControlWrite } from "@/concord/hooks/useControlPlane";
+import { settledWrite } from "@/concord/hooks/rosterSettle";
 import type { FoldedControl } from "@/concord/lib/control";
 import { useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -127,14 +128,19 @@ export function useRoles(community: Community | undefined) {
     if (community) invalidateControl(queryClient, community.idHex);
   };
 
-  /** One write at a time, planned on the store's fold, which holds this device's own last write. */
-  const write = <T,>(run: (folded: FoldedControl | undefined) => Promise<T>): Promise<T> => {
+  /**
+   * One write at a time, planned on the store's fold, which holds this device's own last
+   * write, and settled with the Channel keys it moves (`settledWrite`) unless the caller
+   * settles a batch of writes itself.
+   */
+  const write = <T,>(run: (folded: FoldedControl | undefined) => Promise<T>, unsettled?: boolean): Promise<T> => {
     if (!community) return run(rendered);
-    return withControlWrite(community.idHex, async () => run(await foldStoredControl(community).catch(() => rendered)));
+    const once = () => withControlWrite(community.idHex, async () => run(await foldStoredControl(community).catch(() => rendered)));
+    return unsettled ? once() : settledWrite(community, once);
   };
 
-  const saveRole = useMutation<string, Error, { role: Role }>({
-    mutationFn: ({ role: asked }) => write(async (folded) => {
+  const saveRole = useMutation<string, Error, { role: Role; unsettled?: boolean }>({
+    mutationFn: ({ role: asked, unsettled }) => write(async (folded) => {
       if (!user || !community || !folded) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
       // Refused here, before publishing, what readers would drop (Vector `create_role`, `edit_role`).
       const role = planRoleSave(folded, user.pubkey, asked);
@@ -151,13 +157,12 @@ export function useRoles(community: Community | undefined) {
         }),
       );
       return role.roleId;
-    }),
+    }, unsettled),
     onSuccess: invalidate,
   });
 
-  /** Resolves to the fold the Grant was planned on and the roles it set: what a key settle moves from. */
-  const setMemberRoles = useMutation<{ before: FoldedControl; roleIds: string[] }, Error, { member: string; roleIds: string[] }>({
-    mutationFn: ({ member, roleIds: asked }) => write(async (folded) => {
+  const setMemberRoles = useMutation<void, Error, { member: string; roleIds: string[]; unsettled?: boolean }>({
+    mutationFn: ({ member, roleIds: asked, unsettled }) => write(async (folded) => {
       let roleIds = asked;
       if (!user || !community) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
       // The fold's gate (CORD-04 §2/§3), checked before publishing so a doomed grant
@@ -194,8 +199,7 @@ export function useRoles(community: Community | undefined) {
           authority: citationFor(community, folded, user.pubkey),
         }),
       );
-      return { before: folded, roleIds };
-    }),
+    }, unsettled),
     onSuccess: invalidate,
   });
 

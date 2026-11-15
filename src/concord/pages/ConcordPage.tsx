@@ -1,4 +1,3 @@
-import { channelDisplayName } from "@/concord/lib/community";
 import { observedAuthors } from "@/concord/lib/observedAuthors";
 import { useCommunityRumors } from "@/concord/hooks/useCommunityRumors";
 import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Bell, BellOff, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, Gem, MessageSquareText, MessagesSquare, Pause, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
@@ -188,7 +187,6 @@ import { clockNowMs, nowSecs } from "@/lib/relayClock";
 import { CommunityNicknamesContext } from "@/contexts/CommunityNicknamesContext";
 import { isEntitled } from "@/concord/lib/channelAccess";
 import { withKeySettle } from "@/concord/lib/keySettle";
-import { useRoleSettle, type SettleReport } from "@/concord/hooks/useRoleSettle";
 import { bytesToHex } from "@/concord/lib/derive";
 import { useRelayFollow } from "@/concord/hooks/useRelayFollow";
 import { useMemberPanelScope } from "@/concord/hooks/useMemberPanelScope";
@@ -2229,16 +2227,7 @@ function ConcordCommunityPage() {
     [roster],
   );
   const roleIntent = useRoleIntent(memberRoleIds, setMemberRoles);
-  const settleRoleKeys = useRoleSettle(community);
-  // Toggles whose Grant or keys are still settling: a repeat waits for its own to finish.
-  const toggling = useRef(new Set<string>());
-  const [settlingRoles, setSettlingRoles] = useState<ReadonlySet<string>>(() => new Set());
-  const isRoleSettling = useCallback(
-    (pk: string, roleId: string) => settlingRoles.has(`${pk}:${roleId}`) || roleIntent.isPending(pk, roleId),
-    [settlingRoles, roleIntent],
-  );
-  const { rolesFor: intendedRolesFor } = roleIntent;
-  const isRoleTogglePending = isRoleSettling;
+  const { rolesFor: intendedRolesFor, isPending: isRoleTogglePending } = roleIntent;
 
   const memberRolesValue = useMemo<MemberRolesValue>(() => {
     const byId = new Map((roster?.roles ?? []).map((r) => [r.roleId, r]));
@@ -2905,115 +2894,14 @@ function ConcordCommunityPage() {
       });
       return;
     }
-    if (!community || toggling.current.has(`${pubkey}:${roleId}`)) return;
-    toggling.current.add(`${pubkey}:${roleId}`);
-    setSettlingRoles(new Set(toggling.current));
     try {
-      // The Grant and the keys it moves, one change at a time per Community (Vector
-      // `change_member_roles`): the next toggle, or a duty's rotation, starts from here.
-      await withKeySettle(community.idHex, async () => {
-        let published: Awaited<ReturnType<typeof roleIntent.toggle>>;
-        try {
-          // Composes on this client's last intent: a Grant replaces the whole role list.
-          published = await roleIntent.toggle(pubkey, roleId, on);
-          if (!published) return;
-          toast({ title: on ? t({ id: "concordPage.roles.granted", defaultMessage: "Role granted" }) : t({ id: "concordPage.roles.removed", defaultMessage: "Role removed" }) });
-        } catch (e) {
-          toast({ title: t({ id: "concordPage.roles.changeFailed", defaultMessage: "Couldn't change roles" }), description: e instanceof Error ? e.message : undefined, variant: "destructive" });
-          return;
-        }
-        const report = await settleRoleKeys(published.published.before, pubkey, published.published.roleIds, memberPubkeys);
-        toastSettle(report);
-      });
-    } finally {
-      toggling.current.delete(`${pubkey}:${roleId}`);
-      setSettlingRoles(new Set(toggling.current));
-    }
-  };
-
-  const toastSettle = (report: SettleReport) => {
-    const nameOf = (idHex: string) => channelDisplayName(community, folded, idHex);
-    const listNames = (ids: string[]) => ids.map((id) => `#${nameOf(id)}`).join(", ");
-    if (report.sent.length > 0) {
-      toast({
-        title: t({ id: "concordPage.keys.sent", defaultMessage: "Channel keys sent" }),
-        description: t(
-          {
-            id: "concordPage.keys.sentDescription",
-            defaultMessage: "The member received {count, plural, one {# private channel key} other {# private channel keys}}.",
-          },
-          { count: report.sent.length },
-        ),
-      });
-    }
-    if (report.sendFailed !== undefined) {
-      toast({
-        title: t({ id: "concordPage.keys.sendFailed", defaultMessage: "Couldn't send the channel keys" }),
-        description: report.sendFailed
-          ? t(
-              {
-                id: "concordPage.keys.sendFailedDetail",
-                defaultMessage:
-                  "The role was granted, but delivering its private channel keys failed: {error} Toggle the role off and on to retry.",
-              },
-              { error: report.sendFailed },
-            )
-          : t({
-              id: "concordPage.keys.sendFailedDescription",
-              defaultMessage:
-                "The role was granted, but delivering its private channel keys failed. Toggle the role off and on to retry.",
-            }),
-        variant: "destructive",
-      });
-    }
-    // Only a key holder can vend; the grantee waits until one does.
-    if (report.unheldGained.length > 0) {
-      toast({
-        title: t({ id: "concordPage.keys.someUnsent", defaultMessage: "Some channel keys weren't sent" }),
-        description: t(
-          {
-            id: "concordPage.keys.someUnsentDescription",
-            defaultMessage:
-              "You don't hold the key to {channels}, so a member who does has to share it before they can read {count, plural, one {that channel} other {those channels}}.",
-          },
-          { channels: listNames(report.unheldGained), count: report.unheldGained.length },
-        ),
-      });
-    }
-    // Report the un-rotatable part first: a revoke that cuts nobody is the failure to hear about.
-    if (report.unheldLost.length > 0) {
-      toast({
-        title: t({ id: "concordPage.keys.notRevoked", defaultMessage: "Channel access not revoked" }),
-        description: t(
-          {
-            id: "concordPage.keys.notRevokedDescription",
-            defaultMessage: "You don't hold the key to {channels}, so they keep reading until a member who does rotates it.",
-          },
-          { channels: listNames(report.unheldLost) },
-        ),
-        variant: "destructive",
-      });
-    }
-    if (report.notRotated.length > 0) {
-      toast({
-        title: t({ id: "concordPage.keys.notRotated", defaultMessage: "Channel keys not rotated" }),
-        description: t({
-          id: "concordPage.keys.notRotatedDescription",
-          defaultMessage:
-            "They lost access to a private channel, but rotating its key needs the Manage channels permission. Ask an admin to rotate it.",
-        }),
-        variant: "destructive",
-      });
-    }
-    for (const { channelIdHex, error } of report.rotationFailed) {
-      toast({
-        title: t({ id: "concordPage.keys.rotationFailed", defaultMessage: "Channel key rotation failed" }),
-        description: t(
-          { id: "concordPage.keys.rotationFailedDetail", defaultMessage: "They may still read #{channel} until it succeeds: {error}" },
-          { channel: nameOf(channelIdHex), error },
-        ),
-        variant: "destructive",
-      });
+      // Composes on this client's last intent and ignores repeats in flight. The
+      // Grant settles the Channel keys it moves before it resolves (`settledWrite`).
+      const published = await roleIntent.toggle(pubkey, roleId, on);
+      if (!published) return; // already in flight
+      toast({ title: on ? t({ id: "concordPage.roles.granted", defaultMessage: "Role granted" }) : t({ id: "concordPage.roles.removed", defaultMessage: "Role removed" }) });
+    } catch (e) {
+      toast({ title: t({ id: "concordPage.roles.changeFailed", defaultMessage: "Couldn't change roles" }), description: e instanceof Error ? e.message : undefined, variant: "destructive" });
     }
   };
 
@@ -4339,7 +4227,7 @@ function ConcordCommunityPage() {
             candidates={addMemberCandidates}
             roles={addableChannelRoles}
             onAdd={(pk, roleId) => handleToggleRole(pk, roleId, true)}
-            isAdding={isRoleSettling}
+            isAdding={roleIntent.isPending}
             hasRole={(pk, roleId) => roleIntent.rolesFor(pk).includes(roleId)}
             holdsKey={privateChannelsHere.some((c) => c.idHex === panelChannel.idHex && c.heldByMe)}
           />

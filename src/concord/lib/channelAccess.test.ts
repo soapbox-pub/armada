@@ -10,7 +10,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { banChannelCuts, channelRoleIds, channelsHingingOn, isEntitled, roleRevokeCut, vendableChannels } from "./channelAccess";
+import { planSettle, withGrant } from "./accessDuty";
+import { banChannelCuts, channelRoleIds, isEntitled, vendableChannels } from "./channelAccess";
 import { bytesToHex } from "./derive";
 import { EVERYONE_DEFAULT, Permissions, type CommunityRoles, type Role } from "./roles";
 
@@ -181,13 +182,12 @@ describe("vendableChannels (what an invite bundle may carry)", () => {
   });
 });
 
-describe("channelsHingingOn (which channels a role toggle moves)", () => {
-  const channels = [
-    { idHex: CH_SECRET, heldByMe: true },
-    { idHex: CH_OTHER, heldByMe: false },
-  ];
+describe("planSettle on a legacy Roster (which channels a Grant moves)", () => {
+  const ids = [CH_SECRET, CH_OTHER];
+  const settle = (before: CommunityRoles, after: CommunityRoles, members: string[], banned = new Set<string>()) =>
+    planSettle({ before, after, ownerHex: OWNER, banned, me: "f".repeat(64), members, channels: ids });
 
-  it("splits affected channels by whether I hold the key to act on them", () => {
+  it("moves exactly the channel the toggled role scopes", () => {
     const wide: CommunityRoles = {
       roles: [
         role(ROLE_TESTER, "Tester", 5, { kind: "channel", channelId: CH_SECRET }),
@@ -195,84 +195,30 @@ describe("channelsHingingOn (which channels a role toggle moves)", () => {
       ],
       grants: [],
     };
-    expect(channelsHingingOn(wide, OWNER, OUTSIDER, ROLE_TESTER, channels)).toEqual({
-      held: [CH_SECRET],
-      unheld: [],
-    });
-    // A channel I can't act on still changed hands, and says so.
-    expect(channelsHingingOn(wide, OWNER, OUTSIDER, ROLE_ELSEWHERE, channels)).toEqual({
-      held: [],
-      unheld: [CH_OTHER],
-    });
+    expect(settle(wide, withGrant(wide, OUTSIDER, [ROLE_TESTER]), [OUTSIDER])).toEqual([{ channelIdHex: CH_SECRET, gained: [OUTSIDER], fresh: [], lost: [] }]);
+    expect(settle(withGrant(wide, OUTSIDER, [ROLE_ELSEWHERE]), wide, [OUTSIDER])).toEqual([{ channelIdHex: CH_OTHER, gained: [], fresh: [], lost: [OUTSIDER] }]);
   });
 
-  it("ignores a server-scope role, which moves no key at all", () => {
-    expect(channelsHingingOn(roster, OWNER, OUTSIDER, ROLE_MODS, channels)).toEqual({ held: [], unheld: [] });
+  it("moves nothing for a server-scope role, a channel kept through a second role, or the owner", () => {
+    expect(settle(roster, withGrant(roster, OUTSIDER, [ROLE_MODS]), [OUTSIDER])).toEqual([]);
+    const both = withGrant(roster, HOLDER, [ROLE_TESTER, ROLE_AUDIT]);
+    expect(settle(both, withGrant(both, HOLDER, [ROLE_AUDIT]), [HOLDER])).toEqual([]);
+    expect(settle(roster, withGrant(roster, OWNER, [ROLE_TESTER]), [OWNER])).toEqual([]);
   });
 
-  it("ignores a channel the member keeps through a SECOND scoped role", () => {
-    const both: CommunityRoles = { ...roster, grants: [{ member: HOLDER, roleIds: [ROLE_TESTER, ROLE_AUDIT] }] };
-    expect(channelsHingingOn(both, OWNER, HOLDER, ROLE_TESTER, channels)).toEqual({ held: [], unheld: [] });
-  });
-
-  it("never reports the owner, who is entitled with or without any role", () => {
-    expect(channelsHingingOn(roster, OWNER, OWNER, ROLE_TESTER, channels)).toEqual({ held: [], unheld: [] });
-  });
-});
-
-describe("roleRevokeCut (the rekey a bulk role revoke owes)", () => {
-  const SECOND = "3".repeat(64);
-  const AUDITOR = "4".repeat(64);
-  const UNRANKED = "5".repeat(64);
-  const BANNED = "6".repeat(64);
-  const channels = [
-    { idHex: CH_SECRET, heldByMe: true },
-    { idHex: CH_OTHER, heldByMe: false },
-  ];
-  const tester = roster.roles.find((r) => r.roleId === ROLE_TESTER)!;
-  const held: CommunityRoles = {
-    roles: roster.roles,
-    grants: [
-      { member: HOLDER, roleIds: [ROLE_TESTER] },
-      { member: SECOND, roleIds: [ROLE_TESTER, ROLE_AUDIT] },
-      { member: AUDITOR, roleIds: [ROLE_AUDIT] },
-      { member: UNRANKED, roleIds: [ROLE_TESTER] },
-      { member: BANNED, roleIds: [ROLE_AUDIT] },
-    ],
-  };
-
-  it("cuts the stripped holders and keeps everyone still entitled", () => {
-    // UNRANKED wasn't stripped (not outranked), so keeps the role and the key.
-    const cut = roleRevokeCut(held, OWNER, tester, [HOLDER, SECOND], channels, new Set([BANNED]));
-    expect(cut).not.toBeNull();
-    expect(cut!.channelIdHex).toBe(CH_SECRET);
-    expect(cut!.heldByMe).toBe(true);
-    expect(cut!.removed).toEqual([HOLDER]);
-    expect(cut!.keep.sort()).toEqual([OWNER, SECOND, AUDITOR, UNRANKED].sort());
-    expect(cut!.keep).not.toContain(HOLDER);
-    expect(cut!.keep).not.toContain(BANNED);
-  });
-
-  it("reports a channel whose key I don't hold, so the caller can say so", () => {
-    const elsewhere = roster.roles.find((r) => r.roleId === ROLE_ELSEWHERE)!;
-    const grants: CommunityRoles = { ...roster, grants: [{ member: HOLDER, roleIds: [ROLE_ELSEWHERE] }] };
-    expect(roleRevokeCut(grants, OWNER, elsewhere, [HOLDER], channels)).toMatchObject({
-      channelIdHex: CH_OTHER,
-      heldByMe: false,
-      removed: [HOLDER],
-    });
-  });
-
-  it("is null when nobody is cut", () => {
-    expect(roleRevokeCut(held, OWNER, tester, [], channels)).toBeNull();
-    // SECOND keeps the channel through Auditor.
-    expect(roleRevokeCut(held, OWNER, tester, [SECOND], channels)).toBeNull();
-  });
-
-  it("is null for a server-scope role or a channel that isn't private", () => {
-    const mods = roster.roles.find((r) => r.roleId === ROLE_MODS)!;
-    expect(roleRevokeCut(held, OWNER, mods, [HOLDER], channels)).toBeNull();
-    expect(roleRevokeCut(held, OWNER, tester, [HOLDER], [{ idHex: CH_OTHER, heldByMe: true }])).toBeNull();
+  it("a bulk strip cuts only those who lose the channel, and leaves the banned to the ban", () => {
+    const SECOND = "3".repeat(64);
+    const BANNED = "6".repeat(64);
+    const held: CommunityRoles = {
+      roles: roster.roles,
+      grants: [
+        { member: HOLDER, roleIds: [ROLE_TESTER] },
+        { member: SECOND, roleIds: [ROLE_TESTER, ROLE_AUDIT] },
+        { member: BANNED, roleIds: [ROLE_TESTER] },
+      ],
+    };
+    const stripped = withGrant(withGrant(withGrant(held, HOLDER, []), SECOND, [ROLE_AUDIT]), BANNED, []);
+    expect(settle(held, stripped, [HOLDER, SECOND, BANNED], new Set([BANNED]))).toEqual([{ channelIdHex: CH_SECRET, gained: [], fresh: [], lost: [HOLDER] }]);
   });
 });
 

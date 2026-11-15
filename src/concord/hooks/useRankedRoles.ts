@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { citationFor, foldStoredControl, invalidateControl, publishEdition, readControlWhole, useControlFold, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { controlWrapOwed } from "@/concord/hooks/useRoles";
+import { settledWrite } from "@/concord/hooks/rosterSettle";
 import { buildGrantEdition, type FoldedControl } from "@/concord/lib/control";
 import { bytesToHex, grantLocator, hex32 } from "@/concord/lib/derive";
 import {
@@ -138,11 +139,11 @@ export function useRankedRoles(community: Community | undefined) {
   const notePlanned = (count: number) => setPlanned((n) => n + count);
   const progress: WriteProgressSink = { planned: notePlanned, published: notePublished };
 
-  /** One write at a time per community (Vector `follow_lock`). */
+  /** One write at a time per community (Vector `follow_lock`), settled with the Channel keys it moves. */
   const write = <T,>(run: () => Promise<T>): Promise<T> => {
     setPublished(0);
     setPlanned(0);
-    return community ? withControlWrite(community.idHex, run) : run();
+    return community ? settledWrite(community, () => withControlWrite(community.idHex, run)) : run();
   };
 
   const publish = async (c: Community, rumors: NostrRumor[]) => {
