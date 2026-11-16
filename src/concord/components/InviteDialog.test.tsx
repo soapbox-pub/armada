@@ -7,9 +7,10 @@ const toast = vi.fn();
 vi.mock("@/hooks/useToast", () => ({ toast: (...args: unknown[]) => toast(...args) }));
 
 let settle: { resolve: () => void; reject: (e: Error) => void } | undefined;
+const createLink = vi.fn(async () => "https://armada.buzz/i#secret");
 vi.mock("@/concord/hooks/useInvites", () => ({
   useInviteActions: () => ({
-    createLink: vi.fn(),
+    createLink: (...args: unknown[]) => createLink(...(args as [])),
     revokeLink: vi.fn(),
     myLinks: [],
     isSendingInvite: false,
@@ -21,6 +22,8 @@ vi.mock("@/concord/hooks/useInvites", () => ({
       }),
   }),
 }));
+
+vi.mock("@/lib/share", () => ({ canShare: () => true, share: async () => true }));
 
 vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => false }));
 
@@ -36,6 +39,8 @@ vi.mock("@/components/chat/ProfileSearchSelect", () => ({
     </button>
   ),
 }));
+
+import type { Community } from "@/concord/lib/types";
 
 import { InviteDialog } from "./InviteDialog";
 
@@ -71,5 +76,20 @@ describe("InviteDialog direct invite", () => {
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Couldn't invite Ana", variant: "destructive" }),
     );
+  });
+});
+
+describe("InviteDialog link", () => {
+  it("asks in the app before a private community's first link, where a suppressed confirm answered no unasked", async () => {
+    const suppressed = vi.spyOn(window, "confirm").mockReturnValue(false);
+    createLink.mockClear();
+    render(<InviteDialog community={{ name: "Demo" } as Community} open onOpenChange={() => {}} canCreateLink />);
+    fireEvent.click(screen.getByRole("button", { name: "Invite" }));
+    expect(await screen.findByText(/makes this community public/)).toBeInTheDocument();
+    expect(createLink).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Continue" })));
+    expect(createLink).toHaveBeenCalledOnce();
+    expect(suppressed).not.toHaveBeenCalled();
+    suppressed.mockRestore();
   });
 });

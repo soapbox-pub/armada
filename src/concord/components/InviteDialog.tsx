@@ -4,6 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { ArmadaCrest, ArmadaCrestKeyframes } from "@/components/brand/ArmadaCrest";
 import { ProfileSearchSelect } from "@/components/chat/ProfileSearchSelect";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, ChromeDialogContent } from "@/components/ui/dialog";
@@ -107,6 +117,14 @@ function InviteBody({ community, canCreateLink }: { community: Community | undef
   const [sentPubkey, setSentPubkey] = useState<string | null>(null);
   const [pendingPubkey, setPendingPubkey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // In-app, not `window.confirm`: a page whose dialogs the browser suppressed gets `false`
+  // back unasked, which read as a cancel and left the button doing nothing.
+  const [asking, setAsking] = useState<{ text: string; answer: (yes: boolean) => void } | null>(null);
+  const ask = (text: string) => new Promise<boolean>((answer) => setAsking({ text, answer }));
+  const answer = (yes: boolean) => {
+    asking?.answer(yes);
+    setAsking(null);
+  };
 
   // A send can settle long after the sheet closed (a remote signer awaiting
   // approval), when a success toast names someone out of nowhere.
@@ -165,24 +183,24 @@ function InviteBody({ community, canCreateLink }: { community: Community | undef
     // The first live link flips the community Public (CORD-05 §5).
     if (
       !isPublic &&
-      !confirm(
+      !(await ask(
         t({
           id: "inviteDialog.confirmPublic",
           defaultMessage: "Creating an invite link makes this community public: anyone with the link can join. Revoking every link makes it private again.",
         }),
-      )
+      ))
     ) {
       throw new Error("Cancelled");
     }
     // Announcing publishes the secret link publicly, so confirm.
     if (
       listPublicly &&
-      !confirm(
+      !(await ask(
         t({
           id: "inviteDialog.confirmDiscover",
           defaultMessage: "Sharing to Discover posts this invite link, secret included, as a public note from your account. Anyone can find it and join. Only do this for a community you want strangers to join.",
         }),
-      )
+      ))
     ) {
       throw new Error("Cancelled");
     }
@@ -229,12 +247,12 @@ function InviteBody({ community, canCreateLink }: { community: Community | undef
     const privatizes = revokeWouldPrivatize(url);
     if (
       privatizes &&
-      !confirm(
+      !(await ask(
         t({
           id: "inviteDialog.confirmRevokeLast",
           defaultMessage: "This is the last live invite link. Revoking it makes the community private: new members can then only be added by direct invite, and banning a member will rotate the community keys.",
         }),
-      )
+      ))
     ) {
       return;
     }
@@ -455,6 +473,25 @@ function InviteBody({ community, canCreateLink }: { community: Community | undef
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+
+      <AlertDialog open={asking !== null} onOpenChange={(open) => !open && answer(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="sr-only">
+              <FormattedMessage {...common.confirm} />
+            </AlertDialogTitle>
+            <AlertDialogDescription>{asking?.text}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => answer(false)}>
+              <FormattedMessage {...common.cancel} />
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => answer(true)}>
+              <FormattedMessage {...common.continue} />
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
