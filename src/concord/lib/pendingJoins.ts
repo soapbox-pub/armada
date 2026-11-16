@@ -18,7 +18,11 @@ export const pendingJoinsKey = (pubkey: string) => `concord2-pending-joins:${pub
 
 /** A pending join older than this is given up on, however its runs failed. */
 export const PENDING_JOIN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-/** Failure-count bound; the age bound is the real one, this backstops a clock moving backwards. */
+/**
+ * Failure-count bound, counted once per session (a launch), not per retry: a
+ * session retries on every return to the tab. The age bound is the real one;
+ * this backstops a clock moving backwards.
+ */
 export const PENDING_JOIN_MAX_ATTEMPTS = 25;
 
 /** Retry bookkeeping for one pending join, kept beside (not inside) the entry. */
@@ -45,6 +49,8 @@ const forgotten = new Set<string>();
 /** `<pubkey>:<id>` joins whose chain already ran (or is running) this session. */
 const runs = new Set<string>();
 const meta = new Map<string, PendingJoinMeta>();
+/** Joins whose failure this session has already counted. */
+const counted = new Set<string>();
 /** Joins a load found past their bound and dropped, awaiting {@link takeExpiredPendingJoins}. */
 let expired: CommunityListEntry[] = [];
 let writes: Promise<void> = Promise.resolve();
@@ -66,6 +72,7 @@ function ownBy(pubkey: string): void {
   owner = pubkey;
   forgotten.clear();
   meta.clear();
+  counted.clear();
   expired = [];
   if (entries.size > 0) {
     entries.clear();
@@ -176,6 +183,7 @@ function persist(pubkey: string): Promise<void> {
 export async function persistPendingJoin(pubkey: string, entry: CommunityListEntry): Promise<void> {
   ownBy(pubkey);
   forgotten.delete(entry.community_id);
+  counted.delete(entry.community_id);
   addPendingJoin(entry);
   // A fresh click is a fresh intent: its retry window starts now.
   meta.set(entry.community_id, { firstSeenAt: Date.now(), attempts: 0 });
@@ -193,15 +201,18 @@ export async function forgetPendingJoin(pubkey: string, communityId: string): Pr
 }
 
 /**
- * Count a transient failure. Resolves `true` when that put it past its bound —
- * it's then forgotten and the caller tells the user.
+ * Count a transient failure, the first one of this session only. Resolves `true`
+ * when it is past its bound — it's then forgotten and the caller tells the user.
  */
 export async function recordPendingJoinFailure(pubkey: string, communityId: string): Promise<boolean> {
   if (owner !== pubkey) return false;
   await hydratePendingJoins(pubkey);
   const m = meta.get(communityId);
   if (!m || !entries.has(communityId)) return false;
-  m.attempts += 1;
+  if (!counted.has(communityId)) {
+    counted.add(communityId);
+    m.attempts += 1;
+  }
   if (isExpired(m, Date.now())) {
     await forgetPendingJoin(pubkey, communityId);
     return true;
@@ -238,6 +249,7 @@ export function clearPendingJoins(): void {
   forgotten.clear();
   runs.clear();
   meta.clear();
+  counted.clear();
   expired = [];
   if (entries.size > 0) {
     entries.clear();
