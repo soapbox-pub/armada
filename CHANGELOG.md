@@ -4,6 +4,25 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.6] - 2026-11-16
+
+Private channels follow role changes reliably and much faster: a member given
+a role gets its channels back in seconds, a member losing one is cut once, and
+channels no longer rotate their keys over and over. Plus fixes for creating a
+private community's first invite link, Discover listings and bot commands.
+
+### Changed
+- Giving or removing a role moves the private channel keys it affects right away, all channels at once, and a member gets a channel's key before its older history
+- Private channel keys keep working when some of a community's relays are slow, unreliable or down
+- A bot command whose only argument is free text fills the message box when picked, ready to type
+
+### Fixed
+- Private channels no longer rotate their keys every few minutes while a manager is signed in
+- Creating a private community's first invite link works even when the browser has blocked confirmation pop-ups
+- Discover shows one card per community, never a link that no longer works, and counts all of a community's boosts
+- Invite links you create always appear in your list of live links
+- Joining a community no longer gives up early when a signer extension can't encrypt
+
 ## [0.69.5] - 2026-11-14
 
 Stickers and emoji are grouped by pack, relay settings show response times,
