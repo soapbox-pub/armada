@@ -40,13 +40,11 @@ export class AppSigner implements NostrSigner {
   /** In-flight decrypts by cache id, so concurrent callers share one resolution. */
   readonly #inflight = new Map<string, Promise<string>>();
 
+  readonly #crypto: Partial<Record<DecryptMethod, CachingCryptoMethods>> = {};
+
   constructor(upstream: NostrSigner, userPubkey: string) {
     this.#upstream = upstream;
     this.#pubkey = userPubkey;
-
-    // Present iff upstream has them.
-    if (upstream.nip04) this.nip04 = this.#wrapCrypto("nip04", upstream.nip04);
-    if (upstream.nip44) this.nip44 = this.#wrapCrypto("nip44", upstream.nip44);
   }
 
   getPublicKey(): Promise<string> {
@@ -71,8 +69,20 @@ export class AppSigner implements NostrSigner {
     return upstream.signPsbt(psbtHex);
   }
 
-  nip04?: CachingCryptoMethods;
-  nip44?: CachingCryptoMethods;
+  // Present iff upstream has them, asked on every read: a NIP-07 extension injects
+  // `window.nostr` after boot, and until it does its signer claims every method.
+  get nip04(): CachingCryptoMethods | undefined {
+    return this.#cryptoFor("nip04");
+  }
+
+  get nip44(): CachingCryptoMethods | undefined {
+    return this.#cryptoFor("nip44");
+  }
+
+  #cryptoFor(method: DecryptMethod): CachingCryptoMethods | undefined {
+    if (!this.#upstream[method]) return undefined;
+    return (this.#crypto[method] ??= this.#wrapCrypto(method));
+  }
 
   /**
    * Whether resolving this ciphertext would NOT touch the upstream signer; the
@@ -84,9 +94,14 @@ export class AppSigner implements NostrSigner {
     return (await this.#get(id)) !== undefined;
   }
 
-  #wrapCrypto(method: DecryptMethod, crypto: CryptoMethods): CachingCryptoMethods {
+  #wrapCrypto(method: DecryptMethod): CachingCryptoMethods {
+    const crypto = (): CryptoMethods => {
+      const methods = this.#upstream[method];
+      if (!methods) throw new Error(`This signer does not support ${method === "nip44" ? "NIP-44" : "NIP-04"}.`);
+      return methods;
+    };
     return {
-      encrypt: (pubkey, plaintext) => crypto.encrypt(pubkey, plaintext),
+      encrypt: (pubkey, plaintext) => crypto().encrypt(pubkey, plaintext),
       decrypt: (counterparty, ciphertext, opts) =>
         this.#cachedDecrypt(method, crypto, counterparty, ciphertext, opts?.cache ?? true),
     };
@@ -94,7 +109,7 @@ export class AppSigner implements NostrSigner {
 
   async #cachedDecrypt(
     method: DecryptMethod,
-    crypto: CryptoMethods,
+    crypto: () => CryptoMethods,
     counterparty: string,
     ciphertext: string,
     cache: boolean,
@@ -110,7 +125,7 @@ export class AppSigner implements NostrSigner {
       // `cache: false` skips the persistent cache in both directions.
       if (!cache) {
         const start = performance.now();
-        const plaintext = await crypto.decrypt(counterparty, ciphertext);
+        const plaintext = await crypto().decrypt(counterparty, ciphertext);
         perfCount(`signer.${method}.decrypt (uncached)`, performance.now() - start, 1, "decrypts");
         return plaintext;
       }
@@ -120,7 +135,7 @@ export class AppSigner implements NostrSigner {
         return cached;
       }
       const start = performance.now();
-      const plaintext = await crypto.decrypt(counterparty, ciphertext);
+      const plaintext = await crypto().decrypt(counterparty, ciphertext);
       perfCount(`signer.${method}.decrypt`, performance.now() - start, 1, "decrypts");
       void this.#put(id, plaintext);
       return plaintext;

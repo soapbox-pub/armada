@@ -355,9 +355,12 @@ export function signerWithNudge(
     wrapped.getRelays = () => run(() => getRelays(), undefined, "sign");
   }
 
-  // Crypto passes through: per-ciphertext nudges would spam during inbox sweeps.
-  if (signer.nip04) wrapped.nip04 = signer.nip04;
-  if (signer.nip44) wrapped.nip44 = signer.nip44;
+  // Crypto passes through: per-ciphertext nudges would spam during inbox sweeps. Read
+  // through, not copied: a NIP-07 signer only learns what it lacks once the extension injects.
+  Object.defineProperties(wrapped, {
+    nip04: { get: () => signer.nip04, enumerable: true },
+    nip44: { get: () => signer.nip44, enumerable: true },
+  });
 
   if (hasBtcSigning(signer)) {
     const btcSigner = signer;
