@@ -724,7 +724,13 @@ export function useCommunityActions() {
                   : t({ id: "useCommunityActions.joinFailed.unfinished", defaultMessage: "Couldn't finish joining {name}" }, { name }),
           description: rejected
             ? (e instanceof Error ? e.message : t({ id: "useCommunityActions.inviteDidntWork", defaultMessage: "The invite didn't work." }))
-            : t({ id: "useCommunityActions.willRetry", defaultMessage: "Armada will try again the next time it starts." }),
+            : e instanceof Error && e.message
+              ? t(
+                  { id: "useCommunityActions.willRetryReason", defaultMessage: "{reason}. Armada will try again the next time it starts." },
+                  // The catalog supplies the sentence's punctuation.
+                  { reason: e.message.trim().replace(/[.。]+$/, "") },
+                )
+              : t({ id: "useCommunityActions.willRetry", defaultMessage: "Armada will try again the next time it starts." }),
           ...(rejected ? { variant: "destructive" as const } : {}),
         });
       });

@@ -4625,6 +4625,7 @@
   "useCommunityActions.signerNoEncryptedCommunities": "Dieser Signer kann keine verschlüsselten Communitys verwalten (NIP-44 nicht unterstützt).",
   "useCommunityActions.topicTooLong": "Ein Kanalthema darf höchstens {max} Bytes lang sein.",
   "useCommunityActions.willRetry": "Armada versucht es beim nächsten Start erneut.",
+  "useCommunityActions.willRetryReason": "{reason}. Armada versucht es beim nächsten Start erneut.",
   "useCommunityList.incomplete": "{held} von {declared} Fragmenten der Community-Liste vorhanden; versuche es erneut, sobald die fehlenden synchronisiert sind.",
   "useCommunityList.nip44Unsupported": "NIP-44-Verschlüsselung wird von diesem Signer nicht unterstützt",
   "useCommunityList.noRelayAvailable": "Für die Aktualisierung deiner Community-Liste ist kein Relay verfügbar",

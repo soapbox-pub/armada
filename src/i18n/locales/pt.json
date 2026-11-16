@@ -4625,6 +4625,7 @@
   "useCommunityActions.signerNoEncryptedCommunities": "Este assinador não suporta comunidades criptografadas (sem suporte a NIP-44).",
   "useCommunityActions.topicTooLong": "O tópico de um canal pode ter no máximo {max} bytes.",
   "useCommunityActions.willRetry": "O Armada vai tentar de novo na próxima vez que abrir.",
+  "useCommunityActions.willRetryReason": "{reason}. O Armada vai tentar de novo na próxima vez que abrir.",
   "useCommunityList.incomplete": "{held} de {declared} fragmentos da lista de comunidades disponíveis; tente de novo quando os que faltam sincronizarem.",
   "useCommunityList.nip44Unsupported": "Criptografia NIP-44 não suportada por este assinador",
   "useCommunityList.noRelayAvailable": "Nenhum relay disponível para atualizar sua lista de comunidades",

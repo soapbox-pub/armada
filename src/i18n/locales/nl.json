@@ -4625,6 +4625,7 @@
   "useCommunityActions.signerNoEncryptedCommunities": "Deze signer kan geen versleutelde community’s bevatten (NIP-44 niet ondersteund).",
   "useCommunityActions.topicTooLong": "Een kanaalonderwerp mag hoogstens {max} bytes zijn.",
   "useCommunityActions.willRetry": "Armada probeert het opnieuw bij de volgende start.",
+  "useCommunityActions.willRetryReason": "{reason}. Armada probeert het opnieuw bij de volgende start.",
   "useCommunityList.incomplete": "{held} van {declared} fragmenten van de communitylijst aanwezig; probeer het opnieuw zodra de ontbrekende zijn gesynchroniseerd.",
   "useCommunityList.nip44Unsupported": "NIP-44-versleuteling wordt niet ondersteund door deze signer",
   "useCommunityList.noRelayAvailable": "Er is geen relay beschikbaar voor het bijwerken van je communitylijst",

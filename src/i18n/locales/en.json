@@ -4625,6 +4625,7 @@
   "useCommunityActions.signerNoEncryptedCommunities": "This signer can't hold encrypted communities (NIP-44 unsupported).",
   "useCommunityActions.topicTooLong": "A channel topic can be at most {max} bytes.",
   "useCommunityActions.willRetry": "Armada will try again the next time it starts.",
+  "useCommunityActions.willRetryReason": "{reason}. Armada will try again the next time it starts.",
   "useCommunityList.incomplete": "Holding {held} of {declared} community-list fragments; try again once the missing ones sync.",
   "useCommunityList.nip44Unsupported": "NIP-44 encryption not supported by this signer",
   "useCommunityList.noRelayAvailable": "No relay is available for your community list update",

@@ -4625,6 +4625,7 @@
   "useCommunityActions.signerNoEncryptedCommunities": "Questo firmatario non può gestire community crittografate (NIP-44 non supportato).",
   "useCommunityActions.topicTooLong": "L'argomento di un canale può essere al massimo di {max} byte.",
   "useCommunityActions.willRetry": "Armada riproverà al prossimo avvio.",
+  "useCommunityActions.willRetryReason": "{reason}. Armada riproverà al prossimo avvio.",
   "useCommunityList.incomplete": "Disponibili {held} frammenti su {declared} dell’elenco community; riprova quando quelli mancanti saranno sincronizzati.",
   "useCommunityList.nip44Unsupported": "La crittografia NIP-44 non è supportata da questo firmatario",
   "useCommunityList.noRelayAvailable": "Nessun relay disponibile per aggiornare il tuo elenco di community",

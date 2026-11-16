@@ -39,6 +39,7 @@ const h = vi.hoisted(() => ({
   user: undefined as unknown,
   folded: new Map<string, unknown>(),
   store: Promise.resolve({ query: async () => [], event: async () => undefined }),
+  toasts: [] as Array<{ title?: unknown; description?: unknown }>,
 }));
 
 vi.mock("@nostrify/react", () => ({
@@ -67,7 +68,9 @@ vi.mock("@/hooks/useEventStore", () => ({
 vi.mock("@/hooks/useRemoveRailKey", () => ({
   useRemoveRailKey: () => () => undefined,
 }));
-vi.mock("@/hooks/useToast", () => ({ toast: () => undefined }));
+vi.mock("@/hooks/useToast", () => ({
+  toast: (t: { title?: unknown; description?: unknown }) => h.toasts.push(t),
+}));
 // On-disk state is this map; it outlives `vi.resetModules()` (process death).
 vi.mock("@/lib/foldedCache", () => ({
   readFolded: async (key: string) => h.folded.get(key),
@@ -114,6 +117,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 beforeEach(() => {
   h.folded = new Map();
+  h.toasts = [];
   bundleQueries = 0;
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-09-01T12:00:00Z"));
@@ -207,5 +211,17 @@ describe.each([
 
     expect(await persistedIds(), "pending join dropped from disk").not.toContain(communityId);
     expect(await coldStartLive(), "pending join no longer on the rail").not.toContain(communityId);
+  });
+});
+
+describe("a click whose join chain fails transiently", () => {
+  it("names the failure in the retry toast", async () => {
+    h.relay = bundleGoneRelay;
+    await clickJoin();
+    await waitFor(() => expect(h.toasts).toHaveLength(1));
+    expect(h.toasts[0].title).toBe("Couldn't finish joining Fleet");
+    expect(h.toasts[0].description).toBe(
+      "Couldn't find that invite on its relays. Armada will try again the next time it starts.",
+    );
   });
 });

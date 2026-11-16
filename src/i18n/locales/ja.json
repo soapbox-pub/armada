@@ -4625,6 +4625,7 @@
   "useCommunityActions.signerNoEncryptedCommunities": "この署名アプリは暗号化コミュニティを扱えません（NIP-44 非対応）。",
   "useCommunityActions.topicTooLong": "チャンネルのトピックは最大 {max} バイトです。",
   "useCommunityActions.willRetry": "Armada は次回の起動時に再試行します。",
+  "useCommunityActions.willRetryReason": "{reason}。Armada は次回の起動時に再試行します。",
   "useCommunityList.incomplete": "コミュニティリストの断片を {declared} 件中 {held} 件保持しています。不足分が同期されたら再試行してください。",
   "useCommunityList.nip44Unsupported": "この署名アプリは NIP-44 暗号化に対応していません",
   "useCommunityList.noRelayAvailable": "コミュニティリストの更新に使用できるリレーがありません",

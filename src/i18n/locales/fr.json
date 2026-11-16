@@ -4625,6 +4625,7 @@
   "useCommunityActions.signerNoEncryptedCommunities": "Ce signataire ne peut pas gérer de communautés chiffrées (NIP-44 non pris en charge).",
   "useCommunityActions.topicTooLong": "Le sujet d'un salon ne peut pas dépasser {max} octets.",
   "useCommunityActions.willRetry": "Armada réessaiera au prochain démarrage.",
+  "useCommunityActions.willRetryReason": "{reason}. Armada réessaiera au prochain démarrage.",
   "useCommunityList.incomplete": "{held} fragments sur {declared} de la liste des communautés sont disponibles ; réessayez une fois les manquants synchronisés.",
   "useCommunityList.nip44Unsupported": "Le chiffrement NIP-44 n’est pas pris en charge par ce signataire",
   "useCommunityList.noRelayAvailable": "Aucun relais n’est disponible pour mettre à jour votre liste de communautés",
