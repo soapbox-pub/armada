@@ -30,6 +30,7 @@ import { quorum, rereadOnBackoff } from "@/concord/lib/quorum";
 import { useWireScopes } from "@/wire/useWireScopes";
 import { setWatched } from "@/wire/watched";
 import { authoritySig } from "@/concord/lib/accessDuty";
+import { useCoalescedRefetch } from "@/concord/hooks/useCoalescedRefetch";
 
 /** The least time between two Control Plane reads a stray delivery asks for. */
 const FRESHEN_GAP_MS = 3_000;
@@ -114,7 +115,7 @@ export function useChannelAccess(community: Community | undefined): void {
     refetchIntervalInBackground: true,
     queryFn: ({ signal }) => readAccessPlanes(nostr, community!, owed, signal),
   });
-  const refetch = query.refetch;
+  const refetch = useCoalescedRefetch(query.refetch);
 
   // Every unheld Private Channel's plane, heard live. A delivery on an owed one wakes the
   // read the moment it lands; one on a plane the fold doesn't owe means a holder saw a
@@ -139,7 +140,7 @@ export function useChannelAccess(community: Community | undefined): void {
   const strayHeard = useRef(new Set<string>());
   useWireScopes((scopes) => {
     const landed = planePks.filter((p) => scopes.has(`c2park:${p.pk}`));
-    if (landed.some((p) => p.owed)) void refetch();
+    if (landed.some((p) => p.owed)) refetch();
     const stray = landed.filter((p) => !p.owed);
     if (!community || !me || stray.length === 0) return;
     void (async () => {
@@ -172,8 +173,8 @@ export function useChannelAccess(community: Community | undefined): void {
   const authority = folded?.rankedRoster ? authoritySig(folded) : "";
   useEffect(() => {
     if (!authority || owed.length === 0) return;
-    void refetch();
-    return rereadOnBackoff(() => void refetch());
+    refetch();
+    return rereadOnBackoff(refetch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authority, owedKey]);
 

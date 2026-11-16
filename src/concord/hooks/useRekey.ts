@@ -72,6 +72,7 @@ import type { CommunityMetadata, Community, HeldRoot, PrivateChannelKey } from "
 import type { NostrEvent } from "@nostrify/nostrify";
 import type { NUser } from "@nostrify/react/login";
 import { t } from "@/i18n";
+import { useCoalescedRefetch } from "@/concord/hooks/useCoalescedRefetch";
 
 /**
  * Re-post this user's live invite bundles for `rotated` at the CURRENT keys
@@ -822,11 +823,11 @@ export function useChannelRekeyWatch(community: Community | undefined) {
       return [...byId.values()];
     },
   });
-  const refetch = query.refetch;
+  const refetch = useCoalescedRefetch(query.refetch);
   useWireScopes((scopes) => {
     for (const pk of addresses.keys()) {
       if (scopes.has(`c2park:${pk}`)) {
-        void refetch();
+        refetch();
         return;
       }
     }
@@ -843,7 +844,7 @@ export function useChannelRekeyWatch(community: Community | undefined) {
     : "";
   useEffect(() => {
     if (!shutOut) return;
-    return rereadOnBackoff(() => void refetch());
+    return rereadOnBackoff(refetch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shutOut, shutOut && folded ? authoritySig(folded) : ""]);
 

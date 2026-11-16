@@ -35,6 +35,7 @@ import { openWrap, sealRumor, wrapSeal } from "@/concord/lib/stream";
 import type { Community, PrivateChannelKey } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { clockNowMs } from "@/lib/relayClock";
+import type { NostrRumor } from "@/lib/nostrRumor";
 import { logSync } from "@/lib/syncLog";
 
 /** How often a holder that can rotate reads the Control Plane again for a change it missed. */
@@ -64,10 +65,25 @@ const cutBySelf = new Set<string>();
 
 /** Complete rotations by `community:channel:epoch`: a complete rotation never changes (Vector `MintedRotations`). */
 const minted = new Map<string, MintingRotation[]>();
+/** Past epochs handed out this session, by `community:channel:epoch:member`: a re-add needs only what's new. */
+const historyDelivered = new Set<string>();
+/** History deliveries still publishing, so a test or a logout can wait them out. */
+const historyInFlight = new Set<Promise<void>>();
+/** History events published at once: one per past epoch, so a long-rotated Channel has hundreds. */
+const HISTORY_CONCURRENCY = 8;
+/** Bumped on account exit, so a history run left over stops rather than signing on. */
+let historyGeneration = 0;
+
+/** Settles once every history delivery started so far has. */
+export async function historyDeliveriesSettled(): Promise<void> {
+  while (historyInFlight.size > 0) await Promise.allSettled([...historyInFlight]);
+}
 
 /** Forget whom this session delivered to, so the next account starts afresh. */
 export function clearAccessDutyMemory(): void {
   delivered.clear();
+  historyDelivered.clear();
+  historyGeneration++;
   minted.clear();
   cutBySelf.clear();
 }
@@ -317,20 +333,50 @@ export async function deliverKeysOnPlane(nostr: NPool, community: Community, ch:
     ...heldHistoryViews(community.idHex, idHex).filter((v) => v.epoch < ch.epoch && !(ch.priors ?? []).some((p) => p.epoch === v.epoch)),
   ];
   const encrypt = (pk: string, plain: string) => nip44.encrypt(pk, plain);
-  const rumors = [
-    ...(await buildAccessDeliveries(user.pubkey, encrypt, { scopeIdHex: idHex, epoch: ch.epoch, key: ch.key, recipients: [...recipients], atSecs })),
-    ...(await buildHistoryDeliveries(user.pubkey, encrypt, { channelIdHex: idHex, views, recipients: [...recipients], atSecs })),
-  ];
   const plane = accessPlane(community, ch.id);
-  for (const rumor of rumors) {
+  const tag = `${community.idHex.slice(0, 8)} #${idHex.slice(0, 8)}`;
+  const publish = async (rumor: NostrRumor, what: string) => {
     const wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, plane, user.signer), plane);
     // Each relay until it takes it (Vector `publish_durable`), so the member's relays have it.
-    await publishDurable(nostr, community.relays, wrap, undefined, `${community.idHex.slice(0, 8)} #${idHex.slice(0, 8)} delivery`).catch(() => {
-      throw new Error("no relay took the delivery");
+    await publishDurable(nostr, community.relays, wrap, undefined, `${tag} ${what}`).catch(() => {
+      throw new Error(`no relay took the ${what}`);
     });
-  }
+  };
+  // The current key is what lets them in, so it lands before any history does.
+  const access = await buildAccessDeliveries(user.pubkey, encrypt, { scopeIdHex: idHex, epoch: ch.epoch, key: ch.key, recipients: [...recipients], atSecs });
+  await Promise.all(access.map((r) => publish(r, "delivery")));
   for (const pk of recipients) delivered.add(`${community.idHex}:${idHex}:${ch.epoch}:${pk}`);
-  return views.length;
+
+  // Past epochs read-only, one event each, behind the key rather than ahead of it.
+  const historyKey = (epoch: bigint, pk: string) => `${community.idHex}:${idHex}:${epoch}:${pk}`;
+  const byEpoch = views
+    .map((v) => ({ ...v, to: recipients.filter((pk) => !historyDelivered.has(historyKey(v.epoch, pk))) }))
+    .filter((v) => v.to.length > 0);
+  if (byEpoch.length > 0) {
+    const generation = historyGeneration;
+    const run = (async () => {
+      const queue = [...byEpoch].sort((a, b) => (a.epoch > b.epoch ? -1 : 1));
+      let failed = 0;
+      const worker = async () => {
+        for (let next = queue.shift(); next && generation === historyGeneration; next = queue.shift()) {
+          const { epoch, view, to } = next;
+          try {
+            for (const rumor of await buildHistoryDeliveries(user.pubkey, encrypt, { channelIdHex: idHex, views: [{ epoch, view }], recipients: to, atSecs })) {
+              await publish(rumor, "history");
+            }
+            for (const pk of to) historyDelivered.add(historyKey(epoch, pk));
+          } catch {
+            failed++;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(HISTORY_CONCURRENCY, queue.length) }, worker));
+      logSync("access", `${tag}: history out for ${recipients.length} member(s): ${byEpoch.length - failed} past epoch(s)${failed ? `, ${failed} failed` : ""}`);
+    })();
+    historyInFlight.add(run);
+    void run.finally(() => historyInFlight.delete(run));
+  }
+  return byEpoch.length;
 }
 
 /** A pass's relay reads, started before its fresh read of the Control Plane settles. */
@@ -433,7 +479,7 @@ async function runAccessDuty(
       .filter(({ duty }) => duty.cut.length === 0 && duty.deliver.length > 0)
       .map(async ({ ch, idHex, duty }) => {
         const past = await deliverKeysOnPlane(nostr, community, ch, duty.deliver, user);
-        logSync("access", `${community.idHex.slice(0, 8)} #${idHex.slice(0, 8)}: delivered the key to ${duty.deliver.length} member(s), with ${past} past epoch(s)`);
+        logSync("access", `${community.idHex.slice(0, 8)} #${idHex.slice(0, 8)}: delivered the key to ${duty.deliver.length} member(s); ${past} past epoch(s) following`);
       }),
   );
   if (signal.aborted) return false;

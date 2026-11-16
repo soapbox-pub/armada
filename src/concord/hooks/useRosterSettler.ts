@@ -52,6 +52,7 @@ export async function settleRoster(d: Deps, before: FoldedControl, after: Folded
   const heldIds = () => new Set(d.now().privateChannels.map((c) => bytesToHex(c.id)));
 
   const gained = new Map<string, string[]>();
+  const rotations: Promise<void>[] = [];
   for (const p of plans) {
     if (!heldIds().has(p.channelIdHex)) {
       if (p.gained.length || p.fresh.length) report.unheldGained.push(p.channelIdHex);
@@ -65,17 +66,20 @@ export async function settleRoster(d: Deps, before: FoldedControl, after: Folded
       if (p.lost.length) report.notRotated.push(p.channelIdHex);
       continue;
     }
-    try {
-      await d.rekey({
+    // Each Channel is its own rotation; one after another, the last landed a rotation per Channel late.
+    rotations.push(
+      d.rekey({
         channelIdHex: p.channelIdHex,
         keepRecipients: rotationRecipients(after, me, p.channelIdHex, [...members, ...p.fresh], p.lost),
         removedTargets: p.lost,
         community: d.now(),
-      });
-    } catch (e) {
-      report.rotationFailed.push({ channelIdHex: p.channelIdHex, error: message(e) });
-    }
+      }).then(
+        () => undefined,
+        (e) => void report.rotationFailed.push({ channelIdHex: p.channelIdHex, error: message(e) }),
+      ),
+    );
   }
+  await Promise.all(rotations);
   if (gained.size === 0) return report;
 
   // Both roads, from the keys the rotations left: the access plane is where every
@@ -84,16 +88,18 @@ export async function settleRoster(d: Deps, before: FoldedControl, after: Folded
   const errors: string[] = [];
   const reached = new Map<string, Set<string>>();
   const mark = (id: string, pk: string) => (reached.get(id) ?? reached.set(id, new Set()).get(id)!).add(pk);
-  for (const [idHex, to] of gained) {
-    const ch = c.privateChannels.find((k) => bytesToHex(k.id) === idHex);
-    if (!ch) continue;
-    try {
-      await d.deliver(c, ch, to);
-      for (const pk of to) mark(idHex, pk);
-    } catch (e) {
-      errors.push(message(e));
-    }
-  }
+  await Promise.all(
+    [...gained].map(async ([idHex, to]) => {
+      const ch = c.privateChannels.find((k) => bytesToHex(k.id) === idHex);
+      if (!ch) return;
+      try {
+        await d.deliver(c, ch, to);
+        for (const pk of to) mark(idHex, pk);
+      } catch (e) {
+        errors.push(message(e));
+      }
+    }),
+  );
   const byMember = new Map<string, string[]>();
   for (const [idHex, to] of gained) for (const pk of to) byMember.set(pk, [...(byMember.get(pk) ?? []), idHex]);
   for (const [pk, ids] of byMember) {

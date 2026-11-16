@@ -663,7 +663,7 @@
  "community/v2/service.rs::settle_access::branch::everyone.is_none()": {
   "status": "covered",
   "test": "src/concord/hooks/useRosterSettler.test.ts",
-  "title": "rotates each Channel a member lost, each from the list the last rotation wrote"
+  "title": "rotates each Channel a member lost, all at once"
  },
  "community/v2/service.rs::settle_access::ok_or::v2 community not found": {
   "status": "n/a",
@@ -767,7 +767,7 @@
  "community/v2/service.rs::settle_channel_keys::branch::everyone.is_some()": {
   "status": "covered",
   "test": "src/concord/hooks/useRosterSettler.test.ts",
-  "title": "rotates each Channel a member lost, each from the list the last rotation wrote"
+  "title": "rotates each Channel a member lost, all at once"
  },
  "community/v2/service.rs::require_grant_head::err::malformed member key": {
   "status": "n/a",

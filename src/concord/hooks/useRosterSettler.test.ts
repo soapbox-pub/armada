@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { foldControlState, type FoldedControl } from "@/concord/lib/control";
 import { bytesToHex, hex32, random32 } from "@/concord/lib/derive";
@@ -37,6 +37,19 @@ function world() {
 }
 
 /** A device acting as `me`, recording each step; a rotation moves the list one epoch on. */
+/** `deps` with `step` held open until `release`, counting the calls under way. */
+function held<D extends Parameters<typeof settleRoster>[0]>(deps: D, step: "rekey" | "deliver") {
+  let gate!: () => void;
+  const open = new Promise<void>((r) => (gate = r));
+  let n = 0;
+  const inner = deps[step] as (...a: unknown[]) => Promise<unknown>;
+  return {
+    deps: { ...deps, [step]: async (...a: unknown[]) => { n++; await open; return inner(...a); } } as D,
+    started: () => n,
+    release: () => gate(),
+  };
+}
+
 function device(w: ReturnType<typeof world>, me: string) {
   const steps: Array<[string, Record<string, unknown>]> = [];
   let held: Community = w.community;
@@ -56,17 +69,20 @@ function device(w: ReturnType<typeof world>, me: string) {
 }
 
 describe("settleRoster (Vector `settle_access`)", () => {
-  it("rotates each Channel a member lost, each from the list the last rotation wrote", async () => {
+  it("rotates each Channel a member lost, all at once", async () => {
     const w = world();
     const on = w.setRole(w.U, true);
     const off = w.setRole(w.U, false);
     const d = device(w, w.c.owner);
-    const report = await settleRoster(d.deps, on, off);
+    const { deps, started, release } = held(d.deps, "rekey");
+    const settled = settleRoster(deps, on, off);
+    // Both under way before either lands: one after another, the last cut landed a rotation per Channel late.
+    await vi.waitFor(() => expect(started()).toBe(2));
+    release();
+    const report = await settled;
     const rotations = d.steps.filter(([s]) => s === "rekey").map(([, v]) => v);
     expect(rotations.map((v) => v.channelIdHex).sort()).toEqual(w.ids.slice(0, 2).sort());
     for (const v of rotations) expect(v).toMatchObject({ removedTargets: [w.U], keepRecipients: [w.c.owner] });
-    const second = rotations[1].community as Community;
-    expect(second.privateChannels.find((k) => bytesToHex(k.id) === rotations[0].channelIdHex)?.epoch).toBe(2n);
     expect(report.unheldLost).toEqual([w.ids[2]]);
   });
 
@@ -76,7 +92,12 @@ describe("settleRoster (Vector `settle_access`)", () => {
     const before = w.setRole(w.U, false);
     const after = w.setRole(w.U, true);
     const d = device(w, w.c.owner);
-    const report = await settleRoster(d.deps, before, after);
+    const { deps, started, release } = held(d.deps, "deliver");
+    const settled = settleRoster(deps, before, after);
+    // Each Channel's key goes out at once, so one long history doesn't hold up the rest.
+    await vi.waitFor(() => expect(started()).toBe(2));
+    release();
+    const report = await settled;
     // V held the Role before and after: only U moved.
     const planes = d.steps.filter(([s]) => s === "plane").map(([, v]) => v);
     expect(planes.map((p) => p.channel).sort()).toEqual(w.ids.slice(0, 2).sort());
