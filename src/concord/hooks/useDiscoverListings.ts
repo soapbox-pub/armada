@@ -2,14 +2,20 @@ import { useNostr } from "@nostrify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
+import { resolveBundle } from "@/concord/hooks/useCommunityActions";
 import { useControlFold } from "@/concord/hooks/useControlPlane";
+import { parseInviteLink, type InviteBundle } from "@/concord/lib/invite";
 import {
+  ANY_LINK,
   KIND_COMMUNITY_ANNOUNCEMENT,
   announcementFromEvent,
   announcementsForLinks,
   buildAnnouncementDeletion,
+  linkCreator,
+  listingAuthorized,
   type DiscoveredInvite,
 } from "@/concord/lib/inviteDiscovery";
+import { hasPermission, Permissions } from "@/concord/lib/roles";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { forgetDiscoverAnnouncements, useListingRelays } from "@/hooks/useDiscover";
 import { useNostrPublish } from "@/hooks/useNostrPublish";
@@ -56,10 +62,10 @@ function readSignal(outer: AbortSignal | undefined): AbortSignal {
 export async function fetchLinkAnnouncements(
   nostr: Parameters<typeof queryExplicitRelaysWithStatus>[0],
   relays: string[],
-  linkSigners: ReadonlySet<string>,
+  linkSigners: ReadonlySet<string> | typeof ANY_LINK,
   opts?: { authors?: string[]; includeRecent?: boolean; signal?: AbortSignal; strict?: boolean },
 ): Promise<DiscoveredInvite[]> {
-  if (relays.length === 0 || linkSigners.size === 0) return [];
+  if (relays.length === 0 || (linkSigners !== ANY_LINK && linkSigners.size === 0)) return [];
   const authors = opts?.authors ? [...new Set(opts.authors)] : undefined;
   if (authors && authors.length === 0 && !opts?.includeRecent) return [];
   const listingFilters: NostrFilter[] = [];
@@ -71,9 +77,11 @@ export async function fetchLinkAnnouncements(
   }
   const listingRead = await queryExplicitRelaysWithStatus(nostr, relays, listingFilters, readSignal(opts?.signal));
   if (listingRead.answered.length === 0) throw new DiscoverUnansweredError(t({ id: "useDiscoverListings.noRelayAnswered", defaultMessage: "No Discover relay answered." }));
-  const listings = listingRead.events.filter(
-    (e) => e.kind === KIND_COMMUNITY_ANNOUNCEMENT && linkSigners.has(announcementFromEvent(e)?.linkSigner ?? ""),
-  );
+  const listings = listingRead.events.filter((e) => {
+    if (e.kind !== KIND_COMMUNITY_ANNOUNCEMENT) return false;
+    const signer = announcementFromEvent(e)?.linkSigner;
+    return !!signer && (linkSigners === ANY_LINK || linkSigners.has(signer));
+  });
   if (listings.length === 0) return [];
 
   const ids = [...new Set(listings.map((e) => e.id))];
@@ -117,32 +125,108 @@ export function useLinkAnnouncements(
 }
 
 /**
+ * Announcements by `sharers` whose link isn't in `known` but whose bundle resolves
+ * to `communityId` and lets its sharer list it. A registry omits links that work,
+ * so a community's listings are also found by what they open.
+ */
+export async function fetchResolvedCommunityAnnouncements(
+  nostr: Parameters<typeof queryExplicitRelaysWithStatus>[0],
+  relays: string[],
+  communityId: string,
+  sharers: string[],
+  known: ReadonlySet<string>,
+  resolve: (invite: DiscoveredInvite) => Promise<InviteBundle | undefined>,
+  signal?: AbortSignal,
+): Promise<Array<{ invite: DiscoveredInvite; creator: string }>> {
+  if (sharers.length === 0) return [];
+  const found = (await fetchLinkAnnouncements(nostr, relays, ANY_LINK, { authors: sharers, signal }))
+    .filter((invite) => !known.has(invite.linkSigner));
+  const bundles = new Map<string, InviteBundle>();
+  await Promise.all(
+    [...new Map(found.map((invite) => [invite.linkSigner, invite])).values()].map(async (invite) => {
+      const bundle = await resolve(invite).catch(() => undefined);
+      if (bundle?.community_id === communityId) bundles.set(invite.linkSigner, bundle);
+    }),
+  );
+  const out: Array<{ invite: DiscoveredInvite; creator: string }> = [];
+  for (const invite of found) {
+    const bundle = bundles.get(invite.linkSigner);
+    if (!bundle || !listingAuthorized(bundle, invite.source.pubkey)) continue;
+    out.push({ invite, creator: linkCreator(bundle) ?? bundle.owner });
+  }
+  return out;
+}
+
+/**
  * This community's Discover listings: announcements carrying any live link in
  * its invite registry, plus `extraSigners` (the viewer's own links not yet in a
- * registry edition). `creatorOf` names who can revoke each listing.
+ * registry edition), plus any its owner or invite creators listed that open it.
+ * `creatorOf` names who can revoke each listing.
  */
 export function useCommunityDiscoverListings(
   community: Community | undefined,
   extraSigners: Iterable<string> = [],
   { enabled = true }: { enabled?: boolean } = {},
 ) {
+  const { nostr } = useNostr();
+  const relays = useListingRelays();
+  const queryClient = useQueryClient();
   const { data: folded } = useControlFold(community);
   const { user } = useCurrentUser();
   const extra = [...extraSigners].sort().join(",");
-  const { signers, creatorOf, authors } = useMemo(() => {
-    const creatorOf = new Map<string, string>();
+  const { signers, registryCreators, authors, sharers } = useMemo(() => {
+    const registryCreators = new Map<string, string>();
     for (const [creator, linkSigners] of folded?.registriesByCreator ?? []) {
-      for (const signer of linkSigners) creatorOf.set(signer, creator);
+      for (const signer of linkSigners) registryCreators.set(signer, creator);
     }
-    const signers = new Set(creatorOf.keys());
+    const signers = new Set(registryCreators.keys());
     for (const signer of extra ? extra.split(",") : []) signers.add(signer);
     // Link creators (and the viewer) are the likely announcers; read them deep.
-    const authors = new Set(creatorOf.values());
+    const authors = new Set(registryCreators.values());
     if (user) authors.add(user.pubkey);
-    return { signers: [...signers], creatorOf, authors: [...authors] };
+    // Who may list a link at all (`listingAuthorized`): the owner, or a link's creator.
+    const sharers = new Set<string>();
+    if (folded) {
+      sharers.add(folded.ownerHex);
+      for (const g of folded.roster.grants) {
+        if (hasPermission(folded.roster, g.member, Permissions.CREATE_INVITE)) sharers.add(g.member);
+      }
+    }
+    return { signers: [...signers], registryCreators, authors: [...authors], sharers: [...sharers].sort() };
   }, [folded, extra, user]);
   const query = useLinkAnnouncements(signers, authors, { enabled });
-  return { ...query, listings: query.data ?? [], creatorOf };
+
+  const communityId = community?.idHex;
+  const unregistered = useQuery({
+    queryKey: ["discover", "community-listings-resolved", relays, communityId, sharers, signers],
+    enabled: enabled && !!communityId && relays.length > 0 && sharers.length > 0,
+    staleTime: 60_000,
+    queryFn: ({ signal }) =>
+      fetchResolvedCommunityAnnouncements(nostr, relays, communityId!, sharers, new Set(signers), (invite) => {
+        const parsed = parseInviteLink(invite.inviteUrl);
+        if (!parsed) return Promise.resolve(undefined);
+        // The same entry Discover's cards resolve into, so a link is resolved once.
+        return queryClient.fetchQuery({
+          queryKey: ["discover", "invite-bundle", invite.linkSigner],
+          staleTime: 5 * 60_000,
+          retry: false,
+          queryFn: () => resolveBundle(nostr, parsed, parsed.bootstrapRelays),
+        });
+      }, signal),
+  });
+
+  const { listings, creatorOf } = useMemo(() => {
+    const creatorOf = new Map(registryCreators);
+    const byId = new Map<string, DiscoveredInvite>();
+    for (const invite of query.data ?? []) byId.set(invite.source.id, invite);
+    for (const { invite, creator } of unregistered.data ?? []) {
+      byId.set(invite.source.id, invite);
+      if (!creatorOf.has(invite.linkSigner)) creatorOf.set(invite.linkSigner, creator);
+    }
+    const listings = [...byId.values()].sort((a, b) => b.source.created_at - a.source.created_at);
+    return { listings, creatorOf };
+  }, [query.data, unregistered.data, registryCreators]);
+  return { ...query, isLoading: query.isLoading || unregistered.isLoading, listings, creatorOf };
 }
 
 /**

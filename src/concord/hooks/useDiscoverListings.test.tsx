@@ -15,11 +15,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReactNode } from "react";
 
-import { buildInviteUrl, mintLinkSigner, mintToken } from "@/concord/lib/invite";
+import { buildInviteUrl, mintLinkSigner, mintToken, type InviteBundle } from "@/concord/lib/invite";
 import { KIND_COMMUNITY_ANNOUNCEMENT, announcementFromEvent, type DiscoveredInvite } from "@/concord/lib/inviteDiscovery";
 import { forgetDiscoverAnnouncements } from "@/hooks/useDiscover";
 
-import { DiscoverUnansweredError, fetchLinkAnnouncements, useUnlistAnnouncements } from "./useDiscoverListings";
+import { DiscoverUnansweredError, fetchLinkAnnouncements, fetchResolvedCommunityAnnouncements, useUnlistAnnouncements } from "./useDiscoverListings";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
@@ -97,6 +97,55 @@ function relayOf(events: NostrEvent[], fail: (round: number) => boolean = () => 
 beforeEach(() => {
   h.published = [];
   h.config = { appRelays: ["wss://discover.test"] };
+});
+
+describe("fetchResolvedCommunityAnnouncements", () => {
+  // A registry omits links that work, so a community's listings are also found by
+  // what their bundles open — kept only where the sharer may list that link.
+  it("keeps a sharer's listing whose link opens the community, and nothing else", async () => {
+    const owner = generateSecretKey();
+    const staff = generateSecretKey();
+    const COMMUNITY = "c1".repeat(32);
+    const known = linkUrl();
+    const unregistered = linkUrl();
+    const borrowed = linkUrl();
+    const elsewhere = linkUrl();
+    const listings = [
+      announce(owner, known.url, 40),
+      announce(staff, unregistered.url, 30),
+      // The owner re-sharing staff's link: the owner may list any link of theirs.
+      announce(owner, unregistered.url, 25),
+      // Staff sharing a link someone else made: not theirs to list.
+      announce(staff, borrowed.url, 20),
+      announce(staff, elsewhere.url, 10),
+    ];
+    const bundleOf = (communityId: string, creator: Uint8Array): InviteBundle =>
+      ({ community_id: communityId, owner: getPublicKey(owner), creator_npub: getPublicKey(creator) }) as InviteBundle;
+    const bundles = new Map<string, InviteBundle>([
+      [unregistered.signer, bundleOf(COMMUNITY, staff)],
+      [borrowed.signer, bundleOf(COMMUNITY, generateSecretKey())],
+      [elsewhere.signer, bundleOf("d2".repeat(32), staff)],
+    ]);
+    const resolved: string[] = [];
+    const { pool } = relayOf(listings);
+
+    const found = await fetchResolvedCommunityAnnouncements(
+      pool as never,
+      ["wss://discover.test"],
+      COMMUNITY,
+      [getPublicKey(owner), getPublicKey(staff)],
+      new Set([known.signer]),
+      async (invite) => {
+        resolved.push(invite.linkSigner);
+        return bundles.get(invite.linkSigner);
+      },
+    );
+
+    expect(found.map((f) => f.invite.source.id).sort()).toEqual([listings[1].id, listings[2].id].sort());
+    expect(found.every((f) => f.creator === getPublicKey(staff))).toBe(true);
+    // A link the registry already names is never resolved, and each other link once.
+    expect(resolved.sort()).toEqual([unregistered.signer, borrowed.signer, elsewhere.signer].sort());
+  });
 });
 
 describe("fetchLinkAnnouncements", () => {

@@ -158,6 +158,11 @@ export function boostListingsBySigner(
   return out;
 }
 
+/** The hex pubkey of a link's creator, as its bundle names it. */
+export function linkCreator(bundle: Pick<InviteBundle, "creator_npub">): string | undefined {
+  return bundle.creator_npub ? creatorHex(bundle.creator_npub) : undefined;
+}
+
 function creatorHex(creator: string): string | undefined {
   if (/^[0-9a-f]{64}$/.test(creator)) return creator;
   try {
@@ -190,6 +195,9 @@ export function buildAnnouncementDeletion(announcementIds: string[]): EventTempl
   };
 }
 
+/** Every link, for reads that narrow by author alone. */
+export const ANY_LINK = "any";
+
 /**
  * Standing announcements (not deleted by their own author) whose link is in
  * `linkSigners`, newest first. Keeps EVERY copy, since un-listing must delete
@@ -197,7 +205,7 @@ export function buildAnnouncementDeletion(announcementIds: string[]): EventTempl
  */
 export function announcementsForLinks(
   events: NostrRumor[],
-  linkSigners: ReadonlySet<string>,
+  linkSigners: ReadonlySet<string> | typeof ANY_LINK,
 ): DiscoveredInvite[] {
   const byId = new Map<string, NostrRumor>();
   for (const e of events) if (e.kind === KIND_COMMUNITY_ANNOUNCEMENT) byId.set(e.id, e);
@@ -212,7 +220,7 @@ export function announcementsForLinks(
   for (const e of byId.values()) {
     if (deleted.has(e.id)) continue;
     const invite = announcementFromEvent(e);
-    if (invite && linkSigners.has(invite.linkSigner)) out.push(invite);
+    if (invite && (linkSigners === ANY_LINK || linkSigners.has(invite.linkSigner))) out.push(invite);
   }
   return out.sort((a, b) => b.source.created_at - a.source.created_at);
 }
