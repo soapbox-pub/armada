@@ -1,0 +1,27 @@
+# The Vector side of the hostile-network comparison (scripts/hostile/README.md): one
+# headless vector-sdk client per process, driven by JSON lines on stdin. Built against a
+# local ../Vector checkout; its patches and lockfile are Vector's own, so this is the
+# client Vector ships.
+[package]
+name = "vector-driver"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+vector_sdk = { path = "../../../../Vector/crates/vector-sdk" }
+tokio = { version = "1.49", features = ["full"] }
+serde_json = "1"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[patch.crates-io]
+nostr = { git = "https://github.com/VectorPrivacy/nostr.git", branch = "vector-v0.45.6" }
+nostr-sdk = { git = "https://github.com/VectorPrivacy/nostr.git", branch = "vector-v0.45.6" }
+nostr-database = { git = "https://github.com/VectorPrivacy/nostr.git", branch = "vector-v0.45.6" }
+saturating-time = { path = "../../../../Vector/crates/vendor/saturating-time" }
+# The test CA the hostile relays' certificate chains to, beside Mozilla's roots.
+webpki-roots = { path = "vendor/webpki-roots" }

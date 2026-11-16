@@ -66,3 +66,9 @@ test-results/
 playwright-report/
 blob-report/
 .playwright/
+
+# Hostile-relay comparison: generated per machine by scripts/hostile/setup.sh
+scripts/hostile/tls/
+scripts/hostile/vector-driver/target/
+scripts/hostile/vector-driver/vendor/
+scripts/hostile/vector-driver/Cargo.lock
