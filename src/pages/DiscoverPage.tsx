@@ -30,7 +30,7 @@ import { PillTabs, type PillTab } from "@/components/ui/pill-tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DiscoverActivityTarget } from "@/concord/lib/discoverActivity";
-import type { DiscoveredInvite } from "@/concord/lib/inviteDiscovery";
+import { suppressedListings, type DiscoveredInvite, type ListingStanding } from "@/concord/lib/inviteDiscovery";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import {
@@ -560,16 +560,23 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
   });
 
   // Announcements name no community/owner; each card reports its resolved
-  // bundle's, for cross-link dedup and owner ranking.
-  const [resolved, setResolved] = useState<Record<string, { communityId: string; owner: string }>>(
-    {},
-  );
+  // bundle's, for one card per community and owner ranking.
+  const [resolved, setResolved] = useState<Record<string, ListingStanding>>({});
   const onResolved = useCallback(
-    (linkSigner: string, communityId: string, owner: string) =>
+    (linkSigner: string, standing: ListingStanding) =>
       setResolved((prev) => {
         const cur = prev[linkSigner];
-        if (cur?.communityId === communityId && cur?.owner === owner) return prev;
-        return { ...prev, [linkSigner]: { communityId, owner } };
+        if (
+          cur
+          && cur.communityId === standing.communityId
+          && cur.owner === standing.owner
+          && cur.epoch === standing.epoch
+          && cur.sharerRank === standing.sharerRank
+          && cur.retired === standing.retired
+        ) {
+          return prev;
+        }
+        return { ...prev, [linkSigner]: standing };
       }),
     [],
   );
@@ -634,19 +641,9 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
   }, [data, resolved, boosts, vouchers, packAuthors, trustedAuthors]);
   const boostContext = useMemo(() => ({ boosts, vouchers }), [boosts, vouchers]);
 
-  // Drop later links resolving to an already-seen community (display order,
-  // so pack-owned cards win).
-  const duplicates = useMemo(() => {
-    const seen = new Set<string>();
-    const dup = new Set<string>();
-    for (const invite of ordered ?? []) {
-      const communityId = resolved[invite.linkSigner]?.communityId;
-      if (!communityId) continue;
-      if (seen.has(communityId)) dup.add(invite.linkSigner);
-      else seen.add(communityId);
-    }
-    return dup;
-  }, [ordered, resolved]);
+  // Suppressed cards stay mounted (rendering nothing) so they keep reporting: the
+  // card shown can turn out rotated out, and the next one in line takes its place.
+  const suppressed = useMemo(() => suppressedListings(data ?? [], resolved), [data, resolved]);
 
   if (isLoading && !data) {
     return (
@@ -693,19 +690,18 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
     <div className={GRID}>
       <CreateCommunityCard />
       {/* Search matches each card's RESOLVED name; misses render nothing. */}
-      {(ordered ?? [])
-        .filter((invite) => !duplicates.has(invite.linkSigner))
-        .map((invite) => (
-          <CommunityRow
-            key={invite.linkSigner}
-            invite={invite}
-            query={query}
-            needsBoost={boostOnly.has(invite.linkSigner)}
-            onResolved={onResolved}
-            onActivityTarget={onActivityTarget}
-            lastActiveAt={lastActiveBySigner[invite.linkSigner]}
-          />
-        ))}
+      {(ordered ?? []).map((invite) => (
+        <CommunityRow
+          key={invite.linkSigner}
+          invite={invite}
+          query={query}
+          needsBoost={boostOnly.has(invite.linkSigner)}
+          suppressed={suppressed.has(invite.linkSigner)}
+          onResolved={onResolved}
+          onActivityTarget={onActivityTarget}
+          lastActiveAt={lastActiveBySigner[invite.linkSigner]}
+        />
+      ))}
     </div>
     <LoadMore sentinelRef={sentinelRef} loading={isFetchingNextPage} />
     </DiscoverBoostsContext.Provider>
@@ -720,6 +716,7 @@ const CommunityRow = memo(function CommunityRow({
   invite,
   query,
   needsBoost,
+  suppressed,
   onResolved,
   onActivityTarget,
   lastActiveAt,
@@ -727,7 +724,8 @@ const CommunityRow = memo(function CommunityRow({
   invite: DiscoveredInvite;
   query: string;
   needsBoost: boolean;
-  onResolved: (linkSigner: string, communityId: string, owner: string) => void;
+  suppressed: boolean;
+  onResolved: (linkSigner: string, standing: ListingStanding) => void;
   onActivityTarget: (linkSigner: string, target: DiscoverActivityTarget | null) => void;
   lastActiveAt: number | undefined;
 }) {
@@ -739,6 +737,7 @@ const CommunityRow = memo(function CommunityRow({
         invite={invite}
         filter={query}
         needsBoost={needsBoost}
+        suppressed={suppressed}
         onResolved={onResolved}
         onActivityTarget={onActivityTarget}
         lastActiveAt={lastActiveAt}

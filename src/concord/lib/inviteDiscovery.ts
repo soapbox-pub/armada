@@ -70,6 +70,54 @@ export function listingAuthorized(bundle: Pick<InviteBundle, "owner" | "creator_
   return !!bundle.creator_npub && creatorHex(bundle.creator_npub) === sharer;
 }
 
+/** What a resolved, authorized Discover listing reports, so one card stands per community. */
+export interface ListingStanding {
+  communityId: string;
+  owner: string;
+  /** The bundle's root epoch. */
+  epoch: number;
+  /** Who shared it: 0 the owner, 1 staff, 2 any other link creator. */
+  sharerRank: number;
+  /** Rotated out: its epoch was refounded past, or it's off every invite registry. */
+  retired: boolean;
+}
+
+/**
+ * The listings Discover hides: every retired one, and all but one per community.
+ * The one shown is on the newest epoch (a sibling on an older one is rotated out
+ * whether or not that is known yet), then shared by the most senior sharer, then
+ * the newest announcement. Listings not yet resolved aren't judged.
+ */
+export function suppressedListings(
+  invites: readonly DiscoveredInvite[],
+  standings: Readonly<Record<string, ListingStanding>>,
+): Set<string> {
+  const suppressed = new Set<string>();
+  const best = new Map<string, { invite: DiscoveredInvite; standing: ListingStanding }>();
+  const outranks = (a: { invite: DiscoveredInvite; standing: ListingStanding }, b: typeof a) =>
+    a.standing.epoch !== b.standing.epoch
+      ? a.standing.epoch > b.standing.epoch
+      : a.standing.sharerRank !== b.standing.sharerRank
+        ? a.standing.sharerRank < b.standing.sharerRank
+        : a.invite.source.created_at > b.invite.source.created_at;
+  for (const invite of invites) {
+    const standing = standings[invite.linkSigner];
+    if (!standing) continue;
+    if (standing.retired) {
+      suppressed.add(invite.linkSigner);
+      continue;
+    }
+    const candidate = { invite, standing };
+    const held = best.get(standing.communityId);
+    if (!held) best.set(standing.communityId, candidate);
+    else if (outranks(candidate, held)) {
+      suppressed.add(held.invite.linkSigner);
+      best.set(standing.communityId, candidate);
+    } else suppressed.add(invite.linkSigner);
+  }
+  return suppressed;
+}
+
 function creatorHex(creator: string): string | undefined {
   if (/^[0-9a-f]{64}$/.test(creator)) return creator;
   try {

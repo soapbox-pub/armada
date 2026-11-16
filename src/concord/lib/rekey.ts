@@ -21,6 +21,8 @@ import { bytesToHex, channelRekeyGroupKey, controlSignerGroupKey, epochKeyCommit
 import { KIND_REKEY, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import { citationFromTags, citationToTag, isTagDecimal, type AuthorityCitation } from "@/concord/lib/edition";
 import { buildRumor, type OpenedEvent } from "@/concord/lib/stream";
+import { citationSatisfied, type FoldedControl } from "@/concord/lib/control";
+import { hasPermission, Permissions } from "@/concord/lib/roles";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { readFolded, writeFolded } from "@/lib/foldedCache";
 
@@ -400,6 +402,29 @@ export function checkContinuity(set: { prevEpoch: bigint; prevCommit: string }, 
     return commit === set.prevCommit ? { ok: true } : { ok: false, reason: "fork" };
   }
   return { ok: false, reason: set.prevEpoch > heldEpoch ? "gap" : "fork" };
+}
+
+/**
+ * The complete-or-not base rotations off `(prevEpoch, prevRoot)` a reader honors.
+ * Authority is the roster, never key possession (CORD-06); banned rotators are
+ * dropped outright (CORD-04 §4), and the cited Grant must be satisfied (CORD-04 §5),
+ * so a just-demoted admin's Refounding isn't honored.
+ */
+export function honoredRootRotations(
+  parsed: ParsedRekey[],
+  folded: Pick<FoldedControl, "banned" | "ownerHex" | "roster" | "heads">,
+  communityId: Uint8Array,
+  prevEpoch: bigint,
+  prevRoot: Uint8Array,
+): RekeyRotationSet[] {
+  return groupRotations(parsed).filter(
+    (set) =>
+      set.scopeIdHex === ZERO32_HEX &&
+      !folded.banned.has(set.rotator) &&
+      (set.rotator === folded.ownerHex || hasPermission(folded.roster, set.rotator, Permissions.BAN)) &&
+      citationSatisfied(folded, communityId, set.rotator, set.authority) &&
+      checkContinuity(set, prevEpoch, prevRoot).ok,
+  );
 }
 
 /** Find my blob across a complete rotation's chunks by my locator. */

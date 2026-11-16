@@ -51,6 +51,11 @@ export function CommunityDiscoverDialog({
     || intl.formatMessage({ id: "communityDiscoverDialog.thisCommunity", defaultMessage: "this community" });
   const { listings, isLoading: listingsLoading } = useCommunityDiscoverListings(community);
   const listingIds = useMemo(() => listings.map((l) => l.source.id), [listings]);
+  // Boosts count on every copy, but a link re-shared is still one link: show its newest.
+  const listingRows = useMemo(() => {
+    const seen = new Set<string>();
+    return listings.filter((l) => !seen.has(l.linkSigner) && seen.add(l.linkSigner));
+  }, [listings]);
   const { boosts, mine, isLoading: boostsLoading, boost, unboost } = useCommunityBoosts(listingIds);
   const memberBoosts = useMemo(() => boosts.filter((b) => members.has(b.pubkey)), [boosts, members]);
   const until = mine ? (mine.event.created_at + BOOST_WINDOW_SECONDS) * 1000 : undefined;
@@ -179,7 +184,7 @@ export function CommunityDiscoverDialog({
               )}
 
               <div className="space-y-1 border-t border-border/50 pt-3">
-                {listings.map((listing) => (
+                {listingRows.map((listing) => (
                   <ListingRow key={listing.source.id} listing={listing} />
                 ))}
               </div>

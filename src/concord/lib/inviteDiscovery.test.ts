@@ -8,6 +8,9 @@ import {
   announcementsForLinks,
   buildAnnouncementDeletion,
   listingAuthorized,
+  suppressedListings,
+  type DiscoveredInvite,
+  type ListingStanding,
 } from "@/concord/lib/inviteDiscovery";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -93,5 +96,72 @@ describe("listingAuthorized", () => {
     expect(listingAuthorized({ owner, creator_npub: creator }, holder)).toBe(false);
     expect(listingAuthorized({ owner }, holder)).toBe(false);
     expect(listingAuthorized({ owner, creator_npub: "garbage" }, holder)).toBe(false);
+  });
+});
+
+describe("suppressedListings", () => {
+  const LINK_C = "c".repeat(64);
+  const COMMUNITY = "d".repeat(64);
+  const listing = (linkSigner: string, author: string, createdAt: number): DiscoveredInvite => ({
+    inviteUrl: urlFor(linkSigner),
+    linkSigner,
+    source: announcement(author, linkSigner, createdAt),
+  });
+  const standing = (over: Partial<ListingStanding> = {}): ListingStanding => ({
+    communityId: COMMUNITY,
+    owner: ALICE,
+    epoch: 3,
+    sharerRank: 0,
+    retired: false,
+    ...over,
+  });
+
+  it("hides a retired link even with no sibling to stand in", () => {
+    const a = listing(LINK_A, ALICE, 10);
+    expect(suppressedListings([a], { [LINK_A]: standing({ retired: true }) })).toEqual(new Set([LINK_A]));
+  });
+
+  it("keeps the link on the newest epoch over an older, newer-announced one", () => {
+    const old = listing(LINK_A, ALICE, 20);
+    const current = listing(LINK_B, BOB, 10);
+    const out = suppressedListings([old, current], {
+      [LINK_A]: standing({ epoch: 2 }),
+      [LINK_B]: standing({ epoch: 3, sharerRank: 2 }),
+    });
+    expect(out).toEqual(new Set([LINK_A]));
+  });
+
+  it("ranks the owner's link over staff's over anyone else's on one epoch", () => {
+    const staff = listing(LINK_A, BOB, 30);
+    const other = listing(LINK_B, BOB, 40);
+    const owner = listing(LINK_C, ALICE, 10);
+    const standings = {
+      [LINK_A]: standing({ sharerRank: 1 }),
+      [LINK_B]: standing({ sharerRank: 2 }),
+      [LINK_C]: standing({ sharerRank: 0 }),
+    };
+    expect(suppressedListings([staff, other, owner], standings)).toEqual(new Set([LINK_A, LINK_B]));
+    expect(suppressedListings([staff, other], standings)).toEqual(new Set([LINK_B]));
+  });
+
+  it("falls to the next link when the best one is retired", () => {
+    const best = listing(LINK_A, ALICE, 20);
+    const next = listing(LINK_B, BOB, 10);
+    const out = suppressedListings([best, next], {
+      [LINK_A]: standing({ retired: true }),
+      [LINK_B]: standing({ sharerRank: 1 }),
+    });
+    expect(out).toEqual(new Set([LINK_A]));
+  });
+
+  it("leaves unresolved listings and other communities alone", () => {
+    const a = listing(LINK_A, ALICE, 10);
+    const b = listing(LINK_B, BOB, 10);
+    const c = listing(LINK_C, BOB, 10);
+    const out = suppressedListings([a, b, c], {
+      [LINK_A]: standing(),
+      [LINK_B]: standing({ communityId: "e".repeat(64), owner: BOB }),
+    });
+    expect(out.size).toBe(0);
   });
 });

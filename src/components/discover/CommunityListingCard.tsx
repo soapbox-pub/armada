@@ -29,14 +29,17 @@ import {
 import {
   enqueueDiscoverControlPeek,
   peekDiscoverControl,
+  peekRetiresLink,
   readCachedControlPeek,
 } from "@/concord/lib/discoverControlPeek";
 import {
   inviteUrlToLocalRoute,
   listingAuthorized,
   type DiscoveredInvite,
+  type ListingStanding,
 } from "@/concord/lib/inviteDiscovery";
 import { parseInviteLink } from "@/concord/lib/invite";
+import { isStaff } from "@/concord/lib/roles";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { toast } from "@/hooks/useToast";
@@ -58,11 +61,13 @@ interface CommunityListingCardProps {
   /** Here only for a boost (a stranger's listing): rendered only once a voucher other than the owner is confirmed. */
   needsBoost?: boolean;
   /**
-   * Reports the bundle's self-certified `community_id` and verified `owner`, so
-   * the grid can dedupe links to the same community and rank by owner. The
-   * announcement itself carries no verifiable identity.
+   * Reports the bundle's self-certified `community_id`, verified `owner` and how
+   * current the link is, so the grid can keep one card per community and rank by
+   * owner. The announcement itself carries no verifiable identity.
    */
-  onResolved?: (linkSigner: string, communityId: string, owner: string) => void;
+  onResolved?: (linkSigner: string, standing: ListingStanding) => void;
+  /** Another link to the same community stands in for this one: render nothing. */
+  suppressed?: boolean;
   /** Reports the probe target for the batched last-active REQ, or `null` to withdraw it. */
   onActivityTarget?: (linkSigner: string, target: DiscoverActivityTarget | null) => void;
   /** Newest kind-1059 wrap `created_at` (unix seconds) from the batched probe. */
@@ -115,6 +120,7 @@ export function CommunityListingCard({
   filter,
   needsBoost = false,
   onResolved,
+  suppressed = false,
   onActivityTarget,
   lastActiveAt,
 }: CommunityListingCardProps) {
@@ -215,7 +221,8 @@ export function CommunityListingCard({
   const onScreen = useSeenOnScreen(cardEl);
 
   // Non-member Control peek for channel count + public channel ids. Serialized globally.
-  const controlPeekKey = ["discover", "control-peek", bundle?.community_id] as const;
+  // Per epoch too: links to one community on different epochs read different planes.
+  const controlPeekKey = ["discover", "control-peek", bundle?.community_id, bundle?.root_epoch] as const;
   const { data: controlPeek } = useQuery({
     queryKey: controlPeekKey,
     enabled: !!bundle && !isMember && !!bundle.community_id && onScreen && !blocked,
@@ -230,7 +237,7 @@ export function CommunityListingCard({
     if (!bundle?.community_id || isMember || !onScreen) return;
     let cancelled = false;
     void (async () => {
-      const cached = await readCachedControlPeek(bundle.community_id);
+      const cached = await readCachedControlPeek(bundle.community_id, bundle.root_epoch);
       if (cancelled || !cached) return;
       if (queryClient.getQueryData(controlPeekKey) !== undefined) return;
       queryClient.setQueryData(controlPeekKey, cached, { updatedAt: 0 });
@@ -238,9 +245,9 @@ export function CommunityListingCard({
     return () => {
       cancelled = true;
     };
-    // controlPeekKey's community_id is what matters; the array identity is stable per id.
+    // controlPeekKey's community_id and epoch are what matter; the array identity is stable per pair.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bundle?.community_id, isMember, onScreen, queryClient]);
+  }, [bundle?.community_id, bundle?.root_epoch, isMember, onScreen, queryClient]);
 
   const icon = folded?.metadata?.icon ?? bundle?.icon;
   const banner = folded?.metadata?.banner ?? bundle?.banner;
@@ -288,15 +295,42 @@ export function CommunityListingCard({
     return controlPeek?.publicChannelIdHexes;
   }, [folded, controlPeek?.publicChannelIdHexes]);
 
+  // A member judges the link by its own fold, a stranger by the peek of the link's epoch.
+  const sharer = invite.source.pubkey;
+  const linkSigner = invite.linkSigner;
+  const bundleEpoch = bundle?.root_epoch;
+  const memberEpoch = memberCommunity?.rootEpoch;
+  const peek = controlPeek && controlPeek.epoch === bundleEpoch ? controlPeek : undefined;
+  const retired = useMemo(() => {
+    if (bundleEpoch === undefined) return false;
+    if (memberEpoch !== undefined) {
+      if (BigInt(bundleEpoch) < memberEpoch) return true;
+      // Only a settled fold of the link's own epoch may say it was dropped.
+      return BigInt(bundleEpoch) === memberEpoch && !!folded?.metadata && folded.incomplete.length === 0
+        && folded.liveInviteLinks.size > 0 && !folded.liveInviteLinks.has(linkSigner.toLowerCase());
+    }
+    return peekRetiresLink(peek, linkSigner);
+  }, [bundleEpoch, memberEpoch, folded, peek, linkSigner]);
+  const sharerRank = !bundle
+    ? 2
+    : sharer === bundle.owner
+      ? 0
+      : (memberEpoch !== undefined ? !!folded && isStaff(folded.roster, sharer, folded.ownerHex) : !!peek?.staff?.includes(sharer))
+        ? 1
+        : 2;
+
   useEffect(() => {
     // An unauthorized copy must not win the dedupe over the owner's own listing.
-    if (bundle?.community_id && authorized) onResolved?.(invite.linkSigner, bundle.community_id, bundle.owner);
-  }, [bundle?.community_id, bundle?.owner, authorized, invite.linkSigner, onResolved]);
+    if (!bundle?.community_id || !authorized || bundleEpoch === undefined) return;
+    onResolved?.(linkSigner, { communityId: bundle.community_id, owner: bundle.owner, epoch: bundleEpoch, sharerRank, retired });
+  }, [bundle?.community_id, bundle?.owner, bundleEpoch, sharerRank, retired, authorized, linkSigner, onResolved]);
 
   // Unlisted cards must stop being probed, or the REQ keeps asking about them.
   const needle = filter?.trim().toLowerCase();
   const listed =
-    !bundleLoading
+    !suppressed
+    && !retired
+    && !bundleLoading
     && !bundleError
     && !!parsed
     && !!bundle
@@ -364,10 +398,11 @@ export function CommunityListingCard({
     }
   };
 
+  if (suppressed) return null;
   if (bundleLoading || dissolvedChecking) return <CommunityListingCardSkeleton className={className} />;
 
   // Unresolvable links (revoked, expired, dead relays) are hidden; this is what
-  // makes revoking a shared link an un-listing.
+  // makes revoking a shared link an un-listing. So are links rotated out.
   if ((!listed && !husk) || !bundle || blocked) return null;
 
   return (

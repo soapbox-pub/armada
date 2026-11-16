@@ -39,6 +39,7 @@ import {
   encodeWrappedKey,
   findBlob,
   groupRotations,
+  honoredRootRotations,
   lowerKeyWins,
   mintOrReuseControlRoot,
   mintOrReuseRotationKey,
@@ -203,29 +204,6 @@ function standingNicknames(opened: OpenedEvent[], folded: FoldedControl, communi
  *     removes an icon). A missing chunk is never an exclusion, and a rotation
  *     predating my join is history (see `stranded`).
  */
-/**
- * The complete-or-not base rotations off `(prevEpoch, prevRoot)` a reader honors.
- * Authority is the roster, never key possession (CORD-06); banned rotators are
- * dropped outright (CORD-04 §4), and the cited Grant must be satisfied (CORD-04 §5),
- * so a just-demoted admin's Refounding isn't honored.
- */
-function honoredRootRotations(
-  parsed: ParsedRekey[],
-  folded: FoldedControl,
-  communityId: Uint8Array,
-  prevEpoch: bigint,
-  prevRoot: Uint8Array,
-): ReturnType<typeof groupRotations> {
-  return groupRotations(parsed).filter(
-    (set) =>
-      set.scopeIdHex === "0".repeat(64) &&
-      !folded.banned.has(set.rotator) &&
-      (set.rotator === folded.ownerHex || hasPermission(folded.roster, set.rotator, Permissions.BAN)) &&
-      citationSatisfied(folded, communityId, set.rotator, set.authority) &&
-      checkContinuity(set, prevEpoch, prevRoot).ok,
-  );
-}
-
 /**
  * This rotator's set rotating `ch` one epoch on, off its current key, as the relays
  * hold it: what a second rotation at that epoch would merge with.

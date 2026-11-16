@@ -5,16 +5,22 @@ import {
   controlViewFromBundle,
   enqueueDiscoverControlPeek,
   peekDiscoverControl,
+  peekRetiresLink,
   summarizeDiscoverChannels,
   readCachedControlPeek,
 } from "@/concord/lib/discoverControlPeek";
 import { KIND_WRAP } from "@/concord/lib/kinds";
-import { buildChannelEdition, buildMetadataEdition, sealEdition } from "@/concord/lib/control";
+import { buildChannelEdition, buildMetadataEdition, buildRegistryEdition, sealEdition } from "@/concord/lib/control";
+import { buildRekeyRumors } from "@/concord/lib/rekey";
+import { sealRumor, wrapSeal } from "@/concord/lib/stream";
+import { KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 import {
+  baseRekeyGroupKey,
   bytesToHex,
   communityIdOf,
   controlGroupKey,
+  epochKeyCommitment,
   hex32,
   random32,
 } from "@/concord/lib/derive";
@@ -76,12 +82,14 @@ describe("summarizeDiscoverChannels", () => {
 describe("control peek KV cache", () => {
   it("reads a well-shaped row and rejects malformed ones", async () => {
     const id = "dd".repeat(32);
-    const peek = { channelCount: 3, publicChannelIdHexes: ["ee".repeat(32)] };
+    const peek = { channelCount: 3, publicChannelIdHexes: ["ee".repeat(32)], epoch: 2 };
     await getArmadaDB().kv.set(`discover:control-peek:${id}`, peek);
-    await expect(readCachedControlPeek(id)).resolves.toEqual(peek);
+    await expect(readCachedControlPeek(id, 2)).resolves.toEqual(peek);
+    // A link on another epoch reads another plane.
+    await expect(readCachedControlPeek(id, 3)).resolves.toBeUndefined();
 
-    await getArmadaDB().kv.set(`discover:control-peek:${id}`, { channelCount: "nope" });
-    await expect(readCachedControlPeek(id)).resolves.toBeUndefined();
+    await getArmadaDB().kv.set(`discover:control-peek:${id}`, { channelCount: "nope", epoch: 2 });
+    await expect(readCachedControlPeek(id, 2)).resolves.toBeUndefined();
   });
 });
 
@@ -119,6 +127,11 @@ function fakeNostr(relays: Record<string, FakeRelay>) {
       };
     },
   };
+}
+
+/** The pages asked of the Control address, leaving out the rekey probe. */
+function controlCalls(relay: FakeRelay, author: string): NostrFilter[] {
+  return relay.calls.filter((f) => f.authors?.[0] === author);
 }
 
 let wrapSeq = 0;
@@ -218,8 +231,8 @@ describe("peekDiscoverControl paging", () => {
     // The shallow relay answered short and is done in one REQ. A single shared
     // cursor would instead have dragged it down to the deep relay's floor,
     // skipping the window it was never asked for.
-    expect(relays["wss://shallow"].calls).toHaveLength(1);
-    expect(relays["wss://deep"].calls.length).toBeGreaterThan(1);
+    expect(controlCalls(relays["wss://shallow"], author)).toHaveLength(1);
+    expect(controlCalls(relays["wss://deep"], author).length).toBeGreaterThan(1);
   });
 
   it("steps with an INCLUSIVE until so a same-second burst is not skipped", async () => {
@@ -237,7 +250,7 @@ describe("peekDiscoverControl paging", () => {
 
     await peekDiscoverControl(fakeNostr(relays), bundle);
 
-    const calls = relays["wss://one"].calls;
+    const calls = controlCalls(relays["wss://one"], author);
     expect(calls.length).toBeGreaterThan(1);
     // `until: 8_000`, not `7_999`: an exclusive step would drop the four burst
     // members that did not fit in page one.
@@ -262,9 +275,13 @@ describe("peekDiscoverControl caching", () => {
     expect(peek).toEqual({
       channelCount: 2,
       publicChannelIdHexes: [bytesToHex(c.channelIds[0])],
+      epoch: 0,
+      staff: [c.owner.pubkey],
+      rotated: false,
+      liveLinks: [],
     });
     await new Promise((r) => setTimeout(r, 10));
-    await expect(readCachedControlPeek(c.bundle.community_id)).resolves.toEqual(peek);
+    await expect(readCachedControlPeek(c.bundle.community_id, 0)).resolves.toEqual(peek);
   });
 
   it("does NOT cache a read that a relay dropped mid-walk", async () => {
@@ -281,13 +298,13 @@ describe("peekDiscoverControl caching", () => {
     };
 
     // The card still gets a number to paint from the editions that did arrive…
-    await expect(peekDiscoverControl(fakeNostr(relays), c.bundle)).resolves.toEqual({
+    await expect(peekDiscoverControl(fakeNostr(relays), c.bundle)).resolves.toMatchObject({
       channelCount: 1,
       publicChannelIdHexes: [bytesToHex(c.channelIds[0])],
     });
     // …but an under-count must not outlive the outage that produced it.
     await new Promise((r) => setTimeout(r, 10));
-    await expect(readCachedControlPeek(c.bundle.community_id)).resolves.toBeUndefined();
+    await expect(readCachedControlPeek(c.bundle.community_id, 0)).resolves.toBeUndefined();
   });
 
   it("does NOT cache an epoch caught mid-compaction (no metadata head)", async () => {
@@ -298,12 +315,12 @@ describe("peekDiscoverControl caching", () => {
       "wss://one": { events: await c.channelWraps(), calls: [] },
     };
 
-    await expect(peekDiscoverControl(fakeNostr(relays), c.bundle)).resolves.toEqual({
+    await expect(peekDiscoverControl(fakeNostr(relays), c.bundle)).resolves.toMatchObject({
       channelCount: 1,
       publicChannelIdHexes: [bytesToHex(c.channelIds[0])],
     });
     await new Promise((r) => setTimeout(r, 10));
-    await expect(readCachedControlPeek(c.bundle.community_id)).resolves.toBeUndefined();
+    await expect(readCachedControlPeek(c.bundle.community_id, 0)).resolves.toBeUndefined();
   });
 
   it("does not cache when no relay answered at all", async () => {
@@ -314,7 +331,79 @@ describe("peekDiscoverControl caching", () => {
 
     await peekDiscoverControl(fakeNostr(relays), bundle);
     await new Promise((r) => setTimeout(r, 10));
-    await expect(readCachedControlPeek(bundle.community_id)).resolves.toBeUndefined();
+    await expect(readCachedControlPeek(bundle.community_id, 0)).resolves.toBeUndefined();
+  });
+});
+
+describe("peekDiscoverControl link standing", () => {
+  const LINK_A = "a1".repeat(32);
+  const LINK_B = "b2".repeat(32);
+
+  async function registry(c: Awaited<ReturnType<typeof realCommunity>>, links: string[]) {
+    return sealEdition(
+      buildRegistryEdition(c.communityId, c.owner.pubkey, links, { actorPubkey: c.owner.pubkey, version: 1n }),
+      c.control,
+      c.owner,
+    );
+  }
+
+  /** A complete base rotation off epoch 0, signed by `rotator`. */
+  async function rotation(c: Awaited<ReturnType<typeof realCommunity>>, rotator: ReturnType<typeof signer>) {
+    const root = hex32(c.bundle.community_root);
+    const address = baseRekeyGroupKey(root, c.communityId, 1n);
+    const rumors = buildRekeyRumors(
+      rotator.pubkey,
+      { scope: { kind: "root" }, newEpoch: 1n, prevEpoch: 0n, prevCommit: bytesToHex(epochKeyCommitment(0n, root)) },
+      [{ locator: "cc".repeat(32), wrapped: "opaque" }],
+      Date.now(),
+    );
+    return Promise.all(rumors.map(async (r) => wrapSeal(await sealRumor(r, KIND_SEAL_ENCRYPTED, address, rotator), address)));
+  }
+
+  const sorted = (events: NostrEvent[]) => events.sort((a, b) => b.created_at - a.created_at);
+
+  it("retires a link the registries don't name, and keeps one they do", async () => {
+    const c = await realCommunity([]);
+    const events = sorted([await c.metadataWrap(), await registry(c, [LINK_A])]);
+    const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events, calls: [] } }), c.bundle);
+    expect(peek?.liveLinks).toEqual([LINK_A]);
+    expect(peekRetiresLink(peek!, LINK_A)).toBe(false);
+    expect(peekRetiresLink(peek!, LINK_B)).toBe(true);
+  });
+
+  it("judges nothing from registries that name no link", async () => {
+    const c = await realCommunity([]);
+    const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events: [await c.metadataWrap()], calls: [] } }), c.bundle);
+    expect(peekRetiresLink(peek!, LINK_B)).toBe(false);
+  });
+
+  it("judges nothing from a truncated read", async () => {
+    const c = await realCommunity([]);
+    const events = sorted([
+      await c.metadataWrap(),
+      await registry(c, [LINK_A]),
+      ...descendingWraps(c.control.pk, PAGE + 100, 8_000),
+    ]);
+    const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events, calls: [], failAfter: 1 } }), c.bundle);
+    expect(peek?.liveLinks).toBeUndefined();
+    expect(peekRetiresLink(peek!, LINK_B)).toBe(false);
+  });
+
+  it("retires every link on an epoch the owner refounded past", async () => {
+    const c = await realCommunity([]);
+    const events = sorted([await c.metadataWrap(), await registry(c, [LINK_A]), ...(await rotation(c, c.owner))]);
+    const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events, calls: [] } }), c.bundle);
+    expect(peek?.rotated).toBe(true);
+    expect(peekRetiresLink(peek!, LINK_A)).toBe(true);
+  });
+
+  it("ignores a rotation by someone who merely holds the link", async () => {
+    // Every holder of the link holds the root and can write the rekey address.
+    const c = await realCommunity([]);
+    const events = sorted([await c.metadataWrap(), await registry(c, [LINK_A]), ...(await rotation(c, signer()))]);
+    const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events, calls: [] } }), c.bundle);
+    expect(peek?.rotated).toBe(false);
+    expect(peekRetiresLink(peek!, LINK_A)).toBe(false);
   });
 });
 

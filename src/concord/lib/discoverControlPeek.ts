@@ -5,11 +5,14 @@
  * peeks are serialized ({@link enqueueDiscoverControlPeek}).
  */
 
-import { foldControlState, openControlEditions } from "@/concord/lib/control";
-import { controlGroupKey, hex32, type StreamKeyView } from "@/concord/lib/derive";
+import { foldControlState, openControlEditions, type FoldedControl } from "@/concord/lib/control";
+import { baseRekeyGroupKey, controlGroupKey, hex32, type StreamKeyView } from "@/concord/lib/derive";
 import type { InviteBundle } from "@/concord/lib/invite";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { openPlaneWrapsChunked } from "@/concord/lib/planeSync";
+import { honoredRootRotations, parseRekey, type ParsedRekey } from "@/concord/lib/rekey";
+import { isStaff } from "@/concord/lib/roles";
+import { openWrap } from "@/concord/lib/stream";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 import { normalizeRelayUrl } from "@/lib/platform";
 
@@ -32,10 +35,30 @@ export interface DiscoverControlPeek {
   channelCount: number;
   /** Non-deleted public channel ids — for last-active stream probes. */
   publicChannelIdHexes: string[];
+  /** The root epoch folded: a peek answers only for bundles at it. */
+  epoch?: number;
+  /** Every live invite link at that epoch (CORD-05 §5); absent when the read couldn't say. */
+  liveLinks?: string[];
+  /** The owner and every holder of a Control-writing bit (CORD-04 §3). */
+  staff?: string[];
+  /** An honored Refounding has moved the community past this epoch (CORD-06). */
+  rotated?: boolean;
+}
+
+/**
+ * Whether a peek shows `linkSigner` rotated out: its epoch was refounded past, or
+ * the registries name live links and it isn't one of them. Registries that name
+ * none can't tell a legacy unregistered link from a dropped one, so they judge nothing.
+ */
+export function peekRetiresLink(peek: DiscoverControlPeek | undefined, linkSigner: string): boolean {
+  if (!peek) return false;
+  if (peek.rotated) return true;
+  return !!peek.liveLinks && peek.liveLinks.length > 0 && !peek.liveLinks.includes(linkSigner.toLowerCase());
 }
 
 export async function readCachedControlPeek(
   communityId: string,
+  epoch: number,
 ): Promise<DiscoverControlPeek | undefined> {
   try {
     const stored = await getArmadaDB().kv.get<DiscoverControlPeek>(CONTROL_PEEK_KV + communityId);
@@ -43,6 +66,7 @@ export async function readCachedControlPeek(
       !stored
       || typeof stored.channelCount !== "number"
       || !Array.isArray(stored.publicChannelIdHexes)
+      || stored.epoch !== epoch
     ) {
       return undefined;
     }
@@ -148,21 +172,77 @@ export async function peekDiscoverControl(
     [AbortSignal.timeout(PEEK_TIMEOUT_MS), ...(signal ? [signal] : [])],
   );
 
+  const epoch = bundle.root_epoch;
   const read = await fetchControlWraps(nostr, relays, view.pk, timeout);
   if (read.wraps.length === 0) {
     // Empty plane and silent relay look identical: report, never persist.
-    return { channelCount: 0, publicChannelIdHexes: [] };
+    return { channelCount: 0, publicChannelIdHexes: [], epoch };
   }
 
   const opened = await openPlaneWrapsChunked(read.wraps, [view]);
   const editions = openControlEditions(opened);
   const folded = foldControlState(editions, communityId, bundle.owner);
-  const peek = summarizeDiscoverChannels(folded.channels.values());
-  // Cache only a COMPLETE read with a metadata head: a truncated plane under-counts,
-  // and a missing metadata head means a Refounding's compaction (CORD-06 §3) is
-  // still mid-roll.
-  if (read.complete && folded.metadata) writeCachedControlPeek(bundle.community_id, peek);
+  // A truncated plane under-counts, and a missing metadata head means a Refounding's
+  // compaction (CORD-06 §3) is still mid-roll: neither may say a link is gone.
+  const settled = read.complete && !!folded.metadata;
+  const staff = new Set([folded.ownerHex]);
+  for (const g of folded.roster.grants) if (isStaff(folded.roster, g.member, folded.ownerHex)) staff.add(g.member);
+  const peek: DiscoverControlPeek = {
+    ...summarizeDiscoverChannels(folded.channels.values()),
+    epoch,
+    staff: [...staff].sort(),
+    rotated: await refoundedPast(nostr, relays, bundle, folded, timeout),
+    ...(settled ? { liveLinks: [...folded.liveInviteLinks].sort() } : {}),
+  };
+  if (settled) writeCachedControlPeek(bundle.community_id, peek);
   return peek;
+}
+
+/** Rekey wraps read at the next epoch's base address; a Refounding is a handful of chunks. */
+const REKEY_PEEK_LIMIT = 200;
+
+/**
+ * Whether an honored, complete Refounding moved the community off the bundle's
+ * epoch. Anyone holding the link holds that root and can write the address, so
+ * authority comes from the epoch's fold, never from the wrap.
+ */
+async function refoundedPast(
+  nostr: PeekNostr,
+  relays: string[],
+  bundle: InviteBundle,
+  folded: FoldedControl,
+  signal: AbortSignal,
+): Promise<boolean> {
+  let root: Uint8Array;
+  let communityId: Uint8Array;
+  try {
+    root = hex32(bundle.community_root);
+    communityId = hex32(bundle.community_id);
+  } catch {
+    return false;
+  }
+  const epoch = BigInt(bundle.root_epoch);
+  const address = baseRekeyGroupKey(root, communityId, epoch + 1n);
+  const reads = await Promise.allSettled(
+    relays.map((url) =>
+      nostr.relay(url).query([{ kinds: [KIND_WRAP], authors: [address.pk], limit: REKEY_PEEK_LIMIT }], { signal }),
+    ),
+  );
+  const seen = new Set<string>();
+  const parsed: ParsedRekey[] = [];
+  for (const r of reads) {
+    if (r.status !== "fulfilled") continue;
+    for (const wrap of r.value) {
+      if (wrap.pubkey !== address.pk || seen.has(wrap.id)) continue;
+      seen.add(wrap.id);
+      try {
+        parsed.push(parseRekey(openWrap(wrap, address)));
+      } catch {
+        // not a rekey at this address
+      }
+    }
+  }
+  return honoredRootRotations(parsed, folded, communityId, epoch, root).some((set) => set.complete);
 }
 
 interface ControlWrapRead {
