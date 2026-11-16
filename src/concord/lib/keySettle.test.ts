@@ -39,16 +39,17 @@ function world(rolePermissions = 0n) {
   all = [...all, parsed(role.rumor)];
   for (const id of ids) all = [...all, parsed(planOverwrite(fold(), c.id, c.owner, new Set(ids), id, { kind: "role", id: role.roleId }, Permissions.VIEW_CHANNEL, 0n))];
   let lastGrant: ParsedEdition | undefined;
-  const setRole = (on: boolean): FoldedControl => {
-    lastGrant = c.grant(U, on ? [role.roleId] : [], { prev: lastGrant });
+  const setRole = (on: boolean, createdAt?: number): FoldedControl => {
+    lastGrant = c.grant(U, on ? [role.roleId] : [], { prev: lastGrant, createdAt });
     all = [...all, lastGrant];
     return fold();
   };
   return { c, U, O: c.owner, ids, roleId: role.roleId, fold, setRole, root: bytesToHex(random32()) };
 }
 
-const rotation = (rotator: string, channel: string, epoch: bigint, to: string[]): MintingRotation => ({
+const rotation = (rotator: string, channel: string, epoch: bigint, to: string[], at?: number): MintingRotation => ({
   rotator,
+  ...(at !== undefined ? { at } : {}),
   blobs: to.map((pk) => ({ locator: myLocator(rotator, pk, channel, epoch), wrapped: "" })),
 });
 
@@ -140,6 +141,57 @@ describe("the order is what matters: a rotation that misses a later Grant is fin
   });
 });
 
+describe("a member a rotation cut, let in again", () => {
+  const T = 1_800_000_000;
+  const plan = (control: FoldedControl, w: ReturnType<typeof world>, B: string) =>
+    planChannelDuty({
+      control,
+      me: w.O,
+      channelIdHex: B,
+      epoch: 2n,
+      candidates: [w.U],
+      deliveries: [delivery(w.O, B, 1n, [w.U])],
+      minted: [rotation(w.O, B, 2n, [w.O], T * 1000)],
+      prior: [rotation(w.O, B, 1n, [w.O])],
+      communityId: w.c.id,
+    });
+
+  it("is served again once a Grant dated after the cut lets them in, whoever made it", () => {
+    // The incident: the granter holds no key, so the holder is the only road back.
+    const w = world();
+    const [, B] = w.ids;
+    w.setRole(true, T - 100);
+    w.setRole(false, T - 50);
+    expect(plan(w.setRole(true, T + 10), w, B)?.deliver).toEqual([w.U]);
+  });
+
+  it("is served again by the device that cut them once its fold lets them in, however the Grant is dated", () => {
+    // The device cut on a fold that hadn't yet folded a re-grant made seconds before; the
+    // re-grant is dated before the rotation, and still this device's fold moved forward.
+    const w = world();
+    const [, B] = w.ids;
+    w.setRole(true, T - 100);
+    w.setRole(false, T - 50);
+    const F = w.setRole(true, T - 10);
+    expect(planChannelDuty({ control: F, me: w.O, channelIdHex: B, epoch: 2n, candidates: [w.U], deliveries: [delivery(w.O, B, 1n, [w.U])], minted: [rotation(w.O, B, 2n, [w.O], T * 1000)], prior: [rotation(w.O, B, 1n, [w.O])], communityId: w.c.id, cutBySelf: new Set([w.U]) })?.deliver).toEqual([w.U]);
+  });
+
+  it("stays cut on a fold that lags the cut: its Grant predates the rotation", () => {
+    const w = world();
+    const [, B] = w.ids;
+    expect(plan(w.setRole(true, T - 100), w, B)).toBeUndefined();
+  });
+
+  it("stays cut without the Community to date the Roster by", () => {
+    const w = world();
+    const [, B] = w.ids;
+    w.setRole(true, T - 100);
+    w.setRole(false, T - 50);
+    const F = w.setRole(true, T + 10);
+    expect(planChannelDuty({ control: F, me: w.O, channelIdHex: B, epoch: 2n, candidates: [w.U], deliveries: [delivery(w.O, B, 1n, [w.U])], minted: [rotation(w.O, B, 2n, [w.O], T * 1000)], prior: [rotation(w.O, B, 1n, [w.O])] })).toBeUndefined();
+  });
+});
+
 describe("a duty's rotation, judged again on the store", () => {
   it("drops a cut its read planned when a Grant this device published since let the member back in", () => {
     const w = world();
@@ -153,6 +205,15 @@ describe("a duty's rotation, judged again on the store", () => {
     // Under the settle lock the store holds the ON Grant: nobody is left to cut.
     expect(stillShutOut(F3, B, plan!.cut)).toEqual([]);
     expect(stillShutOut(F2, B, plan!.cut)).toEqual([w.U]);
+  });
+
+  it("cuts a member this device delivered to, when the relays withhold that delivery", () => {
+    const w = world();
+    const [, B] = w.ids;
+    w.setRole(true);
+    const F2 = w.setRole(false);
+    const plan = planChannelDuty({ control: F2, me: w.O, channelIdHex: B, epoch: 1n, candidates: [w.U], deliveries: [], minted: [rotation(w.O, B, 1n, [w.O])], prior: [], handled: new Set([w.U]) });
+    expect(plan?.cut).toEqual([w.U]);
   });
 
   it("never cuts again at the epoch after: the evidence was the epoch it rotated away", () => {

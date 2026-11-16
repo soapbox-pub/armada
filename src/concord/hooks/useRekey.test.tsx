@@ -110,6 +110,7 @@ vi.mock("@/concord/hooks/useControlPlane", () => ({
 vi.mock("@/concord/hooks/useCommunityList", () => ({
   useCommunityEntry: () => h.entry,
   useUpdateCommunityList: () => ({ mutateAsync: h.updateList }),
+  cachedCommunity: () => undefined,
 }));
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────

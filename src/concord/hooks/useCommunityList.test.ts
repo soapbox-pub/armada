@@ -1074,3 +1074,47 @@ describe("syncCommunityList — reconcile", () => {
     expect(result.set?.list.entries[0]?.current.name).toBe("Last");
   });
 });
+
+describe("holdLocally (a key is held the moment it is decided, as Vector's local store holds it)", () => {
+  const CH = "cc".repeat(32);
+  const primed = (list: CommunityList, extra: Record<string, unknown> = {}) => {
+    const queryClient = new QueryClient();
+    return { queryClient, key: ["concord", "list", SELF] as const, set: () => queryClient.setQueryData(["concord", "list", SELF], { event: null, list, ...extra }) };
+  };
+  const held = (): CommunityList => ({ entries: [entry("aa", "A")], tombstones: [] });
+
+  it("applies an upsert of channel keys or a cut to the cache and the fold now", async () => {
+    const { holdLocally } = await import("./useCommunityList");
+    const p = primed(held());
+    p.set();
+    h.writeFolded.mockClear();
+    const cid = jm("aa", "A").community_id;
+    const list = holdLocally(p.queryClient, SELF, { type: "refresh-channels", communityId: cid, channels: [{ id: CH, key: "dd".repeat(32), epoch: 3, name: "" }], upsert: true })!;
+    expect(list.entries[0].current.channels).toEqual([expect.objectContaining({ id: CH, epoch: 3 })]);
+    expect((p.queryClient.getQueryData(p.key) as { list: CommunityList }).list).toEqual(list);
+    expect(h.writeFolded).toHaveBeenCalled();
+    const cut = holdLocally(p.queryClient, SELF, { type: "refresh-channels", communityId: cid, channels: [], upsert: true, cuts: [{ id: CH, epoch: 4 }] })!;
+    expect(cut.entries[0].current.channels).toEqual([]);
+  });
+
+  it("leaves a join, a full replacement, a replayed add and an unreadable list to the wire", async () => {
+    const { holdLocally } = await import("./useCommunityList");
+    const p = primed(held());
+    p.set();
+    const fresh = { community_id: jm("bb", "B").community_id, seed: jm("bb", "B"), current: jm("bb", "B"), added_at: 2 };
+    expect(holdLocally(p.queryClient, SELF, { type: "add", entry: fresh })).toBeUndefined();
+    expect(holdLocally(p.queryClient, SELF, { type: "refresh-channels", communityId: jm("aa", "A").community_id, channels: [] })).toBeUndefined();
+    expect(holdLocally(p.queryClient, SELF, { type: "add", entry: { ...fresh, community_id: jm("aa", "A").community_id }, replay: true })).toBeUndefined();
+    const broken = primed(held(), { decryptFailed: true });
+    broken.set();
+    expect(holdLocally(broken.queryClient, SELF, { type: "refresh-channels", communityId: jm("aa", "A").community_id, channels: [], upsert: true })).toBeUndefined();
+  });
+
+  it("adds a catch-up's keys to a membership already held", async () => {
+    const { holdLocally } = await import("./useCommunityList");
+    const p = primed(held());
+    p.set();
+    const entry = { community_id: jm("aa", "A").community_id, seed: jm("aa", "A"), current: { ...jm("aa", "A"), channels: [{ id: CH, key: "ee".repeat(32), epoch: 2, name: "" }] }, added_at: 1 };
+    expect(holdLocally(p.queryClient, SELF, { type: "add", entry })!.entries[0].current.channels).toEqual([expect.objectContaining({ id: CH, epoch: 2 })]);
+  });
+});

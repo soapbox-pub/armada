@@ -188,6 +188,7 @@ function memoFragDecrypt(id: string, work: Promise<FragList | null>): void {
 /** Forget every decrypted fragment (the user's community list, with its secrets). Logout. */
 export function clearCommunityListMemory(): void {
   fragDecryptMemo.clear();
+  heldLocally.clear();
 }
 
 function dTagOf(event: NostrRumor): string | undefined {
@@ -1222,7 +1223,10 @@ export async function updateCommunityList(
 
   const event = newest ?? set?.newestEvent ?? cached?.event ?? null;
   // Leaves recorded during this write are published by the next sync's reconcile.
-  const stored = withLocalTombstones(next, queryClient.getQueryData<ListData>(listQueryKey(user.pubkey))?.list);
+  // Keys held locally since this write read the cache: landing over them would put a
+  // cut key back, or drop one just adopted, until their own writes came round.
+  let stored = withLocalTombstones(next, queryClient.getQueryData<ListData>(listQueryKey(user.pubkey))?.list);
+  for (const held of heldLocally.get(user.pubkey) ?? []) if (held !== action) stored = applyAction(stored, held);
   queryClient.setQueryData<ListData>(listQueryKey(user.pubkey), {
     event,
     list: stored,
@@ -1270,7 +1274,7 @@ export function useUpdateCommunityList() {
   const queryClient = useQueryClient();
   const removeRailKey = useRemoveRailKey();
 
-  return useMutation({
+  const mutation = useMutation({
     // One queue so back-to-back joins can't interleave RMWs; the key lets the sync
     // reconcile detect a mutation in flight.
     mutationKey: [...LIST_MUTATION_KEY],
@@ -1301,6 +1305,48 @@ export function useUpdateCommunityList() {
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
     },
   });
+  const { mutateAsync: writeThrough } = mutation;
+  const mutateAsync = useCallback(
+    async (action: CommunityListAction): Promise<CommunityList> => {
+      // A key adopted or cut is held the moment it is decided, as Vector's local store
+      // holds it: the wire write behind it reads every self-state relay first, which took
+      // seconds per key and kept a rotator writing under the key it had just severed.
+      // A write that fails is published by the next sync's reconcile, which merges this.
+      const local = user ? holdLocally(queryClient, user.pubkey, action) : undefined;
+      if (!local || !user) return writeThrough(action);
+      const pending = heldLocally.get(user.pubkey) ?? heldLocally.set(user.pubkey, new Set()).get(user.pubkey)!;
+      pending.add(action);
+      void writeThrough(action)
+        .catch((e: unknown) => logSync("list2", `held a key locally; its list write failed (${e instanceof Error ? e.message : String(e)}), the next sync republishes`))
+        .finally(() => pending.delete(action));
+      return local;
+    },
+    [user, queryClient, writeThrough],
+  );
+  return useMemo(() => ({ ...mutation, mutateAsync }), [mutation, mutateAsync]);
+}
+
+/** Key adoptions held locally whose own list write hasn't landed yet, per account. */
+const heldLocally = new Map<string, Set<CommunityListAction>>();
+
+/**
+ * Apply a key adoption to the cached and persisted list now, or undefined for an action
+ * that waits on the wire: only an upsert of channel keys, a cut, or a catch-up adding keys
+ * to a membership already held, never a join, a leave or a full replacement.
+ */
+export function holdLocally(queryClient: QueryClient, pubkey: string, action: CommunityListAction): CommunityList | undefined {
+  const keyOnly =
+    (action.type === "refresh-channels" && (action.upsert === true || (action.cuts?.length ?? 0) > 0)) ||
+    (action.type === "add" && !action.replay);
+  if (!keyOnly) return undefined;
+  const key = listQueryKey(pubkey);
+  const cached = queryClient.getQueryData<ListData>(key);
+  if (!cached || cached.decryptFailed) return undefined;
+  if (action.type === "add" && !isLive(cached.list, action.entry.community_id)) return undefined;
+  const list = applyAction(cached.list, action);
+  queryClient.setQueryData<ListData>(key, { ...cached, list });
+  void writeFolded(foldKeyOf(pubkey), { event: cached.event, list } satisfies PersistedList);
+  return list;
 }
 
 /** Optimistic pending-join overlays (see pendingJoins.ts), including ones from a previous launch. */

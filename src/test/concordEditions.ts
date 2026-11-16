@@ -111,7 +111,7 @@ export class TestCommunity {
     });
   }
 
-  grant(member: string, roleIds: string[], opts: { prev?: ParsedEdition; author?: string; cite?: ParsedEdition; content?: object } = {}): ParsedEdition {
+  grant(member: string, roleIds: string[], opts: { prev?: ParsedEdition; author?: string; cite?: ParsedEdition; content?: object; createdAt?: number } = {}): ParsedEdition {
     return this.edition({
       vsk: "3",
       eid: this.grantEid(member),
@@ -119,6 +119,7 @@ export class TestCommunity {
       author: opts.author ?? this.owner,
       cite: opts.cite,
       content: opts.content ?? { member, role_ids: roleIds },
+      createdAt: opts.createdAt,
     });
   }
 }

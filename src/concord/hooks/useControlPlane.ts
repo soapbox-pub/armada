@@ -1,4 +1,4 @@
-import { settleAccepted } from "@/concord/lib/settleAccepted";
+import { majorityOf, publishDurable } from "@/concord/lib/quorum";
 import { withSignerDeadline } from "@/concord/lib/signerDeadline";
 import { useNostr } from "@nostrify/react";
 import { KvPrefixCache } from "@/lib/db/kvCache";
@@ -462,12 +462,23 @@ export async function foldStoredControl(community: Community): Promise<FoldedCon
 export async function readControlWhole(nostr: Parameters<typeof sweepControl>[0], community: Community): Promise<{ folded: FoldedControl; served: Set<string> } | undefined> {
   let reached = 0;
   let short = false;
+  const majority = majorityOf(community.relays.length);
+  // A majority read to the end is what this accepts, so it settles on one: waiting out a
+  // relay that never answers held a role revoke for its ~30 s timeout.
+  let enough: () => void = () => undefined;
+  const majorityIn = new Promise<void>((resolve) => (enough = resolve));
+  const onReached = () => {
+    if (++reached >= majority) enough();
+  };
   try {
-    await sweepControl(nostr, community, { exhaustive: true, onReached: () => void reached++, onTruncated: () => void (short = true) });
+    await Promise.race([
+      sweepControl(nostr, community, { exhaustive: true, onReached, onTruncated: () => void (short = true) }),
+      majorityIn,
+    ]);
   } catch {
     return undefined;
   }
-  if (short || reached < Math.floor(community.relays.length / 2) + 1) return undefined;
+  if (short || reached < majority) return undefined;
   const refounded = community.rootEpoch > 0n;
   const snapIds = refounded ? await readControlSnapshot(community.idHex, currentControlGroup(community).pk) : undefined;
   if (refounded && !snapIds) return undefined;
@@ -828,36 +839,18 @@ export async function publishEdition(
     t({ id: "useControlPlane.signerTimeout", defaultMessage: "Your signer didn't answer, so the change wasn't made. Check it and try again." }),
   );
   const urls = opts?.relays ?? community.relays;
-  const attempt = () =>
-    settleAccepted(urls.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })));
-  let results = await attempt();
-  // Auth-gating relays refuse stream-authored wraps until the NIP-42 wave
-  // re-authenticates the control key; one paced retry outlives it.
-  if (
-    !results.some((r) => r.status === "fulfilled") &&
-    results.some((r) => r.status === "rejected" && /restricted|auth/i.test(String(r.reason instanceof Error ? r.reason.message : r.reason)))
-  ) {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    results = await attempt();
-  }
-  if (!results.some((r) => r.status === "fulfilled")) {
-    if (urls.length === 0) throw new Error(t({ id: "useControlPlane.noRelaysConfigured", defaultMessage: "No relay accepted the change: the community has no relays configured." }));
-    const reasons = [
-      ...new Set(
-        results
-          .map((r) => (r.status === "rejected" ? (r.reason instanceof Error ? r.reason.message : String(r.reason)) : ""))
-          .filter(Boolean),
-      ),
-    ];
+  if (urls.length === 0) throw new Error(t({ id: "useControlPlane.noRelaysConfigured", defaultMessage: "No relay accepted the change: the community has no relays configured." }));
+  // Each relay retried until it takes the edition (Vector `publish_durable`): a Grant on one
+  // relay that a reader doesn't ask is a Grant nobody sees. Auth-gating relays refuse a
+  // stream-authored wrap until the NIP-42 wave re-authenticates; the retries outlive it.
+  await publishDurable(nostr, urls, wrap, undefined, `${community.idHex.slice(0, 8)} edition`).catch((e: unknown) => {
+    const reason = e instanceof Error ? e.message : "";
     throw new Error(
-      reasons.length
-        ? t(
-            { id: "useControlPlane.noRelayAcceptedWithReasons", defaultMessage: "No relay accepted the change: {reasons}" },
-            { reasons: reasons.slice(0, 2).join("; ") },
-          )
+      reason
+        ? t({ id: "useControlPlane.noRelayAcceptedWithReasons", defaultMessage: "No relay accepted the change: {reasons}" }, { reasons: reason })
         : t({ id: "useControlPlane.noRelayAccepted", defaultMessage: "No relay accepted the change." }),
     );
-  }
+  });
   // Write our own edition to the store now, so the publisher's fold sees it even
   // if no relay echoes it back (or the `since` cursor skips it). Awaited: the
   // caller refreshes its fold on return, and a read ahead of the commit misses it.

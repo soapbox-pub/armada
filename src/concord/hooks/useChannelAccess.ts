@@ -9,7 +9,7 @@
 import { noteRefused, refusedBefore } from "@/concord/lib/blobOnce";
 import type { NostrEvent, NPool } from "@nostrify/nostrify";
 import { useNostr } from "@nostrify/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 
 import { useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
@@ -20,12 +20,19 @@ import { KIND_WRAP } from "@/concord/lib/kinds";
 import { base64ToBytes, decodeWrappedKey, myLocator } from "@/concord/lib/rekey";
 import { channelPermissions, Permissions } from "@/concord/lib/roles";
 import { adoptHistoryDeliveries, historyViewsReady, parseHistoryDelivery } from "@/concord/lib/history";
+import { sweepControl } from "@/concord/lib/planeSync";
+import { peekPendingWraps } from "@/concord/lib/rumorStore";
 import { openWrap } from "@/concord/lib/stream";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { logSync } from "@/lib/syncLog";
+import { quorum, rereadOnBackoff } from "@/concord/lib/quorum";
 import { useWireScopes } from "@/wire/useWireScopes";
 import { setWatched } from "@/wire/watched";
 import { authoritySig } from "@/concord/lib/accessDuty";
+
+/** The least time between two Control Plane reads a stray delivery asks for. */
+const FRESHEN_GAP_MS = 3_000;
 
 /** Pages of the access plane read per relay, and their size (Vector reads 6×200). */
 const ACCESS_PAGES = 6;
@@ -42,7 +49,7 @@ export async function readAccessPlanes(
   signal: AbortSignal,
 ): Promise<Array<{ channelIdHex: string; opened: ReturnType<typeof openWrap> }>> {
   const planes = new Map(channelIds.map((id) => [accessPlane(community, hex32(id)).pk, { id, plane: accessPlane(community, hex32(id)) }]));
-  const results = await Promise.all(
+  const results = await quorum(
     community.relays.map(async (url) => {
       const out: NostrEvent[] = [];
       let until: number | undefined;
@@ -63,7 +70,7 @@ export async function readAccessPlanes(
   );
   const out: Array<{ channelIdHex: string; opened: ReturnType<typeof openWrap> }> = [];
   const seen = new Set<string>();
-  for (const wrap of results.flat()) {
+  for (const wrap of results.flatMap((r) => r ?? [])) {
     if (seen.has(wrap.id)) continue;
     seen.add(wrap.id);
     const at = planes.get(wrap.pubkey);
@@ -83,6 +90,7 @@ export function useChannelAccess(community: Community | undefined): void {
   const { data: folded } = useControlFold(community);
   const entry = useCommunityEntry(community?.idHex);
   const { mutateAsync: updateList } = useUpdateCommunityList();
+  const queryClient = useQueryClient();
   const handled = useRef(new Set<string>());
 
   const me = user?.pubkey;
@@ -108,30 +116,64 @@ export function useChannelAccess(community: Community | undefined): void {
   });
   const refetch = query.refetch;
 
-  // The owed planes, heard live: a holder's delivery wakes the read the moment it lands.
+  // Every unheld Private Channel's plane, heard live. A delivery on an owed one wakes the
+  // read the moment it lands; one on a plane the fold doesn't owe means a holder saw a
+  // Grant this fold hasn't (its live event lost), so the Control Plane is read again and
+  // the fold it moves makes the Channel owed.
+  const unheld = folded?.rankedRoster
+    ? [...folded.channels.values()].filter((c) => c.isPrivate && !c.deleted && !held.has(c.channelIdHex)).map((c) => c.channelIdHex).sort()
+    : [];
+  const unheldKey = unheld.join(",");
   const planePks = useMemo(
-    () => (community ? owed.map((id) => accessPlane(community, hex32(id)).pk) : []),
+    () => (community ? unheld.map((id) => ({ id, pk: accessPlane(community, hex32(id)).pk, owed: owed.includes(id) })) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [community?.idHex, community?.rootEpoch, owedKey],
+    [community?.idHex, community?.rootEpoch, unheldKey, owedKey],
   );
   useEffect(() => {
     if (!community) return;
     const owner = `access:${community.idHex}`;
-    setWatched(owner, community.relays, planePks);
+    setWatched(owner, community.relays, planePks.map((p) => p.pk));
     return () => setWatched(owner, [], []);
   }, [community, planePks]);
+  const lastFreshen = useRef(0);
+  const strayHeard = useRef(new Set<string>());
   useWireScopes((scopes) => {
-    if (planePks.some((pk) => scopes.has(`c2park:${pk}`))) void refetch();
+    const landed = planePks.filter((p) => scopes.has(`c2park:${p.pk}`));
+    if (landed.some((p) => p.owed)) void refetch();
+    const stray = landed.filter((p) => !p.owed);
+    if (!community || !me || stray.length === 0) return;
+    void (async () => {
+      // Only a delivery that names me: one to anyone else says nothing about my fold.
+      const parked = await peekPendingWraps(stray.map((p) => p.pk)).catch((): NostrEvent[] => []);
+      // Once per wrap, and never one older than the Channel's sealed epoch: a relay serving
+      // the deliveries of a past entitlement again says nothing new.
+      const mine = parked.filter((wrap) => !strayHeard.current.has(wrap.id)).some((wrap) => {
+        strayHeard.current.add(wrap.id);
+        const at = stray.find((p) => p.pk === wrap.pubkey);
+        if (!at) return false;
+        try {
+          const d = parseDelivery(openWrap(wrap, accessPlane(community, hex32(at.id))));
+          const sealed = folded?.channels.get(at.id)?.sealed?.epoch ?? 0n;
+          return d?.form === "access" && d.scopeIdHex === at.id && d.newEpoch >= sealed && d.blobs.some((b) => b.locator.toLowerCase() === myLocator(d.deliverer, me, at.id, d.newEpoch));
+        } catch {
+          return false;
+        }
+      });
+      if (!mine || Date.now() - lastFreshen.current < FRESHEN_GAP_MS) return;
+      lastFreshen.current = Date.now();
+      logSync("access", `${community.idHex.slice(0, 8)}: a key was delivered to me for a Channel this fold doesn't let me read; reading the Control Plane again`);
+      await sweepControl(nostr, community).catch(() => undefined);
+      await queryClient.invalidateQueries({ queryKey: ["concord", "control", community.idHex] });
+    })();
   });
 
   // Holders deliver a few seconds after the change that entitled this member: read again
-  // then, as Vector's follow does 20 s after an authority change.
+  // on a backoff to Vector's +20 s while a key is still owed, as relays drop the live event.
   const authority = folded?.rankedRoster ? authoritySig(folded) : "";
   useEffect(() => {
     if (!authority || owed.length === 0) return;
     void refetch();
-    const again = setTimeout(() => void refetch(), 20_000);
-    return () => clearTimeout(again);
+    return rereadOnBackoff(() => void refetch());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authority, owedKey]);
 
@@ -142,16 +184,20 @@ export function useChannelAccess(community: Community | undefined): void {
     let cancelled = false;
     void (async () => {
       const adopted = new Map<string, { key: Uint8Array; epoch: bigint }>();
+      const seen: string[] = [];
       for (const { channelIdHex, opened } of query.data!) {
         const d = parseDelivery(opened);
         if (!d || d.form !== "access" || d.scopeIdHex !== channelIdHex) continue;
         // For a Channel this member holds nothing of, the walk starts at the sealed head.
         const sealed = folded.channels.get(channelIdHex)?.sealed;
-        if (!accessDeliveryAdmits(folded, sealed, channelIdHex, me, d.deliverer, d.newEpoch)) continue;
         const locator = myLocator(d.deliverer, me, channelIdHex, d.newEpoch);
         const blob = d.blobs.find((b) => b.locator.toLowerCase() === locator);
+        if (!blob) continue;
+        const admits = accessDeliveryAdmits(folded, sealed, channelIdHex, me, d.deliverer, d.newEpoch);
+        seen.push(`#${channelIdHex.slice(0, 8)} e${d.newEpoch} (sealed e${sealed?.epoch ?? "-"})${admits ? "" : " not admitted"}`);
+        if (!admits) continue;
         const purpose = `access:${channelIdHex}:${d.newEpoch}`;
-        if (!blob || refusedBefore(purpose, d.deliverer, blob.wrapped)) continue;
+        if (refusedBefore(purpose, d.deliverer, blob.wrapped)) continue;
         try {
           const plain = await nip44.decrypt(d.deliverer, blob.wrapped);
           const key = decodeWrappedKey(base64ToBytes(plain), hex32(channelIdHex), d.newEpoch);
@@ -166,9 +212,11 @@ export function useChannelAccess(community: Community | undefined): void {
           noteRefused(purpose, d.deliverer, blob.wrapped);
         }
       }
+      if (seen.length > 0) logSync("access", `${community.idHex.slice(0, 8)}: owed ${owed.length}; my blobs: ${seen.join(", ")}`);
       if (cancelled || adopted.size === 0) return;
       const fresh = [...adopted].filter(([id, k]) => !handled.current.has(`${id}:${k.epoch}`));
       if (fresh.length === 0) return;
+      logSync("access", `${community.idHex.slice(0, 8)}: adopting ${fresh.map(([id, k]) => `#${id.slice(0, 8)} e${k.epoch}`).join(", ")}`);
       for (const [id, k] of fresh) handled.current.add(`${id}:${k.epoch}`);
       const channels = [...adopted].map(([id, k]) => ({ id, key: bytesToHex(k.key), epoch: Number(k.epoch), name: "" }));
       // Merged at write time, so a key the list gained since `entry` was read survives, and

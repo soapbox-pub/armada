@@ -1,10 +1,12 @@
 import { settleAccepted } from "@/concord/lib/settleAccepted";
+import { publishDurable, quorum, rereadOnBackoff } from "@/concord/lib/quorum";
+import { authoritySig } from "@/concord/lib/accessDuty";
 import { clockNowMs, nowSecs } from "@/lib/relayClock";
 import { useNostr } from "@nostrify/react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
+import { cachedCommunity, useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { citationFor, foldStoredControl, publishEdition, useControlFold, useDissolved, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { resealedChannelContent } from "@/concord/lib/channelSeal";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -60,6 +62,7 @@ import { buildRefreshedBundleEvents, buildRevocationEvent, capBundleDescription,
 import { fetchInviteList } from "@/concord/hooks/useInvites";
 import { toast } from "@/hooks/useToast";
 import { emitWireScopes } from "@/wire/bus";
+import { logSync } from "@/lib/syncLog";
 import { useWireScopes } from "@/wire/useWireScopes";
 import { setWatched } from "@/wire/watched";
 import { accessKeyRefuted } from "@/concord/lib/delivery";
@@ -217,14 +220,14 @@ async function myRotationAt(
   const next = ch.epoch + 1n;
   const address = channelRekeyGroupKey(community.root, ch.id, next);
   const filter = { kinds: [KIND_WRAP], authors: [address.pk], limit: 200 };
-  const results = await Promise.all(
+  const results = await quorum(
     community.relays.map((url) =>
       nostr.relay(url).query([filter], { signal: AbortSignal.timeout(5000) }).catch(() => [] as NostrEvent[]),
     ),
   );
   const parsed: ParsedRekey[] = [];
   const seen = new Set<string>();
-  for (const wrap of results.flat()) {
+  for (const wrap of results.flatMap((r) => r ?? [])) {
     if (seen.has(wrap.id)) continue;
     seen.add(wrap.id);
     try {
@@ -690,6 +693,17 @@ export function useLinkRefreshWatch(community: Community | undefined): void {
   }, [community?.idHex, community?.rootEpoch, community?.relays.join(","), user?.pubkey, folded, dissolved]);
 }
 
+/** A rotation's best-effort follow-ups, one at a time per community. */
+const followUps = new Map<string, Promise<void>>();
+
+function afterRotation(communityIdHex: string, run: () => Promise<void>): void {
+  const next = (followUps.get(communityIdHex) ?? Promise.resolve()).then(run).catch(() => undefined);
+  followUps.set(communityIdHex, next);
+  void next.then(() => {
+    if (followUps.get(communityIdHex) === next) followUps.delete(communityIdHex);
+  });
+}
+
 /**
  * Watch each held Private Channel's NEXT-epoch rekey address (CORD-06 §2),
  * mirroring {@link useRekeyWatch} per channel:
@@ -759,8 +773,9 @@ export function useChannelRekeyWatch(community: Community | undefined) {
       const byPk = addresses;
       const authors = [...byPk.keys()];
 
-      // PER-RELAY `since` cursors, as in the base watcher.
-      const results = await Promise.all(
+      // PER-RELAY `since` cursors, as in the base watcher; read in quorum, so a dead relay
+      // costs the grace, not its timeout.
+      const results = await quorum(
         community!.relays.map(async (url) => {
           const scope = `chrekey:${community!.idHex}:${watchKey}|${url}`;
           const filter = rekeyFilter(authors, await readStreamCursor(scope));
@@ -779,7 +794,7 @@ export function useChannelRekeyWatch(community: Community | undefined) {
         }),
       );
       const fresh: OpenedWireEvent[] = [];
-      for (const wrap of results.flat()) {
+      for (const wrap of results.flatMap((r) => r ?? [])) {
         const address = byPk.get(wrap.pubkey);
         if (!address) continue;
         try {
@@ -816,6 +831,21 @@ export function useChannelRekeyWatch(community: Community | undefined) {
       }
     }
   });
+
+  // A held Channel the fold no longer lets me read is about to be rotated: read again on a
+  // backoff, as relays drop the rotation's live event and a cut member would read on.
+  const shutOut = community && folded?.rankedRoster && user
+    ? community.privateChannels
+        .map((c) => bytesToHex(c.id))
+        .filter((id) => folded.channels.get(id)?.isPrivate && !isEntitled(folded.roster, folded.ownerHex, user.pubkey, id))
+        .sort()
+        .join(",")
+    : "";
+  useEffect(() => {
+    if (!shutOut) return;
+    return rereadOnBackoff(() => void refetch());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shutOut, shutOut && folded ? authoritySig(folded) : ""]);
 
   useEffect(() => {
     if (!community || !user || !folded || !query.data || query.data.length === 0) return;
@@ -999,6 +1029,7 @@ export function useChannelRekeyWatch(community: Community | undefined) {
 
       // Nothing to write (or cancelled): release this pass's claims (see releaseClaims).
       if (!changed || cancelled) return releaseClaims();
+      logSync("chrekey", `${community.idHex.slice(0, 8)}: adopting ${adoptions.map((c) => `#${c.id.slice(0, 8)} e${c.epoch}`).join(", ") || "none"}; cut ${cuts.map((c) => `#${c.id.slice(0, 8)} e${c.epoch}`).join(", ") || "none"}`);
       await updateList({
         type: "refresh-channels",
         communityId: community.idHex,
@@ -1142,12 +1173,11 @@ export function useChannelRekey(hookCommunity: Community | undefined) {
       );
       for (const rumor of chRumors) {
         const wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, chAddress, user.signer), chAddress);
-        const results = await settleAccepted(
-          community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(8000) })),
-        );
-        if (!results.some((r) => r.status === "fulfilled")) {
+        // Each relay until it takes it (Vector `publish_durable`): a rotation a reader's relays
+        // never got leaves the cut member reading and the rest on the severed key.
+        await publishDurable(nostr, community.relays, wrap, undefined, `${community.idHex.slice(0, 8)} #${channelIdHex.slice(0, 8)} rotation`).catch(() => {
           throw new Error(t({ id: "useRekey.noRelayAcceptedChannelRotation", defaultMessage: "No relay accepted the #{channel} channel key rotation." }, { channel: ch.name || channelIdHex.slice(0, 8) }));
-        }
+        });
       }
 
       // Adopt immediately: the rotator must never keep writing under the severed key.
@@ -1176,32 +1206,35 @@ export function useChannelRekey(hookCommunity: Community | undefined) {
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
 
       // The rotator's duty: the details sealed again under the key just minted (CORD-03 §2,
-      // Vector `reseal_rotated`). Best-effort; the reseal backstop retries.
-      // From the store's fold, one write at a time: the rendered fold lags a rename just made.
-      await withControlWrite(community.idHex, async () => {
-        const now = await foldStoredControl(community).catch(() => folded);
-        const def = now?.rankedRoster ? now.channels.get(channelIdHex) : undefined;
-        const head = def ? now?.heads.get(channelIdHex) : undefined;
-        const fresh = rotated.find((c) => bytesToHex(c.id) === channelIdHex);
-        const resealed = def && head && fresh ? resealedChannelContent(def, fresh, bytesToHex(head.hash)) : undefined;
-        if (!resealed || !head) return;
-        const rumor = buildChannelContentEdition(ch.id, resealed, {
-          actorPubkey: user.pubkey,
-          version: head.version + 1n,
-          prevHash: head.hash,
-          authority: citationFor(community, now, user.pubkey),
-        });
-        await publishEdition(nostr, community, user.signer, rumor);
-      }).catch(() => undefined);
-
-      // My links still vend the retired key; re-mint at the fresh keys (CORD-05 §2).
-      // Best-effort (`useLinkRefreshWatch` retries).
-      await refreshInviteBundlesFor(
-        nostr,
-        user,
-        { ...community, privateChannels: rotated },
-        folded?.metadata,
-      ).catch(() => undefined);
+      // Vector `reseal_rotated`), and my links re-minted at the fresh keys (CORD-05 §2). Both
+      // best-effort with their own backstops, so off the rotation's path: awaited, they held
+      // the next Channel's cut. Chained per community, each link refresh from the keys as
+      // held when it runs, so one finishing last can't re-vend another Channel's retired key.
+      afterRotation(community.idHex, async () => {
+        // From the store's fold, one write at a time: the rendered fold lags a rename just made.
+        await withControlWrite(community.idHex, async () => {
+          const now = await foldStoredControl(community).catch(() => folded);
+          const def = now?.rankedRoster ? now.channels.get(channelIdHex) : undefined;
+          const head = def ? now?.heads.get(channelIdHex) : undefined;
+          const fresh = rotated.find((c) => bytesToHex(c.id) === channelIdHex);
+          const resealed = def && head && fresh ? resealedChannelContent(def, fresh, bytesToHex(head.hash)) : undefined;
+          if (!resealed || !head) return;
+          const rumor = buildChannelContentEdition(ch.id, resealed, {
+            actorPubkey: user.pubkey,
+            version: head.version + 1n,
+            prevHash: head.hash,
+            authority: citationFor(community, now, user.pubkey),
+          });
+          await publishEdition(nostr, community, user.signer, rumor);
+        }).catch(() => undefined);
+        const held = cachedCommunity(queryClient, user.pubkey, community.idHex);
+        await refreshInviteBundlesFor(
+          nostr,
+          user,
+          held ?? { ...community, privateChannels: rotated },
+          folded?.metadata,
+        ).catch(() => undefined);
+      });
     },
   });
 

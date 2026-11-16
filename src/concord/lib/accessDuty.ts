@@ -9,7 +9,8 @@
 import type { FoldedControl } from "@/concord/lib/control";
 import type { ParsedDelivery } from "@/concord/lib/delivery";
 import type { CoalescedMember } from "@/concord/lib/guestbook";
-import { myLocator, type RekeyBlob, type RekeyRotationSet } from "@/concord/lib/rekey";
+import { aclLocator, bytesToHex, everyoneLocator, grantLocator, hex32, overwriteTargetBytes, syncLocator } from "@/concord/lib/derive";
+import { myLocator, rotationPublishedAtMs, type RekeyBlob, type RekeyRotationSet } from "@/concord/lib/rekey";
 import { isEntitled, readsHistory } from "@/concord/lib/channelAccess";
 import { canActOnMember, channelPermissions, hasPermission, Permissions, type CommunityRoles } from "@/concord/lib/roles";
 
@@ -17,13 +18,15 @@ import { canActOnMember, channelPermissions, hasPermission, Permissions, type Co
 export interface MintingRotation {
   rotator: string;
   blobs: RekeyBlob[];
+  /** When it was published (ms): a member it cut is re-admitted only by authority dated after. */
+  at?: number;
 }
 
 /** The complete rotations among `sets` minting `epoch` for a Channel (Vector `minting_rotations`). */
 export function mintingRotations(sets: readonly RekeyRotationSet[], channelIdHex: string, epoch: bigint): MintingRotation[] {
   return sets
     .filter((s) => s.complete && s.newEpoch === epoch && s.scopeIdHex === channelIdHex)
-    .map((s) => ({ rotator: s.rotator, blobs: [...s.chunks.values()].flatMap((list) => list.flatMap((c) => c.blobs)) }));
+    .map((s) => ({ rotator: s.rotator, blobs: [...s.chunks.values()].flatMap((list) => list.flatMap((c) => c.blobs)), at: rotationPublishedAtMs(s) }));
 }
 
 /** Who a reader takes a Channel rotation from (Vector `rotates_channels`): the owner, or an unbanned MANAGE_CHANNELS or BAN holder. */
@@ -82,6 +85,15 @@ export function planChannelDuty(o: {
   minted: readonly MintingRotation[];
   prior: readonly MintingRotation[];
   handled?: ReadonlySet<string>;
+  /** Lets a member the rotation cut back in when their access rests on authority dated after it. */
+  communityId?: Uint8Array;
+  /**
+   * Members this device cut at `epoch` itself. Its fold only moves forward, so one that
+   * shut them out then and lets them in now has folded a change made since, however dated.
+   */
+  cutBySelf?: ReadonlySet<string>;
+  /** Told why each member the Channel lets in is not served (a trace). */
+  explain?: (pk: string, why: string) => void;
 }): ChannelDuty | undefined {
   const { control, me, channelIdHex, epoch } = o;
   const owner = control.ownerHex;
@@ -102,18 +114,31 @@ export function planChannelDuty(o: {
     // cuts again at every epoch it never reached.
     cut = [...new Set([...o.candidates, ...control.banned])]
       .filter((pk) => pk !== me && !entitledHere(pk))
-      .filter((pk) => carries(o.minted, rotatorOk, pk, channelIdHex, epoch) || servedOnPlane(o.deliveries, pk, channelIdHex, epoch, entitledHere))
+      // This device's own record of delivering it counts, as relays that withhold can hide it.
+      .filter((pk) => o.handled?.has(pk) || carries(o.minted, rotatorOk, pk, channelIdHex, epoch) || servedOnPlane(o.deliveries, pk, channelIdHex, epoch, entitledHere))
       .filter((pk) => me === owner || canActOnMember(control.roster, me, owner, pk, Permissions.MANAGE_CHANNELS))
       .sort();
     // Whoever is owed the Channel is owed its next epoch: the next run serves them.
     if (cut.length > 0) return { channelIdHex, epoch, deliver: [], fresh: [], cut };
   }
 
-  const anyMinted = o.minted.some((r) => rotatorOk(r.rotator));
+  const honored = o.minted.filter((r) => rotatorOk(r.rotator));
+  const anyMinted = honored.length > 0;
+  // When the rotation that minted this epoch was published: the cut it made, if any.
+  const cutAt = anyMinted ? Math.min(...honored.map((r) => r.at ?? Infinity)) : Infinity;
   const unserved = entitled.filter((pk) => {
     const carried = carries(o.minted, rotatorOk, pk, channelIdHex, epoch);
-    const wasCut = !carried && anyMinted && (carries(o.prior, rotatorOk, pk, channelIdHex, prev) || servedOnPlane(o.deliveries, pk, channelIdHex, prev, entitledHere));
-    return !carried && !wasCut && !servedOnPlane(o.deliveries, pk, channelIdHex, epoch, entitledHere);
+    // Left out after holding the epoch before is a cut, whatever a lagging Roster says
+    // (CORD-03 §5). A Roster that lets them in again by an edition dated after the cut
+    // is no lagging one: a lagging fold only holds authority from before it.
+    const heldBefore = carries(o.prior, rotatorOk, pk, channelIdHex, prev) || servedOnPlane(o.deliveries, pk, channelIdHex, prev, entitledHere);
+    const readmitted =
+      o.cutBySelf?.has(pk) === true ||
+      (o.communityId !== undefined && Number.isFinite(cutAt) && entitledSinceSecs(control, o.communityId, pk, channelIdHex) * 1000 > cutAt);
+    const wasCut = !carried && anyMinted && heldBefore && !readmitted;
+    const served = servedOnPlane(o.deliveries, pk, channelIdHex, epoch, entitledHere);
+    if (o.explain && (carried || wasCut || served)) o.explain(pk, carried ? "carried by the minting rotation" : wasCut ? "cut by the minting rotation" : "served on the plane");
+    return !carried && !wasCut && !served;
   });
   // With Read Message History they take this epoch and every past one; without, only a fresh epoch.
   const readsHistory = (pk: string) => (permsOf(pk) & Permissions.READ_MESSAGE_HISTORY) !== 0n;
@@ -121,6 +146,32 @@ export function planChannelDuty(o: {
   const fresh = mayRotate ? unserved.filter((pk) => !readsHistory(pk)) : [];
   if (deliver.length === 0 && fresh.length === 0) return undefined;
   return { channelIdHex, epoch, deliver, fresh, cut: [] };
+}
+
+/**
+ * When the Roster last changed anything `pk`'s reading of a Channel rests on (seconds):
+ * the newest head among their Grant, `@everyone`, each Role they hold, the Channel's sync,
+ * and the overwrites in the Channel's scope, or the Category it syncs to, naming them,
+ * a Role they hold or `@everyone` (CORD-04 §8).
+ */
+export function entitledSinceSecs(control: FoldedControl, communityId: Uint8Array, pk: string, channelIdHex: string): number {
+  const roles = control.roster.grants.find((g) => g.member === pk)?.roleIds ?? [];
+  const entities = [bytesToHex(grantLocator(communityId, hex32(pk))), bytesToHex(everyoneLocator(communityId)), ...roles, bytesToHex(syncLocator(communityId, hex32(channelIdHex)))];
+  const targets = [
+    overwriteTargetBytes(communityId, "member", hex32(pk)),
+    overwriteTargetBytes(communityId, "everyone"),
+    ...roles.filter((r) => /^[0-9a-f]{64}$/i.test(r)).map((r) => overwriteTargetBytes(communityId, "role", hex32(r))),
+  ];
+  const synced = control.roster.syncs?.[channelIdHex];
+  for (const scope of [channelIdHex, ...(synced ? [synced] : [])]) {
+    for (const t of targets) entities.push(bytesToHex(aclLocator(communityId, hex32(scope), t)));
+  }
+  let newest = 0;
+  for (const id of entities) {
+    const at = control.headEditions?.get(id.toLowerCase())?.createdAt;
+    if (at !== undefined && at > newest) newest = at;
+  }
+  return newest;
 }
 
 /** What one Roster change moves in one Private Channel (Vector `settle_access`). */
