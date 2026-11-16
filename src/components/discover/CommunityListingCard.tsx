@@ -34,6 +34,7 @@ import {
 import {
   inviteUrlToLocalRoute,
   listingAuthorized,
+  listingIdsOf,
   type DiscoveredInvite,
   type ListingStanding,
 } from "@/concord/lib/inviteDiscovery";
@@ -67,6 +68,8 @@ interface CommunityListingCardProps {
   onResolved?: (linkSigner: string, standing: ListingStanding) => void;
   /** Another link to the same community stands in for this one: render nothing. */
   suppressed?: boolean;
+  /** The announcements whose boosts count here; the listing's own and its copies' by default. */
+  boostListings?: readonly string[];
   /** Reports the probe target for the batched last-active REQ, or `null` to withdraw it. */
   onActivityTarget?: (linkSigner: string, target: DiscoverActivityTarget | null) => void;
   /** Newest kind-1059 wrap `created_at` (unix seconds) from the batched probe. */
@@ -120,6 +123,7 @@ export function CommunityListingCard({
   needsBoost = false,
   onResolved,
   suppressed = false,
+  boostListings,
   onActivityTarget,
   lastActiveAt,
 }: CommunityListingCardProps) {
@@ -175,7 +179,10 @@ export function CommunityListingCard({
   const isBlocked = useIsBlocked();
   const blocked = !!bundle?.community_id && isBlocked(bundle.community_id);
   const { boosts: boostsByListing, vouchers } = useContext(DiscoverBoostsContext);
-  const boosts = useMemo(() => boostsFor(boostsByListing, [invite.source.id]), [boostsByListing, invite.source.id]);
+  const boosts = useMemo(
+    () => boostsFor(boostsByListing, boostListings ?? listingIdsOf(invite)),
+    [boostsByListing, boostListings, invite],
+  );
   // An owner boosting their own community vouches for nothing.
   const vouched = useMemo(
     () => (bundle ? vouchingBoosts(boosts, vouchers, bundle.owner) : NO_BOOSTS),

@@ -8,7 +8,10 @@ import {
   announcementsForLinks,
   buildAnnouncementDeletion,
   listingAuthorized,
+  boostListingsBySigner,
+  listingIdsOf,
   suppressedListings,
+  withCopy,
   type DiscoveredInvite,
   type ListingStanding,
 } from "@/concord/lib/inviteDiscovery";
@@ -163,5 +166,43 @@ describe("suppressedListings", () => {
       [LINK_B]: standing({ communityId: "e".repeat(64), owner: BOB }),
     });
     expect(out.size).toBe(0);
+  });
+});
+
+describe("boosts across a community's listings", () => {
+  const LINK_C = "c".repeat(64);
+  const listing = (linkSigner: string, createdAt: number): DiscoveredInvite => ({
+    inviteUrl: urlFor(linkSigner),
+    linkSigner,
+    source: announcement(ALICE, linkSigner, createdAt),
+  });
+
+  it("folds another announcement of the same link in as a copy, with its own copies", () => {
+    const newest = listing(LINK_A, 30);
+    const older = withCopy(listing(LINK_A, 20), listing(LINK_A, 10));
+    const merged = withCopy(newest, older);
+    expect(listingIdsOf(merged).sort()).toEqual([newest.source.id, older.source.id, ...older.copies!].sort());
+    // Folding in what is already held changes nothing, identity included.
+    expect(withCopy(merged, older)).toBe(merged);
+  });
+
+  it("counts every listing that resolves to the same community, copies included", () => {
+    const a = withCopy(listing(LINK_A, 30), listing(LINK_A, 10));
+    const b = listing(LINK_B, 20);
+    const other = listing(LINK_C, 5);
+    const out = boostListingsBySigner([a, b, other], {
+      [LINK_A]: { communityId: "d".repeat(64) },
+      [LINK_B]: { communityId: "d".repeat(64) },
+      [LINK_C]: { communityId: "e".repeat(64) },
+    });
+    const shared = [...listingIdsOf(a), b.source.id].sort();
+    expect(out.get(LINK_A)).toEqual(shared);
+    expect(out.get(LINK_B)).toEqual(shared);
+    expect(out.get(LINK_C)).toEqual([other.source.id]);
+  });
+
+  it("keeps an unresolved listing's boosts to its own announcements", () => {
+    const a = withCopy(listing(LINK_A, 30), listing(LINK_A, 10));
+    expect(boostListingsBySigner([a], {}).get(LINK_A)).toEqual(listingIdsOf(a));
   });
 });

@@ -27,6 +27,20 @@ export interface DiscoveredInvite {
    */
   linkSigner: string;
   source: NostrRumor;
+  /** Older standing announcements of the same link: boosts name announcements, so theirs count here. */
+  copies?: string[];
+}
+
+/** An invite with another announcement of its link folded in as a copy. */
+export function withCopy(invite: DiscoveredInvite, other: DiscoveredInvite): DiscoveredInvite {
+  const ids = new Set([...(invite.copies ?? []), other.source.id, ...(other.copies ?? [])]);
+  ids.delete(invite.source.id);
+  return ids.size === (invite.copies?.length ?? 0) ? invite : { ...invite, copies: [...ids].sort() };
+}
+
+/** Every announcement id an invite stands for: its own and its copies'. */
+export function listingIdsOf(invite: DiscoveredInvite): string[] {
+  return invite.copies?.length ? [invite.source.id, ...invite.copies] : [invite.source.id];
 }
 
 /**
@@ -116,6 +130,32 @@ export function suppressedListings(
     } else suppressed.add(invite.linkSigner);
   }
   return suppressed;
+}
+
+/**
+ * The announcements whose boosts count for each listing: its own and its copies,
+ * and those of every listing resolving to the same community, since a boost vouches
+ * for the community whichever of its links it was cast on. Unresolved listings
+ * keep their own.
+ */
+export function boostListingsBySigner(
+  invites: readonly DiscoveredInvite[],
+  standings: Readonly<Record<string, Pick<ListingStanding, "communityId">>>,
+): Map<string, string[]> {
+  const byCommunity = new Map<string, Set<string>>();
+  for (const invite of invites) {
+    const communityId = standings[invite.linkSigner]?.communityId;
+    if (!communityId) continue;
+    const ids = byCommunity.get(communityId) ?? byCommunity.set(communityId, new Set()).get(communityId)!;
+    for (const id of listingIdsOf(invite)) ids.add(id);
+  }
+  const out = new Map<string, string[]>();
+  for (const invite of invites) {
+    const communityId = standings[invite.linkSigner]?.communityId;
+    const shared = communityId ? byCommunity.get(communityId) : undefined;
+    out.set(invite.linkSigner, shared ? [...shared].sort() : listingIdsOf(invite));
+  }
+  return out;
 }
 
 function creatorHex(creator: string): string | undefined {

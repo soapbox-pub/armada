@@ -27,6 +27,8 @@ import { parseInviteLink } from "@/concord/lib/invite";
 import {
   KIND_COMMUNITY_ANNOUNCEMENT,
   announcementFromEvent,
+  listingIdsOf,
+  withCopy,
   type DiscoveredInvite,
 } from "@/concord/lib/inviteDiscovery";
 import { getArmadaDB } from "@/lib/db/armadaDB";
@@ -397,7 +399,7 @@ export async function fetchFollowPacks(
 
 /**
  * Honor un-publishes only from the announcement's own author (NIP-09); keep the
- * newest announcement per link signer.
+ * newest announcement per link signer, the older ones as its copies.
  */
 function foldAnnouncements(anns: NostrRumor[], dels: NostrRumor[]): DiscoveredInvite[] {
   const deleted = new Set<string>();
@@ -412,7 +414,8 @@ function foldAnnouncements(anns: NostrRumor[], dels: NostrRumor[]): DiscoveredIn
     if (deleted.has(event.id)) continue;
     const invite = announcementFromEvent(event);
     if (!invite) continue;
-    if (!byLinkSigner.has(invite.linkSigner)) byLinkSigner.set(invite.linkSigner, invite);
+    const held = byLinkSigner.get(invite.linkSigner);
+    byLinkSigner.set(invite.linkSigner, held ? withCopy(held, invite) : invite);
   }
   return [...byLinkSigner.values()];
 }
@@ -805,19 +808,26 @@ export function useDiscoverCommunities(scope: DiscoverScope): DiscoverFeed<Disco
     for (const invite of invites.sort((a, b) => b.source.created_at - a.source.created_at)) {
       if (mutedPubkeys.has(invite.source.pubkey)) continue;
       if (!allowed(invite.source.pubkey)) continue;
-      if (!byLinkSigner.has(invite.linkSigner)) byLinkSigner.set(invite.linkSigner, invite);
+      const held = byLinkSigner.get(invite.linkSigner);
+      byLinkSigner.set(invite.linkSigner, held ? withCopy(held, invite) : invite);
     }
     const boostOnly = new Set<string>();
     for (const invite of boostedInvites) {
-      if (mutedPubkeys.has(invite.source.pubkey) || byLinkSigner.has(invite.linkSigner)) continue;
+      if (mutedPubkeys.has(invite.source.pubkey)) continue;
+      const held = byLinkSigner.get(invite.linkSigner);
+      if (held) {
+        // A boosted copy of a link already listed still carries its boosts.
+        byLinkSigner.set(invite.linkSigner, withCopy(held, invite));
+        continue;
+      }
       byLinkSigner.set(invite.linkSigner, invite);
       boostOnly.add(invite.linkSigner);
     }
     return { invites: [...byLinkSigner.values()], boostOnly };
   }, [result.data, authors, mutedPubkeys, boostedInvites]);
 
-  // Once a listing is on screen, every boost on it counts toward its total.
-  const shownIds = useMemo(() => (data?.invites ?? NO_INVITES).map((i) => i.source.id).sort(), [data]);
+  // Once a listing is on screen, every boost on it (or on an older copy of its link) counts toward its total.
+  const shownIds = useMemo(() => (data?.invites ?? NO_INVITES).flatMap(listingIdsOf).sort(), [data]);
   const shownBoosts = useQuery<BoostsByListing>({
     queryKey: ["discover", "shown-boosts", relays, shownIds],
     enabled: relays.length > 0 && shownIds.length > 0,
