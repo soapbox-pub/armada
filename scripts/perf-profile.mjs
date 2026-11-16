@@ -52,6 +52,9 @@
  *                   community has stored by the window's end. --later <n> (10) more
  *                   reach the relay between the cold boot and the warm reload, which
  *                   is measured the same way
+ *   concord-live    messages arriving live in an open #general (--live-messages <n>, 30
+ *                   each): main-thread cost per arrival with the default window, then
+ *                   again after paging back has grown it to the whole history
  *   dm-many      the seeded account (40 conversations) back after 30 minutes away,
  *                20 DMs waiting on its two DM relays, one answering 3s late (and also
  *                one of its own relays, where it keeps no contact list): a cold boot into the DM list, then a
@@ -419,28 +422,47 @@ function installInPageRelay() {
         }
         return { events, byAuthor };
       }));
+  const matches = (e, f) =>
+    (!f.ids || f.ids.includes(e.id)) &&
+    (!f.authors || f.authors.includes(e.pubkey)) &&
+    (!f.kinds || f.kinds.includes(e.kind)) &&
+    (f.since === undefined || e.created_at >= f.since) &&
+    (f.until === undefined || e.created_at <= f.until) &&
+    Object.entries(f)
+      .filter(([k]) => k.startsWith("#"))
+      .every(([k, vals]) => e.tags.some((t) => t[0] === k.slice(1) && vals.includes(t[1])));
   const answer = ({ events, byAuthor }, filters) => {
     const out = new Map();
     for (const f of filters) {
       const pool = f.authors ? f.authors.flatMap((a) => byAuthor.get(a) ?? []) : events;
-      const tags = Object.entries(f).filter(([k]) => k.startsWith("#"));
-      let evs = pool.filter(
-        (e) =>
-          (!f.ids || f.ids.includes(e.id)) &&
-          (!f.kinds || f.kinds.includes(e.kind)) &&
-          (f.since === undefined || e.created_at >= f.since) &&
-          (f.until === undefined || e.created_at <= f.until) &&
-          tags.every(([k, vals]) => e.tags.some((t) => t[0] === k.slice(1) && vals.includes(t[1]))),
-      );
+      let evs = pool.filter((e) => matches(e, f));
       evs.sort((a, b) => b.created_at - a.created_at);
       if (f.limit !== undefined) evs = evs.slice(0, f.limit);
       for (const e of evs) out.set(e.id, e);
     }
     return [...out.values()];
   };
+  /** Open sockets, for `__armadaRelayPush`. */
+  const sockets = new Set();
+  /** Deliver `events` live, as a relay does to its open subscriptions, and keep them for later REQs. */
+  window.__armadaRelayPush = async (events) => {
+    const d = await load();
+    for (const e of events) {
+      d.events.push(e);
+      if (!d.byAuthor.has(e.pubkey)) d.byAuthor.set(e.pubkey, []);
+      d.byAuthor.get(e.pubkey).push(e);
+    }
+    for (const socket of sockets) {
+      for (const [sub, filters] of socket.subs) {
+        for (const e of events) if (filters.some((f) => matches(e, f))) socket.reply(["EVENT", sub, e]);
+      }
+    }
+  };
   class InPageRelay extends EventTarget {
     constructor(url) {
       super();
+      this.subs = new Map();
+      sockets.add(this);
       Object.assign(this, { url, readyState: 0, protocol: "", extensions: "", binaryType: "blob", bufferedAmount: 0 });
       Object.assign(this, { onopen: null, onmessage: null, onclose: null, onerror: null });
       void load().then(() => {
@@ -469,6 +491,7 @@ function installInPageRelay() {
       }
       if (msg[0] === "REQ") {
         const [, sub, ...filters] = msg;
+        this.subs.set(sub, filters);
         for (const f of filters) {
           if (f.kinds?.includes(1059) && f.authors) {
             (window.__armadaReqLog ??= []).push({ t: Math.round(performance.now()), live: f.limit === undefined, authors: f.authors, since: f.since });
@@ -480,11 +503,14 @@ function installInPageRelay() {
         });
       } else if (msg[0] === "EVENT") {
         this.reply(["OK", msg[1].id, true, ""]);
+      } else if (msg[0] === "CLOSE") {
+        this.subs.delete(msg[1]);
       }
     }
     close(code = 1000, reason = "") {
       if (this.readyState >= 2) return;
       this.readyState = 3;
+      sockets.delete(this);
       setTimeout(() => this.emit(new CloseEvent("close", { code, reason, wasClean: true })), 0);
     }
   }
@@ -1445,6 +1471,86 @@ try {
   }
 
 
+  if (wants("concord-live")) {
+    // Messages arriving live in an open #general: the main thread each costs with the
+    // default window, then again once paging back has grown it to the whole history.
+    const LIVE_EACH = Number(opt("live-messages", "30"));
+    await installInPageScripts();
+    relayBody = "[]";
+    await page.goto("/e2e/concordSeed.html");
+    await page.evaluate(() => localStorage.setItem("perf-inpage-relay", "1"));
+    await page.waitForFunction(() => Boolean(window.__armadaSeedConcordMany), null, { timeout: 60_000 });
+    const live = await page.evaluate((p) => window.__armadaSeedConcordMany(p), {
+      sk: Buffer.from(world.me.sk).toString("hex"),
+      communities: 1,
+      members: 40,
+      messages: CONCORD_BIG,
+      missed: 0,
+      later: LIVE_EACH * 2,
+      laterInMs: 30_000,
+      lines: LINES,
+    });
+    relayBody = JSON.stringify(live.wraps);
+    const [c] = live.communities;
+    console.log(`\n▶ concord-live (${LIVE_EACH} arrivals per window size)`);
+    const mark = errors.length;
+    await page.goto(`/c/${c.communityId}/${c.channelIds[0]}`);
+    await perfReady(page);
+    await page.waitForTimeout(10_000);
+    /** Push each wrap once its date has passed (none: the same windows idle); main-thread ms over a settle. */
+    const arrive = async (wraps) => {
+      const out = [];
+      for (const w of wraps) {
+        const due = w ? w.created_at * 1000 + 1000 - Date.now() : 0;
+        if (due > 0) await page.waitForTimeout(due);
+        const a = await metrics(cdp);
+        const t = Date.now();
+        if (w) await page.evaluate((e) => window.__armadaRelayPush([e]), w);
+        await page.waitForTimeout(1500);
+        const b = await metrics(cdp);
+        out.push({ busyMs: Math.round((b.TaskDuration - a.TaskDuration) * 1000), scriptMs: Math.round((b.ScriptDuration - a.ScriptDuration) * 1000), wallMs: Date.now() - t });
+      }
+      return out;
+    };
+    const median = (xs) => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)];
+    const summary = (xs) => ({ medianBusyMs: median(xs.map((x) => x.busyMs)), medianScriptMs: median(xs.map((x) => x.scriptMs)), busyMs: xs.map((x) => x.busyMs).join(" ") });
+    /** The open channel's cached rows, as KB of query data. */
+    const channelKB = () => page.evaluate(() => window.__armadaPerf.memory?.()?.queries?.find((q) => q.family === "concord/channel/…")?.dataKB ?? null);
+    const toBottom = async () => {
+      for (let i = 0; i < 8; i++) {
+        await page.evaluate(() => {
+          const row = document.querySelector("[data-scroll-anchor]");
+          let el = row?.parentElement ?? null;
+          while (el && !(el.scrollHeight > el.clientHeight + 10 && /(auto|scroll)/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+        await page.waitForTimeout(750);
+      }
+    };
+    const baseline = await arrive(new Array(LIVE_EACH / 2).fill(null));
+    const kbSmall = await channelKB();
+    const firstWraps = live.laterWraps.slice(0, LIVE_EACH);
+    await resetCounters(page);
+    const { result: small } = await cpuProfile("concord-live-small", () => arrive(firstWraps));
+    const smallReport = await report(page);
+    const shownSmall = await page.getByText(`(#c0-later-${LIVE_EACH - 1})`, { exact: false }).count();
+    const steps = await scrollBack();
+    await toBottom();
+    const kbBig = await channelKB();
+    const baselineBig = await arrive(new Array(LIVE_EACH / 2).fill(null));
+    // The saved report covers these arrivals only.
+    await resetCounters(page);
+    const { result: big, hot } = await cpuProfile("concord-live-big", () => arrive(live.laterWraps.slice(LIVE_EACH)));
+    const shownBig = await page.getByText(`(#c0-later-${2 * LIVE_EACH - 1})`, { exact: false }).count();
+    console.log(`  idle, default window (${kbSmall} KB cached): ${JSON.stringify(summary(baseline))}`);
+    console.log(`  arrivals, default window: ${JSON.stringify(summary(small))}`);
+    console.log(`  idle, after paging back (${kbBig} KB cached): ${JSON.stringify(summary(baselineBig))}`);
+    console.log(`  arrivals, after paging back: ${JSON.stringify(summary(big))}`);
+    console.log(`  last arrival shown: ${shownSmall > 0} / ${shownBig > 0}`);
+    save("concord-live", { baseline: summary(baseline), small: summary(small), baselineBig: summary(baselineBig), big: summary(big), cachedKB: [kbSmall, kbBig], scrollSteps: steps, shown: [shownSmall > 0, shownBig > 0], hot, errors: errorsSince(mark), smallReport, report: await report(page) });
+    await page.evaluate(() => localStorage.removeItem("perf-inpage-relay"));
+  }
+
   if (wants("concord-many") || wants("concord-hop")) {
     // Many joined communities with real Guestbooks: how long a boot takes to paint
     // the open channel, and to subscribe every community's chat on the wire.
@@ -1577,6 +1683,8 @@ try {
       const a = await metrics(cdp);
       const t = Date.now();
       const hops = [];
+      // One floor per lap of the ring: a leak across hops is a rising floor.
+      const floors = [await memoryFloor(cdp)];
       const { hot } = await cpuProfile("concord-hop", async () => {
         for (let i = 1; i <= HOPS; i++) {
           const ci = i % ring.length;
@@ -1610,12 +1718,28 @@ try {
             [`/c/${c.communityId}/${c.channelIds[0]}`, `(#c${index}-`],
           ));
           await page.waitForTimeout(2000);
+          if (i % ring.length === 0) {
+            floors.push(await memoryFloor(cdp));
+            // With --heap-snapshot: the second lap against the last, to diff what the hops retained.
+            const lap = i / ring.length;
+            if (flag("heap-snapshot") && lap === 2) await writeHeapSnapshot(cdp, "concord-hop-early.heapsnapshot");
+            if (flag("heap-snapshot") && i + ring.length > HOPS) await writeHeapSnapshot(cdp, "concord-hop-late.heapsnapshot");
+          }
         }
       });
       const b = await metrics(cdp);
       const shown = hops.map((h) => h.shownMs);
       console.log(`  shown ms: ${shown.join(" ")}; long-task ms per hop: ${hops.map((h) => h.busyMs).join(" ")}`);
-      save("concord-hop", { hops, hot, cost: cost(a, b, (Date.now() - t) / 1000), errors: errorsSince(hopMark), report: await report(page) });
+      const growth = {
+        heapMBPerLap: slope(floors.map((f) => f.heapMB)),
+        domNodesPerLap: slope(floors.map((f) => f.domNodes)),
+        listenersPerLap: slope(floors.map((f) => f.listeners)),
+        census: censusGrowth(floors[0].census, floors.at(-1).census),
+      };
+      console.log(`  floor per lap: heap ${floors.map((f) => f.heapMB).join(" ")} MB; DOM ${floors.map((f) => f.domNodes).join(" ")}; listeners ${floors.map((f) => f.listeners).join(" ")}`);
+      console.log(`  growth: ${JSON.stringify(growth, null, 2)}`);
+      const heapDiff = flag("heap-snapshot") ? runHeapDiff("concord-hop-early.heapsnapshot", "concord-hop-late.heapsnapshot", "concord-hop-diff") : undefined;
+      save("concord-hop", { hops, floors: floors.map(({ census, ...f }) => f), growth, heapDiff: heapDiff?.error ? heapDiff : undefined, hot, cost: cost(a, b, (Date.now() - t) / 1000), errors: errorsSince(hopMark), report: await report(page) });
     }
     const span = (ws) => (ws.length ? `${Math.min(...ws.map((w) => w.created_at))}..${Math.max(...ws.map((w) => w.created_at))}` : "none");
     const relaySpans = { later: span(many.laterWraps), planes: span(many.wraps.filter((w) => !many.communities.some((c) => c.chatPks.includes(w.pubkey)))) };
