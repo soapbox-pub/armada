@@ -5,7 +5,6 @@ import {
   controlViewFromBundle,
   enqueueDiscoverControlPeek,
   peekDiscoverControl,
-  peekRetiresLink,
   summarizeDiscoverChannels,
   readCachedControlPeek,
 } from "@/concord/lib/discoverControlPeek";
@@ -278,7 +277,6 @@ describe("peekDiscoverControl caching", () => {
       epoch: 0,
       staff: [c.owner.pubkey],
       rotated: false,
-      liveLinks: [],
     });
     await new Promise((r) => setTimeout(r, 10));
     await expect(readCachedControlPeek(c.bundle.community_id, 0)).resolves.toEqual(peek);
@@ -335,9 +333,8 @@ describe("peekDiscoverControl caching", () => {
   });
 });
 
-describe("peekDiscoverControl link standing", () => {
+describe("peekDiscoverControl refounding probe", () => {
   const LINK_A = "a1".repeat(32);
-  const LINK_B = "b2".repeat(32);
 
   async function registry(c: Awaited<ReturnType<typeof realCommunity>>, links: string[]) {
     return sealEdition(
@@ -362,48 +359,27 @@ describe("peekDiscoverControl link standing", () => {
 
   const sorted = (events: NostrEvent[]) => events.sort((a, b) => b.created_at - a.created_at);
 
-  it("retires a link the registries don't name, and keeps one they do", async () => {
+  it("retires every link on an epoch the owner refounded past", async () => {
+    const c = await realCommunity([]);
+    const events = sorted([await c.metadataWrap(), ...(await rotation(c, c.owner))]);
+    const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events, calls: [] } }), c.bundle);
+    expect(peek?.rotated).toBe(true);
+  });
+
+  it("does not retire a link the invite registries leave out", async () => {
+    // Published registries omit links that work (a mint once raced its own list write).
     const c = await realCommunity([]);
     const events = sorted([await c.metadataWrap(), await registry(c, [LINK_A])]);
     const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events, calls: [] } }), c.bundle);
-    expect(peek?.liveLinks).toEqual([LINK_A]);
-    expect(peekRetiresLink(peek!, LINK_A)).toBe(false);
-    expect(peekRetiresLink(peek!, LINK_B)).toBe(true);
-  });
-
-  it("judges nothing from registries that name no link", async () => {
-    const c = await realCommunity([]);
-    const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events: [await c.metadataWrap()], calls: [] } }), c.bundle);
-    expect(peekRetiresLink(peek!, LINK_B)).toBe(false);
-  });
-
-  it("judges nothing from a truncated read", async () => {
-    const c = await realCommunity([]);
-    const events = sorted([
-      await c.metadataWrap(),
-      await registry(c, [LINK_A]),
-      ...descendingWraps(c.control.pk, PAGE + 100, 8_000),
-    ]);
-    const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events, calls: [], failAfter: 1 } }), c.bundle);
-    expect(peek?.liveLinks).toBeUndefined();
-    expect(peekRetiresLink(peek!, LINK_B)).toBe(false);
-  });
-
-  it("retires every link on an epoch the owner refounded past", async () => {
-    const c = await realCommunity([]);
-    const events = sorted([await c.metadataWrap(), await registry(c, [LINK_A]), ...(await rotation(c, c.owner))]);
-    const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events, calls: [] } }), c.bundle);
-    expect(peek?.rotated).toBe(true);
-    expect(peekRetiresLink(peek!, LINK_A)).toBe(true);
+    expect(peek?.rotated).toBe(false);
   });
 
   it("ignores a rotation by someone who merely holds the link", async () => {
     // Every holder of the link holds the root and can write the rekey address.
     const c = await realCommunity([]);
-    const events = sorted([await c.metadataWrap(), await registry(c, [LINK_A]), ...(await rotation(c, signer()))]);
+    const events = sorted([await c.metadataWrap(), ...(await rotation(c, signer()))]);
     const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events, calls: [] } }), c.bundle);
     expect(peek?.rotated).toBe(false);
-    expect(peekRetiresLink(peek!, LINK_A)).toBe(false);
   });
 });
 

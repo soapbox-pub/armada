@@ -37,23 +37,14 @@ export interface DiscoverControlPeek {
   publicChannelIdHexes: string[];
   /** The root epoch folded: a peek answers only for bundles at it. */
   epoch?: number;
-  /** Every live invite link at that epoch (CORD-05 §5); absent when the read couldn't say. */
-  liveLinks?: string[];
   /** The owner and every holder of a Control-writing bit (CORD-04 §3). */
   staff?: string[];
-  /** An honored Refounding has moved the community past this epoch (CORD-06). */
+  /**
+   * An honored Refounding has moved the community past this epoch (CORD-06), so
+   * every link still on it lands nowhere. The invite registries are no witness to
+   * a link's liveness: published registries leave out links that work.
+   */
   rotated?: boolean;
-}
-
-/**
- * Whether a peek shows `linkSigner` rotated out: its epoch was refounded past, or
- * the registries name live links and it isn't one of them. Registries that name
- * none can't tell a legacy unregistered link from a dropped one, so they judge nothing.
- */
-export function peekRetiresLink(peek: DiscoverControlPeek | undefined, linkSigner: string): boolean {
-  if (!peek) return false;
-  if (peek.rotated) return true;
-  return !!peek.liveLinks && peek.liveLinks.length > 0 && !peek.liveLinks.includes(linkSigner.toLowerCase());
 }
 
 export async function readCachedControlPeek(
@@ -182,9 +173,6 @@ export async function peekDiscoverControl(
   const opened = await openPlaneWrapsChunked(read.wraps, [view]);
   const editions = openControlEditions(opened);
   const folded = foldControlState(editions, communityId, bundle.owner);
-  // A truncated plane under-counts, and a missing metadata head means a Refounding's
-  // compaction (CORD-06 §3) is still mid-roll: neither may say a link is gone.
-  const settled = read.complete && !!folded.metadata;
   const staff = new Set([folded.ownerHex]);
   for (const g of folded.roster.grants) if (isStaff(folded.roster, g.member, folded.ownerHex)) staff.add(g.member);
   const peek: DiscoverControlPeek = {
@@ -192,9 +180,11 @@ export async function peekDiscoverControl(
     epoch,
     staff: [...staff].sort(),
     rotated: await refoundedPast(nostr, relays, bundle, folded, timeout),
-    ...(settled ? { liveLinks: [...folded.liveInviteLinks].sort() } : {}),
   };
-  if (settled) writeCachedControlPeek(bundle.community_id, peek);
+  // Cache only a COMPLETE read with a metadata head: a truncated plane under-counts,
+  // and a missing metadata head means a Refounding's compaction (CORD-06 §3) is
+  // still mid-roll.
+  if (read.complete && folded.metadata) writeCachedControlPeek(bundle.community_id, peek);
   return peek;
 }
 

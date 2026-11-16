@@ -29,7 +29,6 @@ import {
 import {
   enqueueDiscoverControlPeek,
   peekDiscoverControl,
-  peekRetiresLink,
   readCachedControlPeek,
 } from "@/concord/lib/discoverControlPeek";
 import {
@@ -301,16 +300,7 @@ export function CommunityListingCard({
   const bundleEpoch = bundle?.root_epoch;
   const memberEpoch = memberCommunity?.rootEpoch;
   const peek = controlPeek && controlPeek.epoch === bundleEpoch ? controlPeek : undefined;
-  const retired = useMemo(() => {
-    if (bundleEpoch === undefined) return false;
-    if (memberEpoch !== undefined) {
-      if (BigInt(bundleEpoch) < memberEpoch) return true;
-      // Only a settled fold of the link's own epoch may say it was dropped.
-      return BigInt(bundleEpoch) === memberEpoch && !!folded?.metadata && folded.incomplete.length === 0
-        && folded.liveInviteLinks.size > 0 && !folded.liveInviteLinks.has(linkSigner.toLowerCase());
-    }
-    return peekRetiresLink(peek, linkSigner);
-  }, [bundleEpoch, memberEpoch, folded, peek, linkSigner]);
+  const retired = bundleEpoch !== undefined && (memberEpoch !== undefined ? BigInt(bundleEpoch) < memberEpoch : !!peek?.rotated);
   const sharerRank = !bundle
     ? 2
     : sharer === bundle.owner

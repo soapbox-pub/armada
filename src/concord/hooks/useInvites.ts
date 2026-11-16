@@ -507,9 +507,10 @@ export function useInviteActions(community: Community | undefined) {
 
   /**
    * Publish my registry (vsk 8) with these live links, pruning expired ones so
-   * they don't keep the community Public (CORD-05 §5).
+   * they don't keep the community Public (CORD-05 §5). `minted` is a link this
+   * call just made, live whether or not its Invite List write has landed.
    */
-  const publishRegistry = async (change: (mine: Set<string>) => string[]) => {
+  const publishRegistry = async (change: (mine: Set<string>) => string[], minted?: string) => {
     if (!user || !community) return;
     const c = community;
     const u = user;
@@ -518,7 +519,10 @@ export function useInviteActions(community: Community | undefined) {
     await withControlWrite(c.idHex, async () => {
       const now = await foldStoredControl(c).catch(() => folded);
       const linkSigners = change(new Set(now?.registriesByCreator.get(u.pubkey) ?? []));
-      const live = liveRegistrySigners(linkSigners, inviteList.data?.entries, c.idHex, nowSecs());
+      // The list as cached now, not as this render saw it, which predates any mint since.
+      const entries = queryClient.getQueryData<InviteList>(inviteListKey(u.pubkey))?.entries ?? inviteList.data?.entries;
+      const live = liveRegistrySigners(linkSigners, entries, c.idHex, nowSecs());
+      if (minted && linkSigners.includes(minted) && !live.includes(minted)) live.push(minted);
       const eid = bytesToHex(inviteLinksLocator(c.id, hex32(u.pubkey)));
       const head = now?.heads.get(eid);
       await publishEdition(
@@ -629,7 +633,7 @@ export function useInviteActions(community: Community | undefined) {
       });
 
       // Neither gates the link working.
-      void publishRegistry((mine) => [...mine, link.pk]).catch(() => undefined);
+      void publishRegistry((mine) => [...mine, link.pk], link.pk).catch(() => undefined);
       if (announcement) void publishEvent(announcement).catch(() => undefined);
 
       return url;

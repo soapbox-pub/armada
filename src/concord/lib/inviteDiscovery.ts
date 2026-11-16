@@ -78,7 +78,7 @@ export interface ListingStanding {
   epoch: number;
   /** Who shared it: 0 the owner, 1 staff, 2 any other link creator. */
   sharerRank: number;
-  /** Rotated out: its epoch was refounded past, or it's off every invite registry. */
+  /** Rotated out: its epoch was refounded past. */
   retired: boolean;
 }
 
