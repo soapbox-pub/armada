@@ -229,10 +229,14 @@ function measurePaint(base: Text, layer: HTMLElement, inner: HTMLElement, runs: 
  */
 function alignPieces(base: Text, layer: HTMLElement) {
   const range = document.createRange();
+  // The widest box, as measurePaint takes: iOS WebKit reports a wrapped line's
+  // first glyph with a zero-width box at the end of the line before it first.
   const rectOf = (node: Node, from: number, to: number) => {
     range.setStart(node, from);
     range.setEnd(node, to);
-    return [...range.getClientRects()].find((r) => r.height > 0);
+    let best: DOMRect | undefined;
+    for (const r of range.getClientRects()) if (r.height > 0 && (!best || r.width > best.width)) best = r;
+    return best;
   };
   for (const piece of layer.querySelectorAll<HTMLElement>(".rt-piece")) {
     const text = piece.classList.contains("rt-emoji") ? piece.firstElementChild?.firstChild : piece.firstChild;

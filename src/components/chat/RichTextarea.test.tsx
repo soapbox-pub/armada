@@ -111,4 +111,17 @@ describe("RichTextarea painting", () => {
       { text: "qrst", cls: "", at: "0px,40px" },
     ]);
   });
+
+  it("keeps a wrapped line on its own line when its first glyph also reports the line before", () => {
+    // iOS WebKit: a range starting a soft-wrapped line also yields a zero-width box at the previous line's end.
+    vi.spyOn(Range.prototype, "getClientRects").mockImplementation(function (this: Range) {
+      const rects = [...fixedPitchRects.call(this)];
+      const piece = this.startContainer.parentElement?.closest(".rt-piece");
+      const i = this.startOffset;
+      if (!piece && i > 0 && i % 8 === 0) rects.unshift(new DOMRect(80, (i / 8 - 1) * 20, 0, 20));
+      return rects as unknown as DOMRectList;
+    });
+    const { container } = render(<Field initial="abcdefghijklmnopqrst" onValue={() => {}} />);
+    expect(pieces(container).map((p) => p.at)).toEqual(["0px,0px", "0px,20px", "0px,40px"]);
+  });
 });
