@@ -19,6 +19,7 @@ export function PillTabs<T extends string>({
   className,
   iconClassName,
   labels = "responsive",
+  fill = false,
 }: {
   tabs: readonly PillTab<T>[];
   value: T;
@@ -27,18 +28,21 @@ export function PillTabs<T extends string>({
   iconClassName?: string;
   /** "always": every pill keeps its label, for short strips with room to spare. */
   labels?: "responsive" | "always";
+  /** Every pill takes an equal share of a full-width strip, label always shown. */
+  fill?: boolean;
 }) {
   return (
     <div
       className={cn(
-        "flex w-full items-center gap-1 overflow-x-auto p-1 clip-corner-lg bg-chrome sm:w-auto sm:shrink-0",
+        "flex w-full items-center gap-1 p-1 clip-corner-lg bg-chrome",
+        !fill && "overflow-x-auto sm:w-auto sm:shrink-0",
         className,
       )}
     >
       {tabs.map((t) => {
         const Icon = t.icon;
         const isActive = value === t.id;
-        const fixed = labels === "always";
+        const fixed = fill || labels === "always";
         return (
           <button
             key={t.id}
@@ -47,17 +51,19 @@ export function PillTabs<T extends string>({
             aria-pressed={isActive}
             aria-label={t.label}
             className={cn(
-              "flex items-center justify-center overflow-hidden px-2 py-1.5 text-sm clip-corner-lg touch:py-2.5 sm:flex-none sm:px-3",
+              "flex items-center justify-center overflow-hidden py-1.5 text-sm clip-corner-lg touch:py-2.5",
+              fill ? "min-w-0 flex-1 px-3" : "px-2 sm:flex-none sm:px-3",
               // Fixed labels: nothing resizes, so only the colors change.
-              fixed ? "flex-none px-3 transition-colors" : "transition-all duration-200 ease-out motion-reduce:transition-none",
+              fixed ? "transition-colors" : "transition-all duration-200 ease-out motion-reduce:transition-none",
+              !fill && fixed && "flex-none px-3",
               isActive
                 ? cn("bg-primary font-medium text-primary-foreground", !fixed && "flex-1 sm:flex-none")
-                : "flex-none text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+                : cn("text-muted-foreground hover:bg-foreground/5 hover:text-foreground", !fill && "flex-none"),
             )}
           >
             <Icon className={cn("size-4 shrink-0", iconClassName)} />
             {fixed ? (
-              <span className="whitespace-nowrap pl-1.5">{t.label}</span>
+              <span className={cn("whitespace-nowrap pl-1.5", fill && "truncate")}>{t.label}</span>
             ) : (
               <span
                 className={cn(

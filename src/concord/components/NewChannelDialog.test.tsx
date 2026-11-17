@@ -34,9 +34,7 @@ function setup(ranked = false) {
 const typeName = (value: string) =>
   fireEvent.change(screen.getByPlaceholderText(NAME_PLACEHOLDER), { target: { value } });
 const submit = () => fireEvent.click(screen.getByRole("button", { name: "Create channel" }));
-// The privacy controls sit under a disclosure; its collapsed row still names
-// the current setting, so the default is read without opening it.
-const openAccess = () => fireEvent.click(screen.getByRole("button", { name: /Access/ }));
+const privateSwitch = () => screen.getByRole("switch", { name: /Private channel/i });
 
 describe("NewChannelDialog — the default path", () => {
   it("opens on the text channel form, with the repository path a step away", () => {
@@ -58,10 +56,9 @@ describe("NewChannelDialog — the default path", () => {
 });
 
 describe("NewChannelDialog — privacy controls reach the create call", () => {
-  it("creates a PRIVATE channel by default when the box is left alone", async () => {
+  it("creates a PRIVATE channel by default when the switch is left alone", async () => {
     const { onCreateText } = setup();
-    // The default is visible on the collapsed row, never hidden behind it.
-    expect(screen.getByRole("button", { name: /Access/ })).toHaveTextContent("Private");
+    expect(privateSwitch()).toBeChecked();
 
     typeName("secrets");
     submit();
@@ -72,7 +69,7 @@ describe("NewChannelDialog — privacy controls reach the create call", () => {
 
   it("creates a PUBLIC channel by default on ranked roles, whose permissions narrow it", async () => {
     const { onCreateText } = setup(true);
-    expect(screen.getByRole("button", { name: /Access/ })).toHaveTextContent("Public");
+    expect(privateSwitch()).not.toBeChecked();
     typeName("verify");
     submit();
     await waitFor(() => expect(onCreateText).toHaveBeenCalled());
@@ -108,16 +105,15 @@ describe("NewChannelDialog — privacy controls reach the create call", () => {
     expect(onCreateText).toHaveBeenCalledWith("lounge", { category: "ca".repeat(32) });
   });
 
-  it("creates a public channel when the box is unticked AFTER the name is typed", async () => {
+  it("creates a public channel when the switch is turned off AFTER the name is typed", async () => {
     // The natural order of operations: name first, then decide it's public.
     // A submit handler closed over a stale `isPrivate` would ignore the
-    // untick and mint a private key + role for a channel meant to be open.
+    // switch and mint a private key + role for a channel meant to be open.
     const { onCreateText } = setup();
 
     typeName("general");
-    openAccess();
-    fireEvent.click(screen.getByRole("checkbox", { name: /Private channel/i }));
-    expect(screen.getByRole("button", { name: /Access/ })).toHaveTextContent("Public");
+    fireEvent.click(privateSwitch());
+    expect(privateSwitch()).not.toBeChecked();
     submit();
 
     await waitFor(() => expect(onCreateText).toHaveBeenCalled());
@@ -130,7 +126,6 @@ describe("NewChannelDialog — privacy controls reach the create call", () => {
     const { onCreateText } = setup();
 
     typeName("planning");
-    openAccess();
     fireEvent.change(screen.getByLabelText("Access role name"), { target: { value: "editors" } });
     submit();
 
@@ -139,14 +134,13 @@ describe("NewChannelDialog — privacy controls reach the create call", () => {
   });
 
   it("hides the role name field for a public channel and drops a stale draft", async () => {
-    // Untick after typing a role name: the channel is public, so no role is
+    // Switch off after typing a role name: the channel is public, so no role is
     // minted and the drafted name must not leak into the call.
     const { onCreateText } = setup();
 
     typeName("general");
-    openAccess();
     fireEvent.change(screen.getByLabelText("Access role name"), { target: { value: "editors" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: /Private channel/i }));
+    fireEvent.click(privateSwitch());
     expect(screen.queryByLabelText("Access role name")).not.toBeInTheDocument();
     submit();
 
@@ -163,8 +157,7 @@ describe("NewChannelDialog — the forum option reaches the create call", () => 
     expect(screen.getByRole("radio", { name: /Text/ })).toHaveAttribute("aria-checked", "true");
 
     typeName("general");
-    openAccess();
-    fireEvent.click(screen.getByRole("checkbox", { name: /Private channel/i }));
+    fireEvent.click(privateSwitch());
     submit();
 
     await waitFor(() => expect(onCreateText).toHaveBeenCalled());
@@ -189,8 +182,7 @@ describe("NewChannelDialog — the forum option reaches the create call", () => 
     // The subtitle follows the choice.
     expect(screen.getByText(/Titled posts with comments/)).toBeInTheDocument();
     typeName("help");
-    openAccess();
-    fireEvent.click(screen.getByRole("checkbox", { name: /Private channel/i }));
+    fireEvent.click(privateSwitch());
     submit();
 
     await waitFor(() => expect(onCreateText).toHaveBeenCalled());
@@ -202,7 +194,6 @@ describe("NewChannelDialog — on the vsk-13 Roster (CORD-03 §2, CORD-04 §2)",
   it("asks for no access role, which stands for nothing there, and creates no role name", async () => {
     const { onCreateText } = setup(true);
     typeName("staff");
-    openAccess();
     expect(screen.queryByRole("textbox", { name: "Access role name" })).not.toBeInTheDocument();
     submit();
     await waitFor(() => expect(onCreateText).toHaveBeenCalled());

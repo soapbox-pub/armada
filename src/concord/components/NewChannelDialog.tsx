@@ -1,25 +1,23 @@
-import { ArrowLeft, ChevronDown, Folder, FolderGit2, Hash, Loader2, Lock, MessageSquareText, Volume2 } from "lucide-react";
+import { ArrowLeft, Folder, FolderGit2, Hash, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { OwnerAvatar, OwnerSlashRepo, RepositoryPicker, type PickedRepository } from "@/components/projects/RepositoryPicker";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChromeDialogContent, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
-import { common, defineMessage, FormattedMessage, t, useIntl, type MessageDescriptor } from "@/i18n";
+import { common, FormattedMessage, t, useIntl } from "@/i18n";
 
+import { ChannelTypeStrip } from "@/concord/components/ChannelTypeStrip";
 import type { ChannelView } from "@/concord/lib/types";
 
-/** What a new channel opens to (CORD-03 §2 `view`); changeable later. */
-const VIEW_OPTIONS: ReadonlyArray<{ view: ChannelView; label: MessageDescriptor; icon: typeof Hash }> = [
-  { view: "chat", label: defineMessage({ id: "newChannelDialog.viewText", defaultMessage: "Text" }), icon: Hash },
-  { view: "voice", label: defineMessage({ id: "newChannelDialog.viewVoice", defaultMessage: "Voice" }), icon: Volume2 },
-  { view: "forum", label: defineMessage({ id: "newChannelDialog.viewForum", defaultMessage: "Forum" }), icon: MessageSquareText },
-];
+/** A chrome dialog sinks its fields into the background rather than outlining them. */
+const WELL = "bg-background/40";
+const FIELD = `border-transparent ${WELL}`;
+const LABEL = "block text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
 /** The value the category picker holds for "no Category". */
 const NO_CATEGORY = "none";
@@ -69,7 +67,6 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
   const [isPrivate, setIsPrivate] = useState(!ranked);
   const [view, setView] = useState<ChannelView>("chat");
   const [category, setCategory] = useState<string>(initialCategory ?? NO_CATEGORY);
-  const [accessOpen, setAccessOpen] = useState(false);
   // Display only; the binding is the role's scope (CORD-04 §2).
   const [roleName, setRoleName] = useState("");
 
@@ -83,7 +80,6 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
     setIsPrivate(!ranked);
     setView("chat");
     setCategory(initialCategory ?? NO_CATEGORY);
-    setAccessOpen(false);
     setRoleName("");
   }, [open, ranked, initialCategory]);
 
@@ -215,157 +211,125 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
 
           {step === "text" && (
             <form
-              className="w-full min-w-0 space-y-3 text-left"
+              className="w-full min-w-0 space-y-4 text-left"
               onSubmit={(event) => {
                 event.preventDefault();
                 void create();
               }}
             >
-              <Input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder={intl.formatMessage({
-                  id: "newChannelDialog.namePlaceholder",
-                  defaultMessage: "e.g. general, memes, dev-talk",
-                })}
-                aria-label={intl.formatMessage({ id: "newChannelDialog.channelName", defaultMessage: "Channel name" })}
-                autoFocus
-                disabled={creating}
-                className="h-12 text-base"
-              />
+              <div className="space-y-1.5">
+                <label htmlFor="channel2-name" className={LABEL}>
+                  <FormattedMessage id="newChannelDialog.channelName" defaultMessage="Channel name" />
+                </label>
+                <Input
+                  id="channel2-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder={intl.formatMessage({
+                    id: "newChannelDialog.namePlaceholder",
+                    defaultMessage: "e.g. general, memes, dev-talk",
+                  })}
+                  autoComplete="off"
+                  autoFocus
+                  disabled={creating}
+                  className={FIELD}
+                />
+              </div>
 
-              <div className="flex rounded-md bg-secondary/50 p-0.5" role="radiogroup" aria-label={intl.formatMessage({ id: "newChannelDialog.channelType", defaultMessage: "Channel type" })}>
-                {VIEW_OPTIONS.map((option) => {
-                  const selectedView = option.view === view;
-                  const Icon = option.icon;
-                  return (
-                    <button
-                      key={option.view}
-                      type="button"
-                      role="radio"
-                      aria-checked={selectedView}
-                      disabled={creating}
-                      onClick={() => setView(option.view)}
-                      className={cn(
-                        "flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors touch:py-2.5",
-                        selectedView ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      <Icon className="size-3.5" />
-                      {intl.formatMessage(option.label)}
-                    </button>
-                  );
-                })}
+              <div className="space-y-1.5">
+                <div aria-hidden className={LABEL}>
+                  <FormattedMessage id="newChannelDialog.channelType" defaultMessage="Channel type" />
+                </div>
+                <ChannelTypeStrip value={view} onChange={setView} disabled={creating} className={WELL} />
               </div>
 
               {ranked && categories.length > 0 && (
-                <Select value={category} onValueChange={setCategory} disabled={creating}>
-                  <SelectTrigger aria-label={intl.formatMessage({ id: "newChannelDialog.category", defaultMessage: "Category" })}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_CATEGORY}>
-                      <FormattedMessage id="newChannelDialog.noCategory" defaultMessage="No category" />
-                    </SelectItem>
-                    {categories.map((c) => (
-                      <SelectItem key={c.idHex} value={c.idHex}>
-                        <span className="inline-flex items-center gap-1.5">
-                          <Folder className="size-3.5 text-muted-foreground" />
-                          {c.name || c.idHex.slice(0, 8)}
-                        </span>
+                <div className="space-y-1.5">
+                  <div aria-hidden className={LABEL}>
+                    <FormattedMessage id="newChannelDialog.category" defaultMessage="Category" />
+                  </div>
+                  <Select value={category} onValueChange={setCategory} disabled={creating}>
+                    <SelectTrigger className={FIELD} aria-label={intl.formatMessage({ id: "newChannelDialog.category", defaultMessage: "Category" })}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_CATEGORY}>
+                        <FormattedMessage id="newChannelDialog.noCategory" defaultMessage="No category" />
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      {categories.map((c) => (
+                        <SelectItem key={c.idHex} value={c.idHex}>
+                          <span className="inline-flex items-center gap-1.5">
+                            <Folder className="size-3.5 text-muted-foreground" />
+                            {c.name || c.idHex.slice(0, 8)}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
 
-              <Collapsible open={accessOpen} onOpenChange={setAccessOpen} className="rounded-lg bg-secondary/50">
-                <CollapsibleTrigger asChild>
-                  <button
-                    type="button"
-                    disabled={creating}
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-sm touch:py-3"
-                  >
-                    {isPrivate ? <Lock className="size-3.5 text-muted-foreground" /> : <Hash className="size-3.5 text-muted-foreground" />}
-                    <span className="font-medium">
-                      <FormattedMessage id="newChannelDialog.access" defaultMessage="Access" />
-                    </span>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {isPrivate ? (
-                        <FormattedMessage id="newChannelDialog.private" defaultMessage="Private" />
-                      ) : (
-                        <FormattedMessage id="newChannelDialog.public" defaultMessage="Public" />
-                      )}
-                    </span>
-                    <ChevronDown className={cn("size-4 text-muted-foreground transition-transform", accessOpen && "rotate-180")} />
-                  </button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-3 px-3 pb-3">
-                  <label htmlFor="channel2-private" className="flex cursor-pointer items-start gap-3">
-                    <Checkbox
-                      id="channel2-private"
-                      checked={isPrivate}
-                      onCheckedChange={(c) => setIsPrivate(c === true)}
-                      disabled={creating}
-                      className="mt-0.5"
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium">
-                        <FormattedMessage id="newChannelDialog.privateChannel" defaultMessage="Private channel" />
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
-                        {ranked ? (
-                          <FormattedMessage
-                            id="newChannelDialog.privateChannelDescriptionRanked"
-                            defaultMessage="Its own key, and its permissions decide who can read it."
-                          />
-                        ) : (
-                          <FormattedMessage
-                            id="newChannelDialog.privateChannelDescription"
-                            defaultMessage="Its own key, and a role that decides who can read it."
-                          />
-                        )}
-                      </span>
-                    </span>
-                  </label>
-                  {ranked && (
-                    <p className="text-xs text-muted-foreground">
+              <label htmlFor="channel2-private" className={cn("flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5", WELL)}>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">
+                    <FormattedMessage id="newChannelDialog.privateChannel" defaultMessage="Private channel" />
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {ranked ? (
                       <FormattedMessage
-                        id="newChannelDialog.rankedPermissionsHint"
-                        defaultMessage="To hide a channel or limit who can post, open Permissions from its menu once it's created. That works on public channels too."
+                        id="newChannelDialog.privateChannelDescriptionRanked"
+                        defaultMessage="Its own key, and its permissions decide who can read it."
                       />
-                    </p>
-                  )}
-                  {isPrivate && !ranked && (
-                    <div className="space-y-1">
-                      <Input
-                        value={roleName}
-                        onChange={(event) => setRoleName(event.target.value)}
-                        placeholder={
-                          name.trim()
-                            ? intl.formatMessage(
-                                { id: "newChannelDialog.rolePlaceholderNamed", defaultMessage: "Role name (default: {name})" },
-                                { name: name.trim() },
-                              )
-                            : intl.formatMessage({
-                                id: "newChannelDialog.rolePlaceholder",
-                                defaultMessage: "Role name (default: channel name)",
-                              })
-                        }
-                        aria-label={intl.formatMessage({ id: "newChannelDialog.roleName", defaultMessage: "Access role name" })}
-                        disabled={creating}
-                        maxLength={64}
+                    ) : (
+                      <FormattedMessage
+                        id="newChannelDialog.privateChannelDescription"
+                        defaultMessage="Its own key, and a role that decides who can read it."
                       />
-                      <p className="text-xs text-muted-foreground">
-                        <FormattedMessage
-                          id="newChannelDialog.roleHint"
-                          defaultMessage="Holders of this role can read the channel. More roles can be added later."
-                        />
-                      </p>
-                    </div>
-                  )}
-                </CollapsibleContent>
-              </Collapsible>
+                    )}
+                  </span>
+                </span>
+                <Switch id="channel2-private" checked={isPrivate} onCheckedChange={setIsPrivate} disabled={creating} />
+              </label>
+              {ranked && (
+                <p className="text-xs text-muted-foreground">
+                  <FormattedMessage
+                    id="newChannelDialog.rankedPermissionsHint"
+                    defaultMessage="To hide a channel or limit who can post, open Permissions from its menu once it's created. That works on public channels too."
+                  />
+                </p>
+              )}
+              {isPrivate && !ranked && (
+                <div className="space-y-1.5">
+                  <label htmlFor="channel2-role" className={LABEL}>
+                    <FormattedMessage id="newChannelDialog.roleName" defaultMessage="Access role name" />
+                  </label>
+                  <Input
+                    id="channel2-role"
+                    value={roleName}
+                    onChange={(event) => setRoleName(event.target.value)}
+                    placeholder={
+                      name.trim()
+                        ? intl.formatMessage(
+                            { id: "newChannelDialog.rolePlaceholderNamed", defaultMessage: "Role name (default: {name})" },
+                            { name: name.trim() },
+                          )
+                        : intl.formatMessage({
+                            id: "newChannelDialog.rolePlaceholder",
+                            defaultMessage: "Role name (default: channel name)",
+                          })
+                    }
+                    disabled={creating}
+                    maxLength={64}
+                    className={FIELD}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    <FormattedMessage
+                      id="newChannelDialog.roleHint"
+                      defaultMessage="Holders of this role can read the channel. More roles can be added later."
+                    />
+                  </p>
+                </div>
+              )}
 
               {error && <p className="text-xs text-destructive">{error}</p>}
 
@@ -427,7 +391,7 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
                 aria-label={intl.formatMessage({ id: "newChannelDialog.channelName", defaultMessage: "Channel name" })}
                 autoFocus
                 disabled={creating}
-                className="h-12 text-base"
+                className={cn("h-12 text-base", FIELD)}
               />
               {error && <p className="text-xs text-destructive">{error}</p>}
               <Button

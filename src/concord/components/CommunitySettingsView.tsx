@@ -16,8 +16,6 @@ import {
   Loader2,
   Lock,
   Megaphone,
-  MessageSquareText,
-  Volume2,
   MoreVertical,
   Pencil,
   Plug,
@@ -115,19 +113,13 @@ import { cn } from "@/lib/utils";
 import { common, defineMessages, FormattedMessage, t, useIntl } from "@/i18n";
 import { ChannelGlyph } from "@/concord/components/ChannelGlyph";
 import { channelGitRepositoryAttachments } from "@/concord/lib/types";
+import { CHANNEL_VIEW_OPTIONS } from "@/concord/lib/channelViewOptions";
 import type { ChannelView } from "@/concord/lib/types";
 import { fetchGitRepositoryAnnouncement } from "@/lib/gitRepositoryResolver";
 import { parseGitRepositoryAddress } from "@/lib/gitActivity";
 import { AvatarInitial } from "@/components/AvatarInitial";
 
 type SettingsTab = "overview" | "channels" | "integrations" | "relays";
-
-/** What a Channel opens to (CORD-03 §2 `view`), as the new channel dialog offers it. */
-const CHANNEL_TYPES = [
-  { view: "chat", icon: Hash, label: { id: "newChannelDialog.viewText", defaultMessage: "Text" } },
-  { view: "voice", icon: Volume2, label: { id: "newChannelDialog.viewVoice", defaultMessage: "Voice" } },
-  { view: "forum", icon: MessageSquareText, label: { id: "newChannelDialog.viewForum", defaultMessage: "Forum" } },
-] as const;
 
 const tabLabels = defineMessages({
   overview: { id: "communitySettingsView.tab.overview", defaultMessage: "Overview" },
@@ -1564,7 +1556,7 @@ function ChannelRow({
   };
 
   const currentView = channel.view ?? "chat";
-  const ViewIcon = CHANNEL_TYPES.find((c) => c.view === currentView)?.icon ?? Hash;
+  const ViewIcon = CHANNEL_VIEW_OPTIONS.find((c) => c.view === currentView)?.icon ?? Hash;
   const showAccessButton = canManage && Boolean(onPrivatise || (channel.isPrivate && (onRotateKey || onPublicise)));
   const row = (
     <div className="px-1">
@@ -1650,7 +1642,7 @@ function ChannelRow({
                       <FormattedMessage id="communitySettingsView.channel.type" defaultMessage="Type" />
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-44">
-                      {CHANNEL_TYPES.map(({ view, icon: Icon, label }) => (
+                      {CHANNEL_VIEW_OPTIONS.map(({ view, icon: Icon, label }) => (
                         <DropdownMenuItem
                           key={view}
                           disabled={busy || view === currentView}
