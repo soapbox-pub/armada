@@ -4073,6 +4073,7 @@
   "serverRail.directMessages": "Privéberichten",
   "serverRail.discover": "Ontdekken",
   "serverRail.folder": "Map",
+  "serverRail.folderCount": "{count, plural, one {# community} other {# community’s}}",
   "serverRail.folderName": "Mapnaam",
   "serverRail.invites": "Uitnodigingen",
   "serverRail.leaveCommunity": "Community verlaten",

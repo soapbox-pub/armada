@@ -4073,6 +4073,7 @@
   "serverRail.directMessages": "Messaggi diretti",
   "serverRail.discover": "Esplora",
   "serverRail.folder": "Cartella",
+  "serverRail.folderCount": "{count, plural, one {# community} other {# community}}",
   "serverRail.folderName": "Nome della cartella",
   "serverRail.invites": "Inviti",
   "serverRail.leaveCommunity": "Lascia la community",

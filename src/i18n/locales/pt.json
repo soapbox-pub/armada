@@ -4073,6 +4073,7 @@
   "serverRail.directMessages": "Mensagens diretas",
   "serverRail.discover": "Descobrir",
   "serverRail.folder": "Pasta",
+  "serverRail.folderCount": "{count, plural, one {# comunidade} other {# comunidades}}",
   "serverRail.folderName": "Nome da pasta",
   "serverRail.invites": "Convites",
   "serverRail.leaveCommunity": "Sair da comunidade",

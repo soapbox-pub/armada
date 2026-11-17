@@ -1235,7 +1235,11 @@ function RailFolder({
         <RailTooltipContent side="right" className="font-medium">
           {label}
           <span className="block text-xs text-muted-foreground">
-            {items.length === 1 ? "1 community" : `${items.length} communities`}
+            <FormattedMessage
+              id="serverRail.folderCount"
+              defaultMessage="{count, plural, one {# community} other {# communities}}"
+              values={{ count: items.length }}
+            />
           </span>
         </RailTooltipContent>
       </Tooltip>

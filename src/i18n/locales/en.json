@@ -4073,6 +4073,7 @@
   "serverRail.directMessages": "Direct messages",
   "serverRail.discover": "Discover",
   "serverRail.folder": "Folder",
+  "serverRail.folderCount": "{count, plural, one {# community} other {# communities}}",
   "serverRail.folderName": "Folder name",
   "serverRail.invites": "Invites",
   "serverRail.leaveCommunity": "Leave community",

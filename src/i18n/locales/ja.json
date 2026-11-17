@@ -4073,6 +4073,7 @@
   "serverRail.directMessages": "ダイレクトメッセージ",
   "serverRail.discover": "ディスカバー",
   "serverRail.folder": "フォルダー",
+  "serverRail.folderCount": "{count, plural, other {# コミュニティ}}",
   "serverRail.folderName": "フォルダー名",
   "serverRail.invites": "招待",
   "serverRail.leaveCommunity": "コミュニティから退出",
