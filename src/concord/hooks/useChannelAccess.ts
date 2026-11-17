@@ -10,7 +10,7 @@ import { noteRefused, refusedBefore } from "@/concord/lib/blobOnce";
 import type { NostrEvent, NPool } from "@nostrify/nostrify";
 import { useNostr } from "@nostrify/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { useControlFold } from "@/concord/hooks/useControlPlane";
@@ -19,7 +19,7 @@ import { bytesToHex, hex32 } from "@/concord/lib/derive";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { base64ToBytes, decodeWrappedKey, myLocator } from "@/concord/lib/rekey";
 import { channelPermissions, Permissions } from "@/concord/lib/roles";
-import { adoptHistoryDeliveries, historyViewsReady, parseHistoryDelivery } from "@/concord/lib/history";
+import { adoptHistoryDeliveries, heldHistoryViews, historyViewsGeneration, historyViewsReady, parseHistoryDelivery, subscribeHistoryViews } from "@/concord/lib/history";
 import { sweepControl } from "@/concord/lib/planeSync";
 import { peekPendingWraps } from "@/concord/lib/rumorStore";
 import { openWrap } from "@/concord/lib/stream";
@@ -31,6 +31,7 @@ import { useWireScopes } from "@/wire/useWireScopes";
 import { setWatched } from "@/wire/watched";
 import { authoritySig } from "@/concord/lib/accessDuty";
 import { useCoalescedRefetch } from "@/concord/hooks/useCoalescedRefetch";
+import { OWED_REREAD_MS, useOwedReread } from "@/concord/hooks/useOwedReread";
 
 /** The least time between two Control Plane reads a stray delivery asks for. */
 const FRESHEN_GAP_MS = 3_000;
@@ -169,12 +170,12 @@ export function useChannelAccess(community: Community | undefined): void {
   });
 
   // Holders deliver a few seconds after the change that entitled this member: read again
-  // on a backoff to Vector's +20 s while a key is still owed, as relays drop the live event.
+  // on a backoff, then every 10 s for a while, as relays drop the live event.
   const authority = folded?.rankedRoster ? authoritySig(folded) : "";
   useEffect(() => {
     if (!authority || owed.length === 0) return;
     refetch();
-    return rereadOnBackoff(refetch);
+    return rereadOnBackoff(refetch, OWED_REREAD_MS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authority, owedKey]);
 
@@ -263,6 +264,35 @@ export function useHistoryAccess(community: Community | undefined): void {
     refetchInterval: HISTORY_COLLECT_MS,
     refetchIntervalInBackground: false,
     queryFn: ({ signal }) => readAccessPlanes(nostr, community!, reads, signal),
+  });
+  const refetch = useCoalescedRefetch(query.refetch);
+
+  // Holders send history behind the key, so it lands after the read the key started:
+  // while a Channel lacks a past epoch (they start at 1), read again until it arrives.
+  const views = useSyncExternalStore(subscribeHistoryViews, historyViewsGeneration);
+  const gaps = useMemo(() => {
+    if (!community) return [];
+    return reads.filter((id) => {
+      const k = heldKeys.find((c) => bytesToHex(c.id) === id);
+      if (!k || k.epoch <= 1n) return false;
+      const have = new Set([...(k.priors ?? []).map((p) => p.epoch), ...heldHistoryViews(community.idHex, id).map((v) => v.epoch)]);
+      for (let e = 1n; e < k.epoch; e++) if (!have.has(e)) return true;
+      return false;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [community, readsKey, views]);
+  const gapPks = useMemo(
+    () => (community ? gaps.map((id) => accessPlane(community, hex32(id)).pk) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [community?.idHex, community?.rootEpoch, gaps.join(",")],
+  );
+  useOwedReread({
+    owner: community && `history:${community.idHex}`,
+    relays: community?.relays ?? [],
+    pks: gapPks,
+    pending: gaps.length > 0,
+    sig: heldKeys.filter((c) => reads.includes(bytesToHex(c.id))).map((c) => `${bytesToHex(c.id)}:${c.epoch}`).sort().join(","),
+    refetch,
   });
 
   useEffect(() => {

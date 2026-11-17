@@ -283,6 +283,32 @@ describe("syncManager", () => {
     release();
   });
 
+  it("restartSyncTopic aborts a run in flight and runs again at once, past the min interval", async () => {
+    const m = await freshModule();
+    const signals: AbortSignal[] = [];
+    const handler = vi.fn(
+      (ctx: SyncCtx) =>
+        new Promise<void>((resolve) => {
+          signals.push(ctx.signal);
+          ctx.signal.addEventListener("abort", () => resolve());
+          if (signals.length > 1) resolve();
+        }),
+    );
+    m.registerSyncTopic("t:", { minIntervalMs: 60_000, staleAfterMs: 60_000, handler });
+
+    const release = m.want("t:a");
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1));
+    m.restartSyncTopic("t:a");
+    expect(signals[0].aborted).toBe(true);
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(m.syncState("t:a").status).toBe("settled"));
+
+    // And once settled: a new input doesn't wait out the floor either.
+    m.restartSyncTopic("t:a");
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(3));
+    release();
+  });
+
   it("a forced want re-runs a fresh topic", async () => {
     const m = await freshModule();
     const handler = vi.fn(async () => {});

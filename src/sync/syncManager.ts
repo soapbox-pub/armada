@@ -173,6 +173,19 @@ export function invalidateSyncTopic(topic: string): void {
   requestSchedule();
 }
 
+/**
+ * Run a topic again NOW with what it reads changed under it (a new key): a run in flight
+ * is aborted, as it reads with the old inputs, and the min-interval floor is waived.
+ */
+export function restartSyncTopic(topic: string): void {
+  const rt = topics.get(topic);
+  if (!rt) return;
+  rt.forced = true;
+  rt.nextEligibleAt = 0;
+  rt.run?.controller.abort();
+  requestSchedule();
+}
+
 /** The topic's current state. Stable snapshot identity between changes. */
 export function syncState(topic: string): SyncState {
   return topics.get(topic)?.state ?? IDLE;

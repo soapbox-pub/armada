@@ -84,7 +84,7 @@ import { publishTimeoutMs } from "@/lib/publishTimeout";
 import { logSync, sinceMs } from "@/lib/syncLog";
 import { STORE_READ } from "@/lib/storeQuery";
 import { markOwnWebPushEvent } from "@/lib/webPushState";
-import { invalidateSyncTopic } from "@/sync/syncManager";
+import { invalidateSyncTopic, restartSyncTopic } from "@/sync/syncManager";
 import { useSyncTopic } from "@/sync/useSyncTopic";
 import { useWireScopes } from "@/wire/useWireScopes";
 import { shareByRumorId } from "@/lib/shareRows";
@@ -396,13 +396,19 @@ export function useChannelTimeline(
     setRun(null);
   }, [channelIdHex, setRun]);
 
-  // A new stream key may unlock history: reset failures/exhaustion and force a round.
+  // A new stream key may unlock history: reset failures/exhaustion and force a round. One
+  // landing while the channel is open restarts the round now, rather than letting the old
+  // round finish keyless and the next wait out the min interval.
+  const streamsSeen = useRef<{ id: string; sig: string } | undefined>(undefined);
   useEffect(() => {
     if (!channelIdHex) return;
     forgetChatSkips();
     endReachedRef.current = false;
     void clearStreamExhausted(channelIdHex);
-    invalidateSyncTopic(`c2:${channelIdHex}`);
+    const prev = streamsSeen.current;
+    streamsSeen.current = { id: channelIdHex, sig: epochSig };
+    if (prev?.id === channelIdHex && prev.sig !== epochSig) restartSyncTopic(`c2:${channelIdHex}`);
+    else invalidateSyncTopic(`c2:${channelIdHex}`);
     queryClient.invalidateQueries({ queryKey: channelKey(channelIdHex) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epochSig]);

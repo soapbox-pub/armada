@@ -6,12 +6,16 @@
 
 import { useNostr } from "@nostrify/react";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { readAccessPlanes } from "@/concord/hooks/useChannelAccess";
+import { useCoalescedRefetch } from "@/concord/hooks/useCoalescedRefetch";
 import { useControlFold } from "@/concord/hooks/useControlPlane";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
-import { parseDelivery, type ParsedDelivery } from "@/concord/lib/delivery";
+import { useOwedReread } from "@/concord/hooks/useOwedReread";
+import { authoritySig } from "@/concord/lib/accessDuty";
+import { accessPlane, parseDelivery, type ParsedDelivery } from "@/concord/lib/delivery";
+import { hex32 } from "@/concord/lib/derive";
 import type { Community } from "@/concord/lib/types";
 import { adoptWriterDeliveries, canPostIn, subscribeWriterKeys, writerKeysReady, writerNeeds } from "@/concord/lib/writerKeys";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -48,6 +52,21 @@ export function useWriterAccess(community: Community | undefined): void {
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
     queryFn: ({ signal }) => readAccessPlanes(nostr, community!, owed, signal),
+  });
+  const refetch = useCoalescedRefetch(query.refetch);
+  const planePks = useMemo(
+    () => (community ? owed.map((id) => accessPlane(community, hex32(id)).pk) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [community?.idHex, community?.rootEpoch, owedKey],
+  );
+  // A writer key is delivered just after the change that owes it, often after this read.
+  useOwedReread({
+    owner: community && `writer:${community.idHex}`,
+    relays: community?.relays ?? [],
+    pks: planePks,
+    pending: owed.length > 0,
+    sig: `${owedKey}|${folded?.rankedRoster ? authoritySig(folded) : ""}`,
+    refetch,
   });
 
   useEffect(() => {
