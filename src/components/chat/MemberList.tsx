@@ -39,6 +39,8 @@ import { useUserModeration } from "@/hooks/useUserModeration";
 import { DisplayName } from "@/components/DisplayName";
 import { SearchField } from "@/components/ui/search-field";
 import { useAuthor } from "@/hooks/useAuthor";
+import { useIsTouch } from "@/hooks/useIsMobile";
+import { useOpenContextMenu } from "@/hooks/useMenuSheet";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useOrderHeldOffTop } from "@/hooks/useOrderHeldOffTop";
@@ -117,6 +119,32 @@ function SectionHeader({ collapsed, onToggle, color, children }: {
         )}
       />
     </button>
+  );
+}
+
+/** The row's ⋮: a dropdown with a pointer; on touch, the sheet a hold on the row opens. */
+function MemberMenuButton({ label, renderItems }: { label: string; renderItems: () => ReactNode }) {
+  const isTouch = useIsTouch();
+  const openMenu = useOpenContextMenu();
+  const className = "size-6 shrink-0 touch:size-10 opacity-0 group-hover:opacity-100 touch:opacity-100 data-[state=open]:opacity-100 text-muted-foreground hover:text-foreground";
+  if (isTouch && openMenu) {
+    return (
+      <Button variant="ghost" size="icon" aria-label={label} className={className} onClick={openMenu}>
+        <MoreVertical className="size-3.5" />
+      </Button>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label={label} className={className}>
+          <MoreVertical className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        {renderItems()}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -368,31 +396,33 @@ const MemberRow = memo(function MemberRow({
       ) : null}
       <BotPill metadata={metadata} labelClassName="member-pill-label" />
       {ultra && <UltraPill force labelClassName="member-pill-label" />}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={intl.formatMessage({ id: "memberList.manage", defaultMessage: "Manage {name}" }, { name: displayName })}
-            className="size-6 shrink-0 touch:size-10 opacity-0 group-hover:opacity-100 touch:opacity-100 data-[state=open]:opacity-100 text-muted-foreground hover:text-foreground"
-          >
-            <MoreVertical className="size-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          {renderMenuItems({
-            Item: DropdownMenuItem,
-            Separator: DropdownMenuSeparator,
-            Sub: DropdownMenuSub,
-            SubTrigger: DropdownMenuSubTrigger,
-            SubContent: DropdownMenuSubContent,
-            CheckboxItem: DropdownMenuCheckboxItem,
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <MemberMenuButton
+        label={intl.formatMessage({ id: "memberList.manage", defaultMessage: "Manage {name}" }, { name: displayName })}
+        renderItems={() => renderMenuItems({
+          Item: DropdownMenuItem,
+          Separator: DropdownMenuSeparator,
+          Sub: DropdownMenuSub,
+          SubTrigger: DropdownMenuSubTrigger,
+          SubContent: DropdownMenuSubContent,
+          CheckboxItem: DropdownMenuCheckboxItem,
+        })}
+      />
     </div>
     </ContextMenuTrigger>
-    <ContextMenuContent className="w-56">
+    <ContextMenuContent
+      className="w-56"
+      sheetIdentity={{
+        lead: (
+          <Avatar shape={getAvatarShape(metadata)} className="size-10 shrink-0">
+            <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
+            <AvatarFallback className="bg-primary/20 text-primary text-xs">
+              <AvatarInitial name={displayName} pubkey={pubkey} />
+            </AvatarFallback>
+          </Avatar>
+        ),
+        title: <DisplayName pubkey={pubkey} name={displayName} />,
+      }}
+    >
       {renderMenuItems({
         Item: ContextMenuItem,
         Separator: ContextMenuSeparator,

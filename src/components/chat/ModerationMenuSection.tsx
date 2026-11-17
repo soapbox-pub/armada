@@ -2,6 +2,7 @@ import { ChevronDown, Shield } from "lucide-react";
 import { useState, type ComponentType, type ReactNode } from "react";
 
 import { useIsTouch } from "@/hooks/useIsMobile";
+import { useMenuSheet } from "@/hooks/useMenuSheet";
 import { cn } from "@/lib/utils";
 import { useIntl } from "@/i18n";
 
@@ -31,6 +32,7 @@ export function ModerationMenuSection({
   const intl = useIntl();
   const label = labelProp ?? intl.formatMessage({ id: "moderationMenuSection.moderation", defaultMessage: "Moderation" });
   const isTouch = useIsTouch();
+  const inSheet = useMenuSheet() !== null;
   const [open, setOpen] = useState(false);
 
   if (!isTouch) {
@@ -56,9 +58,15 @@ export function ModerationMenuSection({
       >
         <Shield className="size-4" />
         {label}
-        <ChevronDown className={cn("ml-auto size-4 transition-transform", open && "rotate-180")} />
+        <ChevronDown
+          className={cn(
+            "ml-auto transition-transform",
+            inSheet ? "size-5 text-muted-foreground" : "size-4",
+            open && "rotate-180",
+          )}
+        />
       </Item>
-      {open && <div className="ml-3 border-l border-foreground/10 pl-1">{children}</div>}
+      {open && <div className={cn("border-l border-foreground/10 pl-1", inSheet ? "ml-8" : "ml-3")}>{children}</div>}
     </>
   );
 }

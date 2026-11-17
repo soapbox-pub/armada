@@ -8,6 +8,7 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 
+import { useMenuSheet } from "@/hooks/useMenuSheet";
 import { FormattedMessage, useIntl } from "@/i18n";
 
 import type { NotifLevel } from "@/hooks/useNotifLevels";
@@ -24,10 +25,17 @@ export function NotifLevelMenu(props: {
 }) {
   const intl = useIntl();
   const { level, onChange } = props;
-  const label = props.label ?? intl.formatMessage({ id: "notifLevelMenu.label", defaultMessage: "Notifications" });
+  // A touch sheet is headed by what it was opened on, so the row needn't name it again.
+  const inSheet = useMenuSheet() !== null;
+  const label = (!inSheet && props.label) || intl.formatMessage({ id: "notifLevelMenu.label", defaultMessage: "Notifications" });
+  const current = level === "nothing"
+    ? intl.formatMessage({ id: "notifLevelMenu.nothing", defaultMessage: "Nothing" })
+    : level === "mentions"
+      ? intl.formatMessage({ id: "notifLevelMenu.mentions", defaultMessage: "Only @mentions" })
+      : intl.formatMessage({ id: "notifLevelMenu.all", defaultMessage: "All messages" });
   return (
     <ContextMenuSub>
-      <ContextMenuSubTrigger>
+      <ContextMenuSubTrigger value={current}>
         {level === "nothing" ? (
           <BellOff className="mr-2 size-4" />
         ) : level === "mentions" ? (

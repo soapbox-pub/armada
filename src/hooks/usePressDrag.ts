@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cancelPressUnder, isCancellingPress } from "@/lib/cancelPress";
+import { closeOpenMenuSheets } from "@/hooks/useMenuSheet";
 import { holdTimeout } from "@/lib/holdTimeout";
 import { impact } from "@/lib/haptics";
 
@@ -541,6 +542,8 @@ function openMenuAt(target: EventTarget | null, clientX: number, clientY: number
 function closeOpenMenu() {
   const menu = document.querySelector("[role='menu'][data-state='open']");
   menu?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  // On touch the menu is a sheet.
+  closeOpenMenuSheets();
 }
 
 /** Radix `asChild` Slots don't reliably forward React pointer props. */

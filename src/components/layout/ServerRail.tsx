@@ -1,4 +1,4 @@
-import { Bell, Bluetooth, CheckCheck, Compass, Folder, FolderOpen, Headphones, Lock, LogOut, MailPlus, MessageSquare, PanelLeftDashed, Plus, Settings, Trash2 } from "lucide-react";
+import { Bell, Bluetooth, CheckCheck, Compass, Folder, FolderMinus, FolderOpen, Headphones, Lock, LogOut, MailPlus, MessageSquare, PanelLeftDashed, Pencil, Plus, Settings, Trash2 } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -18,6 +18,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { MenuSheetTile } from "@/components/ui/menu-sheet";
 import { ChromeDialogContent, ChromeDialogFooter, ChromeDialogHeader, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -619,7 +620,18 @@ const ServerButton = memo(function ServerButton({
           <span className="block text-xs text-muted-foreground">{url}</span>
         </RailTooltipContent>
       </Tooltip>
-      <ContextMenuContent>
+      <ContextMenuContent
+        sheetIdentity={{
+          lead: (
+            <Avatar className="size-10 shrink-0 clip-corner-lg">
+              <AvatarImage src={info?.icon} alt="" />
+              <AvatarFallback className="bg-secondary font-semibold text-primary">{initial}</AvatarFallback>
+            </Avatar>
+          ),
+          title: name,
+          sub: url,
+        }}
+      >
         <ContextMenuItem className="gap-2" disabled={!hasUnread} onSelect={markAllRead}>
           <CheckCheck className="size-4" />
           <FormattedMessage {...RAIL_MESSAGES.markAsRead} />
@@ -802,7 +814,20 @@ const Concord2Button = memo(function Concord2Button({
           {excluded ? <span className="ml-1 font-normal text-muted-foreground"><FormattedMessage id="serverRail.noAccess" defaultMessage="· no access" /></span> : null}
         </RailTooltipContent>
       </Tooltip>
-      <ContextMenuContent>
+      <ContextMenuContent
+        sheetIdentity={{
+          lead: (
+            <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden clip-corner-lg bg-muted text-success">
+              {iconUrl ? (
+                <img src={iconUrl} alt="" draggable={false} className="size-full object-cover" />
+              ) : (
+                <span className="text-sm font-semibold">{initials}</span>
+              )}
+            </span>
+          ),
+          title: displayName,
+        }}
+      >
         <ContextMenuItem className="gap-2" disabled={!hasUnread} onSelect={markAllRead}>
           <CheckCheck className="size-4" />
           <FormattedMessage {...RAIL_MESSAGES.markAsRead} />
@@ -950,7 +975,21 @@ const DmButton = memo(function DmButton({
           {name}
         </RailTooltipContent>
       </Tooltip>
-      <ContextMenuContent>
+      <ContextMenuContent
+        sheetIdentity={{
+          lead: noteToSelf ? (
+            <NoteToSelfAvatar sizePx={40} className="size-10 shrink-0" />
+          ) : (
+            <Avatar shape={getAvatarShape(metadata)} className="size-10 shrink-0">
+              <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
+              <AvatarFallback className="bg-primary/20 font-semibold text-primary">
+                <AvatarInitial name={name} pubkey={pubkey} />
+              </AvatarFallback>
+            </Avatar>
+          ),
+          title: name,
+        }}
+      >
         <NotifLevelMenu
           label={intl.formatMessage(RAIL_MESSAGES.messageNotifications)}
           level={dmLevel(pubkey)}
@@ -1049,7 +1088,12 @@ const RecentDmButton = memo(function RecentDmButton({
         </TooltipTrigger>
         <RailTooltipContent side="right" className="font-medium">{name}</RailTooltipContent>
       </Tooltip>
-      <ContextMenuContent>
+      <ContextMenuContent
+        sheetIdentity={{
+          lead: <DmAvatar peers={item.peers} selfPubkey={user?.pubkey} sizePx={40} className="size-10 shrink-0" />,
+          title: name,
+        }}
+      >
         <NotifLevelMenu
           label={intl.formatMessage(RAIL_MESSAGES.messageNotifications)}
           level={dmLevel(item.key)}
@@ -1195,9 +1239,15 @@ function RailFolder({
           </span>
         </RailTooltipContent>
       </Tooltip>
-      <ContextMenuContent>
-        <ContextMenuItem onSelect={onRenameRequest}><FormattedMessage id="serverRail.renameFolder" defaultMessage="Rename folder" /></ContextMenuItem>
-        <ContextMenuItem onSelect={onDissolve}><FormattedMessage id="serverRail.removeFolder" defaultMessage="Remove folder" /></ContextMenuItem>
+      <ContextMenuContent sheetIdentity={{ lead: <MenuSheetTile><Folder /></MenuSheetTile>, title: label }}>
+        <ContextMenuItem onSelect={onRenameRequest}>
+          <Pencil className="size-4" />
+          <FormattedMessage id="serverRail.renameFolder" defaultMessage="Rename folder" />
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onDissolve}>
+          <FolderMinus className="size-4" />
+          <FormattedMessage id="serverRail.removeFolder" defaultMessage="Remove folder" />
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );

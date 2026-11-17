@@ -2744,6 +2744,7 @@
   "menuReactions.reactWith": "Reaccionar con {emoji}",
   "menuReactions.reactions": "Reacciones",
   "menuReactions.removeReaction": "Quitar la reacción {emoji}",
+  "menuSheet.title": "Acciones",
   "meshPage.androidOnly": "El chat en malla funciona en la app de Armada para Android.",
   "meshPage.backToMesh": "Volver a la malla",
   "meshPage.closeNearby": "Cerrar cercanos",

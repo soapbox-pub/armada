@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronDown, FolderMinus, KeyRound, Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, Folder, FolderMinus, KeyRound, Pencil, Trash2 } from "lucide-react";
 
 import {
   ContextMenu,
@@ -7,6 +7,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { MenuSheetTile } from "@/components/ui/menu-sheet";
 import { FormattedMessage, useIntl } from "@/i18n";
 import { cn } from "@/lib/utils";
 
@@ -72,7 +73,10 @@ export function ChannelCategoryHeading({
     <ContextMenu>
       {/* Radix handles both right-click and press-and-hold. */}
       <ContextMenuTrigger asChild>{heading}</ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
+      <ContextMenuContent
+        className="w-52"
+        sheetIdentity={{ lead: <MenuSheetTile><Folder /></MenuSheetTile>, title: name }}
+      >
         {onRename && (
           <ContextMenuItem onSelect={onRename}>
             <Pencil className="size-4" />

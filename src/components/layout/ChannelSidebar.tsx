@@ -20,6 +20,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { MenuSheetTile } from "@/components/ui/menu-sheet";
 import { NotifLevelMenu } from "@/components/NotifLevelMenu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -141,7 +142,15 @@ function ChannelLink({
       )}
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
+      <ContextMenuContent
+        className="w-52"
+        sheetIdentity={{
+          lead: <MenuSheetTile><Icon /></MenuSheetTile>,
+          title: buzzDm
+            ? <BuzzDmName members={dmDetails?.members ?? []} selfPubkey={user?.pubkey} />
+            : group.name,
+        }}
+      >
         <ContextMenuItem
           disabled={!hasUnread}
           onSelect={() => {

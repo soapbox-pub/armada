@@ -333,7 +333,13 @@ const ConversationRow = memo(function ConversationRow({
           ) : null}
         </button>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-44">
+      <ContextMenuContent
+        className="w-44"
+        sheetIdentity={{
+          lead: <DmAvatar peers={peers} selfPubkey={selfPubkey} sizePx={40} className="size-10" anonymous={request} />,
+          title: noteToSelf || group ? name : <DisplayName pubkey={peers[0]} name={name} />,
+        }}
+      >
         {request ? (
           // No accept: replying is accepting (the composer notice says so).
           <>

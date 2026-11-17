@@ -103,6 +103,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { MenuSheetTile } from "@/components/ui/menu-sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -731,7 +732,18 @@ export const ChannelRow = memo(function ChannelRow({
           )}
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
+      <ContextMenuContent
+        className="w-52"
+        sheetIdentity={{
+          lead: (
+            <MenuSheetTile>
+              <ChannelGlyph isPrivate={channel.isPrivate} view={channel.view} className="size-5" />
+            </MenuSheetTile>
+          ),
+          title: channel.name,
+          sub: channel.category,
+        }}
+      >
         {onMove && (
           <ContextMenuItem onSelect={() => onMove(channel.idHex)}>
             <GripVertical className="mr-2 size-4" />

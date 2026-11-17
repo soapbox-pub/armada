@@ -2744,6 +2744,7 @@
   "menuReactions.reactWith": "Reagir com {emoji}",
   "menuReactions.reactions": "Reações",
   "menuReactions.removeReaction": "Remover reação {emoji}",
+  "menuSheet.title": "Ações",
   "meshPage.androidOnly": "O chat mesh funciona no app Armada para Android.",
   "meshPage.backToMesh": "Voltar ao mesh",
   "meshPage.closeNearby": "Fechar próximos",

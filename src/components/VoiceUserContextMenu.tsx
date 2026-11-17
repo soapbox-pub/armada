@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
 import { useVoiceModerationActions } from "@/contexts/VoiceModerationContext";
+import { useMenuSheet } from "@/hooks/useMenuSheet";
 import { useUserModeration } from "@/hooks/useUserModeration";
 import { UserModerationMenuSection } from "@/components/chat/ModerationMenuSection";
 import { toast } from "@/hooks/useToast";
@@ -80,6 +81,16 @@ export function VolumeSliderRow({
         aria-valuetext={`${Math.round(volume * 100)}%`}
         onValueChange={([v]) => apply(v)}
       />
+    </div>
+  );
+}
+
+/** Not a menu Item: Radix item semantics would swallow slider drags, as would the touch sheet's own drag. */
+function VolumeMenuRow({ children }: { children: React.ReactNode }) {
+  const inSheet = useMenuSheet() !== null;
+  return (
+    <div data-vaul-no-drag className={inSheet ? "px-3 pb-3 pt-1" : "px-2 pb-2 pt-1"}>
+      {children}
     </div>
   );
 }
@@ -152,17 +163,17 @@ function useVoiceMenuItems(
         </Label>
         {showVolume && (
           <>
-            {/* Not a menu Item: Radix item semantics would swallow slider drags. */}
-            <div className="px-2 pb-2 pt-1">
+            <VolumeMenuRow>
               <VolumeSliderRow
                 volume={volume}
                 apply={setVolume}
                 displayName={displayName}
                 target={volumeTarget}
               />
-            </div>
+            </VolumeMenuRow>
             <Separator />
             <CheckboxItem checked={muted} onSelect={() => setVolume(muted ? 1 : 0)}>
+              <VolumeX className="size-4" />
               {volumeTarget === "screenShare" ? (
                 <FormattedMessage id="voiceUserContextMenu.muteScreenShare" defaultMessage="Mute screen share" />
               ) : (

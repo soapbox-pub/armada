@@ -2744,6 +2744,7 @@
   "menuReactions.reactWith": "{emoji} でリアクション",
   "menuReactions.reactions": "リアクション",
   "menuReactions.removeReaction": "{emoji} のリアクションを削除",
+  "menuSheet.title": "操作",
   "meshPage.androidOnly": "メッシュチャットは Armada の Android アプリで利用できます。",
   "meshPage.backToMesh": "メッシュに戻る",
   "meshPage.closeNearby": "近くを閉じる",

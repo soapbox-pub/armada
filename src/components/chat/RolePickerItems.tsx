@@ -1,3 +1,6 @@
+import { useMenuSheet } from "@/hooks/useMenuSheet";
+import { cn } from "@/lib/utils";
+
 import type { ComponentType, ReactNode } from "react";
 
 export interface RolePickerOption {
@@ -39,6 +42,7 @@ export function RolePickerItems({
   isToggling?: (pubkey: string, roleId: string) => boolean;
   onToggle: (pubkey: string, roleId: string, on: boolean) => void;
 }) {
+  const inSheet = useMenuSheet() !== null;
   return (
     <>
       {catalog.map((role) => (
@@ -52,7 +56,17 @@ export function RolePickerItems({
           // Keep the menu open so several roles can be toggled in one visit.
           onSelect={(e) => e.preventDefault()}
         >
-          <span className="min-w-0 flex-1 truncate text-sm" style={role.color ? { color: roleTint(role.color) } : undefined}>
+          {/* A sheet row leads with a tile; the role's colour fills it. */}
+          {inSheet && (
+            <span
+              className={cn("size-3 rounded-full bg-current", !role.color && "text-muted-foreground")}
+              style={role.color ? { color: roleTint(role.color) } : undefined}
+            />
+          )}
+          <span
+            className={cn("min-w-0 flex-1 truncate", !inSheet && "text-sm")}
+            style={role.color ? { color: roleTint(role.color) } : undefined}
+          >
             {role.name}
           </span>
           {role.channelName && (
