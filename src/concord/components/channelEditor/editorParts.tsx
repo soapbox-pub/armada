@@ -35,7 +35,7 @@ export function MemberName({ pubkey }: { pubkey: string }) {
   return <DisplayName pubkey={pubkey} name={name || pubkey.slice(0, 8)} />;
 }
 
-function MemberAvatar({ pubkey, className, fallbackClassName }: { pubkey: string; className?: string; fallbackClassName?: string }) {
+export function MemberAvatar({ pubkey, className, fallbackClassName }: { pubkey: string; className?: string; fallbackClassName?: string }) {
   const author = useAuthor(pubkey);
   const name = useScopedDisplayName(pubkey, author.data?.metadata);
   return (
@@ -370,31 +370,16 @@ export function ConfirmText({ model, kind }: { model: EditorModel; kind: EditorC
       />
     );
   }
-  if (kind === "rotate") {
-    return model.ranked ? (
-      <FormattedMessage
-        id="channelEditor.confirm.rotate"
-        defaultMessage="Rotate #{name}'s key? It gets a fresh key delivered only to members its permissions let in right now. Anyone else, including someone who kept a key from an earlier setting, loses access to what's said next."
-        values={{ name }}
-      />
-    ) : (
-      <FormattedMessage
-        id="channelEditor.confirm.rotateLegacy"
-        defaultMessage="Rotate #{name}'s key? It gets a fresh key delivered only to members who hold one of its roles right now. Anyone else, including someone who kept a key from an earlier setting, loses access to what's said next."
-        values={{ name }}
-      />
-    );
-  }
-  return model.values.isPrivate ? (
+  return model.ranked ? (
     <FormattedMessage
-      id="channelEditor.confirm.private"
-      defaultMessage="Make #{name} private? It gets its own key from here on, and its permissions decide who may read it. Messages already posted stay readable to everyone in the community; a restriction can't be applied backwards."
+      id="channelEditor.confirm.rotate"
+      defaultMessage="Rotate #{name}'s key? It gets a fresh key delivered only to members its permissions let in right now. Anyone else, including someone who kept a key from an earlier setting, loses access to what's said next."
       values={{ name }}
     />
   ) : (
     <FormattedMessage
-      id="channelEditor.confirm.public"
-      defaultMessage="Make #{name} public? Every member can read what's said there from now on. What was said while it was private stays readable only to those who held its key."
+      id="channelEditor.confirm.rotateLegacy"
+      defaultMessage="Rotate #{name}'s key? It gets a fresh key delivered only to members who hold one of its roles right now. Anyone else, including someone who kept a key from an earlier setting, loses access to what's said next."
       values={{ name }}
     />
   );

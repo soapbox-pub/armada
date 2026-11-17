@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { PillTabs, type PillTab } from "@/components/ui/pill-tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { AccessReviewDialog } from "@/concord/components/accessReview/AccessReviewDialog";
 import { ChannelGlyph } from "@/concord/components/ChannelGlyph";
 import { EditorLegacyAccess } from "@/concord/components/channelEditor/EditorLegacyAccess";
 import { editorMessages as m } from "@/concord/components/channelEditor/editorMessages";
@@ -313,14 +314,14 @@ export function EditorPane({
       {/* Only this scrolls where the host bounds the height; the padding keeps focus rings unclipped. */}
       <div className="-m-1 min-h-0 overflow-y-auto p-1">{!isChannel ? category : tab === "general" ? general : permissions}</div>
 
-      {(flow.confirm || model.error || model.saving) && (
+      {(flow.confirm || model.error || (model.saving && !flow.review)) && (
         <div className="shrink-0 space-y-2">
           {flow.confirm && (
             <p className="text-sm text-muted-foreground">
               <ConfirmText model={model} kind={flow.confirm} />
             </p>
           )}
-          {model.saving && <WriteProgress published={model.published} planned={model.planned} />}
+          {model.saving && !flow.review && <WriteProgress published={model.published} planned={model.planned} />}
           {model.error && (
             <p role="alert" className="text-sm text-destructive">
               {model.error}
@@ -368,6 +369,24 @@ export function EditorPane({
           </>
         )}
       </div>
+
+      {flow.review && (
+        <AccessReviewDialog
+          subject={{ kind: "scope", label: isChannel ? `#${model.base.name}` : model.base.name }}
+          review={flow.review.access}
+          privacy={flow.review.privacy}
+          roleName={model.roleName}
+          channel={model.channelInfo}
+          me={model.me}
+          run={flow.run}
+          published={model.published}
+          planned={model.planned}
+          onApply={flow.apply}
+          onCancel={flow.leave}
+          onClose={flow.leave}
+          onRetry={flow.retry}
+        />
+      )}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { useControlFold, citationFor, foldStoredControl, invalidateControl, publishEdition, readControlWhole, withControlWrite } from "@/concord/hooks/useControlPlane";
-import { settledWrite } from "@/concord/hooks/rosterSettle";
+import { settledWrite, type SettleFollow } from "@/concord/hooks/rosterSettle";
 import type { FoldedControl } from "@/concord/lib/control";
 import { useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -133,10 +133,10 @@ export function useRoles(community: Community | undefined) {
    * write, and settled with the Channel keys it moves (`settledWrite`) unless the caller
    * settles a batch of writes itself.
    */
-  const write = <T,>(run: (folded: FoldedControl | undefined) => Promise<T>, unsettled?: boolean): Promise<T> => {
+  const write = <T,>(run: (folded: FoldedControl | undefined) => Promise<T>, unsettled?: boolean, follow?: SettleFollow): Promise<T> => {
     if (!community) return run(rendered);
     const once = () => withControlWrite(community.idHex, async () => run(await foldStoredControl(community).catch(() => rendered)));
-    return unsettled ? once() : settledWrite(community, once);
+    return unsettled ? once() : settledWrite(community, once, follow);
   };
 
   const saveRole = useMutation<string, Error, { role: Role; unsettled?: boolean }>({
@@ -161,8 +161,8 @@ export function useRoles(community: Community | undefined) {
     onSuccess: invalidate,
   });
 
-  const setMemberRoles = useMutation<void, Error, { member: string; roleIds: string[]; unsettled?: boolean }>({
-    mutationFn: ({ member, roleIds: asked, unsettled }) => write(async (folded) => {
+  const setMemberRoles = useMutation<void, Error, { member: string; roleIds: string[]; unsettled?: boolean; follow?: SettleFollow }>({
+    mutationFn: ({ member, roleIds: asked, unsettled, follow }) => write(async (folded) => {
       let roleIds = asked;
       if (!user || !community) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
       // The fold's gate (CORD-04 §2/§3), checked before publishing so a doomed grant
@@ -199,7 +199,7 @@ export function useRoles(community: Community | undefined) {
           authority: citationFor(community, folded, user.pubkey),
         }),
       );
-    }, unsettled),
+    }, unsettled, follow),
     onSuccess: invalidate,
   });
 

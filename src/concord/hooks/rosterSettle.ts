@@ -8,14 +8,27 @@
 import { foldStoredControl } from "@/concord/hooks/useControlPlane";
 import { channelDisplayName } from "@/concord/lib/community";
 import type { FoldedControl } from "@/concord/lib/control";
-import { rosterSettler, withKeySettle, type SettleReport } from "@/concord/lib/keySettle";
+import { rosterSettler, withKeySettle, type SettleReport, type SettleWatch } from "@/concord/lib/keySettle";
 import type { Community } from "@/concord/lib/types";
 import { toast } from "@/hooks/useToast";
 import { t } from "@/i18n/intl";
 import { logSync } from "@/lib/syncLog";
 
+/** How a settle ended: its report, or why it stopped. Neither when no settler is mounted. */
+export interface SettleOutcome {
+  report?: SettleReport;
+  error?: string;
+  after?: FoldedControl;
+}
+
+/** A caller showing the settle as it runs, in place of the toasts. */
+export interface SettleFollow {
+  watch?: SettleWatch;
+  onSettled: (outcome: SettleOutcome) => void;
+}
+
 /** Run `write`, then settle the keys it moved; the report is undefined when nothing could settle it. */
-export function settledScope<T>(community: Community, write: () => Promise<T>): Promise<{ result: T; report?: SettleReport; after?: FoldedControl }> {
+export function settledScope<T>(community: Community, write: () => Promise<T>, watch?: SettleWatch): Promise<{ result: T } & SettleOutcome> {
   return withKeySettle(community.idHex, async () => {
     const settle = rosterSettler(community.idHex);
     const before = settle ? await foldStoredControl(community).catch(() => undefined) : undefined;
@@ -23,19 +36,21 @@ export function settledScope<T>(community: Community, write: () => Promise<T>): 
     if (!settle || !before) return { result };
     try {
       const after = await foldStoredControl(community);
-      return { result, report: await settle(before, after), after };
+      return { result, report: await settle(before, after, watch), after };
     } catch (e) {
       // The write stands; the access duty's settle pass is the backstop.
-      logSync("access", `${community.idHex.slice(0, 8)}: settling a Roster change failed: ${e instanceof Error ? e.message : String(e)}`);
-      return { result };
+      const error = e instanceof Error ? e.message : String(e);
+      logSync("access", `${community.idHex.slice(0, 8)}: settling a Roster change failed: ${error}`);
+      return { result, error };
     }
   });
 }
 
-/** {@link settledScope}, reporting what the settle couldn't do as toasts. */
-export async function settledWrite<T>(community: Community, write: () => Promise<T>): Promise<T> {
-  const { result, report, after } = await settledScope(community, write);
-  if (report) toastSettle(report, (id) => channelDisplayName(community, after, id));
+/** {@link settledScope}, reporting what the settle couldn't do as toasts, or to `follow` when someone is showing it. */
+export async function settledWrite<T>(community: Community, write: () => Promise<T>, follow?: SettleFollow): Promise<T> {
+  const { result, report, error, after } = await settledScope(community, write, follow?.watch);
+  if (follow) follow.onSettled({ report, error, after });
+  else if (report) toastSettle(report, (id) => channelDisplayName(community, after, id));
   return result;
 }
 

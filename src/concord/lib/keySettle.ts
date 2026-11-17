@@ -39,8 +39,11 @@ export interface SettleReport {
 
 export const emptySettleReport = (): SettleReport => ({ sent: [], members: [], unheldGained: [], unheldLost: [], notRotated: [], rotationFailed: [] });
 
+/** Told as a settle starts rotating keys, then as it starts sending them: for whoever shows its progress. */
+export type SettleWatch = (phase: "rotate" | "send") => void;
+
 /** Moves the keys a change took the Roster from `before` to `after` (CORD-03 §5). */
-export type RosterSettler = (before: FoldedControl, after: FoldedControl) => Promise<SettleReport>;
+export type RosterSettler = (before: FoldedControl, after: FoldedControl, watch?: SettleWatch) => Promise<SettleReport>;
 
 const settlers = new Map<string, RosterSettler>();
 

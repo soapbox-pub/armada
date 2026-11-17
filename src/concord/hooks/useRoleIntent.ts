@@ -41,8 +41,11 @@ export function useRoleIntent<R = unknown>(
   );
 
   const toggle = useCallback(
-    /** Resolves to the set published and what `publish` returned, or undefined for a repeat in flight. */
-    async (member: string, roleId: string, on: boolean): Promise<{ roleIds: string[]; published: R } | undefined> => {
+    /**
+     * Resolves to the set published and what `publish` returned, or undefined for a repeat in flight.
+     * `via` publishes this one toggle in `publish`'s place.
+     */
+    async (member: string, roleId: string, on: boolean, via: PublishRoles<R> = publish): Promise<{ roleIds: string[]; published: R } | undefined> => {
       const k = keyOf(member, roleId);
       if (inFlight.current.has(k)) return undefined;
 
@@ -60,7 +63,7 @@ export function useRoleIntent<R = unknown>(
       inFlight.current.add(k);
       syncPending();
       try {
-        const published = await publish({ member, roleIds });
+        const published = await via({ member, roleIds });
         return { roleIds, published };
       } catch (e) {
         // Roll back to the set that was true before this toggle, not the lagging fold.

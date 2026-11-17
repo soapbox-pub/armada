@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChannelEditor, ChannelEditorPane } from "@/concord/components/channelEditor/ChannelEditor";
 import type { EditorScope } from "@/concord/components/channelEditor/useChannelEditor";
+import { emptySettleReport, type SettleReport } from "@/concord/lib/keySettle";
 import { Permissions } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 
@@ -14,6 +15,7 @@ const JOINED = "d".repeat(64);
 const CATEGORY = "b".repeat(64);
 const SYNCED = "1".repeat(64);
 const OWN = "2".repeat(64);
+const STAFF = "3".repeat(64);
 
 const env = vi.hoisted(() => ({
   applyRules: vi.fn(async (_: unknown) => {}),
@@ -28,7 +30,9 @@ const env = vi.hoisted(() => ({
   publiciseChannel: vi.fn(async (_: unknown) => {}),
   deleteChannel: vi.fn(async (_: unknown) => {}),
   toast: vi.fn(),
+  rotate: vi.fn(async (_: string) => {}),
   overwrites: [] as unknown[],
+  grants: [] as unknown[],
   ranked: true,
 }));
 
@@ -48,6 +52,7 @@ vi.mock("@/concord/hooks/useControlPlane", () => ({
     { idHex: "1".repeat(64), name: "lounge", view: "chat", categoryId: "b".repeat(64), category: "Text" },
     { idHex: "2".repeat(64), name: "own", view: "chat", categoryId: "b".repeat(64), category: "Text" },
     { idHex: "c".repeat(64), name: "general", view: "chat", topic: "Welcome" },
+    { idHex: "3".repeat(64), name: "staff", view: "chat", isPrivate: true },
   ],
 }));
 vi.mock("@/concord/hooks/useCommunityActions", () => ({
@@ -76,7 +81,7 @@ vi.mock("@/concord/hooks/useRankedRoles", () => ({
       rankedRoster: env.ranked,
       roster: {
         roles: [{ roleId: "a".repeat(64), name: "Mods", position: 1, rank: "a", permissions: 0n, scope: { kind: "server" }, color: 0 }],
-        grants: [],
+        grants: env.grants,
         everyone: 0n,
         overwrites: env.overwrites,
         syncs: { ["1".repeat(64)]: "b".repeat(64) },
@@ -94,10 +99,15 @@ function pane(scope: EditorScope, onRemoved = () => undefined) {
   return render(<ChannelEditorPane community={community} scope={scope} onRemoved={onRemoved} />);
 }
 const save = () => fireEvent.click(screen.getByRole("button", { name: "Save" }));
-const rulesWritten = () => env.applyRules.mock.calls.map((c) => c[0]);
+type Follow = { watch?: (phase: "rotate" | "send") => void; onSettled: (outcome: { report?: SettleReport; error?: string }) => void };
+const written = () => env.applyRules.mock.calls.map((c) => c[0] as { follow?: Follow } & Record<string, unknown>);
+/** What was written, less the hooks a reviewed write is followed through. */
+const rulesWritten = () => written().map(({ follow: _follow, ...rules }) => rules);
+const report = (over: Partial<SettleReport> = {}): SettleReport => ({ ...emptySettleReport(), ...over });
 
 beforeEach(() => {
   env.overwrites.length = 0;
+  env.grants.length = 0;
   env.ranked = true;
   vi.clearAllMocks();
 });
@@ -199,17 +209,17 @@ describe("a channel's permissions (CORD-04 §8)", () => {
     expect(rulesWritten()).toEqual([{ scope: CHANNEL, sync: undefined, overwrites: [{ target: { kind: "role", id: ROLE }, allow: 0n, deny: Permissions.SPEAK }] }]);
   });
 
-  it("asks before making a channel private, then writes its rules first", async () => {
+  it("reviews making a channel private, then writes its rules first", async () => {
     pane(channel({ tab: "permissions" }));
     fireEvent.click(screen.getByRole("switch", { name: /Private channel/ }));
     fireEvent.click(screen.getByRole("button", { name: "Add role or member" }));
     fireEvent.click(screen.getByRole("checkbox", { name: /Mods/ }));
     fireEvent.click(screen.getByRole("button", { name: "Add 1" }));
     save();
-    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Review changes" })).toHaveTextContent("#general gets its own key from here on");
     expect(env.privatiseChannel).not.toHaveBeenCalled();
     expect(env.applyRules).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
     await waitFor(() => expect(env.privatiseChannel).toHaveBeenCalledWith({ channelIdHex: CHANNEL }));
     // Whoever is added to a private channel is let in.
     expect(rulesWritten()).toEqual([
@@ -218,11 +228,12 @@ describe("a channel's permissions (CORD-04 §8)", () => {
     expect(env.applyRules.mock.invocationCallOrder[0]).toBeLessThan(env.privatiseChannel.mock.invocationCallOrder[0]);
   });
 
-  it("goes back from the question without writing", () => {
+  it("leaves the review without writing", () => {
     pane(channel({ tab: "permissions" }));
     fireEvent.click(screen.getByRole("switch", { name: /Private channel/ }));
     save();
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Review changes" })).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(env.privatiseChannel).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
@@ -275,6 +286,9 @@ describe("a category", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add 1" }));
     fireEvent.click(within(screen.getByRole("group", { name: "View channels" })).getByRole("button", { name: "Allow" }));
     save();
+    // Only the channel on the category's rules is theirs to see.
+    expect(screen.getByRole("dialog", { name: "Review changes" })).toHaveTextContent("Gains access · 1");
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
     await waitFor(() => expect(env.applyRules).toHaveBeenCalled());
     expect(rulesWritten()).toEqual([
       { scope: CATEGORY, sync: undefined, overwrites: [{ target: { kind: "member", id: member }, allow: Permissions.VIEW_CHANNEL, deny: 0n }] },
@@ -307,6 +321,86 @@ describe("a category", () => {
     pane(category);
     expect(screen.queryByRole("textbox", { name: "Topic" })).toBeNull();
     expect(screen.queryByRole("tab")).toBeNull();
+  });
+});
+
+describe("a change to who can read a channel", () => {
+  const staff = () => {
+    env.overwrites.push({ scope: STAFF, target: { kind: "role", id: ROLE }, allow: Permissions.VIEW_CHANNEL, deny: 0n });
+    env.grants.push({ member: JOINED, roleIds: [ROLE] });
+    const view = render(
+      <ChannelEditorPane
+        community={community}
+        scope={channel({ idHex: STAFF, name: "staff", tab: "permissions" })}
+        ops={{ onRotateChannelKey: env.rotate }}
+        onRemoved={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Mods/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    save();
+    return view;
+  };
+  const review = () => within(screen.getByRole("dialog"));
+
+  it("writes straight away when nobody's access moves", async () => {
+    pane(channel({ tab: "permissions" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Send messages" })).getByRole("button", { name: "Deny" }));
+    save();
+    await waitFor(() => expect(env.toast).toHaveBeenCalledWith({ title: "Changes saved" }));
+    expect(written()[0].follow).toBeUndefined();
+  });
+
+  it("names who loses a private channel and how they had it", () => {
+    staff();
+    expect(screen.getByRole("dialog", { name: "Review changes" })).toHaveTextContent("Loses access · 1");
+    expect(review().getByText("Had it through Mods")).toBeInTheDocument();
+    expect(review().getByText(/Keep Armada open/)).toBeInTheDocument();
+    expect(env.applyRules).not.toHaveBeenCalled();
+  });
+
+  it("stays up while the key rotates, and can't be left", async () => {
+    let finish = () => {};
+    env.applyRules.mockImplementationOnce(async (vars) => {
+      const { follow } = vars as { follow: Follow };
+      follow.watch?.("rotate");
+      await new Promise<void>((resolve) => (finish = resolve));
+      follow.onSettled({ report: report() });
+    });
+    staff();
+    fireEvent.click(review().getByRole("button", { name: "Apply changes" }));
+    expect(await review().findByText("Rotating the channel key")).toBeInTheDocument();
+    expect(review().getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(review().queryByRole("button", { name: "Apply changes" })).toBeNull();
+    finish();
+    await waitFor(() => expect(env.toast).toHaveBeenCalledWith({ title: "Changes saved" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("says a key that didn't rotate still reads, and rotates it again", async () => {
+    env.applyRules.mockImplementationOnce(async (vars) => {
+      (vars as { follow: Follow }).follow.onSettled({ report: report({ rotationFailed: [{ channelIdHex: STAFF, error: "No relay accepted the key." }] }) });
+    });
+    staff();
+    fireEvent.click(review().getByRole("button", { name: "Apply changes" }));
+    expect(await review().findByRole("alert")).toHaveTextContent(/can still read/);
+    expect(review().getByText("No relay accepted the key.")).toBeInTheDocument();
+    expect(env.toast).not.toHaveBeenCalled();
+    fireEvent.click(review().getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(env.toast).toHaveBeenCalledWith({ title: "Changes saved" }));
+    expect(env.rotate).toHaveBeenCalledWith(STAFF);
+    expect(env.applyRules).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops at a write that failed, and retries it", async () => {
+    env.applyRules.mockRejectedValueOnce(new Error("No relay accepted the update."));
+    staff();
+    fireEvent.click(review().getByRole("button", { name: "Apply changes" }));
+    expect(await review().findByRole("alert")).toHaveTextContent("It stopped before finishing.");
+    expect(review().getByText("No relay accepted the update.")).toBeInTheDocument();
+    fireEvent.click(review().getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(env.toast).toHaveBeenCalledWith({ title: "Changes saved" }));
+    expect(env.applyRules).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -370,6 +464,18 @@ describe("the editor on touch", () => {
     expect(rulesWritten()).toEqual([
       { scope: CHANNEL, sync: undefined, overwrites: [{ target: { kind: "everyone" }, allow: 0n, deny: Permissions.SEND_MESSAGES }] },
     ]);
+  });
+
+  it("reviews an access change as a page of the sheet", async () => {
+    render(<ChannelEditor community={community} scope={channel({ tab: "permissions" })} onClose={() => undefined} />);
+    const sheet = within(screen.getByRole("dialog", { name: "general" }));
+    fireEvent.click(sheet.getByRole("switch", { name: /Private channel/ }));
+    fireEvent.click(sheet.getByRole("button", { name: "Save" }));
+    expect(sheet.getByText("Review changes")).toBeInTheDocument();
+    expect(sheet.queryByRole("button", { name: "Save" })).toBeNull();
+    fireEvent.click(sheet.getByRole("button", { name: "Cancel" }));
+    expect(sheet.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(env.privatiseChannel).not.toHaveBeenCalled();
   });
 
   it("files the channel under a category picked from a page", async () => {

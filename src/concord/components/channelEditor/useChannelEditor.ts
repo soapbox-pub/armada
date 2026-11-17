@@ -20,10 +20,12 @@ import {
   type Rule,
   type RuleState,
 } from "@/concord/components/channelEditor/editorDraft";
+import type { ApplyPhase, ApplySink } from "@/concord/components/accessReview/useApplyRun";
 import { useCommunityManagement } from "@/concord/hooks/useCommunityActions";
 import { useChannels } from "@/concord/hooks/useControlPlane";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
 import { useRankedRoles } from "@/concord/hooks/useRankedRoles";
+import { keyWork, reviewAccess, reviewMoves, withRules, type AccessReview } from "@/concord/lib/accessReview";
 import { categoryKey, categoryNames } from "@/concord/lib/channelCategory";
 import { categoryOrder, rankedOrder } from "@/concord/lib/rankedWrites";
 import { colorToHex, isAuthorized, Permissions } from "@/concord/lib/roles";
@@ -66,8 +68,17 @@ export interface EditorTarget {
   others: number;
 }
 
+/** What saving does to who can read the scope, and the steps it takes. */
+export interface EditorReview {
+  access: AccessReview;
+  /** The Channel changes sides. */
+  privacy?: "private" | "public";
+  plan: ApplyPhase[];
+}
+
 export interface EditorModel {
   scope: EditorScope;
+  me: string | undefined;
   /** The scope isn't in the fold: deleted, or not read yet. */
   missing: boolean;
   ranked: boolean;
@@ -105,6 +116,14 @@ export interface EditorModel {
   mintAccessRole?: (name: string) => Promise<boolean>;
   rotateKey?: () => Promise<void>;
   steps: EditorStep[];
+  /** Set when saving moves someone's access or the Channel's privacy: shown and confirmed before it is written. */
+  review: EditorReview | undefined;
+  /** A Role's name, for saying what someone's access rests on. */
+  roleName: (roleId: string) => string | undefined;
+  /** A Channel of the scope, for naming it in the review. */
+  channelInfo: (channelIdHex: string) => { name: string; isPrivate: boolean; view?: ChannelView };
+  /** Rotates one Channel's key again after a save left it unrotated. */
+  retryRotation?: (channelIdHex: string) => Promise<void>;
   dirty: boolean;
   /** A field is past its limit, so nothing can be saved yet. */
   invalid: boolean;
@@ -112,8 +131,8 @@ export interface EditorModel {
   busy: boolean;
   error: string | null;
   clearError: () => void;
-  /** Resolves true once everything pending has been written. */
-  save: () => Promise<boolean>;
+  /** Resolves true once everything pending has been written. With a sink the steps and failures go to it, and a failure throws. */
+  save: (sink?: ApplySink) => Promise<boolean>;
   reset: () => void;
   /** Resolves true once the Channel or Category is gone. */
   remove: () => Promise<boolean>;
@@ -121,7 +140,9 @@ export interface EditorModel {
   planned: number;
 }
 
-const failed = () => t({ id: "channelEditor.saveFailed", defaultMessage: "Couldn't save the changes." });
+export const saveFailed = () => t({ id: "channelEditor.saveFailed", defaultMessage: "Couldn't save the changes." });
+
+export const toastSaved = () => toast({ title: t({ id: "channelEditor.saved", defaultMessage: "Changes saved" }) });
 
 /**
  * One Channel or Category as the editor shows it: the control fold with a draft
@@ -285,7 +306,34 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
     else toast({ title: fallback, description: message, variant: "destructive" });
   };
 
-  const run = async (step: EditorStep) => {
+  const review = useMemo<EditorReview | undefined>(() => {
+    if (!roster) return undefined;
+    const rulesStep = steps.find((s): s is Extract<EditorStep, { kind: "rules" }> => s.kind === "rules");
+    const privacy = steps.some((s) => s.kind === "private") ? "private" : steps.some((s) => s.kind === "public") ? "public" : undefined;
+    if (!rulesStep && !privacy) return undefined;
+    const after = rulesStep ? withRules(roster, scopeHex, rulesStep) : roster;
+    const scoped =
+      scope.kind === "channel"
+        ? [{ idHex: scopeHex, wasPrivate: base.isPrivate, isPrivate: privacy ? privacy === "private" : base.isPrivate }]
+        : members.filter((c) => roster.syncs?.[c.idHex] === scopeHex).map((c) => ({ idHex: c.idHex, wasPrivate: c.isPrivate, isPrivate: c.isPrivate }));
+    // Everyone a rule could let in or shut out (`accessCandidates`), with whoever this change names.
+    const people = new Set<string>();
+    for (const [pk, m] of coalesced ?? []) if (m.state === "join") people.add(pk);
+    for (const g of roster.grants) people.add(g.member);
+    for (const o of [...(roster.overwrites ?? []), ...(after.overwrites ?? [])]) if (o.target.kind === "member") people.add(o.target.id);
+    const access = reviewAccess({ before: roster, after, ownerHex, banned: folded?.banned, members: [...people], channels: scoped });
+    if (!privacy && !reviewMoves(access)) return undefined;
+    const work = keyWork(access, me);
+    const plan: ApplyPhase[] = [];
+    if (steps.some((s) => s.kind !== "private")) plan.push("save");
+    // A Channel on its way to Private has no key yet for its rules to move.
+    if (!privacy && work.rotate.length) plan.push("rotate");
+    if (!privacy && work.send.length) plan.push("send");
+    if (privacy === "private") plan.push("private");
+    return { access, privacy, plan };
+  }, [roster, steps, scopeHex, scope.kind, base.isPrivate, members, coalesced, ownerHex, folded?.banned, me]);
+
+  const run = async (step: EditorStep, sink?: ApplySink) => {
     switch (step.kind) {
       case "rename":
         if (scope.kind === "channel") return manage.renameChannel({ channelIdHex: scopeHex, name: step.name });
@@ -300,26 +348,34 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
       case "public":
         return manage.publiciseChannel({ channelIdHex: scopeHex });
       case "rules":
-        return ranked$.applyRules({ scope: scopeHex, sync: step.sync, overwrites: step.overwrites });
+        return ranked$.applyRules({
+          scope: scopeHex,
+          sync: step.sync,
+          overwrites: step.overwrites,
+          ...(sink ? { follow: { watch: sink.at, onSettled: sink.settled } } : {}),
+        });
       case "private":
         await manage.privatiseChannel({ channelIdHex: scopeHex });
     }
   };
 
-  const save = async (): Promise<boolean> => {
+  const save = async (sink?: ApplySink): Promise<boolean> => {
     if (saving) return false;
     setError(null);
     setSaving(true);
     const done = new Set(applied);
     try {
       for (const step of steps) {
-        await run(step);
+        sink?.at(step.kind === "private" ? "private" : "save");
+        await run(step, sink);
         done.add(stepKey(step));
       }
-      toast({ title: t({ id: "channelEditor.saved", defaultMessage: "Changes saved" }) });
+      if (!sink) toastSaved();
       return true;
     } catch (e) {
-      report(e, failed());
+      // Whoever is showing the run shows why it stopped.
+      if (sink) throw e;
+      report(e, saveFailed());
       return false;
     } finally {
       if (mounted.current) {
@@ -383,6 +439,10 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
           }, t({ id: "channelEditor.rotateFailed", defaultMessage: "Couldn't rotate the key." }));
         }
       : undefined;
+  const channelInfo = (idHex: string) => {
+    const c = channels.find((x) => x.idHex === idHex);
+    return { name: c?.name ?? base.name, isPrivate: c?.isPrivate ?? base.isPrivate, view: c?.view };
+  };
   const mintAccessRole =
     scope.kind === "channel" && !ranked && base.isPrivate && onMintAccessRole
       ? (name: string) => guarded(() => onMintAccessRole(scopeHex, name), t({ id: "channelEditor.createRoleFailed", defaultMessage: "Couldn't create the role." }))
@@ -390,6 +450,7 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
 
   return {
     scope,
+    me,
     missing,
     ranked,
     canManageChannels,
@@ -418,6 +479,10 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
     mintAccessRole,
     rotateKey,
     steps,
+    review,
+    roleName: (id) => roster?.roles.find((r) => r.roleId === id)?.name,
+    channelInfo,
+    retryRotation: onRotateChannelKey,
     dirty: steps.length > 0,
     invalid: utf8Len(values.name.trim()) > NAME_MAX_BYTES || utf8Len(values.topic.trim()) > CHANNEL_TOPIC_MAX_BYTES,
     saving,

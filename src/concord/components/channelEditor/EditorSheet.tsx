@@ -1,15 +1,17 @@
-import { Check, ChevronLeft, ChevronRight, Folder, FolderX, KeyRound, Loader2, Lock, Plus, RefreshCw, RotateCw, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Check, ChevronRight, Folder, FolderX, KeyRound, Loader2, Lock, Plus, RefreshCw, RotateCw, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useId, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { PillTabs, type PillTab } from "@/components/ui/pill-tabs";
 import { Switch } from "@/components/ui/switch";
+import { AccessReviewPanel } from "@/concord/components/accessReview/AccessReviewPanel";
 import { ChannelGlyph } from "@/concord/components/ChannelGlyph";
 import { EditorLegacyAccess } from "@/concord/components/channelEditor/EditorLegacyAccess";
 import { ConfirmText, GeneralFields, RuleGroups, TargetLabel, TargetLead, TargetPicker, TargetSummary } from "@/concord/components/channelEditor/editorParts";
 import { editorMessages as m } from "@/concord/components/channelEditor/editorMessages";
-import { GROUP_LABEL, SHEET_BACK, SHEET_DIVIDER, SHEET_ROW, SHEET_TILE, SHEET_TITLE } from "@/concord/components/channelEditor/editorStyles";
+import { GROUP_LABEL, SHEET_DIVIDER, SHEET_ROW, SHEET_TILE, SHEET_TITLE } from "@/concord/components/channelEditor/editorStyles";
+import { SheetPageHeader as PageHeader } from "@/concord/components/channelEditor/SheetPageHeader";
 import type { EditorModel, EditorTab } from "@/concord/components/channelEditor/useChannelEditor";
 import { useEditorFlow } from "@/concord/components/channelEditor/useEditorFlow";
 import { WriteProgress } from "@/concord/components/WriteProgress";
@@ -99,22 +101,6 @@ function SwitchRow({
 const Heading = ({ children }: { children: ReactNode }) => <div className={cn(GROUP_LABEL, "px-3 pb-1 pt-2")}>{children}</div>;
 const Divider = () => <div role="separator" className={SHEET_DIVIDER} />;
 
-function PageHeader({ onBack, title, context }: { onBack: () => void; title: ReactNode; context?: ReactNode }) {
-  const intl = useIntl();
-  return (
-    // The back button sits on the rows' tile column, so the title starts where their labels do.
-    <div className="flex shrink-0 items-center gap-3 px-5 pb-1">
-      <button type="button" aria-label={intl.formatMessage(common.back)} className={SHEET_BACK} onClick={onBack}>
-        <ChevronLeft className="size-5" />
-      </button>
-      <div className="flex min-w-0 items-baseline gap-2">
-        <h2 className={cn("min-w-0", SHEET_TITLE)}>{title}</h2>
-        {context && <span className="truncate text-sm text-muted-foreground">{context}</span>}
-      </div>
-    </div>
-  );
-}
-
 /**
  * The Channel and Category editor as a bottom sheet, in the touch menu sheet's
  * format: rows that open pages of the same sheet, and a footer that saves.
@@ -136,11 +122,13 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
     if (open) openedAt.current = Date.now();
   }
   const guard = (e: { preventDefault: () => void }) => {
-    if (Date.now() - openedAt.current < OPEN_GUARD_MS) e.preventDefault();
+    if (flow.locked || Date.now() - openedAt.current < OPEN_GUARD_MS) e.preventDefault();
   };
 
   useOverlayBack(() => {
-    if (flow.confirm) flow.dismiss();
+    if (flow.review) {
+      if (!flow.locked) flow.leave();
+    } else if (flow.confirm) flow.dismiss();
     else if (page.id !== "root") root();
     else onOpenChange(false);
     return true;
@@ -155,7 +143,7 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
   );
 
   const ruled = page.id === "rule" ? model.targets.find((t) => t.key === page.key) : undefined;
-  const nested = page.id !== "root" && (page.id !== "rule" || ruled !== undefined);
+  const nested = flow.review !== null || (page.id !== "root" && (page.id !== "rule" || ruled !== undefined));
   const noCategory = <FormattedMessage {...m.noCategory} />;
 
   const targetRows = (
@@ -297,7 +285,8 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
   );
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    // A change being applied holds the sheet open until it has finished.
+    <Drawer open={open} dismissible={!flow.locked} onOpenChange={(next) => (next || !flow.locked) && onOpenChange(next)}>
       <DrawerContent
         // The popup's layer, like the menu sheet this is opened from.
         className="z-[260] max-h-[85dvh]"
@@ -305,6 +294,7 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
         aria-describedby={undefined}
         onPointerDownOutside={guard}
         onInteractOutside={guard}
+        onEscapeKeyDown={(e) => flow.locked && e.preventDefault()}
       >
         <div className={cn("flex shrink-0 items-center gap-3 px-5 pb-2 pt-1", nested && "hidden")}>
           <span className={SHEET_TILE}>
@@ -403,6 +393,25 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
               )}
             </div>
           </>
+        )}
+
+        {flow.review && (
+          <AccessReviewPanel
+            variant="sheet"
+            subject={{ kind: "scope", label: isChannel ? `#${model.base.name}` : model.base.name }}
+            review={flow.review.access}
+            privacy={flow.review.privacy}
+            roleName={model.roleName}
+            channel={model.channelInfo}
+            me={model.me}
+            run={flow.run}
+            published={model.published}
+            planned={model.planned}
+            onApply={flow.apply}
+            onCancel={flow.leave}
+            onClose={flow.leave}
+            onRetry={flow.retry}
+          />
         )}
 
         {page.id === "category" && (

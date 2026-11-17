@@ -20,7 +20,7 @@ import { useChannelRekey } from "@/concord/hooks/useRekey";
 import { accessCandidates, planSettle, rotationRecipients } from "@/concord/lib/accessDuty";
 import type { FoldedControl } from "@/concord/lib/control";
 import { bytesToHex } from "@/concord/lib/derive";
-import { emptySettleReport, registerRosterSettler, type SettleReport } from "@/concord/lib/keySettle";
+import { emptySettleReport, registerRosterSettler, type SettleReport, type SettleWatch } from "@/concord/lib/keySettle";
 import { hasPermission, Permissions } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -40,7 +40,7 @@ type Deps = {
 };
 
 /** The settle itself, hook-free (the hook below only gathers what it needs). */
-export async function settleRoster(d: Deps, before: FoldedControl, after: FoldedControl): Promise<SettleReport> {
+export async function settleRoster(d: Deps, before: FoldedControl, after: FoldedControl, watch?: SettleWatch): Promise<SettleReport> {
   const report = emptySettleReport();
   const me = d.user.pubkey;
   const owner = after.ownerHex;
@@ -79,8 +79,10 @@ export async function settleRoster(d: Deps, before: FoldedControl, after: Folded
       ),
     );
   }
+  if (rotations.length > 0) watch?.("rotate");
   await Promise.all(rotations);
   if (gained.size === 0) return report;
+  watch?.("send");
 
   // Both roads, from the keys the rotations left: the access plane is where every
   // client looks for a key it lacks, the invite is what Vector sends.
@@ -129,7 +131,7 @@ export function useRosterSettler(community: Community | undefined): void {
 
   useEffect(() => {
     if (!community) return;
-    return registerRosterSettler(community.idHex, (before, after) => {
+    return registerRosterSettler(community.idHex, (before, after, watch) => {
       const l = latest.current;
       if (!l.community || !l.user?.signer.nip44) return Promise.resolve(emptySettleReport());
       const c = l.community;
@@ -146,6 +148,7 @@ export function useRosterSettler(community: Community | undefined): void {
         },
         before,
         after,
+        watch,
       );
     });
   }, [community?.idHex, nostr, queryClient]); // eslint-disable-line react-hooks/exhaustive-deps

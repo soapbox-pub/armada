@@ -191,6 +191,7 @@ import { withKeySettle } from "@/concord/lib/keySettle";
 import { bytesToHex } from "@/concord/lib/derive";
 import { useRelayFollow } from "@/concord/hooks/useRelayFollow";
 import { useMemberPanelScope } from "@/concord/hooks/useMemberPanelScope";
+import { useGrantReview } from "@/concord/components/accessReview/useGrantReview";
 import { useRoleIntent } from "@/concord/hooks/useRoleIntent";
 import { useRoles, useStaffKeyWatch } from "@/concord/hooks/useRoles";
 import { useSendMessage } from "@/concord/hooks/useChannel";
@@ -2433,6 +2434,19 @@ function ConcordCommunityPage() {
   );
   const rankedControls = useRankedCategoryControls(community, canManageChannels, editorOps);
 
+  const toastRoleToggled = (on: boolean) =>
+    toast({ title: on ? t({ id: "concordPage.roles.granted", defaultMessage: "Role granted" }) : t({ id: "concordPage.roles.removed", defaultMessage: "Role removed" }) });
+  const grantReview = useGrantReview({
+    community,
+    folded,
+    me: user?.pubkey,
+    rolesFor: roleIntent.rolesFor,
+    toggle: async (member, roleId, on, follow) =>
+      (await roleIntent.toggle(member, roleId, on, (args) => setMemberRoles({ ...args, follow }))) !== undefined,
+    rotate: rotateChannelKey,
+    onDone: toastRoleToggled,
+  });
+
   // By-id lookup over the decoded set, for resolving inline-reply parents locally.
   const messagesById = useMemo(() => {
     const m = new Map<string, ChatMsg>();
@@ -2902,12 +2916,14 @@ function ConcordCommunityPage() {
       });
       return;
     }
+    // A toggle that changes what the member can see or do is reviewed first, and written from there.
+    if (grantReview.ask(pubkey, roleId, on)) return;
     try {
       // Composes on this client's last intent and ignores repeats in flight. The
       // Grant settles the Channel keys it moves before it resolves (`settledWrite`).
       const published = await roleIntent.toggle(pubkey, roleId, on);
       if (!published) return; // already in flight
-      toast({ title: on ? t({ id: "concordPage.roles.granted", defaultMessage: "Role granted" }) : t({ id: "concordPage.roles.removed", defaultMessage: "Role removed" }) });
+      toastRoleToggled(on);
     } catch (e) {
       toast({ title: t({ id: "concordPage.roles.changeFailed", defaultMessage: "Couldn't change roles" }), description: e instanceof Error ? e.message : undefined, variant: "destructive" });
     }
@@ -4221,6 +4237,7 @@ function ConcordCommunityPage() {
           </div>
       </ChatShell>
 
+      {grantReview.dialog}
       {/* Dialogs are built on first open (MountWhenOpened). */}
       <MountWhenOpened open={inviteOpen}>
         <InviteDialog community={community} open={inviteOpen} onOpenChange={setInviteOpen} canCreateLink={iAmAdminOrOwner} />
