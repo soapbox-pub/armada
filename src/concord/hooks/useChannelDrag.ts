@@ -20,17 +20,26 @@ export interface ChannelDrop {
  * Channel-shaped half of the sidebar drag; the gesture is {@link usePressDrag}
  * (shared with the server rail). Rows carry `touch-none` while a mouse could drag
  * them and while armed; an unarmed row scrolls natively on touch.
+ *
+ * With `handle`, presses come from a dedicated `touch-none` grip instead: every
+ * pointer picks up by moving, and the rest of the row is left to scroll.
  */
 export function useChannelDrag({
   enabled,
   columnRef,
+  boundsRef,
   measure,
   onDrop,
+  handle = false,
 }: {
   enabled: boolean;
+  /** The scroller the drag pans at its edges. */
   columnRef: React.MutableRefObject<HTMLElement | null>;
+  /** What the drop indicator spans, where that isn't the scroller itself. */
+  boundsRef?: React.RefObject<HTMLElement | null>;
   measure: () => ChannelDropSlot[];
   onDrop: (sourceIdHex: string, drop: ChannelDrop) => void;
+  handle?: boolean;
 }) {
   const [target, setTarget] = useState<ChannelDrop | null>(null);
   const [indicatorY, setIndicatorY] = useState<number | null>(null);
@@ -77,7 +86,7 @@ export function useChannelDrag({
     containerRef: columnRef,
     onPickup: (idHex, x, y) => {
       slots.current = measure();
-      const rect = columnRef.current?.getBoundingClientRect();
+      const rect = (boundsRef?.current ?? columnRef.current)?.getBoundingClientRect();
       setColumnX(rect ? { left: rect.left, width: rect.width } : null);
       aim(idHex, x, y);
     },
@@ -91,8 +100,9 @@ export function useChannelDrag({
     onContainerScroll: () => {
       slots.current = measureRef.current();
     },
-    // Touch: a hold opens the row's menu, whose "Move" arms the row.
-    touchHold: "menu",
+    // Touch on a row: a hold opens the row's menu, whose "Move" arms the row.
+    touchHold: handle ? "drag" : "menu",
+    pickupOnMove: handle ? "all" : "mouse",
   });
 
   /** Re-measure once the "new category" zone mounts (it only exists mid-drag). */

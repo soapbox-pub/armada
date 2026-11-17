@@ -33,16 +33,16 @@ function pointer(type: string, init: Record<string, unknown> = {}) {
  * A press delivered to the row's handler. `target` defaults to the row itself;
  * pass a node outside it to model React bubbling a press out of a portal.
  */
-function press(y: number, target?: Node) {
+function press(y: number, target?: Node, pointerType = "mouse") {
   const row = document.createElement("div");
   return {
     currentTarget: row,
     target: target ?? row,
-    nativeEvent: pointer("pointerdown", { clientY: y }),
+    nativeEvent: pointer("pointerdown", { clientY: y, pointerType }),
   } as unknown as React.PointerEvent;
 }
 
-function setup(enabled = true) {
+function setup(enabled = true, handle = false) {
   const onDrop = vi.fn();
   const columnRef = { current: document.createElement("div") as HTMLElement | null };
   // What the DOM would yield: the zone is absent until a drag is in flight.
@@ -52,9 +52,11 @@ function setup(enabled = true) {
     dragging = true;
     return slots;
   });
-  const view = renderHook(() => useChannelDrag({ enabled, columnRef, measure, onDrop }));
+  const view = renderHook(() => useChannelDrag({ enabled, columnRef, measure, onDrop, handle }));
   return { ...view, onDrop, measure };
 }
+
+const touch = { pointerType: "touch" };
 
 describe("useChannelDrag", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -128,6 +130,36 @@ describe("useChannelDrag", () => {
     });
     expect(result.current.dragging).toBe(false);
     expect(onDrop).not.toHaveBeenCalled();
+  });
+
+  it("leaves a touch on an unarmed row to its menu and the scroll", () => {
+    const { result, onDrop } = setup();
+    act(() => {
+      result.current.onPointerDown("chan-a")(press(100, undefined, "touch"));
+      vi.advanceTimersByTime(300);
+      window.dispatchEvent(pointer("pointermove", { clientY: 228, ...touch }));
+      window.dispatchEvent(pointer("pointerup", { clientY: 228, ...touch }));
+    });
+    expect(result.current.dragging).toBe(false);
+    expect(onDrop).not.toHaveBeenCalled();
+  });
+
+  it("picks up a touch on a grip as soon as it moves, with nothing armed", () => {
+    const { result, onDrop } = setup(true, true);
+
+    act(() => {
+      result.current.onPointerDown("chan-a")(press(100, undefined, "touch"));
+      window.dispatchEvent(pointer("pointermove", { clientY: 110, ...touch }));
+    });
+    expect(result.current.sourceIdHex).toBe("chan-a");
+
+    act(() => void window.dispatchEvent(pointer("pointermove", { clientY: 228, ...touch })));
+    act(() => void window.dispatchEvent(pointer("pointerup", { clientY: 228, ...touch })));
+    expect(onDrop).toHaveBeenCalledWith("chan-a", {
+      index: 2,
+      category: "Voice",
+      newCategory: undefined,
+    });
   });
 
   it("does nothing at all for a member who can't rearrange", () => {

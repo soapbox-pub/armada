@@ -110,6 +110,7 @@ import {
   type Community,
   type ImagePointer,
 } from "@/concord/lib/types";
+import { scrollParentOf } from "@/lib/scrollParent";
 import { cn } from "@/lib/utils";
 import { common, defineMessages, FormattedMessage, t, useIntl } from "@/i18n";
 import { ChannelGlyph } from "@/concord/components/ChannelGlyph";
@@ -1056,11 +1057,12 @@ function ChannelsSection({
     }
   };
 
-  /** The scrolling list the drag pans by hand on touch (rows are touch-none). */
+  /** The list scrolls with the page, so the drag pans the pane around it. */
   const channelScrollRef = useRef<HTMLElement | null>(null);
+  const channelListRef = useRef<HTMLDivElement | null>(null);
 
   const measureDropSlots = useCallback((): ChannelDropSlot[] => {
-    const root = channelScrollRef.current;
+    const root = channelListRef.current;
     if (!root) return [];
     const out: ChannelDropSlot[] = [];
     let rows = 0;
@@ -1120,9 +1122,20 @@ function ChannelsSection({
   const channelDrag = useChannelDrag({
     enabled: canManage,
     columnRef: channelScrollRef,
+    boundsRef: channelListRef,
     measure: measureDropSlots,
     onDrop: commitDrop,
+    handle: true,
   });
+
+  const attachColumn = channelDrag.attachColumn;
+  const attachChannelList = useCallback(
+    (el: HTMLDivElement | null) => {
+      channelListRef.current = el;
+      attachColumn(el ? (scrollParentOf(el) ?? el) : null);
+    },
+    [attachColumn],
+  );
 
   const draggedChannel = channelDrag.sourceIdHex
     ? (renderedChannels.find((c) => c.idHex === channelDrag.sourceIdHex) ?? null)
@@ -1137,9 +1150,7 @@ function ChannelsSection({
         data-ch-slot
         data-ch-index={index}
         data-ch-category={(rankedNames ? ch.categoryId : ch.category) ?? ""}
-        onPointerDown={channelDrag.onPointerDown(ch.idHex)}
-        // Otherwise Chrome claims a touch drag as a pan and cancels it (usePressDrag.ts).
-        className={cn("relative", canManage && "touch-none")}
+        className="relative"
       >
         {/* Dragged row stays MOUNTED (invisible): unmounting it cancels the touch gesture. */}
         <span className={cn("contents", dragged && "invisible")}>
@@ -1147,6 +1158,7 @@ function ChannelsSection({
             channel={ch}
             canManage={canManage}
             disabled={isRenaming || isSettingTopic || isFiling}
+            onGripPointerDown={channelDrag.onPointerDown(ch.idHex)}
             categories={categoryPicklist}
             onRename={(name) => renameChannel({ channelIdHex: ch.idHex, name })}
             onSetTopic={(topic) => setChannelTopic({ channelIdHex: ch.idHex, topic })}
@@ -1208,10 +1220,7 @@ function ChannelsSection({
           </Button>
         )}
       </div>
-      <div
-        ref={channelDrag.attachColumn}
-        className="max-h-[60vh] space-y-1 overflow-y-auto rounded-lg bg-secondary/40 p-1"
-      >
+      <div ref={attachChannelList} className="space-y-1 rounded-lg bg-secondary/40 p-1">
         {uncategorizedChannels.map(renderChannelRow)}
         {channelCategories.map((group) => {
           const collapsed = collapsedCategories.has(group.key);
@@ -1447,6 +1456,7 @@ function ChannelRow({
   channel,
   canManage,
   disabled,
+  onGripPointerDown,
   categories,
   onRename,
   onSetTopic,
@@ -1465,6 +1475,8 @@ function ChannelRow({
   channel: Channel;
   canManage: boolean;
   disabled: boolean;
+  /** A press on the grip, which is all of the row that drags. */
+  onGripPointerDown?: (e: React.PointerEvent) => void;
   categories: string[];
   onRename: (name: string) => Promise<void>;
   /** Set or clear the channel's topic (CORD-03 §2); empty removes it. */
@@ -1558,10 +1570,14 @@ function ChannelRow({
     <div className="px-1">
     <div className="flex items-center gap-2">
       {canManage && !editing && (
-        <GripVertical
+        // touch-none on the grip alone: a touch anywhere else on the row scrolls the page.
+        <span
           aria-hidden
-          className="-ml-1 size-4 shrink-0 cursor-grab text-muted-foreground/50"
-        />
+          onPointerDown={onGripPointerDown}
+          className="-ml-1 flex size-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/50 touch:size-11"
+        >
+          <GripVertical className="size-4" />
+        </span>
       )}
       <ChannelGlyph isPrivate={channel.isPrivate} view={channel.view} className="size-3.5 shrink-0 text-muted-foreground" />
       {editing ? (
