@@ -190,6 +190,8 @@ export interface CommandLine {
   name: string;
   /** Hex pubkey of the bot it names, when it named one. */
   bot?: string;
+  /** What followed the command word, as written; empty for a bare command. */
+  args: string;
 }
 
 /**
@@ -210,7 +212,7 @@ export function commandLine(
   const name = match[1].toLowerCase();
   const bots = addressedBots(tags);
   if (bots.length === 0 && text !== `/${match[1]}` && !knownCommands?.has(name)) return undefined;
-  return { name, bot: bots[0] };
+  return { name, bot: bots[0], args: text.slice(match[0].length).trim() };
 }
 
 type Token =

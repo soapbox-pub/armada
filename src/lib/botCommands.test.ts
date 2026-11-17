@@ -577,13 +577,13 @@ describe("interoperability with the reference implementation", () => {
 describe("commandLine (how an invocation renders in the timeline)", () => {
   const tagged = [botTag(BOT_A)];
 
-  it("reads an addressed invocation as an action, without its arguments", () => {
+  it("reads an addressed invocation as an action, with its arguments as written", () => {
     const line = commandLine(`/greet nostr:${NPUB} pirate 1`, tagged);
-    expect(line).toEqual({ name: "greet", bot: BOT_A });
+    expect(line).toEqual({ name: "greet", bot: BOT_A, args: `nostr:${NPUB} pirate 1` });
   });
 
   it("reads a bare command as an action even when it names no bot", () => {
-    expect(commandLine("/ping", [])).toEqual({ name: "ping", bot: undefined });
+    expect(commandLine("/ping", [])).toEqual({ name: "ping", bot: undefined, args: "" });
   });
 
   it("NEVER hides text a person actually wrote", () => {
@@ -595,14 +595,14 @@ describe("commandLine (how an invocation renders in the timeline)", () => {
     expect(commandLine("no slash at all", [])).toBeUndefined();
   });
 
-  it("still collapses arguments once a bot is named, since they were meant for it", () => {
-    expect(commandLine("/roll 20", tagged)).toEqual({ name: "roll", bot: BOT_A });
+  it("reads arguments as part of the action once a bot is named, since they were meant for it", () => {
+    expect(commandLine("/roll 20", tagged)).toEqual({ name: "roll", bot: BOT_A, args: "20" });
   });
 
   it("folds the command word, so a valid invocation cannot render as prose", () => {
     // The parser accepts `/PING`, so the renderer must recognise it too.
-    expect(commandLine("/PING", [])).toEqual({ name: "ping", bot: undefined });
-    expect(commandLine("/Roll 20", tagged)).toEqual({ name: "roll", bot: BOT_A });
+    expect(commandLine("/PING", [])).toEqual({ name: "ping", bot: undefined, args: "" });
+    expect(commandLine("/Roll 20", tagged)).toEqual({ name: "roll", bot: BOT_A, args: "20" });
   });
 
   // A 1:1 DM sends invocations untagged, so the timeline recognises them by the
@@ -610,11 +610,11 @@ describe("commandLine (how an invocation renders in the timeline)", () => {
   const known = new Set(["announce", "roll"]);
 
   it("promotes an untagged invocation with arguments when the bot declares it", () => {
-    expect(commandLine("/announce meow meowers", [], known)).toEqual({ name: "announce", bot: undefined });
+    expect(commandLine("/announce meow meowers", [], known)).toEqual({ name: "announce", bot: undefined, args: "meow meowers" });
   });
 
   it("folds the command word against the known set too", () => {
-    expect(commandLine("/Announce hello", [], known)).toEqual({ name: "announce", bot: undefined });
+    expect(commandLine("/Announce hello", [], known)).toEqual({ name: "announce", bot: undefined, args: "hello" });
   });
 
   it("still hides nothing: an undeclared /word with prose stays text", () => {

@@ -789,7 +789,6 @@ const ChatMessageInner = memo(function ChatMessageInner({
           />
         ) : null
       ) : invocation ? (
-        // Arguments are omitted: they were for the bot, whose reply reports the outcome.
         <div className="text-chat italic text-muted-foreground">
           <span className="font-semibold not-italic text-primary">
             <DisplayName pubkey={identityOverride ? undefined : event.pubkey} name={identityOverride?.name} />
@@ -806,6 +805,18 @@ const ChatMessageInner = memo(function ChatMessageInner({
           >
             /{invocation.name}
           </button>
+          {invocation.args && (
+            <>
+              {" "}
+              <ChatContent
+                event={event}
+                contentOverride={invocation.args}
+                className="inline not-italic text-foreground"
+                highlight={highlight}
+                noMentionAtPrefix
+              />
+            </>
+          )}
           {invocation.bot && (
             <>
               {" "}with <InvokedBotName pubkey={invocation.bot} />
