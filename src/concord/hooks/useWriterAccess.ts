@@ -6,16 +6,16 @@
 
 import { useNostr } from "@nostrify/react";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { readAccessPlanes } from "@/concord/hooks/useChannelAccess";
 import { useCoalescedRefetch } from "@/concord/hooks/useCoalescedRefetch";
 import { useControlFold } from "@/concord/hooks/useControlPlane";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
-import { useOwedReread } from "@/concord/hooks/useOwedReread";
-import { authoritySig } from "@/concord/lib/accessDuty";
+import { useNewlyOwed, useOwedReread } from "@/concord/hooks/useOwedReread";
 import { accessPlane, parseDelivery, type ParsedDelivery } from "@/concord/lib/delivery";
 import { hex32 } from "@/concord/lib/derive";
+import { rereadOnBackoff } from "@/concord/lib/quorum";
 import type { Community } from "@/concord/lib/types";
 import { adoptWriterDeliveries, canPostIn, subscribeWriterKeys, writerKeysReady, writerNeeds } from "@/concord/lib/writerKeys";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -40,10 +40,23 @@ export function useWriterAccess(community: Community | undefined): void {
   const heldSig = useSyncExternalStore(bumpOnWarm, () => warmedSig);
   const me = user?.pubkey;
 
-  const owed = community && folded?.rankedRoster && me
-    ? [...(folded.writers?.keys() ?? [])].filter((id) => writerNeeds(folded, community.id, id, me) !== undefined).sort()
+  const needs = community && folded?.rankedRoster && me
+    ? [...(folded.writers?.keys() ?? [])].flatMap((id) => {
+        const need = writerNeeds(folded, community.id, id, me);
+        return need ? [{ id, need }] : [];
+      }).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     : [];
+  const owed = needs.map((n) => n.id);
   const owedKey = owed.join(",");
+  // What is owed, down to each piece of each epoch: a rotation re-owes a Channel under the
+  // same id. Held keys warm after mount, which only shrinks this, so it moves on news alone.
+  const writerSig = useNewlyOwed(
+    community && folded && me
+      ? needs.flatMap(({ id, need }) =>
+          (["key", "cert", "certifier"] as const).filter((p) => need[p]).map((p) => `${id}:${need.epoch}:${need.pk}:${p}`),
+        )
+      : undefined,
+  );
 
   const query = useQuery({
     queryKey: ["concord", "writer-access", community?.idHex ?? null, community?.rootEpoch.toString() ?? null, owedKey, heldSig],
@@ -65,9 +78,21 @@ export function useWriterAccess(community: Community | undefined): void {
     relays: community?.relays ?? [],
     pks: planePks,
     pending: owed.length > 0,
-    sig: `${owedKey}|${folded?.rankedRoster ? authoritySig(folded) : ""}`,
+    sig: writerSig,
     refetch,
+    onMount: false,
   });
+  // Owed once the inputs load: no window, as it may never be delivered, but the same
+  // backoff Channel keys get, so a delivery whose live event was dropped isn't left a minute.
+  const owedAtLoad = useRef<boolean | undefined>(undefined);
+  if (owedAtLoad.current === undefined && writerSig !== undefined) owedAtLoad.current = owed.length > 0;
+  // Only what was owed at load: anything owed after nothing was is the window's.
+  else if (owedAtLoad.current && owed.length === 0) owedAtLoad.current = false;
+  const backoff = owedAtLoad.current === true && owed.length > 0;
+  useEffect(() => {
+    if (!backoff) return;
+    return rereadOnBackoff(refetch);
+  }, [backoff, refetch]);
 
   useEffect(() => {
     const nip44 = user?.signer.nip44;

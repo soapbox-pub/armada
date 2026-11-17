@@ -31,7 +31,7 @@ import { useWireScopes } from "@/wire/useWireScopes";
 import { setWatched } from "@/wire/watched";
 import { authoritySig } from "@/concord/lib/accessDuty";
 import { useCoalescedRefetch } from "@/concord/hooks/useCoalescedRefetch";
-import { OWED_REREAD_MS, useOwedReread } from "@/concord/hooks/useOwedReread";
+import { useNewlyOwed, useOwedReread } from "@/concord/hooks/useOwedReread";
 
 /** The least time between two Control Plane reads a stray delivery asks for. */
 const FRESHEN_GAP_MS = 3_000;
@@ -170,14 +170,22 @@ export function useChannelAccess(community: Community | undefined): void {
   });
 
   // Holders deliver a few seconds after the change that entitled this member: read again
-  // on a backoff, then every 10 s for a while, as relays drop the live event.
+  // on a backoff, as relays drop the live event, and every 10 s for a while after it when
+  // a Channel is newly owed. One owed since before mount may never be delivered.
   const authority = folded?.rankedRoster ? authoritySig(folded) : "";
+  const owedSig = useNewlyOwed(folded && me ? owed : undefined);
+  const lastOwedSig = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!authority || owed.length === 0) return;
+    const newly = lastOwedSig.current !== undefined && owedSig !== lastOwedSig.current;
+    if (owedSig !== undefined) lastOwedSig.current = owedSig;
+    // A newly owed Channel is the window's below, which starts with the same backoff.
+    if (newly || !authority || owed.length === 0) return;
     refetch();
-    return rereadOnBackoff(refetch, OWED_REREAD_MS);
+    return rereadOnBackoff(refetch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authority, owedKey]);
+  }, [authority, owedKey, owedSig]);
+  // Live wraps on these planes are already watched above.
+  useOwedReread({ owner: undefined, relays: [], pks: [], pending: Boolean(authority) && owed.length > 0, sig: owedSig, refetch, onMount: false });
 
   useEffect(() => {
     if (!community || !folded || !me || !entry || !query.data?.length) return;
@@ -265,45 +273,63 @@ export function useHistoryAccess(community: Community | undefined): void {
     refetchIntervalInBackground: false,
     queryFn: ({ signal }) => readAccessPlanes(nostr, community!, reads, signal),
   });
-  const refetch = useCoalescedRefetch(query.refetch);
 
   // Holders send history behind the key, so it lands after the read the key started:
-  // while a Channel lacks a past epoch (they start at 1), read again until it arrives.
+  // once a past epoch (they start at 1) goes missing that wasn't before, read just the
+  // Channels lacking one again until it arrives.
   const views = useSyncExternalStore(subscribeHistoryViews, historyViewsGeneration);
-  const gaps = useMemo(() => {
+  const missing = useMemo(() => {
     if (!community) return [];
-    return reads.filter((id) => {
+    return reads.flatMap((id) => {
       const k = heldKeys.find((c) => bytesToHex(c.id) === id);
-      if (!k || k.epoch <= 1n) return false;
+      if (!k || k.epoch <= 1n) return [];
       const have = new Set([...(k.priors ?? []).map((p) => p.epoch), ...heldHistoryViews(community.idHex, id).map((v) => v.epoch)]);
-      for (let e = 1n; e < k.epoch; e++) if (!have.has(e)) return true;
-      return false;
+      const lacks: bigint[] = [];
+      for (let e = 1n; e < k.epoch; e++) if (!have.has(e)) lacks.push(e);
+      return lacks.length > 0 ? [{ id, lacks }] : [];
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [community, readsKey, views]);
+  const gaps = missing.map((m) => m.id);
+  // An epoch goes missing for the first time on a key landing or a re-add past epochs this
+  // member was out for; a rotation moves the old key into the priors and owes nothing new.
+  // Kept across root epochs: the main read already follows the planes a rekey moves.
+  const historySig = useNewlyOwed(
+    community && folded && me ? missing.flatMap(({ id, lacks }) => lacks.map((e) => `${id}:${e}`)) : undefined,
+  );
   const gapPks = useMemo(
     () => (community ? gaps.map((id) => accessPlane(community, hex32(id)).pk) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [community?.idHex, community?.rootEpoch, gaps.join(",")],
   );
+  const gapsKey = gaps.join(",");
+  const gapQuery = useQuery({
+    queryKey: ["concord", "history-gaps", community?.idHex ?? null, community?.rootEpoch.toString() ?? null, gapsKey],
+    // Read only when the owed reread asks.
+    enabled: false,
+    queryFn: ({ signal }) => readAccessPlanes(nostr, community!, gaps, signal),
+  });
+  const refetchGaps = useCoalescedRefetch(gapQuery.refetch);
   useOwedReread({
     owner: community && `history:${community.idHex}`,
     relays: community?.relays ?? [],
     pks: gapPks,
     pending: gaps.length > 0,
-    sig: heldKeys.filter((c) => reads.includes(bytesToHex(c.id))).map((c) => `${bytesToHex(c.id)}:${c.epoch}`).sort().join(","),
-    refetch,
+    sig: historySig,
+    refetch: refetchGaps,
+    onMount: false,
   });
 
   useEffect(() => {
     const nip44 = user?.signer.nip44;
-    if (!community || !folded || !me || !nip44 || !query.data?.length) return;
+    const data = [...(query.data ?? []), ...(gapQuery.data ?? [])];
+    if (!community || !folded || !me || !nip44 || !data.length) return;
     void (async () => {
       await historyViewsReady();
       for (const idHex of reads) {
         const held = heldKeys.find((c) => bytesToHex(c.id) === idHex);
         if (!held) continue;
-        const deliveries = query.data!.filter((d) => d.channelIdHex === idHex).flatMap((d) => parseHistoryDelivery(d.opened, idHex) ?? []);
+        const deliveries = data.filter((d) => d.channelIdHex === idHex).flatMap((d) => parseHistoryDelivery(d.opened, idHex) ?? []);
         if (deliveries.length === 0) continue;
         await adoptHistoryDeliveries(deliveries, {
           communityIdHex: community.idHex,
@@ -317,5 +343,5 @@ export function useHistoryAccess(community: Community | undefined): void {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [community?.idHex, folded, me, query.data]);
+  }, [community?.idHex, folded, me, query.data, gapQuery.data]);
 }

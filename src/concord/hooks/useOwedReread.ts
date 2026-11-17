@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { REREAD_BACKOFF_MS } from "@/concord/lib/quorum";
 import { useWireScopes } from "@/wire/useWireScopes";
@@ -17,43 +17,72 @@ export const OWED_REREAD_MS: readonly number[] = (() => {
 })();
 
 /**
+ * A count that moves only when an entry this mount hasn't seen before appears, for
+ * {@link useOwedReread}'s `sig`: what is owed growing says a delivery is on its way,
+ * while what is owed shrinking (something landed) or staying unfillable says nothing.
+ * Undefined while `entries` is (the caller's inputs still loading).
+ */
+export function useNewlyOwed(entries: readonly string[] | undefined): string | undefined {
+  // A ref updated in render: the count only grows and is read back from the ref, so a
+  // discarded or repeated render can't make it disagree with itself.
+  const seen = useRef({ entries: new Set<string>(), generation: 0 });
+  if (!entries) return undefined;
+  let grew = false;
+  for (const e of entries) {
+    if (seen.current.entries.has(e)) continue;
+    seen.current.entries.add(e);
+    grew = true;
+  }
+  if (grew) seen.current.generation++;
+  return String(seen.current.generation);
+}
+
+/**
  * Read again while something is owed: at once when a wrap lands on one of `pks` (heard
  * live under `owner`), and on {@link OWED_REREAD_MS} from each change of `sig`, so a
  * delivery published just after a read is picked up in seconds rather than at the next
- * periodic read. Ends as soon as `pending` does, or {@link OWED_WINDOW_MS} after `sig` last
- * moved, leaving the caller's own periodic read.
+ * periodic read. The schedule ends as soon as `pending` does, or {@link OWED_WINDOW_MS}
+ * after `sig` last moved, leaving the live watch and the caller's own periodic read; a
+ * `sig` whose window has run never opens one again, so it must name everything owed.
+ *
+ * Without `onMount`, the first `sig` (undefined until the caller's inputs are loaded) is
+ * only the baseline: something owed since before mount may never be delivered, and only
+ * a change says a delivery is on its way.
  */
 export function useOwedReread(o: {
   owner: string | undefined;
   relays: readonly string[];
   pks: readonly string[];
   pending: boolean;
-  sig: string;
+  sig: string | undefined;
   refetch: () => void;
+  onMount?: boolean;
 }): void {
-  const { owner, pending, sig, refetch } = o;
+  const { owner, pending, sig, refetch, onMount = true } = o;
   const relaysKey = o.relays.join(",");
   const pksKey = o.pks.join(",");
-  const [lapsed, setLapsed] = useState<string | undefined>(undefined);
-  const live = pending && lapsed !== sig;
+  // The sig no schedule runs for: the baseline, then each whose window has run.
+  const [quiet, setQuiet] = useState<string | undefined>(onMount ? undefined : sig);
+  if (!onMount && quiet === undefined && sig !== undefined) setQuiet(sig);
+  const live = pending && sig !== undefined && sig !== quiet && (onMount || quiet !== undefined);
 
   useEffect(() => {
-    if (!owner || !live) return;
+    if (!owner || !pending) return;
     setWatched(owner, o.relays, o.pks);
     return () => setWatched(owner, [], []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [owner, live, relaysKey, pksKey]);
+  }, [owner, pending, relaysKey, pksKey]);
 
   useWireScopes((scopes) => {
-    if (live && o.pks.some((pk) => scopes.has(`c2park:${pk}`))) refetch();
+    if (pending && o.pks.some((pk) => scopes.has(`c2park:${pk}`))) refetch();
   });
 
   useEffect(() => {
-    if (!pending) return;
+    if (!live) return;
     refetch();
     const timers = OWED_REREAD_MS.map((ms) => setTimeout(refetch, ms));
-    timers.push(setTimeout(() => setLapsed(sig), OWED_WINDOW_MS));
+    timers.push(setTimeout(() => setQuiet(sig), OWED_WINDOW_MS));
     return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, sig]);
+  }, [live, sig]);
 }

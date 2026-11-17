@@ -38,8 +38,35 @@ describe("useOwedReread", () => {
     const closed = p.refetch.mock.calls.length;
     advance(OWED_WINDOW_MS);
     expect(p.refetch).toHaveBeenCalledTimes(closed);
-    // The live watch ends with the window, too.
-    expect(watched.has("writer:c")).toBe(false);
+    // The live watch outlasts the window: a wrap landing later still reads at once.
+    expect(watched.get("writer:c")).toEqual(["plane"]);
+    wake?.(new Set(["c2park:plane"]));
+    expect(p.refetch).toHaveBeenCalledTimes(closed + 1);
+  });
+
+  it("doesn't run a window again for a sig whose window has run", () => {
+    const p = props();
+    const { rerender } = renderHook((q) => useOwedReread(q), { initialProps: p });
+    advance(OWED_WINDOW_MS + 1);
+    p.refetch.mockClear();
+    rerender({ ...p, pending: false });
+    rerender({ ...p, pending: true });
+    advance(OWED_WINDOW_MS + 1);
+    expect(p.refetch).not.toHaveBeenCalled();
+  });
+
+  it("without onMount, takes the first loaded sig as a baseline and runs only on a change", () => {
+    const p = { ...props(), sig: undefined as string | undefined, onMount: false };
+    const { rerender } = renderHook((q) => useOwedReread(q), { initialProps: p });
+    rerender({ ...p, sig: "a" });
+    advance(OWED_WINDOW_MS + 1);
+    expect(p.refetch).not.toHaveBeenCalled();
+    // Still watched, so a delivery heard live is read.
+    expect(watched.get("writer:c")).toEqual(["plane"]);
+    rerender({ ...p, sig: "b" });
+    expect(p.refetch).toHaveBeenCalledTimes(1);
+    advance(20_000);
+    expect(p.refetch.mock.calls.length).toBeGreaterThan(1);
   });
 
   it("reads the moment a wrap lands on a watched plane, and only while owed", () => {
@@ -64,10 +91,10 @@ describe("useOwedReread", () => {
     const p = props();
     const { rerender } = renderHook((q) => useOwedReread(q), { initialProps: p });
     advance(OWED_WINDOW_MS + 1);
-    expect(watched.has("writer:c")).toBe(false);
     p.refetch.mockClear();
     rerender({ ...p, sig: "b" });
     expect(p.refetch).toHaveBeenCalledTimes(1);
-    expect(watched.get("writer:c")).toEqual(["plane"]);
+    advance(20_000);
+    expect(p.refetch.mock.calls.length).toBeGreaterThan(1);
   });
 });
