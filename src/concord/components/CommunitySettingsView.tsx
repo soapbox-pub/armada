@@ -1,10 +1,8 @@
 import {
-  AlignLeft,
-  ArrowDown,
   ArrowLeft,
-  ArrowUp,
   Check,
   Folder,
+  FolderPlus,
   GitBranch,
   Globe,
   GripVertical,
@@ -12,11 +10,9 @@ import {
   History,
   ImagePlus,
   Info,
-  KeyRound,
   Loader2,
   Lock,
   Megaphone,
-  MoreVertical,
   Pencil,
   Plug,
   Plus,
@@ -44,17 +40,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useNostr } from "@nostrify/react";
 
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -69,7 +54,7 @@ import {
   messageExpirationOf,
   publishTimerNotices,
 } from "@/concord/lib/disappearing";
-import { categoryKey, withRankedCategories, categoryNames, groupChannelsByCategory } from "@/concord/lib/channelCategory";
+import { withRankedCategories, groupChannelsByCategory } from "@/concord/lib/channelCategory";
 import {
   applyArrangement,
   arrangedBefore,
@@ -79,20 +64,22 @@ import {
   planChannelDrop,
   type PendingArrangement,
 } from "@/concord/lib/channelArrangement";
-import { ChannelCategoryHeading } from "@/concord/components/ChannelCategoryHeading";
 import { CategoryNameDialog } from "@/concord/components/CategoryNameDialog";
-import { ChannelTopicDialog } from "@/concord/components/ChannelTopicDialog";
+import { ChannelEditor, ChannelEditorPane } from "@/concord/components/channelEditor/ChannelEditor";
+import type { EditorOps, EditorScope } from "@/concord/components/channelEditor/useChannelEditor";
 import { useRankedCategoryControls } from "@/concord/components/RankedCategoryControls";
 import { useChannelDrag, type ChannelDrop, type ChannelDropSlot } from "@/concord/hooks/useChannelDrag";
 import { useCommunityManagement } from "@/concord/hooks/useCommunityActions";
 import { useChannels, useControlFold } from "@/concord/hooks/useControlPlane";
 import { useDecryptedImage } from "@/concord/hooks/useDecryptedImage";
+import { useRankedRoles } from "@/concord/hooks/useRankedRoles";
 import { useCommunityDiscoverListings } from "@/concord/hooks/useDiscoverListings";
 import { refreshInviteBundlesFor } from "@/concord/hooks/useRekey";
 import { useMetadataActions } from "@/concord/hooks/useRoles";
 import { DisplayName } from "@/components/DisplayName";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { useIsTouch } from "@/hooks/useIsMobile";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { toast } from "@/hooks/useToast";
 import { useUploadFile } from "@/hooks/useUploadFile";
@@ -113,8 +100,6 @@ import { cn } from "@/lib/utils";
 import { common, defineMessages, FormattedMessage, t, useIntl } from "@/i18n";
 import { ChannelGlyph } from "@/concord/components/ChannelGlyph";
 import { channelGitRepositoryAttachments } from "@/concord/lib/types";
-import { CHANNEL_VIEW_OPTIONS } from "@/concord/lib/channelViewOptions";
-import type { ChannelView } from "@/concord/lib/types";
 import { fetchGitRepositoryAnnouncement } from "@/lib/gitRepositoryResolver";
 import { parseGitRepositoryAddress } from "@/lib/gitActivity";
 import { AvatarInitial } from "@/components/AvatarInitial";
@@ -140,10 +125,8 @@ export function CommunitySettingsView({
   memberCount,
   canManageMetadata,
   canManageChannels,
-  channelRoles,
-  onPrivatiseChannel,
-  onRotateChannelKey,
-  onMintAccessRole,
+  editorOps,
+  onNewChannel,
   onOpenInvites,
 }: {
   community: Community;
@@ -152,12 +135,10 @@ export function CommunitySettingsView({
   memberCount: number;
   canManageMetadata: boolean;
   canManageChannels: boolean;
-  /** Per channel id, the Roles scoped to it — its access list (CORD-04 §2). */
-  channelRoles?: ReadonlyMap<string, Array<{ id: string; name: string }>>;
-  /** Convert a public channel to private (CORD-03 §2), naming its access role. */
-  onPrivatiseChannel?: (channelIdHex: string, accessRoleName?: string) => Promise<void>;
-  onRotateChannelKey?: (channelIdHex: string) => Promise<void>;
-  onMintAccessRole?: (channelIdHex: string, name: string) => Promise<void>;
+  /** What the channel editor needs from the page: access Roles, key rotation (CORD-04 §2). */
+  editorOps?: EditorOps;
+  /** Opens the page's new-channel dialog. */
+  onNewChannel?: () => void;
   onOpenInvites?: () => void;
 }) {
   const intl = useIntl();
@@ -260,14 +241,21 @@ export function CommunitySettingsView({
 
   const [tab, setTab] = useState<SettingsTab>("overview");
 
+  // Room for the channel editor beside its list. The column is that wide on every tab, so the tabs don't jump.
+  const touch = useIsTouch();
+  const [roomy, attachPane] = useMinWidth(SPLIT_MIN_PX);
+  const split = canManageChannels && !touch && roomy;
+  const column = split ? "max-w-2xl" : undefined;
+
   return (
-    <div className="mx-auto w-full max-w-2xl px-3 py-4">
+    <div ref={attachPane}>
+    <div className={cn("mx-auto w-full px-3 py-4", split ? "max-w-5xl" : "max-w-2xl")}>
       <div className="mb-4 flex">
         <PillTabs tabs={settingsTabs} value={tab} onChange={(id) => setTab(id)} />
       </div>
 
       {tab === "overview" && (
-        <div className="space-y-5">
+        <div className={cn("space-y-5", column)}>
           {(bannerUrl || canManageMetadata) && (
             <div className="relative">
               {bannerUrl ? (
@@ -466,11 +454,11 @@ export function CommunitySettingsView({
       )}
 
       {tab === "channels" && (
-        <ChannelsSection community={community} canManage={canManageChannels} channelRoles={channelRoles} onPrivatiseChannel={onPrivatiseChannel} onRotateChannelKey={onRotateChannelKey} onMintAccessRole={onMintAccessRole} />
+        <ChannelsSection community={community} canManage={canManageChannels} split={split} editorOps={editorOps} onNewChannel={onNewChannel} />
       )}
 
       {tab === "integrations" && (
-        <div className="space-y-5">
+        <div className={cn("space-y-5", column)}>
           <ConnectedRepositoriesSection community={community} canManage={canManageChannels} />
 
           <DiscordBridgeSection canManage={canManageChannels} />
@@ -478,7 +466,7 @@ export function CommunitySettingsView({
       )}
 
       {tab === "relays" && (
-        <div className="space-y-5">
+        <div className={cn("space-y-5", column)}>
           <RelaysSection
             community={community}
             metadata={metadata}
@@ -495,6 +483,7 @@ export function CommunitySettingsView({
           <HistorySection community={community} />
         </div>
       )}
+    </div>
     </div>
   );
 }
@@ -902,41 +891,113 @@ function OwnerRow({ pubkey }: { pubkey: string }) {
   );
 }
 
+const editorScopeKey = (scope: EditorScope) => `${scope.kind}:${scope.idHex}`;
+
+/** The pane width from which the editor fits beside the channel list. */
+const SPLIT_MIN_PX = 880;
+/** Shorter than this and the page scrolls after all. */
+const SPLIT_MIN_HEIGHT_PX = 320;
+
+/** Whether the attached element is at least `min` px wide, re-read as it resizes. */
+function useMinWidth(min: number) {
+  const [wide, setWide] = useState(false);
+  const observer = useRef<ResizeObserver | null>(null);
+  const attach = useCallback(
+    (el: HTMLElement | null) => {
+      observer.current?.disconnect();
+      observer.current = null;
+      if (!el) return;
+      setWide(el.getBoundingClientRect().width >= min);
+      observer.current = new ResizeObserver((entries) => setWide((entries[0]?.contentRect.width ?? 0) >= min));
+      observer.current.observe(el);
+    },
+    [min],
+  );
+  return [wide, attach] as const;
+}
+
+/** The height left under the attached element in its scroll parent, so its columns scroll and the page doesn't. */
+function useFillHeight(bottomGap: number) {
+  const [height, setHeight] = useState<number | undefined>(undefined);
+  const observer = useRef<ResizeObserver | null>(null);
+  const attach = useCallback(
+    (el: HTMLElement | null) => {
+      observer.current?.disconnect();
+      observer.current = null;
+      const scroller = el && scrollParentOf(el);
+      if (!el || !scroller) return;
+      const measure = () => {
+        const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+        setHeight(Math.max(SPLIT_MIN_HEIGHT_PX, scroller.clientHeight - top - bottomGap));
+      };
+      measure();
+      observer.current = new ResizeObserver(measure);
+      observer.current.observe(scroller);
+    },
+    [bottomGap],
+  );
+  return [height, attach] as const;
+}
+
+const LIST_GRIP = "-ml-1 flex size-6 shrink-0 items-center justify-center touch:size-11";
+const LIST_ROW = "flex items-center gap-1 rounded-md pl-2 pr-1 transition-colors";
+
+/** `touch-none`, so a finger on it drags while the rest of the row scrolls the page. */
+function ListGrip({ onPointerDown }: { onPointerDown: (e: React.PointerEvent) => void }) {
+  return (
+    <span aria-hidden data-drag-grip onPointerDown={onPointerDown} className={cn(LIST_GRIP, "cursor-grab touch-none text-muted-foreground/50")}>
+      <GripVertical className="size-4" />
+    </span>
+  );
+}
+
 /**
- * The community's channels; MANAGE_CHANNELS can edit and drag to reorder or
- * categorize with the same `useChannelDrag` and optimistic overlay as the sidebar.
+ * The community's channels and categories. A row opens the editor: beside the
+ * list where the pane is `split`, over the page otherwise. MANAGE_CHANNELS drags
+ * a row by its grip, with the same `useChannelDrag` and optimistic order as the sidebar.
  */
 function ChannelsSection({
   community,
   canManage,
-  channelRoles,
-  onPrivatiseChannel,
-  onRotateChannelKey,
-  onMintAccessRole,
+  split,
+  editorOps,
+  onNewChannel,
 }: {
   community: Community;
   canManage: boolean;
-  channelRoles?: ReadonlyMap<string, Array<{ id: string; name: string }>>;
-  onPrivatiseChannel?: (channelIdHex: string, accessRoleName?: string) => Promise<void>;
-  onRotateChannelKey?: (channelIdHex: string) => Promise<void>;
-  onMintAccessRole?: (channelIdHex: string, name: string) => Promise<void>;
+  split: boolean;
+  editorOps?: EditorOps;
+  onNewChannel?: () => void;
 }) {
   const intl = useIntl();
   const channels = useChannels(community);
-  const { renameChannel, isRenaming, setChannelTopic, isSettingTopic, setChannelCategory, isFiling, setChannelView, deleteChannel, createChannel, isAddingChannel, arrangeChannels, nameCategory, publiciseChannel } =
-    useCommunityManagement(community);
+  const { setChannelCategory, arrangeChannels, nameCategory } = useCommunityManagement(community);
+  const { moveCategory } = useRankedRoles(community);
   const rankedControls = useRankedCategoryControls(community, canManage);
+  const { ranked } = rankedControls;
+  // MANAGE_ROLES alone still opens the editor, for its permissions.
+  const canOpen = canManage || Boolean(rankedControls.openChannelPermissions);
+
+  // A Category drop shows at once, until the fold moves on from the order it was made against.
+  const [pendingCategories, setPendingCategories] = useState<{ from: string; order: readonly string[] } | null>(null);
+  const foldedCategoryOrder = useMemo(() => rankedControls.categories.map((c) => c.idHex).join(), [rankedControls.categories]);
+  if (pendingCategories && pendingCategories.from !== foldedCategoryOrder) setPendingCategories(null);
+  const rankedCategories = useMemo(() => {
+    if (!pendingCategories) return rankedControls.categories;
+    const byId = new Map(rankedControls.categories.map((c) => [c.idHex, c]));
+    return pendingCategories.order.flatMap((id) => byId.get(id) ?? []);
+  }, [rankedControls.categories, pendingCategories]);
 
   // Dropped as soon as the fold agrees, so others' later changes aren't masked (channelArrangement.ts).
   const [pendingArrangement, setPendingArrangement] = useState<PendingArrangement | null>(null);
   /** On the vsk-13 Roster a drop names Categories by id (CORD-03 §4); this reads one back. */
   const rankedNames = useMemo(
     () => {
-      if (!rankedControls.ranked) return undefined;
-      const names = new Map(rankedControls.categories.map((c) => [c.idHex, c.name || c.idHex.slice(0, 8)]));
+      if (!ranked) return undefined;
+      const names = new Map(rankedCategories.map((c) => [c.idHex, c.name || c.idHex.slice(0, 8)]));
       return (id: string) => names.get(id);
     },
-    [rankedControls.ranked, rankedControls.categories],
+    [ranked, rankedCategories],
   );
   const arrangedChannels = useMemo(
     () => applyArrangement(channels, pendingArrangement, rankedNames),
@@ -951,13 +1012,8 @@ function ChannelsSection({
   const { uncategorized: uncategorizedChannels, categories: channelCategories } = useMemo(() => {
     const grouped = groupChannelsByCategory(arrangedChannels, (c) => c.category);
     // Every vsk-13 Category, an empty one included (CORD-03 §4).
-    return rankedControls.ranked ? { ...grouped, categories: withRankedCategories(grouped.categories, rankedControls.categories, () => true) } : grouped;
-  }, [arrangedChannels, rankedControls.ranked, rankedControls.categories]);
-  // Offer existing names so "Voice" isn't retyped as "voice".
-  const categoryPicklist = useMemo(
-    () => (rankedControls.ranked ? rankedControls.categories.map((c) => c.name) : categoryNames(arrangedChannels, (c) => c.category)),
-    [arrangedChannels, rankedControls.ranked, rankedControls.categories],
-  );
+    return ranked ? { ...grouped, categories: withRankedCategories(grouped.categories, rankedCategories, () => true) } : grouped;
+  }, [arrangedChannels, ranked, rankedCategories]);
 
   // Drop indexes refer to THIS flattened order.
   const renderedChannels = useMemo(
@@ -979,24 +1035,43 @@ function ChannelsSection({
     return out;
   }, [uncategorizedChannels, channelCategories]);
 
-  const [collapsedCategories, setCollapsedCategories] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const toggleCategory = useCallback((key: string) => {
-    setCollapsedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  const [scope, setScope] = useState<EditorScope | undefined>(undefined);
+  const [paneDirty, setPaneDirty] = useState(false);
+  // A row picked for the pane must not open the overlay when the pane narrows.
+  const [wasSplit, setWasSplit] = useState(split);
+  if (wasSplit !== split) {
+    setWasSplit(split);
+    setScope(undefined);
+  }
+  /** What the pane shows: the picked row while it exists, else the first channel. */
+  const pickedExists = scope && (scope.kind === "channel"
+    ? renderedChannels.some((c) => c.idHex === scope.idHex)
+    : channelCategories.some((g) => g.key === scope.idHex));
+  const firstChannel = renderedChannels[0];
+  const paneScope: EditorScope | undefined = !split
+    ? undefined
+    : scope && pickedExists
+    ? scope
+    : firstChannel && { idHex: firstChannel.idHex, kind: "channel", name: firstChannel.name };
+  const shownKey = paneScope && editorScopeKey(paneScope);
+  const fill = Boolean(paneScope);
+  const [fillHeight, attachFill] = useFillHeight(16);
+
+  const open = (next: EditorScope) => {
+    if (split && paneDirty && editorScopeKey(next) !== shownKey) {
+      toast({ title: t({ id: "communitySettingsView.channels.unsaved", defaultMessage: "Save or cancel your changes first." }) });
+      return;
+    }
+    setScope(next);
+  };
+  const closeEditor = useCallback(() => setScope(undefined), []);
 
   const [categoryPrompt, setCategoryPrompt] = useState<
     { channels: readonly Channel[]; initial: string; categoryId?: string } | null
   >(null);
 
   const submitCategoryName = (prompt: { channels: readonly Channel[]; categoryId?: string }, name: string) => {
-    if (!rankedControls.ranked) return void refileCategory(prompt.channels, name);
+    if (!ranked) return void refileCategory(prompt.channels, name);
     void nameCategory({ channelIds: prompt.channels.map((c) => c.idHex), categoryId: prompt.categoryId, name }).catch((e: unknown) =>
       toast({
         title: t({ id: "rankedCategory.saveFailed", defaultMessage: "Couldn't save the category" }),
@@ -1030,27 +1105,9 @@ function ChannelsSection({
     [setChannelCategory],
   );
 
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
-
-  const handleCreate = async () => {
-    const name = newName.trim();
-    if (!name) return;
-    try {
-      await createChannel({ name });
-      setNewName("");
-      setCreating(false);
-    } catch (e) {
-      toast({
-        title: t({ id: "communitySettingsView.channels.createFailed", defaultMessage: "Couldn't create channel" }),
-        description: e instanceof Error ? e.message : undefined,
-        variant: "destructive",
-      });
-    }
-  };
-
   /** The list scrolls with the page, so the drag pans the pane around it. */
   const channelScrollRef = useRef<HTMLElement | null>(null);
+  const categoryScrollRef = useRef<HTMLElement | null>(null);
   const channelListRef = useRef<HTMLDivElement | null>(null);
 
   const measureDropSlots = useCallback((): ChannelDropSlot[] => {
@@ -1120,22 +1177,88 @@ function ChannelsSection({
     handle: true,
   });
 
-  const attachColumn = channelDrag.attachColumn;
+  /** A Category is dropped between whole Categories: before the one at `index`. */
+  const measureCategorySlots = useCallback((): ChannelDropSlot[] => {
+    const root = channelListRef.current;
+    if (!root) return [];
+    const out: ChannelDropSlot[] = [];
+    for (const el of root.querySelectorAll<HTMLElement>("[data-cat-slot]")) {
+      const index = Number(el.dataset.catIndex);
+      if (!Number.isInteger(index)) continue;
+      const rect = el.getBoundingClientRect();
+      out.push({ index, category: undefined, y: rect.top });
+      out.push({ index: index + 1, category: undefined, y: rect.bottom });
+    }
+    return out;
+  }, []);
+
+  const commitCategoryDrop = useCallback(
+    (sourceIdHex: string, drop: ChannelDrop) => {
+      const order = rankedCategories.map((c) => c.idHex);
+      const from = order.indexOf(sourceIdHex);
+      if (from < 0) return;
+      // `moveCategory` counts positions among the OTHER Categories.
+      const index = drop.index > from ? drop.index - 1 : drop.index;
+      if (index === from) return;
+      order.splice(from, 1);
+      order.splice(index, 0, sourceIdHex);
+      setPendingCategories({ from: foldedCategoryOrder, order });
+      void moveCategory({ idHex: sourceIdHex, index }).catch((e: unknown) => {
+        setPendingCategories(null);
+        toast({
+          title: t({ id: "rankedCategory.moveFailed", defaultMessage: "Couldn't move the category" }),
+          description: e instanceof Error ? e.message : undefined,
+          variant: "destructive",
+        });
+      });
+    },
+    [rankedCategories, foldedCategoryOrder, moveCategory],
+  );
+
+  const categoryDrag = useChannelDrag({
+    enabled: canManage && ranked,
+    columnRef: categoryScrollRef,
+    boundsRef: channelListRef,
+    measure: measureCategorySlots,
+    onDrop: commitCategoryDrop,
+    handle: true,
+  });
+
+  const attachChannelColumn = channelDrag.attachColumn;
+  const attachCategoryColumn = categoryDrag.attachColumn;
   const attachChannelList = useCallback(
     (el: HTMLDivElement | null) => {
       channelListRef.current = el;
-      attachColumn(el ? (scrollParentOf(el) ?? el) : null);
+      const scroller = el ? (scrollParentOf(el) ?? el) : null;
+      attachChannelColumn(scroller);
+      attachCategoryColumn(scroller);
     },
-    [attachColumn],
+    [attachChannelColumn, attachCategoryColumn],
   );
 
   const draggedChannel = channelDrag.sourceIdHex
     ? (renderedChannels.find((c) => c.idHex === channelDrag.sourceIdHex) ?? null)
     : null;
+  const draggedCategory = categoryDrag.sourceIdHex
+    ? (channelCategories.find((g) => g.key === categoryDrag.sourceIdHex) ?? null)
+    : null;
+  const drag = categoryDrag.dragging ? categoryDrag : channelDrag;
+
+  const draggedOutline = (
+    <span className="pointer-events-none absolute inset-x-0 inset-y-px clip-hairline-lg [--edge:var(--primary)/0.5] [--fill:var(--primary)/0.05] [--fill-hover:var(--primary)/0.05]" />
+  );
 
   const renderChannelRow = (ch: Channel) => {
     const index = renderedIndexOf.get(ch.idHex) ?? 0;
     const dragged = channelDrag.sourceIdHex === ch.idHex;
+    const selected = shownKey === `channel:${ch.idHex}`;
+    const body = (
+      <>
+        <ChannelGlyph isPrivate={ch.isPrivate} view={ch.view} className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{ch.name}</span>
+      </>
+    );
+    const bodyClass = "flex min-h-9 min-w-0 flex-1 items-center gap-2 text-left touch:min-h-11";
     return (
       <div
         key={ch.idHex}
@@ -1145,178 +1268,177 @@ function ChannelsSection({
         className="relative"
       >
         {/* Dragged row stays MOUNTED (invisible): unmounting it cancels the touch gesture. */}
-        <span className={cn("contents", dragged && "invisible")}>
-          <ChannelRow
-            channel={ch}
-            canManage={canManage}
-            disabled={isRenaming || isSettingTopic || isFiling}
-            onGripPointerDown={channelDrag.onPointerDown(ch.idHex)}
-            categories={categoryPicklist}
-            onRename={(name) => renameChannel({ channelIdHex: ch.idHex, name })}
-            onSetTopic={(topic) => setChannelTopic({ channelIdHex: ch.idHex, topic })}
-            accessRoles={channelRoles?.get(ch.idHex) ?? []}
-            onPrivatise={onPrivatiseChannel ? (roleName) => onPrivatiseChannel(ch.idHex, roleName) : undefined}
-            onPublicise={canManage ? () => publiciseChannel({ channelIdHex: ch.idHex }) : undefined}
-            onRotateKey={onRotateChannelKey ? () => onRotateChannelKey(ch.idHex) : undefined}
-            onMintAccessRole={onMintAccessRole ? (name) => onMintAccessRole(ch.idHex, name) : undefined}
-            onSetCategory={(category) => setChannelCategory({ channelIdHex: ch.idHex, category })}
-            onSetView={canManage ? (view) => setChannelView({ channelIdHex: ch.idHex, view }) : undefined}
-            onNewCategory={() => setCategoryPrompt({ channels: [ch], initial: "" })}
-            onPermissions={rankedControls.openChannelPermissions ? () => rankedControls.openChannelPermissions?.(ch) : undefined}
-            ranked={rankedControls.ranked}
-            onDelete={
-              canManage && channels.length > 1
-                ? async () => {
-                    if (!confirm(t(
-                      { id: "communitySettingsView.channels.confirmDelete", defaultMessage: "Delete #{name}? Its id is never reused." },
-                      { name: ch.name },
-                    ))) return;
-                    try {
-                      await deleteChannel({ channelIdHex: ch.idHex });
-                      toast({ title: t({ id: "communitySettingsView.channels.deleted", defaultMessage: "Channel deleted" }) });
-                    } catch (e) {
-                      toast({
-                        title: t({ id: "communitySettingsView.channels.deleteFailed", defaultMessage: "Couldn't delete" }),
-                        description: e instanceof Error ? e.message : undefined,
-                        variant: "destructive",
-                      });
-                    }
-                  }
-                : undefined
-            }
-          />
-        </span>
-        {dragged && (
-          <span className="pointer-events-none absolute inset-x-0 inset-y-px clip-hairline-lg [--edge:var(--primary)/0.5] [--fill:var(--primary)/0.05] [--fill-hover:var(--primary)/0.05]" />
-        )}
+        <div className={cn(LIST_ROW, canOpen && "hover:bg-secondary/70", selected && "bg-secondary", dragged && "invisible")}>
+          {canManage && <ListGrip onPointerDown={channelDrag.onPointerDown(ch.idHex)} />}
+          {canOpen ? (
+            <button
+              type="button"
+              aria-current={selected || undefined}
+              onClick={() => open({ idHex: ch.idHex, kind: "channel", name: ch.name })}
+              className={bodyClass}
+            >
+              {body}
+            </button>
+          ) : (
+            <div className={bodyClass}>{body}</div>
+          )}
+        </div>
+        {dragged && draggedOutline}
       </div>
     );
   };
 
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
+  const renderCategory = (group: (typeof channelCategories)[number], index: number) => {
+    const dragged = categoryDrag.sourceIdHex === group.key;
+    const selected = shownKey === `category:${group.key}`;
+    const aimed =
+      channelDrag.dragging &&
+      !channelDrag.target?.newCategory &&
+      channelDrag.target?.category === (rankedNames ? group.key : group.name);
+    const labelClass = cn(
+      "flex min-h-8 min-w-0 flex-1 items-center text-left text-2xs font-semibold uppercase tracking-wider transition-colors touch:min-h-11",
+      aimed || selected ? "text-primary" : "text-muted-foreground/80",
+    );
+    return (
+      <div key={group.key} data-cat-slot data-cat-index={index} className="relative pt-1">
+        {/* Mounted while dragged, like a channel row. */}
+        <div className={cn("space-y-1", dragged && "invisible")}>
+          <div className={cn(LIST_ROW, canOpen && "hover:bg-secondary/70", selected && "bg-secondary")}>
+            {canManage && (ranked
+              ? <ListGrip onPointerDown={categoryDrag.onPointerDown(group.key)} />
+              : <span aria-hidden className={LIST_GRIP} />)}
+            {canOpen ? (
+              <button
+                type="button"
+                aria-current={selected || undefined}
+                onClick={() => open({ idHex: group.key, kind: "category", name: group.name })}
+                className={cn(labelClass, !aimed && !selected && "hover:text-foreground")}
+              >
+                <span className="truncate">{group.name}</span>
+              </button>
+            ) : (
+              <div className={labelClass}>
+                <span className="truncate">{group.name}</span>
+              </div>
+            )}
+          </div>
+          {group.channels.map(renderChannelRow)}
+          {group.channels.length === 0 && canManage && channelDrag.dragging && (
+            <div data-ch-slot data-ch-empty data-ch-index={emptyIndexOf.get(group.key) ?? 0} data-ch-category={group.key} className="h-6" />
+          )}
+        </div>
+        {dragged && draggedOutline}
+      </div>
+    );
+  };
+
+  const list = (
+    <div className={fill ? "flex min-h-0 flex-col gap-1.5" : "space-y-1.5"}>
+      <div className="flex shrink-0 items-center justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           <FormattedMessage id="communitySettingsView.channels.title" defaultMessage="Channels" />
         </span>
-        {canManage && !creating && (
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="size-6 touch:size-11 shrink-0 text-muted-foreground"
-            aria-label={intl.formatMessage({ id: "communitySettingsView.channels.add", defaultMessage: "Add channel" })}
-            onClick={() => setCreating(true)}
-          >
-            <Plus className="size-3.5" />
-          </Button>
-        )}
-      </div>
-      <div ref={attachChannelList} className="space-y-1 rounded-lg bg-secondary/40 p-1">
-        {uncategorizedChannels.map(renderChannelRow)}
-        {channelCategories.map((group) => {
-          const collapsed = collapsedCategories.has(group.key);
-          return (
-            <div key={group.key} className="space-y-0.5">
-              <ChannelCategoryHeading
-                name={group.name}
-                collapsed={collapsed}
-                onToggle={() => toggleCategory(group.key)}
-                highlight={
-                  channelDrag.dragging &&
-                  !channelDrag.target?.newCategory &&
-                  channelDrag.target?.category === (rankedNames ? group.key : group.name)
-                }
-                onRename={
-                  canManage
-                    ? () => setCategoryPrompt({ channels: group.channels, initial: group.name, ...(rankedControls.ranked ? { categoryId: group.key } : {}) })
-                    : undefined
-                }
-                onUngroup={
-                  canManage ? () => void refileCategory(group.channels, undefined) : undefined
-                }
-                {...rankedControls.actionsFor(group.key, group.name)}
-              />
-              {!collapsed && group.channels.map(renderChannelRow)}
-              {group.channels.length === 0 && canManage && channelDrag.dragging && (
-                <div data-ch-slot data-ch-empty data-ch-index={emptyIndexOf.get(group.key) ?? 0} data-ch-category={group.key} className="h-6" />
-              )}
-            </div>
-          );
-        })}
-        {/* Only while dragging: an empty category can't exist. */}
-        {canManage && channelDrag.dragging && (
-          <div
-            data-ch-newzone
-            className={cn(
-              "mt-2 flex items-center justify-center gap-1.5 clip-hairline-lg px-2 py-3 text-2xs font-semibold uppercase tracking-wider transition-colors",
-              channelDrag.target?.newCategory
-                ? "[--edge:var(--primary)] [--fill:var(--primary)/0.05] [--fill-hover:var(--primary)/0.05] text-primary"
-                : "[--edge:var(--primary)/0.5] [--fill:var(--background)/0.4] [--fill-hover:var(--background)/0.4] text-muted-foreground/70",
+        {canManage && (
+          <span className="flex items-center">
+            {ranked && (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-7 shrink-0 text-muted-foreground touch:size-11"
+                aria-label={intl.formatMessage({ id: "communitySettingsView.categories.add", defaultMessage: "Add category" })}
+                onClick={() => setCategoryPrompt({ channels: [], initial: "" })}
+              >
+                <FolderPlus className="size-4" />
+              </Button>
             )}
-          >
-            <Plus className="size-3.5" />
-            <FormattedMessage id="communitySettingsView.channels.newCategory" defaultMessage="New category" />
-          </div>
-        )}
-        {creating && (
-          <form
-            className="flex items-center gap-1 px-1"
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleCreate();
-            }}
-          >
-            <Hash className="size-3.5 shrink-0 text-muted-foreground" />
-            <Input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder={intl.formatMessage({ id: "communitySettingsView.channels.newPlaceholder", defaultMessage: "new-channel" })}
-              autoFocus
-              className="h-7 text-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  setCreating(false);
-                  setNewName("");
-                }
-              }}
-            />
-            <Button
-              type="submit"
-              size="icon"
-              variant="ghost"
-              className="size-7 touch:size-11 shrink-0"
-              disabled={isAddingChannel || !newName.trim()}
-              aria-label={intl.formatMessage({ id: "communitySettingsView.channels.create", defaultMessage: "Create channel" })}
-            >
-              {isAddingChannel ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-            </Button>
-          </form>
+            {onNewChannel && (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="size-7 shrink-0 text-muted-foreground touch:size-11"
+                aria-label={intl.formatMessage({ id: "communitySettingsView.channels.add", defaultMessage: "Add channel" })}
+                onClick={onNewChannel}
+              >
+                <Plus className="size-4" />
+              </Button>
+            )}
+          </span>
         )}
       </div>
+      <div className={fill ? "min-h-0 overflow-y-auto overscroll-contain rounded-lg" : undefined}>
+        {/* Keyed so the drags re-read their scroller when the list gains or loses one of its own. */}
+        <div key={fill ? "own" : "page"} ref={attachChannelList} className="space-y-1 rounded-lg bg-secondary/40 p-1">
+          {uncategorizedChannels.map(renderChannelRow)}
+          {channelCategories.map(renderCategory)}
+          {/* Only while dragging: an empty category can't exist. */}
+          {canManage && channelDrag.dragging && (
+            <div
+              data-ch-newzone
+              className={cn(
+                "mt-2 flex items-center justify-center gap-1.5 clip-hairline-lg px-2 py-3 text-2xs font-semibold uppercase tracking-wider transition-colors",
+                channelDrag.target?.newCategory
+                  ? "[--edge:var(--primary)] [--fill:var(--primary)/0.05] [--fill-hover:var(--primary)/0.05] text-primary"
+                  : "[--edge:var(--primary)/0.5] [--fill:var(--background)/0.4] [--fill-hover:var(--background)/0.4] text-muted-foreground/70",
+              )}
+            >
+              <Plus className="size-3.5" />
+              <FormattedMessage id="communitySettingsView.channels.newCategory" defaultMessage="New category" />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 
-      {channelDrag.pointer && draggedChannel && (
+  return (
+    <>
+      {paneScope ? (
+        <div
+          ref={attachFill}
+          style={{ height: fillHeight }}
+          className="grid grid-cols-[16rem_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-6"
+        >
+          {list}
+          <ChannelEditorPane
+            key={editorScopeKey(paneScope)}
+            community={community}
+            scope={paneScope}
+            ops={editorOps}
+            className="max-h-full self-start"
+            onRemoved={closeEditor}
+            onDirtyChange={setPaneDirty}
+          />
+        </div>
+      ) : (
+        list
+      )}
+
+      {drag.pointer && (draggedChannel || draggedCategory) && (
         <div
           className="pointer-events-none fixed z-[300] -translate-y-1/2 animate-in zoom-in-75 duration-150"
-          style={{ left: (channelDrag.columnX?.left ?? 0) + 12, top: channelDrag.pointer.y }}
+          style={{ left: (drag.columnX?.left ?? 0) + 12, top: drag.pointer.y }}
         >
           <span className="flex max-w-48 items-center gap-2 rotate-[-2deg] scale-105 clip-corner-lg bg-muted px-3 py-1.5 text-sm font-medium ring-2 ring-primary [filter:drop-shadow(0_8px_16px_rgba(0,0,0,0.55))_drop-shadow(0_0_8px_hsl(var(--primary)/0.6))]">
-            <ChannelGlyph isPrivate={draggedChannel.isPrivate} view={draggedChannel.view} className="size-4 shrink-0" />
-            <span className="truncate">{draggedChannel.name}</span>
+            {draggedChannel
+              ? <ChannelGlyph isPrivate={draggedChannel.isPrivate} view={draggedChannel.view} className="size-4 shrink-0" />
+              : <Folder className="size-4 shrink-0" />}
+            <span className="truncate">{draggedChannel?.name ?? draggedCategory?.name}</span>
           </span>
         </div>
       )}
-      {channelDrag.dragging && (
+      {drag.dragging && (
         <div className="fixed inset-0 z-[298] cursor-grabbing" aria-hidden />
       )}
-      {channelDrag.indicatorY !== null && !channelDrag.target?.newCategory && (
+      {drag.indicatorY !== null && !drag.target?.newCategory && (
         <div
           aria-hidden
           className="pointer-events-none fixed z-[299] h-0.5 rounded-full bg-primary shadow-[0_0_6px_hsl(var(--primary)/0.7)]"
           style={{
-            top: channelDrag.indicatorY - 1,
-            left: (channelDrag.columnX?.left ?? 0) + 6,
-            width: (channelDrag.columnX?.width ?? 0) - 12,
+            top: drag.indicatorY - 1,
+            left: (drag.columnX?.left ?? 0) + 6,
+            width: (drag.columnX?.width ?? 0) - 12,
           }}
         />
       )}
@@ -1327,638 +1449,11 @@ function ChannelsSection({
         count={categoryPrompt?.channels.length ?? 0}
         onOpenChange={(next) => !next && setCategoryPrompt(null)}
         onSubmit={(name) => categoryPrompt && submitCategoryName(categoryPrompt, name)}
-        ranked={rankedControls.ranked}
+        ranked={ranked}
       />
-      {rankedControls.ranked && (canManage || rankedControls.openCategoryPermissions) && (
-        <RankedCategoryList
-          controls={rankedControls}
-          canManage={canManage}
-          onCreate={() => setCategoryPrompt({ channels: [], initial: "" })}
-          onRename={(idHex, name) => setCategoryPrompt({ channels: [], initial: name, categoryId: idHex })}
-        />
-      )}
-      {rankedControls.dialog}
-    </div>
+      <ChannelEditor community={community} scope={split ? undefined : scope} ops={editorOps} onClose={closeEditor} />
+    </>
   );
-}
-
-/** Every vsk-13 Category, empty ones included (CORD-03 §4), with its actions. */
-function RankedCategoryList({
-  controls,
-  canManage,
-  onCreate,
-  onRename,
-}: {
-  controls: ReturnType<typeof useRankedCategoryControls>;
-  canManage: boolean;
-  onCreate: () => void;
-  onRename: (idHex: string, name: string) => void;
-}) {
-  const intl = useIntl();
-  return (
-    <div className="space-y-1.5 pt-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          <FormattedMessage id="communitySettingsView.categories.title" defaultMessage="Categories" />
-        </span>
-        {canManage && (
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="size-6 touch:size-11 shrink-0 text-muted-foreground"
-            aria-label={intl.formatMessage({ id: "communitySettingsView.categories.add", defaultMessage: "Add category" })}
-            onClick={onCreate}
-          >
-            <Plus className="size-3.5" />
-          </Button>
-        )}
-      </div>
-      <div className="space-y-0.5 rounded-lg bg-secondary/40 p-1">
-        {controls.categories.length === 0 ? (
-          <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-            <FormattedMessage id="communitySettingsView.categories.empty" defaultMessage="No categories yet." />
-          </p>
-        ) : (
-          controls.categories.map((c) => {
-            const name = c.name || c.idHex.slice(0, 8);
-            const a = controls.actionsFor(c.idHex, name);
-            return (
-              <div key={c.idHex} className="flex items-center gap-1.5 rounded-md px-2 hover:bg-secondary/70">
-                <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate py-1.5 text-sm">{name}</span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="size-7 shrink-0 text-muted-foreground touch:size-11"
-                      aria-label={intl.formatMessage({ id: "communitySettingsView.category.actions", defaultMessage: "Actions for {name}" }, { name })}
-                    >
-                      <MoreVertical className="size-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    {canManage && (
-                      <DropdownMenuItem onSelect={() => onRename(c.idHex, c.name)}>
-                        <Pencil className="size-3.5" />
-                        <FormattedMessage id="channelCategoryHeading.rename" defaultMessage="Rename category" />
-                      </DropdownMenuItem>
-                    )}
-                    {a.onMoveUp && (
-                      <DropdownMenuItem onSelect={a.onMoveUp}>
-                        <ArrowUp className="size-3.5" />
-                        <FormattedMessage id="channelCategoryHeading.moveUp" defaultMessage="Move up" />
-                      </DropdownMenuItem>
-                    )}
-                    {a.onMoveDown && (
-                      <DropdownMenuItem onSelect={a.onMoveDown}>
-                        <ArrowDown className="size-3.5" />
-                        <FormattedMessage id="channelCategoryHeading.moveDown" defaultMessage="Move down" />
-                      </DropdownMenuItem>
-                    )}
-                    {a.onPermissions && (
-                      <DropdownMenuItem onSelect={a.onPermissions}>
-                        <KeyRound className="size-3.5" />
-                        <FormattedMessage id="channelPermissions.title" defaultMessage="Permissions" />
-                      </DropdownMenuItem>
-                    )}
-                    {a.onDelete && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={a.onDelete} className="text-destructive focus:text-destructive">
-                          <Trash2 className="size-3.5" />
-                          <FormattedMessage id="channelCategoryHeading.delete" defaultMessage="Delete category" />
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ChannelRow({
-  channel,
-  canManage,
-  disabled,
-  onGripPointerDown,
-  categories,
-  onRename,
-  onSetTopic,
-  onSetCategory,
-  onSetView,
-  onNewCategory,
-  onPermissions,
-  ranked = false,
-  onDelete,
-  accessRoles,
-  onPrivatise,
-  onPublicise,
-  onRotateKey,
-  onMintAccessRole,
-}: {
-  channel: Channel;
-  canManage: boolean;
-  disabled: boolean;
-  /** A press on the grip, which is all of the row that drags. */
-  onGripPointerDown?: (e: React.PointerEvent) => void;
-  categories: string[];
-  onRename: (name: string) => Promise<void>;
-  /** Set or clear the channel's topic (CORD-03 §2); empty removes it. */
-  onSetTopic: (topic: string) => Promise<void>;
-  onSetCategory: (name: string | undefined) => Promise<void>;
-  /** Flip what the channel opens to — forum feed or chat (CORD-03 §2 `view`). */
-  onSetView?: (view: ChannelView) => Promise<void>;
-  onNewCategory: () => void;
-  /** The vsk-13 permissions dialog (CORD-04 §8); undefined without MANAGE_ROLES or on the legacy Roster. */
-  onPermissions?: () => void;
-  /** On the vsk-13 Roster access is the Channel's permissions (CORD-04 §8), not a scoped Role. */
-  ranked?: boolean;
-  onDelete?: () => void;
-  /** The Roles scoped to this channel — who may read it (CORD-03/04 §2). */
-  accessRoles?: Array<{ id: string; name: string }>;
-  onPrivatise?: (accessRoleName?: string) => Promise<void>;
-  /** Convert Private → Public (CORD-03 §2): readable by every member from here on. */
-  onPublicise?: () => Promise<void>;
-  /** Re-key to exactly the currently-entitled members (drift/leak repair). */
-  onRotateKey?: () => Promise<void>;
-  onMintAccessRole?: (name: string) => Promise<void>;
-}) {
-  const intl = useIntl();
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(channel.name);
-  const [accessOpen, setAccessOpen] = useState(false);
-  const [topicOpen, setTopicOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [roleDraft, setRoleDraft] = useState("");
-  const [addingRole, setAddingRole] = useState(false);
-
-  const file = async (name: string | undefined) => {
-    try {
-      await onSetCategory(name);
-      toast({
-        title: name
-          ? t({ id: "communitySettingsView.channel.movedTo", defaultMessage: "Moved to {name}" }, { name })
-          : t({ id: "communitySettingsView.channel.removedFromCategory", defaultMessage: "Removed from category" }),
-      });
-    } catch (e) {
-      toast({
-        title: t({ id: "communitySettingsView.channel.moveFailed", defaultMessage: "Couldn't move channel" }),
-        description: e instanceof Error ? e.message : undefined,
-        variant: "destructive",
-      });
-    }
-  };
-
-  useEffect(() => {
-    setValue(channel.name);
-  }, [channel.name]);
-
-  useEffect(() => {
-    if (accessOpen) return;
-    setRoleDraft("");
-    setAddingRole(false);
-  }, [accessOpen]);
-
-  const run = async (fn: () => Promise<void>, failTitle: string) => {
-    setBusy(true);
-    try {
-      await fn();
-    } catch (e) {
-      toast({ title: failTitle, description: e instanceof Error ? e.message : undefined, variant: "destructive" });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const commit = async () => {
-    const trimmed = value.trim();
-    if (trimmed && trimmed !== channel.name) {
-      try {
-        await onRename(trimmed);
-      } catch (e) {
-        toast({
-          title: t({ id: "communitySettingsView.channel.renameFailed", defaultMessage: "Rename failed" }),
-          description: e instanceof Error ? e.message : undefined,
-          variant: "destructive",
-        });
-        setValue(channel.name);
-      }
-    }
-    setEditing(false);
-  };
-
-  const currentView = channel.view ?? "chat";
-  const ViewIcon = CHANNEL_VIEW_OPTIONS.find((c) => c.view === currentView)?.icon ?? Hash;
-  const showAccessButton = canManage && Boolean(onPrivatise || (channel.isPrivate && (onRotateKey || onPublicise)));
-  const row = (
-    <div className="px-1">
-    <div className="flex items-center gap-2">
-      {canManage && !editing && (
-        // touch-none on the grip alone: a touch anywhere else on the row scrolls the page.
-        <span
-          aria-hidden
-          onPointerDown={onGripPointerDown}
-          className="-ml-1 flex size-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/50 touch:size-11"
-        >
-          <GripVertical className="size-4" />
-        </span>
-      )}
-      <ChannelGlyph isPrivate={channel.isPrivate} view={channel.view} className="size-3.5 shrink-0 text-muted-foreground" />
-      {editing ? (
-        <form
-          className="flex flex-1 items-center gap-1"
-          onSubmit={(e) => {
-            e.preventDefault();
-            commit();
-          }}
-        >
-          <Input
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            autoFocus
-            className="h-7 text-sm"
-            onBlur={commit}
-          />
-          <Button
-            type="submit"
-            size="icon"
-            variant="ghost"
-            className="size-7 touch:size-11 shrink-0"
-            disabled={disabled}
-            aria-label={intl.formatMessage({ id: "communitySettingsView.channel.saveName", defaultMessage: "Save name" })}
-          >
-            <Check className="size-3.5" />
-          </Button>
-        </form>
-      ) : (
-        <>
-          <span className="flex-1 min-w-0">
-            <span className="block truncate text-sm">
-              {channel.name}
-              {channel.category && (
-                <span className="ml-1.5 text-xs text-muted-foreground">{channel.category}</span>
-              )}
-            </span>
-            {channel.topic && <span className="block truncate text-xs text-muted-foreground">{channel.topic}</span>}
-          </span>
-          {canManage && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="size-7 shrink-0 text-muted-foreground touch:size-11"
-                  aria-label={intl.formatMessage({ id: "communitySettingsView.channel.actions", defaultMessage: "Actions for {name}" }, { name: channel.name })}
-                  disabled={disabled}
-                >
-                  <MoreVertical className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem onSelect={() => setEditing(true)}>
-                  <Pencil className="size-3.5" />
-                  <FormattedMessage id="communitySettingsView.channel.rename" defaultMessage="Rename" />
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setTopicOpen(true)}>
-                  <AlignLeft className="size-3.5" />
-                  {channel.topic
-                    ? <FormattedMessage id="communitySettingsView.channel.editTopic" defaultMessage="Edit topic" />
-                    : <FormattedMessage id="communitySettingsView.channel.setTopic" defaultMessage="Set topic" />}
-                </DropdownMenuItem>
-                {onSetView && (
-                  // Same channel id: history stays valid whatever it opens as.
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="gap-2">
-                      <ViewIcon className="size-3.5" />
-                      <FormattedMessage id="communitySettingsView.channel.type" defaultMessage="Type" />
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-44">
-                      {CHANNEL_VIEW_OPTIONS.map(({ view, icon: Icon, label }) => (
-                        <DropdownMenuItem
-                          key={view}
-                          disabled={busy || view === currentView}
-                          onSelect={() =>
-                            void run(async () => {
-                              await onSetView(view);
-                              toast({
-                                title: t({ id: "communitySettingsView.channel.typeChanged", defaultMessage: "#{name} is now a {type, select, voice {voice} forum {forum} other {text}} channel" }, { name: channel.name, type: view }),
-                              });
-                            }, t({ id: "communitySettingsView.channel.setViewFailed", defaultMessage: "Couldn't change how the channel opens" }))
-                          }
-                        >
-                          <Icon className="size-3.5" />
-                          {intl.formatMessage(label)}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                )}
-                {showAccessButton && (
-                  <DropdownMenuItem onSelect={() => setAccessOpen((v) => !v)}>
-                    <Shield className="size-3.5" />
-                    {channel.isPrivate
-                      ? <FormattedMessage id="communitySettingsView.channel.access" defaultMessage="Channel access" />
-                      : <FormattedMessage id="communitySettingsView.channel.makePrivateMenu" defaultMessage="Make private…" />}
-                  </DropdownMenuItem>
-                )}
-                {onPermissions && (
-                  <DropdownMenuItem onSelect={onPermissions}>
-                    <KeyRound className="size-3.5" />
-                    <FormattedMessage id="channelPermissions.title" defaultMessage="Permissions" />
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="gap-2">
-                    <Folder className="size-3.5" />
-                    <FormattedMessage id="communitySettingsView.channel.category" defaultMessage="Category" />
-                    {channel.category && (
-                      <span className="ml-auto max-w-24 truncate text-xs text-muted-foreground">
-                        {channel.category}
-                      </span>
-                    )}
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-52">
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                      <FormattedMessage id="communitySettingsView.channel.category" defaultMessage="Category" />
-                    </DropdownMenuLabel>
-                    {categories.map((name) => (
-                      <DropdownMenuItem
-                        key={name}
-                        onSelect={() => void file(name)}
-                        disabled={categoryKey(name) === categoryKey(channel.category ?? "")}
-                      >
-                        <Folder className="size-3.5" />
-                        <span className="truncate">{name}</span>
-                      </DropdownMenuItem>
-                    ))}
-                    {categories.length > 0 && <DropdownMenuSeparator />}
-                    <DropdownMenuItem onSelect={onNewCategory}>
-                      <Plus className="size-3.5" />
-                      <FormattedMessage id="communitySettingsView.channel.newCategory" defaultMessage="New category…" />
-                    </DropdownMenuItem>
-                    {channel.category && (
-                      <DropdownMenuItem onSelect={() => void file(undefined)}>
-                        <X className="size-3.5" />
-                        <FormattedMessage id="communitySettingsView.channel.removeFromCategory" defaultMessage="Remove from category" />
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-                {onDelete && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onSelect={onDelete}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      <Trash2 className="size-3.5" />
-                      <FormattedMessage id="communitySettingsView.channel.delete" defaultMessage="Delete channel" />
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </>
-      )}
-    </div>
-
-    {accessOpen && (
-      <div className="mb-1 ml-5 mt-1 space-y-1.5 rounded-lg bg-secondary/40 p-2.5">
-        {channel.isPrivate && ranked ? (
-          <>
-            <p className="text-xs text-muted-foreground">
-              <FormattedMessage
-                id="communitySettingsView.access.rankedPrivate"
-                defaultMessage="Who can read this channel is set by its permissions: allow View channel for a role or a member. Keys follow the change."
-              />
-            </p>
-            {onPermissions && (
-              <Button type="button" size="sm" variant="secondary" className="clip-corner-lg" onClick={onPermissions}>
-                <KeyRound className="size-3.5 mr-1.5" />
-                <FormattedMessage id="channelPermissions.title" defaultMessage="Permissions" />
-              </Button>
-            )}
-          </>
-        ) : channel.isPrivate ? (
-          <>
-            {/* CORD-03/04 §2: access is edited by granting channel-scoped Roles, not here. */}
-            <p className="text-xs text-muted-foreground">
-              {accessRoles?.length
-                ? <FormattedMessage id="communitySettingsView.access.readableByRoles" defaultMessage="Readable by holders of these roles:" />
-                : <FormattedMessage id="communitySettingsView.access.readableByNoRole" defaultMessage="Readable by holders of no role yet:" />}
-            </p>
-            {accessRoles?.length ? (
-              <ul className="space-y-0.5">
-                {accessRoles.map((role) => (
-                  <li key={role.id} className="flex items-center gap-1.5 text-sm">
-                    <Shield className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-                    <span className="truncate">{role.name}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {onMintAccessRole
-                  ? <FormattedMessage id="communitySettingsView.access.noRoleCreateBelow" defaultMessage="No role is scoped to this channel, so only the owner and existing key holders can read it. Create one below." />
-                  : <FormattedMessage id="communitySettingsView.access.noRoleCreateInRoles" defaultMessage="No role is scoped to this channel, so only the owner and existing key holders can read it. Create one below in Roles, scoped to this channel." />}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">
-              <FormattedMessage id="communitySettingsView.access.grantHint" defaultMessage="Grant one of these roles to give a member access; revoking it rotates the key away." />
-            </p>
-            {onMintAccessRole && addingRole && (
-              <form
-                className="flex items-center gap-1"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const trimmed = roleDraft.trim();
-                  if (!trimmed) return;
-                  void run(async () => {
-                    await onMintAccessRole(trimmed);
-                    setRoleDraft("");
-                    setAddingRole(false);
-                  }, t({ id: "communitySettingsView.access.createRoleFailed", defaultMessage: "Couldn't create the role" }));
-                }}
-              >
-                <Shield className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-                <Input
-                  value={roleDraft}
-                  onChange={(e) => setRoleDraft(e.target.value)}
-                  placeholder={intl.formatMessage({ id: "communitySettingsView.access.roleName", defaultMessage: "Role name" })}
-                  aria-label={intl.formatMessage({ id: "communitySettingsView.access.newRoleName", defaultMessage: "New access role name" })}
-                  autoFocus
-                  maxLength={64}
-                  disabled={busy}
-                  className="h-7 text-sm"
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      setAddingRole(false);
-                      setRoleDraft("");
-                    }
-                  }}
-                />
-                <Button
-                  type="submit"
-                  size="icon"
-                  variant="ghost"
-                  className="size-7 touch:size-11 shrink-0"
-                  disabled={busy || !roleDraft.trim()}
-                  aria-label={intl.formatMessage({ id: "communitySettingsView.access.createRole", defaultMessage: "Create access role" })}
-                >
-                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-                </Button>
-              </form>
-            )}
-          </>
-        ) : (
-          <>
-            <p className="text-xs text-muted-foreground">
-              <FormattedMessage id="communitySettingsView.access.public" defaultMessage="Readable by every member. A public channel's key comes from the community root." />
-            </p>
-            {onPrivatise && !ranked && (
-              <Input
-                value={roleDraft}
-                onChange={(e) => setRoleDraft(e.target.value)}
-                placeholder={intl.formatMessage(
-                  { id: "communitySettingsView.access.roleNamePlaceholder", defaultMessage: "Access role name (default: {name})" },
-                  { name: channel.name },
-                )}
-                aria-label={intl.formatMessage({ id: "communitySettingsView.access.roleNameLabel", defaultMessage: "Access role name" })}
-                maxLength={64}
-                disabled={busy}
-                className="h-7 text-sm"
-              />
-            )}
-          </>
-        )}
-        <div className="flex items-center justify-end gap-2 pt-1">
-          {!channel.isPrivate && onPrivatise && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="mr-auto text-muted-foreground"
-              disabled={busy}
-              onClick={() => run(async () => {
-                await onPrivatise(roleDraft.trim() || undefined);
-                setRoleDraft("");
-                setAccessOpen(false);
-              }, t({ id: "communitySettingsView.access.makePrivateFailed", defaultMessage: "Couldn't make the channel private" }))}
-            >
-              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <FormattedMessage id="communitySettingsView.access.makePrivate" defaultMessage="Make private" />}
-            </Button>
-          )}
-          {channel.isPrivate && onMintAccessRole && !addingRole && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="mr-auto text-muted-foreground"
-              disabled={busy}
-              title={intl.formatMessage({
-                id: "communitySettingsView.access.newRoleHint",
-                defaultMessage: "Mint another role scoped to this channel. Holding any of its roles grants access.",
-              })}
-              onClick={() => setAddingRole(true)}
-            >
-              <FormattedMessage id="communitySettingsView.access.newRole" defaultMessage="New role" />
-            </Button>
-          )}
-          {channel.isPrivate && onRotateKey && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className={cn("text-muted-foreground", !onMintAccessRole && "mr-auto")}
-              disabled={busy}
-              title={intl.formatMessage({
-                id: "communitySettingsView.access.rotateHint",
-                defaultMessage: "Mint a fresh key for exactly the members entitled today. Anyone else loses access from here on.",
-              })}
-              onClick={() => {
-                if (!confirm(ranked ? t(
-                  {
-                    id: "communitySettingsView.access.confirmRotateRanked",
-                    defaultMessage:
-                      "Rotate #{name}'s key?\n\nIt gets a fresh key delivered only to members its permissions let in right now. Anyone else, including someone who kept a key from an earlier setting, loses access to what's said next.",
-                  },
-                  { name: channel.name },
-                ) : t(
-                  {
-                    id: "communitySettingsView.access.confirmRotate",
-                    defaultMessage:
-                      "Rotate #{name}'s key?\n\nIt gets a fresh key delivered only to members who hold one of its roles right now. Anyone else, including someone who kept a key from an earlier setting, loses access to what's said next.",
-                  },
-                  { name: channel.name },
-                ))) return;
-                void run(async () => {
-                  await onRotateKey();
-                  toast({ title: t({ id: "communitySettingsView.access.rotated", defaultMessage: "Channel key rotated" }) });
-                }, t({ id: "communitySettingsView.access.rotateFailed", defaultMessage: "Couldn't rotate the key" }));
-              }}
-            >
-              <FormattedMessage id="communitySettingsView.access.rotate" defaultMessage="Rotate key" />
-            </Button>
-          )}
-          {channel.isPrivate && onPublicise && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="text-muted-foreground"
-              disabled={busy}
-              onClick={() => {
-                if (!confirm(t(
-                  {
-                    id: "communitySettingsView.access.confirmPublic",
-                    defaultMessage: "Make #{name} public?\n\nEvery member can read what's said there from now on. What was said while it was private stays readable only to those who held its key.",
-                  },
-                  { name: channel.name },
-                ))) return;
-                void run(async () => {
-                  await onPublicise();
-                  setAccessOpen(false);
-                  toast({ title: t({ id: "communitySettingsView.access.madePublic", defaultMessage: "#{name} is now public" }, { name: channel.name }) });
-                }, t({ id: "communitySettingsView.access.makePublicFailed", defaultMessage: "Couldn't make the channel public" }));
-              }}
-            >
-              <FormattedMessage id="communitySettingsView.access.makePublic" defaultMessage="Make public" />
-            </Button>
-          )}
-          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setAccessOpen(false)}>
-            <FormattedMessage {...common.close} />
-          </Button>
-        </div>
-      </div>
-    )}
-    {canManage && (
-      <ChannelTopicDialog
-        open={topicOpen}
-        channelName={channel.name}
-        initial={channel.topic ?? ""}
-        onOpenChange={setTopicOpen}
-        onSubmit={(topic) =>
-          void run(
-            () => onSetTopic(topic),
-            t({ id: "communitySettingsView.channel.setTopicFailed", defaultMessage: "Couldn't change the topic" }),
-          )
-        }
-      />
-    )}
-    </div>
-  );
-
-  return row;
 }
 
 /**

@@ -305,6 +305,26 @@ export function useRankedRoles(community: Community | undefined) {
     onSuccess: done,
   });
 
+  /** A scope's sync and overwrites in one write: planned whole first, so a refusal publishes none, and keys settle once. */
+  const applyRules = useMutation<
+    void,
+    Error,
+    { scope: string; sync?: { category: string | undefined }; overwrites: Array<{ target: OverwriteTarget; allow: bigint; deny: bigint }> }
+  >({
+    mutationFn: ({ scope, sync, overwrites }) => write(async () => {
+      const { user, community } = ready();
+      const { folded } = await read(community, false);
+      const authority = citationFor(community, folded, user.pubkey);
+      const held = heldKeys(community);
+      const rumors = [
+        ...(sync ? [planSync(folded, community.id, user.pubkey, held, scope, sync.category, authority)] : []),
+        ...overwrites.map((o) => planOverwrite(folded, community.id, user.pubkey, held, scope, o.target, o.allow, o.deny, authority)),
+      ];
+      await publish(community, rumors);
+    }),
+    onSuccess: done,
+  });
+
   const createCategory = useMutation<string, Error, { name: string }>({
     mutationFn: ({ name }) => write(async () => {
       const { user, community } = ready();
@@ -372,6 +392,7 @@ export function useRankedRoles(community: Community | undefined) {
     setOverwrite: setOverwrite.mutateAsync,
     setSync: setSync.mutateAsync,
     syncChannels: syncChannels.mutateAsync,
+    applyRules: applyRules.mutateAsync,
     createCategory: createCategory.mutateAsync,
     renameCategory: renameCategory.mutateAsync,
     moveCategory: moveCategory.mutateAsync,
@@ -384,7 +405,7 @@ export function useRankedRoles(community: Community | undefined) {
     published,
     planned,
     isSaving:
-      createRole.isPending || editRole.isPending || moveRole.isPending || reorderRoles.isPending || deleteRole.isPending || setEveryone.isPending || setOverwrite.isPending || setSync.isPending || syncChannels.isPending ||
+      createRole.isPending || editRole.isPending || moveRole.isPending || reorderRoles.isPending || deleteRole.isPending || setEveryone.isPending || setOverwrite.isPending || setSync.isPending || syncChannels.isPending || applyRules.isPending ||
       createCategory.isPending || renameCategory.isPending || moveCategory.isPending || deleteCategory.isPending,
   };
 }

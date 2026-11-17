@@ -24,7 +24,7 @@ vi.mock("@/concord/hooks/useRankedRoles", () => {
   };
 });
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: { pubkey: "aa".repeat(32) } }) }));
-vi.mock("@/concord/components/ChannelPermissionsDialog", () => ({ ChannelPermissionsDialog: () => null }));
+vi.mock("@/concord/components/channelEditor/ChannelEditor", () => ({ ChannelEditor: () => null }));
 
 const { useRankedCategoryControls } = await import("./RankedCategoryControls");
 

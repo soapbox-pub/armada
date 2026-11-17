@@ -4,7 +4,8 @@ import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ChromeDialogContent, ChromeDialogFooter, ChromeDialogHeader, Dialog } from "@/components/ui/dialog";
 
-import { ChannelPermissionsDialog } from "@/concord/components/ChannelPermissionsDialog";
+import { ChannelEditor } from "@/concord/components/channelEditor/ChannelEditor";
+import type { EditorOps, EditorScope } from "@/concord/components/channelEditor/useChannelEditor";
 import { useRankedRoles } from "@/concord/hooks/useRankedRoles";
 import { categoryOrder } from "@/concord/lib/rankedWrites";
 import { isAuthorized, Permissions } from "@/concord/lib/roles";
@@ -13,21 +14,16 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { toast } from "@/hooks/useToast";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
 
-type Scope = { idHex: string; kind: "channel" | "category"; name: string };
-
 /**
- * The vsk-13 Category and permission actions a channel list offers (CORD-03 §4,
- * CORD-04 §8): reorder, delete, and the permissions dialog for a Category or a
- * Channel. Everything is absent on the legacy Roster.
+ * What a channel list offers on a Channel or Category: the editor, and on the
+ * vsk-13 Roster the Category's reorder and delete (CORD-03 §4, CORD-04 §8).
+ * The Category actions and the permissions shortcuts are absent on the legacy Roster.
  */
-export function useRankedCategoryControls(community: Community | undefined, canManageChannels: boolean) {
+export function useRankedCategoryControls(community: Community | undefined, canManageChannels: boolean, ops?: EditorOps) {
   const intl = useIntl();
   const { user } = useCurrentUser();
   const { folded, moveCategory, deleteCategory } = useRankedRoles(community);
-  const [scope, setScope] = useState<Scope | undefined>(undefined);
-  // Mounted from its first opening on, not before: closed, it would still fold the Roster and Guestbook on every render.
-  const [permissionsOpened, setPermissionsOpened] = useState(false);
-  if (scope && !permissionsOpened) setPermissionsOpened(true);
+  const [scope, setScope] = useState<EditorScope | undefined>(undefined);
   const [deleting, setDeleting] = useState<{ idHex: string; name: string } | undefined>(undefined);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -51,7 +47,12 @@ export function useRankedCategoryControls(community: Community | undefined, canM
     };
   };
 
-  const openChannelPermissions = useCallback((channel: { idHex: string; name: string }) => setScope({ idHex: channel.idHex, kind: "channel", name: channel.name }), []);
+  const openChannelPermissions = useCallback(
+    (channel: { idHex: string; name: string }) => setScope({ idHex: channel.idHex, kind: "channel", name: channel.name, tab: "permissions" }),
+    [],
+  );
+  const editChannel = useCallback((channel: { idHex: string; name: string }) => setScope({ idHex: channel.idHex, kind: "channel", name: channel.name }), []);
+  const closeEditor = useCallback(() => setScope(undefined), []);
 
   const confirmDelete = () => {
     if (!deleting) return;
@@ -71,7 +72,7 @@ export function useRankedCategoryControls(community: Community | undefined, canM
 
   const dialog = community ? (
     <>
-      {permissionsOpened && <ChannelPermissionsDialog community={community} scope={scope} onOpenChange={(open) => !open && setScope(undefined)} />}
+      <ChannelEditor community={community} scope={scope} ops={ops} onClose={closeEditor} />
       <Dialog open={Boolean(deleting)} onOpenChange={(open) => !open && closeDelete()}>
         <ChromeDialogContent
           title={intl.formatMessage({ id: "rankedCategory.deleteTitle", defaultMessage: "Delete {name}?" }, { name: deleting?.name ?? "" })}
@@ -107,6 +108,10 @@ export function useRankedCategoryControls(community: Community | undefined, canM
     actionsFor,
     openChannelPermissions: canManageRoles ? openChannelPermissions : undefined,
     openCategoryPermissions: canManageRoles ? (idHex: string, name: string) => setScope({ idHex, kind: "category", name }) : undefined,
+    /** Opens the editor on a Channel, on either Roster. */
+    editChannel: canManageChannels ? editChannel : undefined,
+    /** Opens the editor on a Category: `key` is its id on the vsk-13 Roster, its `categoryKey` otherwise. */
+    editCategory: canManageChannels ? (key: string, name: string) => setScope({ idHex: key, kind: "category", name }) : undefined,
     dialog,
   };
 }

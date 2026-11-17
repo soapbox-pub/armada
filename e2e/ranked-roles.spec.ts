@@ -87,22 +87,20 @@ test("a Category is made and a Channel rule set from settings", async ({ page })
   await page.goto(`/c/${communityId}/settings`);
   await settle(page, () => page.getByRole("button", { name: "Channels" }).isVisible().catch(() => false));
   await page.getByRole("button", { name: "Channels" }).click();
+  // The settings list's Category rows; the editor beside it has buttons of its own.
+  const category = (name: string) => page.locator("[data-cat-slot]").getByRole("button", { name, exact: true });
 
   await page.getByRole("button", { name: "Add category" }).click();
   await page.getByLabel("Category name").fill("Text");
   await page.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByText("No categories yet.")).toBeHidden({ timeout: 30_000 });
-  await expect(page.getByRole("button", { name: "Actions for Text" })).toBeVisible();
+  await expect(category("Text")).toBeVisible({ timeout: 30_000 });
 
-  // The general channel's menu opens its permissions.
-  await page.getByRole("button", { name: "Actions for general" }).click();
-  await page.getByRole("menuitem", { name: "Permissions" }).click();
-  await expect(page.getByText("#general permissions")).toBeVisible();
+  // The general channel's row opens the editor, whose Permissions tab sets a rule.
+  await page.getByRole("main").locator("[data-ch-slot]").getByRole("button", { name: /general/ }).click();
+  await page.getByRole("button", { name: "Permissions", exact: true }).click();
   await page.getByRole("button", { name: "Deny" }).nth(1).click();
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Permissions saved").first()).toBeVisible({ timeout: 30_000 });
-
-  await page.keyboard.press("Escape");
+  await expect(page.getByText("Changes saved").first()).toBeVisible({ timeout: 30_000 });
 
   // The empty Category shows in the sidebar, and a Channel files into it there.
   await page.goto(`/c/${communityId}/${channelIds[0]}`);
@@ -110,7 +108,11 @@ test("a Category is made and a Channel rule set from settings", async ({ page })
   await settle(page, () => heading.isVisible().catch(() => false));
   await expect(heading).toBeVisible();
   const row = page.getByRole("button", { name: /general/ }).first();
-  const above = async () => ((await heading.boundingBox())!.y < (await row.boundingBox())!.y);
+  // A row is detached for a moment while the list re-files it.
+  const above = async () => {
+    const [h, r] = [await heading.boundingBox(), await row.boundingBox()];
+    return h && r ? h.y < r.y : undefined;
+  };
   expect(await above()).toBe(false);
   await row.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Move to category" }).hover();
@@ -124,7 +126,7 @@ test("a Category is made and a Channel rule set from settings", async ({ page })
   await page.getByRole("button", { name: "Add category" }).click();
   await page.getByLabel("Category name").fill("Voice");
   await page.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByRole("button", { name: "Actions for Voice" })).toBeVisible({ timeout: 30_000 });
+  await expect(category("Voice")).toBeVisible({ timeout: 30_000 });
   await page.goto(`/c/${communityId}/${channelIds[0]}`);
   const voice = page.getByRole("button", { name: "Voice", exact: true });
   await settle(page, () => voice.isVisible().catch(() => false));
@@ -140,6 +142,22 @@ test("a Category is made and a Channel rule set from settings", async ({ page })
   await page.mouse.move(box.x + 20, box.y + box.height / 2, { steps: 10 });
   await page.mouse.up();
   await expect.poll(async () => (await voice.boundingBox())!.y < (await general.boundingBox())!.y, { timeout: 30_000 }).toBe(true);
+
+  // A Category moves by its grip in settings.
+  await page.goto(`/c/${communityId}/settings`);
+  await settle(page, () => page.getByRole("button", { name: "Channels" }).isVisible().catch(() => false));
+  await page.getByRole("button", { name: "Channels" }).click();
+  const slots = page.locator("[data-cat-slot]");
+  const order = () => slots.evaluateAll((els) => els.map((el) => el.querySelector("button")?.textContent?.trim()));
+  await expect.poll(order, { timeout: 30_000 }).toEqual(["Text", "Voice"]);
+  const grip = (await slots.nth(1).locator("[data-drag-grip]").first().boundingBox())!;
+  const first = (await slots.first().boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2, grip.y - 20, { steps: 5 });
+  await page.mouse.move(first.x + 30, first.y + 2, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(order, { timeout: 30_000 }).toEqual(["Voice", "Text"]);
 });
 
 test("the owner switches a legacy community to ranked roles", async ({ page }) => {

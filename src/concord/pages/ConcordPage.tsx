@@ -1,6 +1,6 @@
 import { observedAuthors } from "@/concord/lib/observedAuthors";
 import { useCommunityRumors } from "@/concord/hooks/useCommunityRumors";
-import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Bell, BellOff, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, Gem, MessageSquareText, MessagesSquare, Pause, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
+import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Bell, BellOff, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, Gem, MessageSquareText, MessagesSquare, Pause, Pencil, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigationType, useSearchParams } from "react-router-dom";
 
@@ -511,6 +511,7 @@ export const ChannelRow = memo(function ChannelRow({
   onSetCategory,
   onNewCategory,
   onMove,
+  onEdit,
   onPermissions,
   voiceOnlyCalls,
 }: {
@@ -536,7 +537,9 @@ export const ChannelRow = memo(function ChannelRow({
   onNewCategory?: (channel: Channel) => void;
   /** Touch reordering: arms the row so the next drag on it moves it. */
   onMove?: (channelIdHex: string) => void;
-  /** The vsk-13 permissions dialog (CORD-04 §8); undefined without MANAGE_ROLES. */
+  /** Opens the Channel editor; undefined without MANAGE_CHANNELS. */
+  onEdit?: (channel: Channel) => void;
+  /** The editor on its permissions (CORD-04 §8); undefined without MANAGE_ROLES on the vsk-13 Roster. */
   onPermissions?: (channel: Channel) => void;
   /** On ranked roles a row offers a call only for one running in a text Channel; a voice Channel joins on click. */
   voiceOnlyCalls?: boolean;
@@ -758,6 +761,12 @@ export const ChannelRow = memo(function ChannelRow({
               setNotifLevel(concordChannelScopeKey("c2", community.idHex, channel.idHex), lvl)
             }
           />
+        )}
+        {onEdit && (
+          <ContextMenuItem onSelect={() => onEdit(channel)}>
+            <Pencil className="mr-2 size-4" />
+            <FormattedMessage id="concordPage.channelRow.edit" defaultMessage="Edit channel" />
+          </ContextMenuItem>
         )}
         {onPermissions && (
           <ContextMenuItem onSelect={() => onPermissions(channel)}>
@@ -1881,9 +1890,8 @@ function ConcordCommunityPage() {
     return () => document.removeEventListener("visibilitychange", stamp);
   }, [readerPubkey, channelIdForRead, mixedEntries, allMessages, threads, markChannelRead, markMentionsRead, markThreadRead, covered]);
 
-  const { leave, isLeaving, dissolve, createChannel, privatiseChannel, mintAccessRole, setChannelCategory, arrangeChannels, nameCategory } =
+  const { leave, isLeaving, dissolve, createChannel, mintAccessRole, setChannelCategory, arrangeChannels, nameCategory } =
     useCommunityManagement(community);
-  const rankedControls = useRankedCategoryControls(community, canManageChannels);
   const retireLinks = useRetireCommunityLinks(community);
   /** Dissolve toast Retry: runs the retirement's own `retry` with what missed. */
   const showRetirementMiss = (outcome: RetirementOutcome) => {
@@ -2382,9 +2390,9 @@ function ConcordCommunityPage() {
       category: opts?.category,
     });
     // A newborn Private Channel's Role is held by nobody; access is granted via the
-    // Role (see handleToggleRole).
-    selectChannel(created);
-  }, [createChannel, selectChannel]);
+    // Role (see handleToggleRole). Created from the settings list, it shows up there.
+    if (view !== "settings") selectChannel(created);
+  }, [createChannel, selectChannel, view]);
 
   /**
    * Re-key a private channel to exactly the members entitled TODAY — repairs
@@ -2402,25 +2410,6 @@ function ConcordCommunityPage() {
     await (community ? withKeySettle(community.idHex, run) : run());
   }, [roster, memberPubkeys, ownerHex, rekeyChannel, community]);
 
-  /** Convert a public channel to private (CORD-03 §2); its permissions decide who may read it. */
-  const handlePrivatiseChannel = useCallback(async (channelIdHex: string) => {
-    const def = folded?.channels.get(channelIdHex);
-    if (!def) throw new Error(t({ id: "concordPage.channel.notFound", defaultMessage: "Channel not found in the control fold yet; try again shortly." }));
-    const ok = confirm(
-      t(
-        {
-          id: "concordPage.privatise.confirmRanked",
-          defaultMessage:
-            "Make #{channel} private?\n\nIt gets its own key from here on, and its permissions decide who may read it. Messages already posted stay readable to everyone in the community; a restriction can't be applied backwards.",
-        },
-        { channel: def.name },
-      ),
-    );
-    if (!ok) return;
-    await privatiseChannel({ channelIdHex });
-    toast({ title: t({ id: "concordPage.privatise.done", defaultMessage: "Channel is now private" }) });
-  }, [folded, privatiseChannel]);
-
   /**
    * Mint another access Role for a private channel. Entitlement is any-of, so this
    * widens who CAN be let in; it vends on its first grant.
@@ -2436,6 +2425,13 @@ function ConcordCommunityPage() {
     });
   }, [mintAccessRole]);
 
+  const rotateChannelKey = canRekeyChannel ? handleRotateChannelKey : undefined;
+  const mintChannelAccessRole = canManageRoles && !folded?.rankedRoster ? handleMintAccessRole : undefined;
+  const editorOps = useMemo(
+    () => ({ channelRoles: channelRoleCatalog, onRotateChannelKey: rotateChannelKey, onMintAccessRole: mintChannelAccessRole }),
+    [channelRoleCatalog, rotateChannelKey, mintChannelAccessRole],
+  );
+  const rankedControls = useRankedCategoryControls(community, canManageChannels, editorOps);
 
   // By-id lookup over the decoded set, for resolving inline-reply parents locally.
   const messagesById = useMemo(() => {
@@ -3035,6 +3031,7 @@ function ConcordCommunityPage() {
         onSetCategory={canManageChannels ? handleSetCategory : undefined}
         onNewCategory={handleNewCategory}
         onMove={draggable && canManageChannels && isTouchDevice ? channelDrag.arm : undefined}
+        onEdit={rankedControls.editChannel}
         onPermissions={rankedControls.openChannelPermissions}
         voiceOnlyCalls={rankedControls.ranked}
       />
@@ -3712,10 +3709,8 @@ function ConcordCommunityPage() {
                       memberCount={memberPubkeys.length}
                       canManageMetadata={canManageMetadata}
                       canManageChannels={canManageChannels}
-                      channelRoles={channelRoleCatalog}
-                      onPrivatiseChannel={canManageChannels && folded?.rankedRoster ? handlePrivatiseChannel : undefined}
-                      onRotateChannelKey={canRekeyChannel ? handleRotateChannelKey : undefined}
-                      onMintAccessRole={canManageRoles && !folded?.rankedRoster ? handleMintAccessRole : undefined}
+                      editorOps={editorOps}
+                      onNewChannel={canManageChannels ? () => setCreatingChannel(true) : undefined}
                       onOpenInvites={() => selectPane("invites")}
                     />
                     </Suspense>
