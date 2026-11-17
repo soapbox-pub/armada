@@ -14,6 +14,8 @@ import {
   TRIM_SLACK,
   WINDOW_STEP,
 } from "@/components/chat/timelineWindow";
+import { formatDayLabel, isSameDay } from "@/components/chat/dayLabel";
+import { FloatingDateBadge } from "@/components/chat/FloatingDateBadge";
 import { flashRow } from "@/components/chat/rowFlash";
 import {
   captureScrollAnchor,
@@ -31,7 +33,7 @@ import { useMutedWordFilter } from "@/hooks/useMutedWords";
 import { usePerfMilestone } from "@/hooks/usePerfMilestone";
 import { SettingsOverlayContext } from "@/lib/settingsOverlay";
 import { cn } from "@/lib/utils";
-import { FormattedMessage, useIntl, type IntlShape } from "@/i18n";
+import { FormattedMessage, useIntl } from "@/i18n";
 
 import { isGitContinuation, timelineEntryAuthor, type ChannelTimelineEntry } from "@/components/chat/channelTimeline";
 import type { ChatMsg, ChatTransport } from "@/components/chat/transport";
@@ -70,6 +72,9 @@ const MOMENTUM_IDLE_MS = 150;
 
 const JUMP_PILL_PX = 300;
 
+/** Quiet time (no reader scroll, no new message) before "Jump to present" fades out. */
+const JUMP_PILL_IDLE_MS = 3000;
+
 const JUMP_CONTEXT = 15;
 
 /** How long a jumped-to row is held centered while rows around it settle, absent a gesture. */
@@ -85,33 +90,7 @@ const UNRENDERED_BELOW_PX = 1_000_000;
 /** Rows per commit as a conversation opens, one step per frame; the switch click's commit mounts none. */
 const OPENING_RAMP = [0, FIRST_PAINT_WINDOW, INITIAL_WINDOW];
 
-export function isSameDay(a: number, b: number): boolean {
-  const da = new Date(a * 1000);
-  const db = new Date(b * 1000);
-  return (
-    da.getFullYear() === db.getFullYear() &&
-    da.getMonth() === db.getMonth() &&
-    da.getDate() === db.getDate()
-  );
-}
-
-function formatDayLabel(ts: number, intl: IntlShape): string {
-  const date = new Date(ts * 1000);
-  const now = new Date();
-  if (isSameDay(ts, Math.floor(now.getTime() / 1000))) {
-    return intl.formatMessage({ id: "messageTimeline.today", defaultMessage: "Today" });
-  }
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (isSameDay(ts, Math.floor(yesterday.getTime() / 1000))) {
-    return intl.formatMessage({ id: "messageTimeline.yesterday", defaultMessage: "Yesterday" });
-  }
-  // intl memoizes its formatters, so this doesn't build an Intl.DateTimeFormat per call.
-  return intl.formatDate(date, date.getFullYear() === now.getFullYear() ? DAY_FORMAT : DAY_YEAR_FORMAT);
-}
-
-const DAY_FORMAT: Intl.DateTimeFormatOptions = { month: "long", day: "numeric" };
-const DAY_YEAR_FORMAT: Intl.DateTimeFormatOptions = { month: "long", day: "numeric", year: "numeric" };
+export { isSameDay };
 
 /** Discord-style day separator. Memoized: the list re-renders on most page renders. */
 export const DateSeparator = memo(function DateSeparator({ ts }: { ts: number }) {
@@ -289,6 +268,22 @@ type TimelineItem =
   | { type: "entry"; entry: NonChatEntry; related?: readonly NonChatEntry[]; key: string };
 
 type NonChatEntry = Exclude<ChannelTimelineEntry, { type: "chat" }>;
+
+/** The day a row belongs to, for the floating date badge; dividers have none of their own. */
+function rowTimestamp(item: TimelineItem): number | undefined {
+  switch (item.type) {
+    case "date":
+      return item.ts;
+    case "message":
+      return item.msg.created_at;
+    case "flood":
+      return item.msgs[0]?.created_at;
+    case "entry":
+      return item.entry.createdAt;
+    default:
+      return undefined;
+  }
+}
 
 /**
  * A Git group head plus its same-day continuations (which emit no row).
@@ -584,6 +579,21 @@ export function MessageTimeline({
   if (!listVisible) pinBottomRef.current = true;
 
   const [showJumpPill, setShowJumpPill] = useState(false);
+  // The pill fades while the reader is still; a scroll or a new message brings it back.
+  const [jumpPillIdle, setJumpPillIdle] = useState(false);
+  const jumpPillTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdJumpPill = useCallback(() => {
+    if (jumpPillTimerRef.current != null) clearTimeout(jumpPillTimerRef.current);
+    jumpPillTimerRef.current = null;
+    setJumpPillIdle(false);
+  }, []);
+  const wakeJumpPill = useCallback(() => {
+    holdJumpPill();
+    jumpPillTimerRef.current = setTimeout(() => {
+      jumpPillTimerRef.current = null;
+      setJumpPillIdle(true);
+    }, JUMP_PILL_IDLE_MS);
+  }, [holdJumpPill]);
   // "Jump to unread": shown while the NEW divider sits above the viewport (or
   // outside the rendered window), until the reader reaches it once.
   const [showUnreadPill, setShowUnreadPill] = useState(false);
@@ -1158,11 +1168,24 @@ export function MessageTimeline({
     if (el.scrollTop === top) captureReadingAnchor();
     // Momentum is still running while the reader's scroll keeps moving after lift.
     if ((movingUp || movingDown) && !touchDownRef.current && touchIdleRef.current != null) armTouchIdle();
+    // Our own scroll writes record their offset first, so only the reader's move here.
+    if (movingUp || movingDown) wakeJumpPill();
     if (movingUp) {
       chainedRevealsRef.current = 0;
       maybeExtend();
     } else if (movingDown) maybeExtendDown();
-  }, [captureReadingAnchor, readerDistance, maybeExtend, maybeExtendDown, checkUnreadPill, armTouchIdle]);
+  }, [captureReadingAnchor, readerDistance, maybeExtend, maybeExtendDown, checkUnreadPill, armTouchIdle, wakeJumpPill]);
+
+  const newestEntryId = timelineEntries[timelineEntries.length - 1]?.id;
+  useEffect(() => {
+    if (showJumpPill) wakeJumpPill();
+  }, [showJumpPill, newestEntryId, wakeJumpPill]);
+  useEffect(
+    () => () => {
+      if (jumpPillTimerRef.current != null) clearTimeout(jumpPillTimerRef.current);
+    },
+    [],
+  );
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -1338,6 +1361,8 @@ export function MessageTimeline({
                 <div
                   key={item.key}
                   data-scroll-anchor={item.key}
+                  data-ts={rowTimestamp(item)}
+                  data-day-start={item.type === "date" || undefined}
                   className="timeline-row relative hover:z-10 focus-within:z-10"
                 >
                   {item.type === "date" ? (
@@ -1372,6 +1397,7 @@ export function MessageTimeline({
               <div className="h-4" aria-hidden />
             </div>
           </div>
+          <FloatingDateBadge scrollRef={scrollRef} contentRef={contentRef} belowPill={showUnreadPill} />
           {showUnreadPill && (
             <div className="absolute top-3 inset-x-0 z-10 flex justify-center pointer-events-none">
               <button
@@ -1389,7 +1415,12 @@ export function MessageTimeline({
               <button
                 type="button"
                 onClick={returnToPresent}
-                className="pointer-events-auto inline-flex items-center gap-2 clip-corner-lg bg-secondary/90 backdrop-blur px-5 py-2.5 text-sm font-medium text-foreground shadow-lg hover:bg-secondary transition-colors"
+                onPointerEnter={holdJumpPill}
+                onPointerLeave={wakeJumpPill}
+                onFocus={holdJumpPill}
+                onBlur={wakeJumpPill}
+                data-idle={jumpPillIdle || undefined}
+                className="pointer-events-auto inline-flex items-center gap-2 clip-corner-lg bg-secondary/90 backdrop-blur px-5 py-2.5 text-sm font-medium text-foreground shadow-lg hover:bg-secondary transition-[color,background-color,opacity] duration-300 data-[idle]:opacity-0 data-[idle]:pointer-events-none"
                 aria-label={intl.formatMessage({
                   id: "messageTimeline.jumpToLatest",
                   defaultMessage: "Jump to the latest messages",

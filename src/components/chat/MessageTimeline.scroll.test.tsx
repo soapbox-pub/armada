@@ -509,6 +509,38 @@ describe("MessageTimeline detached run", () => {
   });
 });
 
+describe("MessageTimeline jump to present", () => {
+  it("fades while the reader is still, and returns on a scroll or a new message", async () => {
+    const { scroller, rerender } = await mountedTimeline(100);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      scroll(scroller, 2_500);
+      scroll(scroller, 500);
+      const pill = screen.getByRole("button", { name: "Jump to the latest messages" });
+      expect(pill).not.toHaveAttribute("data-idle");
+
+      act(() => vi.advanceTimersByTime(3_000));
+      expect(pill).toHaveAttribute("data-idle");
+
+      scroll(scroller, 400);
+      expect(pill).not.toHaveAttribute("data-idle");
+
+      act(() => vi.advanceTimersByTime(3_000));
+      expect(pill).toHaveAttribute("data-idle");
+
+      rerender(
+        <MessageTimeline
+          transport={transportOf(Array.from({ length: 101 }, (_, index) => message(index)))}
+          renderMessage={(msg) => <span data-event-id={msg.id}>chat:{msg.id}</span>}
+        />,
+      );
+      expect(pill).not.toHaveAttribute("data-idle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("MessageTimeline jump to unread", () => {
   function mountWithDivider(dividerId: string) {
     const messages = Array.from({ length: 100 }, (_, index) => message(index));
