@@ -605,7 +605,6 @@
     /* What a translucent fill sits on. Without it the fill composites over the
        edge colour, and every card reads as a tint of the border. */
     --fill-base: var(--background);
-    position: relative;
     isolation: isolate;
     border-radius: 0.55rem;
     clip-path: polygon(
@@ -617,6 +616,11 @@
       0 var(--cut)
     );
     background: hsl(var(--edge));
+  }
+  /* Anchors the ::before. Zero specificity, so `absolute` or `fixed` on the
+     same element still positions it; this rule is emitted after them. */
+  :where(.clip-hairline-lg) {
+    position: relative;
   }
   .clip-hairline-lg::before {
     content: "";
