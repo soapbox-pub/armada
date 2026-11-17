@@ -424,7 +424,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
                         </Button>
                       )}
                       {(moderation.actions.length > 0 || canGift) && (
-                        <DropdownMenu>
+                        <DropdownMenu touchSheet>
                           <DropdownMenuTrigger asChild>
                             <Button
                               size="icon"

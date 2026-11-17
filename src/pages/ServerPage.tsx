@@ -99,7 +99,7 @@ export function ServerPage() {
                 )}
               </div>
             </div>
-            <DropdownMenu>
+            <DropdownMenu touchSheet>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" aria-label={intl.formatMessage({ id: "serverPage.serverActions", defaultMessage: "Server actions" })} className="size-8 text-muted-foreground hover:text-foreground shrink-0">
                   <MoreVertical className="size-4" />

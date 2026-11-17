@@ -1044,7 +1044,7 @@ const Conversation = memo(function Conversation({
             <TooltipContent>{callTooltip}</TooltipContent>
           </Tooltip>
         )}
-        <DropdownMenu>
+        <DropdownMenu touchSheet>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
@@ -1061,7 +1061,16 @@ const Conversation = memo(function Conversation({
               <FormattedMessage id="dmsPage.searchMessages" defaultMessage="Search messages" />
             </DropdownMenuItem>
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger
+                value={(() => {
+                  const lvl = dmLevel(conversation);
+                  return lvl === "nothing"
+                    ? intl.formatMessage({ id: "dmsPage.notifications.nothing", defaultMessage: "Nothing" })
+                    : lvl === "mentions"
+                      ? intl.formatMessage({ id: "dmsPage.notifications.mentions", defaultMessage: "Only @mentions" })
+                      : intl.formatMessage({ id: "dmsPage.notifications.all", defaultMessage: "All messages" });
+                })()}
+              >
                 {(() => {
                   const lvl = dmLevel(conversation);
                   const Icon = lvl === "nothing" ? BellOff : lvl === "mentions" ? AtSign : Bell;

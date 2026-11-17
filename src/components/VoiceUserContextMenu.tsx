@@ -274,7 +274,7 @@ export function VoiceUserMenuButton({
 
   return (
     <>
-    <DropdownMenu>
+    <DropdownMenu touchSheet>
       <DropdownMenuTrigger asChild>
         <button
           type="button"

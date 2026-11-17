@@ -534,7 +534,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ isOpen, onClose, onLogin, onS
                     ref={fileInputRef}
                     onChange={handleFileUpload}
                   />
-                  <DropdownMenu>
+                  <DropdownMenu touchSheet>
                     <DropdownMenuTrigger asChild>
                       <Button
                         type='button'

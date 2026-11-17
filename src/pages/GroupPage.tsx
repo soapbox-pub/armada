@@ -515,7 +515,7 @@ export function GroupPage() {
                 onClick={() => setEventsOpen((v) => !v)}
               />
             )}
-            <DropdownMenu>
+            <DropdownMenu touchSheet>
               <ChatHeaderMenuTrigger />
               <DropdownMenuContent align="end" className="w-52" onCloseAutoFocus={keepItemFocus}>
                 <ChatHeaderViewItems

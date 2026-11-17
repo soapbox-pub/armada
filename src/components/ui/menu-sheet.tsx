@@ -33,6 +33,7 @@ interface MenuSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   identity?: MenuSheetIdentity
+  onCloseAutoFocus?: (event: Event) => void
   children?: React.ReactNode
 }
 
@@ -47,7 +48,7 @@ function MenuSheet({ open, ...props }: MenuSheetProps) {
   return mounted ? <MenuSheetDrawer open={open} {...props} /> : null
 }
 
-function MenuSheetDrawer({ open, onOpenChange, identity, children }: MenuSheetProps) {
+function MenuSheetDrawer({ open, onOpenChange, identity, onCloseAutoFocus, children }: MenuSheetProps) {
   const [pages, setPages] = React.useState<readonly string[]>([])
   const [outlet, setOutlet] = React.useState<HTMLElement | null>(null)
 
@@ -94,6 +95,12 @@ function MenuSheetDrawer({ open, onOpenChange, identity, children }: MenuSheetPr
         aria-describedby={undefined}
         onPointerDownOutside={guard}
         onInteractOutside={guard}
+        onCloseAutoFocus={(e) => {
+          onCloseAutoFocus?.(e)
+          // Focus an item moved (a search field, a dialog) stays where it was put.
+          const active = document.activeElement
+          if (active && active !== document.body) e.preventDefault()
+        }}
       >
         <MenuSheetContext.Provider value={api}>
           {identity ? (
@@ -168,13 +175,20 @@ interface RowProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "
   /** The current choice of a set: a tinted tile. */
   chosen?: boolean
   trailing?: React.ReactNode
+  /** The element to be the row in a button's place: an item written `asChild` around a link. */
+  as?: React.ReactElement<React.HTMLAttributes<HTMLElement>>
 }
 
-function Row({ className, chosen, trailing, children, ...props }: RowProps) {
+/** A call site shows or hides an item by breakpoint; the row keeps that and nothing else of its styling. */
+const visibility = (className?: string) =>
+  (className ?? "").split(/\s+/).filter((c) => /(^|:)hidden$/.test(c) || /:flex$/.test(c))
+
+function Row({ className, chosen, trailing, as, children, ...props }: RowProps) {
   const destructive = isDestructive(className)
   const { lead, rest } = splitLead(children)
-  return (
-    <button type="button" className={cn(ROW, destructive ? "text-destructive" : "text-foreground")} {...props}>
+  const rowClass = cn(ROW, destructive ? "text-destructive" : "text-foreground", visibility(className))
+  const inner = (
+    <>
       {lead && (
         <span className={cn(TILE, chosen && "bg-primary/20")}>
           {typeof lead.type === "string"
@@ -186,6 +200,12 @@ function Row({ className, chosen, trailing, children, ...props }: RowProps) {
       )}
       <span className="flex min-w-0 flex-1 items-center gap-2">{keyed(rest)}</span>
       {trailing}
+    </>
+  )
+  if (as) return React.cloneElement(as, { className: rowClass, onClick: props.onClick }, inner)
+  return (
+    <button type="button" className={rowClass} {...props}>
+      {inner}
     </button>
   )
 }
@@ -206,13 +226,22 @@ interface ItemProps {
   children?: React.ReactNode
 }
 
-function MenuSheetItem({ className, disabled, onSelect, children }: ItemProps) {
+function MenuSheetItem({
+  className,
+  disabled,
+  onSelect,
+  onClick,
+  as,
+  children,
+}: ItemProps & { onClick?: React.MouseEventHandler<HTMLElement> } & Pick<RowProps, "as">) {
   const sheet = useMenuSheet()
   return (
     <Row
+      as={as}
       className={className}
       disabled={disabled}
-      onClick={() => {
+      onClick={(e) => {
+        onClick?.(e)
         if (!keptOpen(onSelect)) sheet?.close()
       }}
     >

@@ -153,7 +153,7 @@ function ProfilePreviewBody({
 
         {/* Negative actions (unfollow, roles, moderation) live in this overflow menu. */}
         {(moderation.rolePicker || (!isSelf && (isFollowing || moderation.actions.length > 0))) && (
-          <DropdownMenu>
+          <DropdownMenu touchSheet>
             <DropdownMenuTrigger asChild>
               <Button
                 size="icon"

@@ -226,7 +226,7 @@ export function ProfileCard({
         <div className="flex justify-between items-start -mt-12 mb-3">
           {editable ? (
             <>
-              <DropdownMenu>
+              <DropdownMenu touchSheet>
                 <DropdownMenuTrigger asChild>
                   <button type="button" className="relative shrink-0 cursor-pointer group outline-none">
                     <div style={hasCustomShape ? shapedAvatarBorderStyle : undefined}>

@@ -327,7 +327,7 @@ function BuzzForumPost({ event, transport, votes, onVote, isAgent }: BuzzForumPo
             <span aria-hidden>·</span>
             <span className="shrink-0">{shortTimeAgo(event.created_at)}</span>
             <div className="ml-auto shrink-0">
-              <DropdownMenu>
+              <DropdownMenu touchSheet>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"

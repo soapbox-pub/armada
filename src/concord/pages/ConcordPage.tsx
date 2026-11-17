@@ -3550,7 +3550,7 @@ function ConcordCommunityPage() {
                 />
               )}
 
-              <DropdownMenu>
+              <DropdownMenu touchSheet>
                 <ChatHeaderMenuTrigger />
                 <DropdownMenuContent align="end" className="w-52" onCloseAutoFocus={keepItemFocus}>
                   <ChatHeaderViewItems

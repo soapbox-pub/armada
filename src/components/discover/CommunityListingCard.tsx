@@ -545,7 +545,7 @@ export function CommunityListingCard({
             </Button>
           )}
           {isAuthor && (
-            <DropdownMenu>
+            <DropdownMenu touchSheet>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"

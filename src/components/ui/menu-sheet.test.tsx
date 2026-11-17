@@ -15,6 +15,15 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { closeOpenMenuSheets, useOpenContextMenu } from "@/hooks/useMenuSheet";
 
 /** A phone: the primary pointer is a finger, so a context menu is a sheet. */
@@ -234,5 +243,90 @@ describe("ContextMenu on touch", () => {
     expect(screen.getByRole("dialog", { name: "alice" })).toHaveAttribute("data-state", "open");
     act(() => closeOpenMenuSheets());
     expect(screen.getByText("row").closest("[data-state]")).toHaveAttribute("data-state", "closed");
+  });
+});
+
+describe("DropdownMenu on touch", () => {
+  beforeEach(stubTouch);
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function Actions({ touchSheet, onMute, onPause }: { touchSheet?: boolean; onMute?: () => void; onPause?: () => void }) {
+    return (
+      <DropdownMenu touchSheet={touchSheet}>
+        <DropdownMenuTrigger asChild>
+          <button type="button" aria-label="More options" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent sheetIdentity={{ title: "general" }}>
+          <DropdownMenuItem className="sidebar:hidden" onClick={onMute}>
+            <Bell className="size-4" />
+            Mute channel
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <a href="https://example.com/profile">
+              <Folder className="size-4" />
+              View profile
+            </a>
+          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger value="Off">Pause community</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem onClick={onPause}>1 hour</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  it("opens an action menu as a sheet on the tap, and closes it on a choice", () => {
+    const onMute = vi.fn();
+    render(<Actions touchSheet onMute={onMute} />);
+    const more = screen.getByRole("button", { name: "More options" });
+    expect(more).toHaveAttribute("data-state", "closed");
+
+    // Radix's popup opens on pointerdown; the sheet waits for the tap.
+    fireEvent.pointerDown(more, { button: 0, pointerType: "touch" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(more);
+    const sheet = screen.getByRole("dialog", { name: "general" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(more).toHaveAttribute("aria-expanded", "true");
+
+    // An item's breakpoint visibility survives; the rest of its styling is the row's.
+    const mute = within(sheet).getByRole("button", { name: "Mute channel" });
+    expect(mute).toHaveClass("sidebar:hidden");
+    fireEvent.click(mute);
+    expect(onMute).toHaveBeenCalledTimes(1);
+    expect(more).toHaveAttribute("data-state", "closed");
+  });
+
+  it("keeps an item written around a link a link", () => {
+    render(<Actions touchSheet />);
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    const link = screen.getByRole("link", { name: "View profile" });
+    expect(link).toHaveAttribute("href", "https://example.com/profile");
+    expect(link.closest("button")).toBeNull();
+  });
+
+  it("turns a submenu into a page of the sheet", () => {
+    const onPause = vi.fn();
+    render(<Actions touchSheet onPause={onPause} />);
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    const row = screen.getByRole("button", { name: /Pause community/ });
+    expect(row).toHaveTextContent("Off");
+    fireEvent.click(row);
+    expect(screen.getByRole("heading", { name: "Pause community" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "1 hour" }));
+    expect(onPause).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays a popup at its trigger unless it is marked an action menu", () => {
+    render(<Actions />);
+    const more = screen.getByRole("button", { name: "More options" });
+    fireEvent.keyDown(more, { key: "Enter" });
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

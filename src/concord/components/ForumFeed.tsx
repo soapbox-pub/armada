@@ -144,7 +144,7 @@ const ForumPostRow = memo(function ForumPostRow({
         </span>
         {images.length > 0 && !heldImage && <ForumGallery images={images} />}
       </button>
-      <DropdownMenu>
+      <DropdownMenu touchSheet>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
