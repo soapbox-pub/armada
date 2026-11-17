@@ -140,6 +140,18 @@ describe("settings root lifecycle", () => {
     expect(keys.keyring).not.toBeNull();
   });
 
+  it("Sync now returns only after the legacy copy has landed", async () => {
+    let copied = false;
+    await ensure({
+      explicit: true,
+      onCreated: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        copied = true;
+      },
+    });
+    expect(copied).toBe(true);
+  });
+
   it("a settings write that mints the root finishes", async () => {
     await store.event(legacyMetadata());
     // useSettingsDoc's mutation: serialized per document, ensuring the keys inside.
