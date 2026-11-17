@@ -4,6 +4,7 @@ import { AccessReviewDialog } from "@/concord/components/accessReview/AccessRevi
 import { reviewMessages } from "@/concord/components/accessReview/reviewMessages";
 import { rotateAgain, useApplyRun, type ApplyPhase } from "@/concord/components/accessReview/useApplyRun";
 import type { SettleFollow } from "@/concord/hooks/rosterSettle";
+import type { WriteProgressSink } from "@/concord/hooks/useRankedRoles";
 import { withGrant } from "@/concord/lib/accessDuty";
 import { keyWork, reviewAccess, reviewMoves, type AccessReview } from "@/concord/lib/accessReview";
 import { channelView } from "@/concord/lib/channelView";
@@ -20,8 +21,8 @@ interface GrantReviewOptions {
   me: string | undefined;
   /** The member's Role ids as this client last asked for them. */
   rolesFor: (member: string) => string[];
-  /** Publishes the toggle, reporting the keys it moves through `follow`. Resolves false for a repeat in flight. */
-  toggle: (member: string, roleId: string, on: boolean, follow: SettleFollow) => Promise<boolean>;
+  /** Publishes the toggle, counting its editions into `progress` and reporting the keys it moves through `follow`. Resolves false for a repeat in flight. */
+  toggle: (member: string, roleId: string, on: boolean, follow: SettleFollow, progress: WriteProgressSink) => Promise<boolean>;
   rotate?: (channelIdHex: string) => Promise<void>;
   /** The toggle landed and its keys moved. */
   onDone: (on: boolean) => void;
@@ -44,6 +45,7 @@ interface Asked {
 export function useGrantReview(o: GrantReviewOptions): { ask: (member: string, roleId: string, on: boolean) => boolean; dialog: ReactNode } {
   const [asked, setAsked] = useState<Asked | null>(null);
   const run = useApplyRun();
+  const [written, setWritten] = useState({ published: 0, planned: 0 });
   const showing = useRef(false);
   const { community, folded } = o;
 
@@ -90,13 +92,18 @@ export function useGrantReview(o: GrantReviewOptions): { ask: (member: string, r
     if (outcome === "clean") o.onDone(on);
     else toast({ title: t(reviewMessages.applyUnfinished), variant: "destructive" });
   };
+  const progress: WriteProgressSink = {
+    planned: (count) => setWritten((w) => ({ ...w, planned: w.planned + count })),
+    published: () => setWritten((w) => ({ ...w, published: w.published + 1 })),
+  };
   const apply = (a: Asked, keep = false) =>
     void run
       .start(
         a.plan,
         async (sink) => {
           sink.at("save");
-          await o.toggle(a.member, a.roleId, a.on, { watch: sink.at, onSettled: sink.settled });
+          setWritten({ published: 0, planned: 0 });
+          await o.toggle(a.member, a.roleId, a.on, { watch: sink.at, onSettled: sink.settled }, progress);
         },
         { keep },
       )
@@ -129,6 +136,8 @@ export function useGrantReview(o: GrantReviewOptions): { ask: (member: string, r
         }}
         me={o.me}
         run={run}
+        published={written.published}
+        planned={written.planned}
         onApply={() => run.status === "review" && apply(asked)}
         onCancel={hide}
         onClose={hide}

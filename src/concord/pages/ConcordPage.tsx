@@ -2441,8 +2441,8 @@ function ConcordCommunityPage() {
     folded,
     me: user?.pubkey,
     rolesFor: roleIntent.rolesFor,
-    toggle: async (member, roleId, on, follow) =>
-      (await roleIntent.toggle(member, roleId, on, (args) => setMemberRoles({ ...args, follow }))) !== undefined,
+    toggle: async (member, roleId, on, follow, progress) =>
+      (await roleIntent.toggle(member, roleId, on, (args) => setMemberRoles({ ...args, follow, progress }))) !== undefined,
     rotate: rotateChannelKey,
     onDone: toastRoleToggled,
   });

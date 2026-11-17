@@ -460,6 +460,18 @@ describe("reducing a member's authority (CORD-04 §6, §9)", () => {
     expect(strip === -1 || (tenure >= 0 && tenure < strip)).toBe(true);
   });
 
+  it("removing a member's Roles counts every edition it signs before the first is published", async () => {
+    const { community, mod } = withModerator();
+    const { result } = renderHook(() => useRoles(community), { wrapper });
+    const calls: string[] = [];
+    const progress = { planned: (n: number) => calls.push(`planned ${n}`), published: () => calls.push("published") };
+    await act(async () => {
+      await result.current.setMemberRoles({ member: mod, roleIds: [], progress });
+    });
+    expect(env.published.length).toBeGreaterThan(0);
+    expect(calls).toEqual([`planned ${env.published.length}`, ...env.published.map(() => "published")]);
+  });
+
   it("setting a stock tier mints no vsk-1 Role on the vsk-13 Roster", async () => {
     const { community } = withModerator();
     const { result } = renderHook(() => useRoles(community), { wrapper });

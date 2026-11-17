@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useGrantReview } from "@/concord/components/accessReview/useGrantReview";
 import type { SettleFollow } from "@/concord/hooks/rosterSettle";
+import type { WriteProgressSink } from "@/concord/hooks/useRankedRoles";
 import type { FoldedControl } from "@/concord/lib/control";
 import { emptySettleReport } from "@/concord/lib/keySettle";
 import { EVERYONE_DEFAULT, Permissions, type Role } from "@/concord/lib/roles";
@@ -43,7 +44,7 @@ const folded = {
 } as unknown as FoldedControl;
 const community = { owner: OWNER, privateChannels: [] } as unknown as Community;
 
-const toggle = vi.fn(async (_member: string, _roleId: string, _on: boolean, _follow: SettleFollow) => true);
+const toggle = vi.fn(async (_member: string, _roleId: string, _on: boolean, _follow: SettleFollow, _progress: WriteProgressSink) => true);
 const onDone = vi.fn();
 let ask: ReturnType<typeof useGrantReview>["ask"];
 
@@ -76,8 +77,28 @@ describe("a Role toggle", () => {
     expect(toggle).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
     await waitFor(() => expect(onDone).toHaveBeenCalledWith(true));
-    expect(toggle).toHaveBeenCalledWith(ANA, MODS, true, expect.objectContaining({ onSettled: expect.any(Function) }));
+    expect(toggle).toHaveBeenCalledWith(ANA, MODS, true, expect.objectContaining({ onSettled: expect.any(Function) }), expect.anything());
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("counts the editions the write signs while it saves", async () => {
+    let land!: () => void;
+    let sink!: WriteProgressSink;
+    toggle.mockImplementationOnce(async (_m, _r, _on, _follow, progress) => {
+      sink = progress;
+      progress.planned(2);
+      await new Promise<void>((done) => (land = done));
+      return true;
+    });
+    render(<Host held={[MODS]} />);
+    act(() => void ask(ANA, MODS, false));
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }));
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() => expect(dialog).toHaveTextContent("Signing and publishing change 1 of 2…"));
+    act(() => sink.published());
+    expect(dialog).toHaveTextContent("Signing and publishing change 2 of 2…");
+    await act(async () => land());
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith(false));
   });
 
   it("writes nothing when the review is cancelled", () => {
