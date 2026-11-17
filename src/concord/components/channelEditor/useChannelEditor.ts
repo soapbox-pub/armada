@@ -27,7 +27,8 @@ import { useGuestbook } from "@/concord/hooks/useGuestbook";
 import { useRankedRoles } from "@/concord/hooks/useRankedRoles";
 import { keyWork, reviewAccess, reviewMoves, withRules, type AccessReview } from "@/concord/lib/accessReview";
 import { categoryKey, categoryNames } from "@/concord/lib/channelCategory";
-import { categoryOrder, rankedOrder } from "@/concord/lib/rankedWrites";
+import { bytesToHex } from "@/concord/lib/derive";
+import { categoryOrder, maySync, overwriteReach, rankedOrder, scopeUnkeyed, type OverwriteReach } from "@/concord/lib/rankedWrites";
 import { colorToHex, isAuthorized, Permissions } from "@/concord/lib/roles";
 import { CHANNEL_TOPIC_MAX_BYTES } from "@/concord/lib/channelSeal";
 import { NAME_MAX_BYTES, utf8Len, type ChannelView, type Community } from "@/concord/lib/types";
@@ -66,6 +67,9 @@ export interface EditorTarget {
   /** `@everyone` never views a Private Channel, whatever its rule says. */
   view: RuleState;
   others: number;
+  /** The bits the viewer may set or clear here; none with a `refusal` saying why. */
+  reach: bigint;
+  refusal?: OverwriteReach["refusal"];
 }
 
 /** What saving does to who can read the scope, and the steps it takes. */
@@ -84,6 +88,10 @@ export interface EditorModel {
   ranked: boolean;
   canManageChannels: boolean;
   canManageRoles: boolean;
+  /** The sync switch is the viewer's to flip: every rule it swaps is one they could write. */
+  canSync: boolean;
+  /** A private Channel in the scope has no key on this device, so who reads it can't be changed from here. */
+  unkeyed: boolean;
   /** A community keeps at least one Channel. */
   canDelete: boolean;
   base: EditorBase;
@@ -102,6 +110,8 @@ export interface EditorModel {
   setRule: (key: string, bit: bigint, state: RuleState) => void;
   removeTarget: (key: string) => void;
   addTargets: (keys: readonly string[]) => void;
+  /** Whether the viewer may write a rule for a target not listed yet. */
+  mayTarget: (key: string) => boolean;
   candidates: {
     roles: Array<{ key: string; name: string; color?: string; holders: number }>;
     members: string[];
@@ -109,6 +119,7 @@ export interface EditorModel {
   ownerHex: string | undefined;
   /** Channels of the Category on rules of their own. */
   unsyncedCount: number;
+  canSyncAll: boolean;
   syncAll: () => Promise<void>;
   /** The Channel's access Roles on a legacy Roster. */
   accessRoles: ReadonlyArray<{ id: string; name: string }>;
@@ -212,11 +223,22 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
   const canManageChannels = Boolean(me && roster && isAuthorized(roster, me, ownerHex, Permissions.MANAGE_CHANNELS));
   const canManageRoles = Boolean(ranked && me && roster && isAuthorized(roster, me, ownerHex, Permissions.MANAGE_ROLES));
 
+  // What `applyRules` will refuse, asked up front so the controls say so instead of Save.
+  const held = useMemo(() => new Set(community.privateChannels.map((k) => bytesToHex(k.id))), [community.privateChannels]);
+  const unkeyed = Boolean(ranked && folded && scopeUnkeyed(folded, held, scopeHex));
+  const reachOf = useCallback(
+    (key: string): OverwriteReach => (folded && me && !unkeyed ? overwriteReach(folded, me, scopeHex, targetOf(key)) : { bits: 0n, refusal: "rank" }),
+    [folded, me, unkeyed, scopeHex],
+  );
+  const maySyncTo = (category: string | undefined) =>
+    Boolean(folded && me && scope.kind === "channel" && !(base.isPrivate && !held.has(scopeHex)) && maySync(folded, me, scopeHex, category));
+
   const targets = useMemo<EditorTarget[]>(
     () =>
       targetKeys(base, draft).map((key) => {
         const target = targetOf(key);
         const rule = ruleOf(base, draft, key);
+        const reach = reachOf(key);
         const { view, others } = summarize(rule);
         const role = target.kind === "role" ? roles.find((r) => r.roleId === target.id) : undefined;
         return {
@@ -228,9 +250,11 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
           rule,
           view: key === EVERYONE && values.isPrivate ? "deny" : view,
           others,
+          reach: reach.bits,
+          refusal: reach.refusal,
         };
       }),
-    [base, draft, roles, values.isPrivate],
+    [base, draft, roles, values.isPrivate, reachOf],
   );
 
   const candidates = useMemo(() => {
@@ -267,7 +291,8 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
 
   const setCategory = (key: string | undefined) => {
     // Filing a public Channel with no rules of its own has it follow the Category (CORD-04 §8).
-    const follows = ranked && key !== undefined && draft.synced === undefined && !base.syncedTo && !values.isPrivate && Object.keys(rules).length === 0;
+    const follows =
+      ranked && key !== undefined && draft.synced === undefined && !base.syncedTo && !values.isPrivate && Object.keys(rules).length === 0 && maySyncTo(key);
     patch({ category: key ?? null, ...(follows ? { synced: true } : {}) });
   };
 
@@ -286,7 +311,8 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
       // On a Private Channel a target is added to be let in.
       for (const key of keys) {
         const rule = ruleOf(base, d, key);
-        if (values.isPrivate && rule.allow === 0n && rule.deny === 0n) next[key] = { allow: Permissions.VIEW_CHANNEL, deny: 0n };
+        const letIn = values.isPrivate && rule.allow === 0n && rule.deny === 0n && (reachOf(key).bits & Permissions.VIEW_CHANNEL) !== 0n;
+        if (letIn) next[key] = { allow: Permissions.VIEW_CHANNEL, deny: 0n };
       }
       return { ...d, rules: next, added: [...new Set([...d.added, ...keys])] };
     });
@@ -422,6 +448,9 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
     () => (ranked && scope.kind === "category" ? members.filter((c) => roster?.syncs?.[c.idHex] !== scopeHex).map((c) => c.idHex) : []),
     [ranked, scope.kind, members, roster, scopeHex],
   );
+  const canSyncAll = Boolean(
+    folded && me && unsynced.every((id) => !(folded.channels.get(id)?.isPrivate && !held.has(id)) && maySync(folded, me, id, scopeHex)),
+  );
   const syncAll = async () => {
     await guarded(async () => {
       await ranked$.syncChannels({ channelIds: unsynced, category: scopeHex });
@@ -455,6 +484,8 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
     ranked,
     canManageChannels,
     canManageRoles,
+    canSync: maySyncTo(values.synced ? undefined : values.category),
+    unkeyed,
     canDelete: canManageChannels && (scope.kind === "category" || channels.length > 1),
     base,
     values,
@@ -471,9 +502,11 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
     setRule,
     removeTarget,
     addTargets,
+    mayTarget: (key) => reachOf(key).bits !== 0n,
     candidates,
     ownerHex,
     unsyncedCount: unsynced.length,
+    canSyncAll,
     syncAll,
     accessRoles: ops.channelRoles?.get(scopeHex) ?? [],
     mintAccessRole,

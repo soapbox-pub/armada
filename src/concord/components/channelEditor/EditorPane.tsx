@@ -93,6 +93,11 @@ export function EditorPane({
       <div className={GROUP_LABEL}>
         <FormattedMessage {...m.targets} />
       </div>
+      {model.unkeyed && model.canManageRoles && (
+        <p className="text-xs text-muted-foreground">
+          <FormattedMessage {...m.unkeyed} />
+        </p>
+      )}
       <div className={cn("space-y-1 p-1", CARD)}>
         {model.targets.map((target) => (
           <button
@@ -120,7 +125,7 @@ export function EditorPane({
         ))}
       </div>
       {model.canManageRoles && (
-        <Button type="button" variant="secondary" className="w-full clip-corner-lg" disabled={model.busy} onClick={() => setPicking(true)}>
+        <Button type="button" variant="secondary" className="w-full clip-corner-lg" disabled={model.busy || model.unkeyed} onClick={() => setPicking(true)}>
           <Plus className="size-4" />
           <FormattedMessage {...m.addTarget} />
         </Button>
@@ -157,7 +162,7 @@ export function EditorPane({
             variant="ghost"
             size="sm"
             className="clip-corner-lg text-destructive hover:text-destructive"
-            disabled={model.busy}
+            disabled={model.busy || selected.reach === 0n}
             onClick={() => {
               model.removeTarget(selected.key);
               setSelectedKey(undefined);
@@ -235,10 +240,10 @@ export function EditorPane({
             <>
               <SwitchCardRow
                 title={<FormattedMessage {...m.sync} values={{ category: model.categoryName ?? "" }} />}
-                hint={<FormattedMessage {...m.syncHint} />}
+                hint={<FormattedMessage {...(model.canManageRoles && !model.canSync ? m.syncRefused : m.syncHint)} />}
                 checked={values.synced}
                 onCheckedChange={model.setSynced}
-                disabled={!model.canManageRoles || model.busy}
+                disabled={!model.canManageRoles || model.busy || !model.canSync}
               />
               <CardDivider />
             </>
@@ -277,8 +282,14 @@ export function EditorPane({
               <div className={cn("flex items-center gap-3 p-3", CARD)}>
                 <span className="min-w-0 flex-1 text-xs text-muted-foreground">
                   <FormattedMessage {...m.syncAllHint} values={{ count: model.unsyncedCount }} />
+                  {!model.canSyncAll && (
+                    <>
+                      {" "}
+                      <FormattedMessage {...m.syncRefused} />
+                    </>
+                  )}
                 </span>
-                <Button type="button" variant="secondary" size="sm" className="clip-corner-lg" disabled={model.busy} onClick={() => void model.syncAll()}>
+                <Button type="button" variant="secondary" size="sm" className="clip-corner-lg" disabled={model.busy || !model.canSyncAll} onClick={() => void model.syncAll()}>
                   <RefreshCw className="size-4" />
                   <FormattedMessage {...m.syncAll} />
                 </Button>

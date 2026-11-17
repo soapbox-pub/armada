@@ -19,6 +19,8 @@ export const editorMessages = defineMessages({
     id: "channelEditor.syncedNote",
     defaultMessage: "Roles and members are set on {category}. This channel's own rules are kept, and apply again if you switch this off.",
   },
+  syncRefused: { id: "channelEditor.syncRefused", defaultMessage: "Syncing swaps permissions you can't set; ask someone who can." },
+  unkeyed: { id: "channelEditor.unkeyed", defaultMessage: "You can only change who reads a private channel you can read." },
   private: { id: "channelEditor.private", defaultMessage: "Private channel" },
   privateHint: { id: "channelEditor.privateHint", defaultMessage: "Its own key, for only those allowed to view it." },
   rotate: { id: "channelEditor.rotate", defaultMessage: "Rotate key" },

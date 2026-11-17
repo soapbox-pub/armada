@@ -151,6 +151,11 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
       <Heading>
         <FormattedMessage {...m.targets} />
       </Heading>
+      {model.unkeyed && model.canManageRoles && (
+        <p className="px-3 pb-2 text-xs text-muted-foreground">
+          <FormattedMessage {...m.unkeyed} />
+        </p>
+      )}
       {model.targets.map((target) => (
         <Row
           key={target.key}
@@ -165,7 +170,7 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
         <Row
           icon={Plus}
           label={<FormattedMessage {...m.addTarget} />}
-          disabled={model.busy}
+          disabled={model.busy || model.unkeyed}
           onClick={() => setPage({ id: "picker" })}
         />
       )}
@@ -222,10 +227,10 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
           title={
             <FormattedMessage {...m.sync} values={{ category: model.categoryName ?? "" }} />
           }
-          hint={<FormattedMessage {...m.syncHint} />}
+          hint={<FormattedMessage {...(model.canManageRoles && !model.canSync ? m.syncRefused : m.syncHint)} />}
           checked={values.synced}
           onCheckedChange={model.setSynced}
-          disabled={!model.canManageRoles || model.busy}
+          disabled={!model.canManageRoles || model.busy || !model.canSync}
         />
       )}
       {privateSwitch}
@@ -268,15 +273,15 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
               <Row
                 icon={RefreshCw}
                 label={<FormattedMessage {...m.syncAll} />}
-                hint={
-                  <FormattedMessage
-                    {...m.syncAllHint}
-                    values={{ count: model.unsyncedCount }}
-                  />
-                }
-                disabled={model.busy}
+                hint={<FormattedMessage {...m.syncAllHint} values={{ count: model.unsyncedCount }} />}
+                disabled={model.busy || !model.canSyncAll}
                 onClick={() => void model.syncAll()}
               />
+              {!model.canSyncAll && (
+                <p className="px-3 pb-2 text-xs text-muted-foreground">
+                  <FormattedMessage {...m.syncRefused} />
+                </p>
+              )}
             </>
           )}
         </>
@@ -464,6 +469,7 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
                   type="button"
                   variant="ghost"
                   className="flex-1 clip-corner-lg text-destructive hover:text-destructive"
+                  disabled={ruled.reach === 0n}
                   onClick={() => {
                     model.removeTarget(ruled.key);
                     root();

@@ -145,8 +145,19 @@ export function RuleGroups({ model, target, variant }: { model: EditorModel; tar
   const scope = model.scope.kind;
   const sheet = variant === "sheet";
   const disabled = !model.canManageRoles || model.busy;
+  // Said only to someone who manages Roles: anyone else sees the rules as a read-only list.
+  const refusal = model.canManageRoles && !model.unkeyed ? target.refusal : undefined;
   return (
     <div className={sheet ? undefined : "space-y-4"}>
+      {refusal && (
+        <p className={cn("text-xs text-muted-foreground", sheet && "px-3 pb-1 pt-2")}>
+          {refusal === "bits" ? (
+            <FormattedMessage id="channelEditor.rule.beyondYou" defaultMessage="This rule sets a permission you don't hold, so it isn't yours to change." />
+          ) : (
+            <FormattedMessage id="channelEditor.rule.outOfReach" defaultMessage="You can only set permissions for roles and members beneath you." />
+          )}
+        </p>
+      )}
       {RULE_GROUPS.map((group) => (
         <div key={group.id} className={sheet ? undefined : "space-y-2"}>
           <div className={cn(GROUP_LABEL, sheet && "px-3 pb-1 pt-2")}>{GROUP_NAMES[group.id]}</div>
@@ -156,6 +167,9 @@ export function RuleGroups({ model, target, variant }: { model: EditorModel; tar
               // A Private Channel is never `@everyone`'s to view (CORD-04 §8).
               const sealed = bit === Permissions.VIEW_CHANNEL && target.key === EVERYONE && model.values.isPrivate;
               const state = sealed ? "deny" : ruleState(target.rule, bit);
+              const locked = (target.reach & bit) === 0n;
+              // One bit out of reach in a rule that is otherwise theirs.
+              const notHeld = locked && target.reach !== 0n && model.canManageRoles;
               return (
                 <div key={bit.toString()} className={cn("flex items-center gap-3", sheet ? "min-h-11 px-3 py-0.5" : "px-1 py-1")}>
                   <span className="min-w-0 flex-1">
@@ -180,9 +194,13 @@ export function RuleGroups({ model, target, variant }: { model: EditorModel; tar
                           />
                         )}
                       </span>
+                    ) : notHeld ? (
+                      <span className="block text-xs text-muted-foreground">
+                        <FormattedMessage id="channelEditor.rule.notHeld" defaultMessage="You don't hold this permission" />
+                      </span>
                     ) : null}
                   </span>
-                  <TriState name={label} value={state} disabled={disabled || sealed} onChange={(next) => model.setRule(target.key, bit, next)} />
+                  <TriState name={label} value={state} disabled={disabled || sealed || locked} onChange={(next) => model.setRule(target.key, bit, next)} />
                 </div>
               );
             })}
@@ -274,13 +292,14 @@ export function TargetPicker({ model, variant, onDone }: { model: EditorModel; v
 
   const row = (key: string, target: Named, sub?: ReactNode) => {
     const id = `pick-${key}`;
+    const open = model.mayTarget(key);
     return (
       <label
         key={key}
         htmlFor={id}
         className={cn(
-          "cursor-pointer",
-          sheet ? cn(SHEET_ROW, "text-foreground") : "flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors hover:bg-secondary/70",
+          open ? "cursor-pointer" : "opacity-50",
+          sheet ? cn(SHEET_ROW, "text-foreground") : cn("flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors", open && "hover:bg-secondary/70"),
         )}
       >
         <TargetLead target={target} variant={variant} />
@@ -288,9 +307,15 @@ export function TargetPicker({ model, variant, onDone }: { model: EditorModel; v
           <span className="block truncate">
             <TargetLabel target={target} />
           </span>
-          {sub && <span className="block truncate text-xs font-normal text-muted-foreground">{sub}</span>}
+          {open ? (
+            sub && <span className="block truncate text-xs font-normal text-muted-foreground">{sub}</span>
+          ) : (
+            <span className="block truncate text-xs font-normal text-muted-foreground">
+              <FormattedMessage id="channelEditor.picker.outOfReach" defaultMessage="Not beneath your role" />
+            </span>
+          )}
         </span>
-        <Checkbox id={id} checked={picked.includes(key)} onCheckedChange={(on) => toggle(key, on === true)} />
+        <Checkbox id={id} checked={picked.includes(key)} disabled={!open} onCheckedChange={(on) => toggle(key, on === true)} />
       </label>
     );
   };
@@ -328,8 +353,10 @@ export function TargetPicker({ model, variant, onDone }: { model: EditorModel; v
               <FormattedMessage id="channelEditor.picker.owner" defaultMessage="The owner holds every permission everywhere." />
             ) : listed ? (
               <FormattedMessage id="channelEditor.picker.listed" defaultMessage="They're already listed." />
-            ) : (
+            ) : q ? (
               <FormattedMessage id="channelEditor.picker.empty" defaultMessage="Nobody matches. A member can also be added by npub." />
+            ) : (
+              <FormattedMessage id="channelEditor.picker.none" defaultMessage="There's nobody else to add. A member can also be added by npub." />
             )}
           </p>
         )}

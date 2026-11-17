@@ -513,11 +513,7 @@ export function planOverwrite(folded: FoldedControl, communityId: Uint8Array, me
   if ((!channel || channel.deleted) && !(folded.categories?.get(scopeHex) && !folded.categories.get(scopeHex)!.deleted)) {
     throw new Error(t({ id: "rankedWrites.noSuchScope", defaultMessage: "No such channel or category." }));
   }
-  // Keys follow the change, so a private Channel this device can't key can't be settled.
-  for (const c of folded.channels.values()) {
-    if (c.deleted || !c.isPrivate || held.has(c.channelIdHex)) continue;
-    if (c.channelIdHex === scopeHex || folded.roster.syncs?.[c.channelIdHex] === scopeHex) throw unkeyed();
-  }
+  if (scopeUnkeyed(folded, held, scopeHex)) throw unkeyed();
   const rank = targetRank(folded, target);
   const current = (folded.roster.overwrites ?? []).find((o) => o.scope === scopeHex && sameTarget(o.target, target));
   const changed = (allow ^ (current?.allow ?? 0n)) | (deny ^ (current?.deny ?? 0n));
@@ -530,6 +526,61 @@ export function planOverwrite(folded: FoldedControl, communityId: Uint8Array, me
 }
 
 const unkeyed = () => new Error(t({ id: "rankedWrites.unkeyedPrivate", defaultMessage: "You can only change who reads a private channel you can read." }));
+
+/** Keys follow a rule change, so a private Channel under `scope` that this device can't key can't be settled. */
+export function scopeUnkeyed(folded: FoldedControl, held: ReadonlySet<string>, scope: string): boolean {
+  const scopeHex = scope.toLowerCase();
+  for (const c of folded.channels.values()) {
+    if (c.deleted || !c.isPrivate || held.has(c.channelIdHex)) continue;
+    if (c.channelIdHex === scopeHex || folded.roster.syncs?.[c.channelIdHex] === scopeHex) return true;
+  }
+  return false;
+}
+
+/** What `me` may write of one overwrite, asked before anything is drafted. */
+export interface OverwriteReach {
+  /** The bits they may set or clear. */
+  bits: bigint;
+  /** Nothing is theirs to write: the target isn't beneath them, or its rule carries a bit they don't hold. */
+  refusal?: "rank" | "bits";
+}
+
+/**
+ * {@link planOverwrite}'s authority rule for `target` on `scope`. A rule holding a bit
+ * the author lacks is closed whole, since every write to it restates or clears that bit.
+ */
+export function overwriteReach(folded: FoldedControl, me: string, scope: string, target: OverwriteTarget): OverwriteReach {
+  const none: OverwriteReach = { bits: 0n, refusal: "rank" };
+  if (!folded.rankedRoster) return none;
+  let rank = BENEATH;
+  if (target.kind === "role") {
+    const role = folded.roster.roles.find((r) => r.roleId === target.id);
+    if (!role) return none;
+    rank = role.position;
+  } else if (target.kind === "member") {
+    if (target.id === folded.ownerHex) return none;
+    rank = highestPosition(folded.roster, target.id) ?? BENEATH;
+  }
+  if (me === folded.ownerHex) return { bits: OVERWRITABLE };
+  if (folded.banned.has(me)) return none;
+  const support = permissionsAbove(folded.roster, me, rank);
+  if ((support & Permissions.MANAGE_ROLES) === 0n) return none;
+  const scopeHex = scope.toLowerCase();
+  const current = (folded.roster.overwrites ?? []).find((o) => o.scope === scopeHex && sameTarget(o.target, target));
+  if (current && ((current.allow | current.deny) & ~support) !== 0n) return { bits: 0n, refusal: "bits" };
+  return { bits: support & OVERWRITABLE };
+}
+
+/** The scopes whose overwrites a sync of `ch` to `cat` swaps: its own, the Category's and the one it leaves. */
+const syncScopes = (folded: FoldedControl, ch: string, cat: string | undefined) => [ch, ...(cat ? [cat] : []), ...(folded.roster.syncs?.[ch] ? [folded.roster.syncs[ch]] : [])];
+
+/** {@link planSync}'s authority rule: whether `me` may sync the Channel to `category`, or back to its own rules. */
+export function maySync(folded: FoldedControl, me: string, channelIdHex: string, category: string | undefined): boolean {
+  if (!folded.rankedRoster) return false;
+  if (me === folded.ownerHex) return true;
+  if (folded.banned.has(me) || !isAuthorized(folded.roster, me, folded.ownerHex, Permissions.MANAGE_ROLES)) return false;
+  return maySwapOverwrites(folded.roster, folded.ownerHex, me, syncScopes(folded, channelIdHex.toLowerCase(), category?.toLowerCase()), () => 0n);
+}
 
 export function sameTarget(a: OverwriteTarget, b: OverwriteTarget): boolean {
   return a.kind === b.kind && (a.kind === "everyone" || (b.kind !== "everyone" && a.id.toLowerCase() === b.id.toLowerCase()));
@@ -550,8 +601,7 @@ export function planSync(folded: FoldedControl, communityId: Uint8Array, me: str
   if (cat && !(folded.categories?.get(cat) && !folded.categories.get(cat)!.deleted)) {
     throw new Error(t({ id: "rankedWrites.noSuchCategory", defaultMessage: "No such category." }));
   }
-  const scopes = [ch, ...(cat ? [cat] : []), ...(folded.roster.syncs?.[ch] ? [folded.roster.syncs[ch]] : [])];
-  if (!maySwapOverwrites(folded.roster, folded.ownerHex, me, scopes, () => 0n)) {
+  if (!maySwapOverwrites(folded.roster, folded.ownerHex, me, syncScopes(folded, ch, cat), () => 0n)) {
     throw new Error(t({ id: "rankedWrites.syncSwaps", defaultMessage: "Syncing swaps permissions you can't set; ask someone who can." }));
   }
   const eid = syncLocator(communityId, hex32(ch));

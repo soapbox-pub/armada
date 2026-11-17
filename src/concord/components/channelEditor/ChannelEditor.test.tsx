@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChannelEditor, ChannelEditorPane } from "@/concord/components/channelEditor/ChannelEditor";
 import type { EditorScope } from "@/concord/components/channelEditor/useChannelEditor";
+import { hexToBytes } from "@/concord/lib/derive";
 import { emptySettleReport, type SettleReport } from "@/concord/lib/keySettle";
 import { Permissions } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
@@ -33,13 +34,18 @@ const env = vi.hoisted(() => ({
   rotate: vi.fn(async (_: string) => {}),
   overwrites: [] as unknown[],
   grants: [] as unknown[],
+  roles: [] as unknown[],
+  /** Private Channels this device holds a key for. */
+  held: [] as Array<{ id: Uint8Array }>,
+  privateIds: new Set<string>(),
+  me: "f".repeat(64),
   ranked: true,
 }));
 
 vi.mock("@/hooks/useToast", () => ({ toast: env.toast }));
 vi.mock("@/hooks/useAuthor", () => ({ useAuthor: () => ({ data: undefined }) }));
 vi.mock("@/hooks/useScopedDisplayName", () => ({ useScopedDisplayName: () => "" }));
-vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: { pubkey: "f".repeat(64) } }) }));
+vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: { pubkey: env.me } }) }));
 vi.mock("@/components/DisplayName", () => ({ DisplayName: ({ name }: { name: string }) => <span>{name}</span> }));
 vi.mock("@/concord/components/channelEditor/useMemberSearch", () => ({
   useMemberSearch: (pubkeys: readonly string[], query: string) => pubkeys.filter((pk) => !query.trim() || pk.startsWith(query.trim())),
@@ -80,18 +86,25 @@ vi.mock("@/concord/hooks/useRankedRoles", () => ({
       ownerHex: "f".repeat(64),
       rankedRoster: env.ranked,
       roster: {
-        roles: [{ roleId: "a".repeat(64), name: "Mods", position: 1, rank: "a", permissions: 0n, scope: { kind: "server" }, color: 0 }],
+        roles: env.roles,
         grants: env.grants,
         everyone: 0n,
         overwrites: env.overwrites,
         syncs: { ["1".repeat(64)]: "b".repeat(64) },
       },
       categories: new Map([["b".repeat(64), { idHex: "b".repeat(64), name: "Text", position: "a", deleted: false }]]),
+      channels: new Map(["1", "2", "c", "3"].map((c) => [c.repeat(64), { channelIdHex: c.repeat(64), isPrivate: env.privateIds.has(c.repeat(64)), deleted: false }])),
+      banned: new Set<string>(),
     },
   }),
 }));
 
-const community = { owner: OWNER } as unknown as Community;
+const community = {
+  owner: OWNER,
+  get privateChannels() {
+    return env.held;
+  },
+} as unknown as Community;
 const channel = (over: Partial<EditorScope> = {}): EditorScope => ({ idHex: CHANNEL, kind: "channel", name: "general", ...over });
 const category: EditorScope = { idHex: CATEGORY, kind: "category", name: "Text" };
 
@@ -105,9 +118,15 @@ const written = () => env.applyRules.mock.calls.map((c) => c[0] as { follow?: Fo
 const rulesWritten = () => written().map(({ follow: _follow, ...rules }) => rules);
 const report = (over: Partial<SettleReport> = {}): SettleReport => ({ ...emptySettleReport(), ...over });
 
+const MODS = { roleId: ROLE, name: "Mods", position: 1, rank: "a", permissions: 0n, scope: { kind: "server" }, color: 0 };
+
 beforeEach(() => {
   env.overwrites.length = 0;
   env.grants.length = 0;
+  env.roles = [MODS];
+  env.held = [{ id: hexToBytes(STAFF) }];
+  env.privateIds = new Set([STAFF]);
+  env.me = OWNER;
   env.ranked = true;
   vi.clearAllMocks();
 });
@@ -303,6 +322,18 @@ describe("a category", () => {
     expect(screen.getByText("The owner holds every permission everywhere.")).toBeInTheDocument();
   });
 
+  it("says there is nobody left to add, rather than that nobody matches", () => {
+    env.overwrites.push(
+      { scope: CATEGORY, target: { kind: "role", id: ROLE }, allow: Permissions.VIEW_CHANNEL, deny: 0n },
+      { scope: CATEGORY, target: { kind: "member", id: JOINED }, allow: Permissions.VIEW_CHANNEL, deny: 0n },
+    );
+    pane(category);
+    fireEvent.click(screen.getByRole("button", { name: "Add role or member" }));
+    expect(screen.getByText("There's nobody else to add. A member can also be added by npub.")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Search roles and members"), { target: { value: "zzz" } });
+    expect(screen.getByText("Nobody matches. A member can also be added by npub.")).toBeInTheDocument();
+  });
+
   it("syncs every channel still on its own rules", async () => {
     pane(category);
     expect(screen.getByText("1 channel uses its own permissions.")).toBeInTheDocument();
@@ -488,5 +519,77 @@ describe("the editor on touch", () => {
     expect(env.setChannelCategory).toHaveBeenCalledWith({ channelIdHex: CHANNEL, category: CATEGORY, follow: false });
     // A public channel with no rules of its own follows the category it is filed under.
     expect(rulesWritten()).toEqual([{ scope: CHANNEL, sync: { category: CATEGORY }, overwrites: [] }]);
+  });
+});
+
+describe("what the viewer can't write", () => {
+  const ME = "9".repeat(64);
+  const MANAGERS = "8".repeat(64);
+  const HELD = Permissions.MANAGE_ROLES | Permissions.MANAGE_CHANNELS | Permissions.VIEW_CHANNEL | Permissions.SEND_MESSAGES;
+  /** A manager above Mods who holds no Manage messages. */
+  const manager = () => {
+    env.me = ME;
+    env.roles = [{ ...MODS, roleId: MANAGERS, name: "Managers", position: 1, permissions: HELD }, { ...MODS, position: 2, rank: "b" }];
+    env.grants.push({ member: ME, roleIds: [MANAGERS] });
+  };
+  const bit = (name: string, state: string) => within(screen.getByRole("group", { name })).getByRole("button", { name: state });
+
+  it("closes a permission they don't hold, and says so", () => {
+    manager();
+    pane(channel({ tab: "permissions" }));
+    expect(bit("View channels", "Deny")).toBeEnabled();
+    expect(bit("Manage messages", "Allow")).toBeDisabled();
+    expect(bit("Manage messages", "Deny")).toBeDisabled();
+    expect(screen.getAllByText("You don't hold this permission").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/isn't yours to change/)).toBeNull();
+  });
+
+  it("closes a rule whole when it already sets one", () => {
+    manager();
+    env.overwrites.push({ scope: CHANNEL, target: { kind: "everyone" }, allow: Permissions.MANAGE_MESSAGES, deny: 0n });
+    pane(channel({ tab: "permissions" }));
+    expect(screen.getByText("This rule sets a permission you don't hold, so it isn't yours to change.")).toBeInTheDocument();
+    expect(bit("View channels", "Deny")).toBeDisabled();
+  });
+
+  it("offers only the roles and members beneath them", () => {
+    manager();
+    pane(channel({ tab: "permissions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add role or member" }));
+    expect(screen.getByRole("checkbox", { name: /Managers/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /Managers/ }).closest("label")).toHaveTextContent("Not beneath your role");
+    expect(screen.getByRole("checkbox", { name: /Mods/ })).toBeEnabled();
+  });
+
+  it("closes a rule on a role that isn't beneath them, and its removal", () => {
+    manager();
+    env.overwrites.push({ scope: CHANNEL, target: { kind: "role", id: MANAGERS }, allow: 0n, deny: Permissions.SEND_MESSAGES });
+    pane(channel({ tab: "permissions" }));
+    fireEvent.click(screen.getByRole("button", { name: /Managers/ }));
+    expect(screen.getByText("You can only set permissions for roles and members beneath you.")).toBeInTheDocument();
+    expect(bit("Send messages", "Inherit")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeDisabled();
+  });
+
+  it("closes a sync that would swap rules they couldn't write", () => {
+    manager();
+    env.overwrites.push({ scope: CATEGORY, target: { kind: "everyone" }, allow: Permissions.MANAGE_MESSAGES, deny: 0n });
+    pane(channel({ idHex: OWN, name: "own", tab: "permissions" }));
+    expect(screen.getByRole("switch", { name: /Use Text's permissions/ })).toBeDisabled();
+    expect(screen.getByText("Syncing swaps permissions you can't set; ask someone who can.")).toBeInTheDocument();
+  });
+
+  it("leaves a sync they could write open", () => {
+    manager();
+    pane(channel({ idHex: OWN, name: "own", tab: "permissions" }));
+    expect(screen.getByRole("switch", { name: /Use Text's permissions/ })).toBeEnabled();
+  });
+
+  it("closes a category's rules while a private channel on them has no key here", () => {
+    env.privateIds = new Set([STAFF, SYNCED]);
+    pane(category);
+    expect(screen.getByText("You can only change who reads a private channel you can read.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add role or member" })).toBeDisabled();
+    expect(bit("View channels", "Allow")).toBeDisabled();
   });
 });
