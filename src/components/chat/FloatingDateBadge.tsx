@@ -61,6 +61,22 @@ function startOfDay(ts: number): number {
   return Math.floor(date.getTime() / 1000);
 }
 
+/** Still within the screenful the conversation opened on. */
+function onFirstPage(scroller: HTMLElement): boolean {
+  return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < scroller.clientHeight;
+}
+
+/**
+ * Today or yesterday: on the opening screenful their separator and the message
+ * times already say so, so the badge waits until the reader is further up.
+ */
+function isRecent(ts: number): boolean {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  yesterday.setHours(0, 0, 0, 0);
+  return ts >= Math.floor(yesterday.getTime() / 1000);
+}
+
 /**
  * The date of the messages in view, floated over the timeline while the reader
  * scrolls. Listens to the scroller itself, so scrolling re-renders only this.
@@ -99,7 +115,7 @@ export function FloatingDateBadge({
       frame = 0;
       const content = contentRef.current;
       const ts = content ? dayUnderBadge(scroller, content) : null;
-      if (ts === null) {
+      if (ts === null || (onFirstPage(scroller) && isRecent(ts))) {
         setVisible(false);
         return;
       }
