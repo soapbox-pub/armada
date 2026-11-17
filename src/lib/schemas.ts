@@ -164,6 +164,7 @@ export const AppConfigSchema = z.object({
   spamSensitivity: z.enum(["relaxed", "standard", "strict"]).catch(defaultConfig.spamSensitivity),
   spamExemptBridged: z.boolean().catch(defaultConfig.spamExemptBridged),
   absoluteTimestamps: z.boolean().catch(defaultConfig.absoluteTimestamps),
+  floatingDates: z.boolean().catch(defaultConfig.floatingDates),
   showDiscover: z.boolean().catch(defaultConfig.showDiscover),
   currencyDisplay: z.enum(["usd", "sats"]).catch(defaultConfig.currencyDisplay),
   defaultZapMethod: z.enum(PAYMENT_METHOD_TYPES).catch(defaultConfig.defaultZapMethod),
@@ -226,6 +227,8 @@ export const MetadataDocSchema = z.looseObject({
   spamExemptBridged: z.boolean().optional(),
   /** Clock time instead of relative time in message headers. */
   absoluteTimestamps: z.boolean().optional(),
+  /** Float the date of the messages in view while scrolling. */
+  floatingDates: z.boolean().optional(),
   /** The rail's Discover button. */
   showDiscover: z.boolean().optional(),
   currencyDisplay: z.enum(["usd", "sats"]).optional(),

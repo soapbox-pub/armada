@@ -865,6 +865,8 @@
   "chatSettings.absoluteTimestampsDescription": "Mostra l’ora in cui è stato inviato ogni messaggio, come 15:07, invece di quanto tempo fa.",
   "chatSettings.backLeavesApp": "Indietro esce dall’app",
   "chatSettings.backLeavesAppDescription": "Se disattivato, Indietro passa dall’elenco dei canali alla chat e viceversa.",
+  "chatSettings.floatingDates": "Mostra la data durante lo scorrimento",
+  "chatSettings.floatingDatesDescription": "Mentre scorri una chat, mostra in alto la data dei messaggi visibili.",
   "chatSettings.foldSimilar": "Raggruppa i messaggi simili",
   "chatSettings.foldSimilarDescription": "Raggruppa in una sola riga le raffiche di messaggi quasi identici nelle community. Disattivato, ogni messaggio viene mostrato, ma una raffica continua a non contare come non letta né come menzione.",
   "chatSettings.hoverActions": "Azioni sui messaggi al passaggio del mouse",

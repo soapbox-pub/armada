@@ -865,6 +865,8 @@
   "chatSettings.absoluteTimestampsDescription": "Affiche l’heure d’envoi de chaque message, comme 15:07, plutôt que le temps écoulé.",
   "chatSettings.backLeavesApp": "Retour quitte l’app",
   "chatSettings.backLeavesAppDescription": "Désactivé, Retour bascule entre la liste des salons et le chat.",
+  "chatSettings.floatingDates": "Afficher la date pendant le défilement",
+  "chatSettings.floatingDatesDescription": "Pendant que vous faites défiler une discussion, affiche en haut la date des messages visibles.",
   "chatSettings.foldSimilar": "Regrouper les messages similaires",
   "chatSettings.foldSimilarDescription": "Regroupe en une seule ligne les rafales de messages presque identiques dans les communautés. Désactivé, chaque message est affiché, mais une rafale ne compte toujours ni comme non lue ni comme mention.",
   "chatSettings.hoverActions": "Actions de message au survol",

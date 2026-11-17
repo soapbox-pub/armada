@@ -278,6 +278,8 @@ export interface AppConfig {
   spamExemptBridged: boolean;
   /** Whether message headers show the clock time instead of "2h" (default off). Synced. */
   absoluteTimestamps: boolean;
+  /** Whether the timeline floats the date of the messages in view while scrolling (default on). Synced. */
+  floatingDates: boolean;
   /** Whether the rail shows the Discover button (default on). Display only; /discover still opens. Synced. */
   showDiscover: boolean;
   /**
@@ -363,6 +365,7 @@ export const METADATA_CONFIG_KEYS = [
   "spamSensitivity",
   "spamExemptBridged",
   "absoluteTimestamps",
+  "floatingDates",
   "showDiscover",
   "currencyDisplay",
   "defaultZapMethod",
@@ -467,6 +470,7 @@ export const defaultConfig: AppConfig = {
   spamSensitivity: "standard",
   spamExemptBridged: false,
   absoluteTimestamps: false,
+  floatingDates: true,
   showDiscover: true,
   meshIncognito: true,
   meshEnabled: false,

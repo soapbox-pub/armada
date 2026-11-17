@@ -90,8 +90,6 @@ const UNRENDERED_BELOW_PX = 1_000_000;
 /** Rows per commit as a conversation opens, one step per frame; the switch click's commit mounts none. */
 const OPENING_RAMP = [0, FIRST_PAINT_WINDOW, INITIAL_WINDOW];
 
-export { isSameDay };
-
 /** Discord-style day separator. Memoized: the list re-renders on most page renders. */
 export const DateSeparator = memo(function DateSeparator({ ts }: { ts: number }) {
   const intl = useIntl();

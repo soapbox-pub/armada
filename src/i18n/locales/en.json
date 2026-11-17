@@ -865,6 +865,8 @@
   "chatSettings.absoluteTimestampsDescription": "Show the time each message was sent, like 3:07 PM, instead of how long ago.",
   "chatSettings.backLeavesApp": "Back leaves the app",
   "chatSettings.backLeavesAppDescription": "Off, back switches between the channel list and the chat.",
+  "chatSettings.floatingDates": "Show date while scrolling",
+  "chatSettings.floatingDatesDescription": "While you scroll a chat, show the date of the messages in view at the top.",
   "chatSettings.foldSimilar": "Fold similar messages",
   "chatSettings.foldSimilarDescription": "Collapse bursts of near-identical messages in communities into one row. Off, every message is shown, though a burst still never counts as unread or as a mention.",
   "chatSettings.hoverActions": "Message actions on hover",

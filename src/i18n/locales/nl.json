@@ -865,6 +865,8 @@
   "chatSettings.absoluteTimestampsDescription": "Toont het tijdstip waarop elk bericht is verstuurd, zoals 15:07, in plaats van hoe lang geleden.",
   "chatSettings.backLeavesApp": "Terug verlaat de app",
   "chatSettings.backLeavesAppDescription": "Uit: Terug wisselt tussen de kanaallijst en de chat.",
+  "chatSettings.floatingDates": "Datum tonen tijdens scrollen",
+  "chatSettings.floatingDatesDescription": "Toont bovenaan de datum van de zichtbare berichten terwijl je door een chat scrolt.",
   "chatSettings.foldSimilar": "Vergelijkbare berichten samenvouwen",
   "chatSettings.foldSimilarDescription": "Vouwt reeksen bijna identieke berichten in community’s samen tot één rij. Uit: elk bericht wordt getoond, maar een reeks telt nog steeds niet als ongelezen of als vermelding.",
   "chatSettings.hoverActions": "Berichtacties bij aanwijzen",

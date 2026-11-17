@@ -865,6 +865,8 @@
   "chatSettings.absoluteTimestampsDescription": "「2時間前」のような経過時間ではなく、15:07 のように各メッセージの送信時刻を表示します。",
   "chatSettings.backLeavesApp": "戻るでアプリを終了",
   "chatSettings.backLeavesAppDescription": "オフの場合、戻るでチャンネルリストとチャットを切り替えます。",
+  "chatSettings.floatingDates": "スクロール中に日付を表示",
+  "chatSettings.floatingDatesDescription": "チャットをスクロールしている間、表示中のメッセージの日付を上部に表示します。",
   "chatSettings.foldSimilar": "似たメッセージをまとめる",
   "chatSettings.foldSimilarDescription": "コミュニティで連続するほぼ同じメッセージを1行にまとめます。オフにするとすべてのメッセージが表示されますが、連続したメッセージは未読やメンションとして数えられません。",
   "chatSettings.hoverActions": "ホバー時にメッセージ操作を表示",

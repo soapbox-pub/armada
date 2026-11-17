@@ -97,6 +97,16 @@ export function ChatSettings() {
               updateConfig((current) => ({ ...current, absoluteTimestamps }))}
           />
         </SettingsRow>
+        <SettingsRow
+          label={intl.formatMessage({ id: "chatSettings.floatingDates", defaultMessage: "Show date while scrolling" })}
+          description={intl.formatMessage({ id: "chatSettings.floatingDatesDescription", defaultMessage: "While you scroll a chat, show the date of the messages in view at the top." })}
+        >
+          <Switch
+            checked={config.floatingDates}
+            onCheckedChange={(floatingDates) =>
+              updateConfig((current) => ({ ...current, floatingDates }))}
+          />
+        </SettingsRow>
         {Capacitor.getPlatform() === "android" && (
           // Per-device: leave the app vs. walk history from the revealed list pane.
           <SettingsRow

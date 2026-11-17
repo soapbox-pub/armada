@@ -38,7 +38,8 @@ import {
   type PendingArrangement,
 } from "@/concord/lib/channelArrangement";
 import { useChannelDrag, type ChannelDrop, type ChannelDropSlot } from "@/concord/hooks/useChannelDrag";
-import { DateSeparator, isSameDay, MessageTimeline } from "@/components/chat/MessageTimeline";
+import { isSameDay } from "@/components/chat/dayLabel";
+import { DateSeparator, MessageTimeline } from "@/components/chat/MessageTimeline";
 import { ThreadPanelSlot } from "@/components/chat/ThreadPanelSlot";
 import { useThreadPanel } from "@/hooks/useThreadPanel";
 import { useTimelineFocus } from "@/hooks/useTimelineFocus";

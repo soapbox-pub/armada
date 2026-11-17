@@ -865,6 +865,8 @@
   "chatSettings.absoluteTimestampsDescription": "Zeigt die Uhrzeit, zu der jede Nachricht gesendet wurde, etwa 15:07, statt wie lange das her ist.",
   "chatSettings.backLeavesApp": "Zurück verlässt die App",
   "chatSettings.backLeavesAppDescription": "Wenn aus, wechselt Zurück zwischen Kanalliste und Chat.",
+  "chatSettings.floatingDates": "Datum beim Scrollen anzeigen",
+  "chatSettings.floatingDatesDescription": "Zeigt beim Scrollen durch einen Chat oben das Datum der sichtbaren Nachrichten.",
   "chatSettings.foldSimilar": "Ähnliche Nachrichten zusammenfassen",
   "chatSettings.foldSimilarDescription": "Fasst in Communitys Serien fast gleicher Nachrichten in einer Zeile zusammen. Aus: Jede Nachricht wird angezeigt, eine Serie zählt aber weiterhin nicht als ungelesen oder als Erwähnung.",
   "chatSettings.hoverActions": "Nachrichtenaktionen beim Überfahren",
