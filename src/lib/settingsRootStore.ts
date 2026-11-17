@@ -156,7 +156,7 @@ export interface EnsureSettingsRootOptions {
    * that already keeps Armada settings (see AGENTS.md on unsolicited publishes).
    */
   explicit?: boolean;
-  /** Runs once, right after a NEW root is published (the eager copy). */
+  /** Started once, right after a NEW root is published (the eager copy); not awaited. */
   onCreated?: (keys: SettingsKeys) => Promise<void>;
 }
 
@@ -215,7 +215,9 @@ async function ensure(opts: EnsureSettingsRootOptions): Promise<SettingsKeys> {
     // Queued or not, the root is held; the outbox (or the next Sync now) delivers it.
     console.warn("Settings root delivery incomplete:", error);
   }
-  await opts.onCreated?.(keys).catch((error) => console.warn("Settings migration incomplete:", error));
+  // Not awaited: the caller may be a serialized settings write, and the copy
+  // queues a write to that same document, so awaiting it would deadlock.
+  void opts.onCreated?.(keys).catch((error) => console.warn("Settings migration incomplete:", error));
   return keys;
 }
 

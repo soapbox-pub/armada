@@ -4,6 +4,7 @@ import { NSecSigner } from "@nostrify/nostrify";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
+import { copyLegacySettingsDocs, serializeSettingsWrite } from "@/hooks/useSettingsDoc";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 import { encodeSettingsRoot, ROOT_PLAINTEXT_BYTES } from "@/lib/settingsRoot";
 import { settingsKeyring } from "@/lib/settingsKeys";
@@ -137,6 +138,31 @@ describe("settings root lifecycle", () => {
   it("an explicit Sync now may create the first root", async () => {
     const keys = await ensure({ explicit: true });
     expect(keys.keyring).not.toBeNull();
+  });
+
+  it("a settings write that mints the root finishes", async () => {
+    await store.event(legacyMetadata());
+    // useSettingsDoc's mutation: serialized per document, ensuring the keys inside.
+    const write = serializeSettingsWrite("read-state-recent", () => ensureSettingsKeys({
+      nostr: nostr as never,
+      store: store as never,
+      signer,
+      pubkey: PUBKEY,
+      relays: [RELAY],
+      onCreated: (keys) => copyLegacySettingsDocs({
+        nostr: nostr as never,
+        store: store as never,
+        signer,
+        pubkey: PUBKEY,
+        keys,
+        relays: [RELAY],
+      }),
+    }));
+    const outcome = await Promise.race([
+      write.then(() => "finished"),
+      new Promise((resolve) => setTimeout(() => resolve("hung"), 2000)),
+    ]);
+    expect(outcome).toBe("finished");
   });
 
   it("keeps a root that lost a creation race as a previous root", async () => {
