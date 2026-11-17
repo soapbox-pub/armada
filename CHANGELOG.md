@@ -4,6 +4,31 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.7] - 2026-11-17
+
+Channel settings get one editor for a channel or category, with a review of
+who gains or loses access before a change is saved. The timeline shows the
+date of what you're reading while you scroll, menus open as bottom sheets on
+touch, and private channels pick up newly granted keys faster.
+
+### Added
+- Edit a channel's or category's name, topic, type, privacy and permissions in one editor, beside the channel list or as a sheet on touch
+- Before a channel, category or role change is saved, a review shows who gains or loses access
+- The date of the messages in view floats over the timeline while scrolling, with a setting to turn it off
+- Bot commands show their arguments in the timeline
+
+### Changed
+- Context menus and action menus open as a bottom sheet on touch, with submenus as pages
+- The new channel dialog has a cleaner layout with a type picker and a private switch
+- Channel settings you can't change are disabled with the reason shown beside each
+- Settings channels are reordered by a drag handle
+- The Jump to present button fades after a few seconds without scrolling or new messages
+- Private channels and their history open within seconds once you're given access
+
+### Fixed
+- Text in the message box lines up correctly on iPhone and iPad
+- The folder tooltip's community count is translated
+
 ## [0.69.6] - 2026-11-16
 
 Private channels follow role changes reliably and much faster: a member given
