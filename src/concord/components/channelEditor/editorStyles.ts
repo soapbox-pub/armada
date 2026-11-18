@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 export const SHEET_ROW =
   "flex min-h-11 w-full items-center gap-3 clip-corner px-3 py-2.5 text-left text-chat font-medium active:bg-secondary disabled:opacity-50";
 export const SHEET_TILE = "flex size-10 shrink-0 items-center justify-center clip-corner-lg bg-secondary";
+// A header's icon (`MenuSheetTile`): bare, so it doesn't read as a row, at the tile's width.
+export const SHEET_HEAD_ICON = "flex size-10 shrink-0 items-center justify-center";
 export const SHEET_TITLE = "truncate text-base font-semibold leading-tight tracking-normal";
 export const SHEET_BACK =
   "-m-0.5 flex size-11 shrink-0 items-center justify-center clip-corner-lg text-muted-foreground active:bg-secondary";

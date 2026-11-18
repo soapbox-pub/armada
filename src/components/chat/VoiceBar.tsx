@@ -37,6 +37,7 @@ import {
   DropdownMenuSwitchItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { MenuSheetTile } from "@/components/ui/menu-sheet";
 import { useIsTouch } from "@/hooks/useIsMobile";
 import { useMenuSheet } from "@/hooks/useMenuSheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -304,8 +305,7 @@ export function DeviceMenu({ className }: { className?: string }) {
       <DropdownMenuContent
         align="end"
         className="max-w-72 max-h-[min(70vh,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto"
-        // No lead tile: the sheet's rows carry tiles, so one here reads as a row.
-        sheetIdentity={{ title }}
+        sheetIdentity={{ lead: <MenuSheetTile><Settings2 /></MenuSheetTile>, title }}
       >
         {platformRoutesCallAudio() && <CallRouteGroup />}
         {!platformRoutesCallAudio() && (

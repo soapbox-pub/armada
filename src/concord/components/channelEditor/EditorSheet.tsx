@@ -10,7 +10,7 @@ import { ChannelGlyph } from "@/concord/components/ChannelGlyph";
 import { EditorLegacyAccess } from "@/concord/components/channelEditor/EditorLegacyAccess";
 import { ConfirmText, GeneralFields, RuleGroups, TargetLabel, TargetLead, TargetPicker, TargetSummary } from "@/concord/components/channelEditor/editorParts";
 import { editorMessages as m } from "@/concord/components/channelEditor/editorMessages";
-import { GROUP_LABEL, SHEET_DIVIDER, SHEET_ROW, SHEET_TILE, SHEET_TITLE } from "@/concord/components/channelEditor/editorStyles";
+import { GROUP_LABEL, SHEET_DIVIDER, SHEET_HEAD_ICON, SHEET_ROW, SHEET_TILE, SHEET_TITLE } from "@/concord/components/channelEditor/editorStyles";
 import { SheetPageHeader as PageHeader } from "@/concord/components/channelEditor/SheetPageHeader";
 import type { EditorModel, EditorTab } from "@/concord/components/channelEditor/useChannelEditor";
 import { useEditorFlow } from "@/concord/components/channelEditor/useEditorFlow";
@@ -302,7 +302,7 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
         onEscapeKeyDown={(e) => flow.locked && e.preventDefault()}
       >
         <div className={cn("flex shrink-0 items-center gap-3 px-5 pb-2 pt-1", nested && "hidden")}>
-          <span className={SHEET_TILE}>
+          <span className={SHEET_HEAD_ICON}>
             {isChannel ? (
               <ChannelGlyph isPrivate={model.base.isPrivate} view={model.base.view} className="size-5 text-muted-foreground" />
             ) : (

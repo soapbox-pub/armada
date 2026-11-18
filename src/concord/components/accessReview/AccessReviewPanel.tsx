@@ -7,7 +7,7 @@ import { reviewMessages as m } from "@/concord/components/accessReview/reviewMes
 import type { ApplyPhase, ApplyRun, ApplyStep } from "@/concord/components/accessReview/useApplyRun";
 import { ChannelGlyph } from "@/concord/components/ChannelGlyph";
 import { MemberAvatar, MemberName } from "@/concord/components/channelEditor/editorParts";
-import { GROUP_LABEL, SHEET_ROW, SHEET_TILE, SHEET_TITLE } from "@/concord/components/channelEditor/editorStyles";
+import { GROUP_LABEL, SHEET_HEAD_ICON, SHEET_ROW, SHEET_TILE, SHEET_TITLE } from "@/concord/components/channelEditor/editorStyles";
 import { SheetPageHeader } from "@/concord/components/channelEditor/SheetPageHeader";
 import { WriteProgress } from "@/concord/components/WriteProgress";
 import { keyWork, type AccessMove, type AccessReview, type AccessRoad } from "@/concord/lib/accessReview";
@@ -333,14 +333,15 @@ export function AccessReviewPanel({
   const title =
     status === "working" ? <FormattedMessage {...m.applyingTitle} /> : status === "unfinished" ? <FormattedMessage {...m.unfinishedTitle} /> : <FormattedMessage {...(sheet ? m.title : m.heading)} />;
   const HeadIcon = status === "unfinished" ? TriangleAlert : KeyRound;
-  const headTone = status === "unfinished" ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary";
+  const headText = status === "unfinished" ? "text-destructive" : "text-primary";
+  const headTone = cn(headText, status === "unfinished" ? "bg-destructive/15" : "bg-primary/15");
 
   const header = sheet ? (
     status === "review" ? (
       <SheetPageHeader onBack={onCancel} title={title} context={context} />
     ) : (
       <div className="flex shrink-0 items-center gap-3 px-5 pb-2 pt-1">
-        <span className={cn(SHEET_TILE, headTone)}>
+        <span className={cn(SHEET_HEAD_ICON, headText)}>
           <HeadIcon className="size-5" />
         </span>
         <div className="min-w-0 flex-1">

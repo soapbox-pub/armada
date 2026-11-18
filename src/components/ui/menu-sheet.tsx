@@ -126,9 +126,17 @@ function MenuSheetDrawer({ open, onOpenChange, identity, onCloseAutoFocus, child
   )
 }
 
-/** An icon in a row's tile, for a {@link MenuSheetIdentity} lead. */
+/**
+ * An icon for a {@link MenuSheetIdentity} lead. Bare, since a filled tile reads as one
+ * of the rows; it keeps the tile's width, so the title lines up with their labels.
+ */
 function MenuSheetTile({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) {
-  return <span className={cn(TILE, "text-muted-foreground [&>svg]:size-5", className)} {...props} />
+  return (
+    <span
+      className={cn("flex size-10 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-5", className)}
+      {...props}
+    />
+  )
 }
 
 /** Call sites mark a destructive item with a text colour; the row tints its tile from it. */
