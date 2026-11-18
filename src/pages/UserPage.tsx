@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { JoinButton } from "@/components/auth/JoinButton";
+import { DisplayName } from "@/components/DisplayName";
 import { DetailPage } from "@/components/layout/DetailPage";
 import { ProfileDialog } from "@/components/profile/ProfileDialog";
 import { UserBanned } from "@/components/profile/UserBanned";
@@ -51,8 +52,8 @@ export function UserPage() {
 
   // Until kind 0 lands, show the followed address rather than "Anonymous".
   const shortNpub = npub ? `${npub.slice(0, 12)}…${npub.slice(-6)}` : "";
-  const displayName =
-    metadata?.name || metadata?.display_name || address?.display || shortNpub;
+  const profileName = metadata?.name || metadata?.display_name;
+  const displayName = profileName || address?.display || shortNpub;
 
   if (!direct && !address) {
     return <NotFound />;
@@ -129,7 +130,11 @@ export function UserPage() {
             <FormattedMessage
               id="userPage.chatWith"
               defaultMessage="Chat with <name>{displayName}</name> on Armada"
-              values={{ displayName, name: (chunks) => <span className="break-words">{chunks}</span> }}
+              values={{
+                displayName: profileName
+                  ? <DisplayName pubkey={pubkey} name={profileName} tags={author.data?.event?.tags ?? []} />
+                  : displayName,
+                name: (chunks) => <span className="break-words">{chunks}</span> }}
             />
           </h2>
           {metadata?.about && (

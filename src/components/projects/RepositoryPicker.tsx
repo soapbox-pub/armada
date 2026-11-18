@@ -1,8 +1,10 @@
+import type { NostrMetadata } from "@nostrify/nostrify";
 import { useNostr } from "@nostrify/react";
 import { FolderGit2, HelpCircle, Loader2 } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { useCallback, useMemo, useState } from "react";
 
+import { DisplayName } from "@/components/DisplayName";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SearchField } from "@/components/ui/search-field";
 import {
@@ -29,8 +31,14 @@ export interface PickedRepository {
 /** Profile name or truncated npub — never "Anonymous". */
 function useOwnerName(pubkey: string): string {
   const author = useAuthor(pubkey);
-  const named = author.data?.metadata?.name || author.data?.metadata?.display_name;
-  if (named) return named;
+  return profileName(author.data?.metadata) ?? shortNpub(pubkey);
+}
+
+function profileName(metadata: NostrMetadata | undefined): string | undefined {
+  return metadata?.name || metadata?.display_name || undefined;
+}
+
+function shortNpub(pubkey: string): string {
   try {
     return nip19.npubEncode(pubkey).slice(0, 9);
   } catch {
@@ -51,10 +59,15 @@ export function OwnerAvatar({ pubkey, className }: { pubkey: string; className?:
 
 /** "owner / repo": same-named forks are otherwise indistinguishable. */
 export function OwnerSlashRepo({ owner, name, className }: { owner: string; name: string; className?: string }) {
-  const ownerName = useOwnerName(owner);
+  const author = useAuthor(owner);
+  const named = profileName(author.data?.metadata);
   return (
     <span className={cn("block truncate text-sm", className)}>
-      <span className="text-muted-foreground">{ownerName}</span>
+      <span className="text-muted-foreground">
+        {named
+          ? <DisplayName pubkey={owner} name={named} tags={author.data?.event?.tags ?? []} />
+          : shortNpub(owner)}
+      </span>
       <span className="text-muted-foreground/60"> / </span>
       <span className="font-semibold text-foreground">{name}</span>
     </span>

@@ -2,6 +2,7 @@ import QRCode from "qrcode";
 import { Check, Copy, Link2, Loader2, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { DisplayName } from "@/components/DisplayName";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, ChromeDialogContent } from "@/components/ui/dialog";
@@ -35,7 +36,8 @@ export function ProfileShareDialog({ open, onOpenChange }: ProfileShareDialogPro
   const [qrDataUrl, setQrDataUrl] = useState("");
 
   const npub = tryNpubEncode(user?.pubkey);
-  const displayName = metadata?.name || metadata?.display_name ||
+  const ownName = metadata?.name || metadata?.display_name;
+  const displayName = ownName ||
     intl.formatMessage({ id: "profileShareDialog.yourProfile", defaultMessage: "your profile" });
   const url = npub ? `${shareOrigin()}/${npub}` : "";
 
@@ -99,7 +101,11 @@ export function ProfileShareDialog({ open, onOpenChange }: ProfileShareDialogPro
             <FormattedMessage
               id="profileShareDialog.intro"
               defaultMessage="Scan or share this link to open <hl>{name}</hl> in Armada."
-              values={{ name: displayName, hl: (chunks) => <span className="text-foreground">{chunks}</span> }}
+              values={{
+                name: ownName
+                  ? <DisplayName pubkey={user?.pubkey} name={ownName} tags={author.data?.event?.tags ?? []} />
+                  : displayName,
+                hl: (chunks) => <span className="text-foreground">{chunks}</span> }}
             />
           </p>
         </div>
