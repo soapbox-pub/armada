@@ -145,6 +145,9 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
     if (el) setBox(el.offsetWidth || 40)
   }, [])
   const thumb = useImageThumb(failed ? undefined : src, box)
+  // Fade in only over a placeholder that was shown: a cached thumbnail appears at once.
+  const [sawPending, setSawPending] = React.useState(false)
+  if (thumb.pending && !sawPending) setSawPending(true)
 
   const showImage = !failed && !!src
 
@@ -153,10 +156,14 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
   }
 
   if (!showImage) return null
-  // Blank while the thumbnail is made, as a progressively loading <img> was.
-  if (thumb.pending) return <span ref={measure} aria-hidden className="absolute inset-0" />
+  if (thumb.pending) return <span ref={measure} aria-hidden className="absolute inset-0 animate-pulse bg-muted" />
+  const imgClass = cn(
+    "absolute inset-0 h-full w-full object-cover",
+    sawPending && "animate-in fade-in-0 duration-300",
+    className,
+  )
   if (thumb.anim) {
-    return <ThumbAnimation anim={thumb.anim} className={cn("absolute inset-0 h-full w-full object-cover", className)} />
+    return <ThumbAnimation anim={thumb.anim} className={imgClass} />
   }
 
   return (
@@ -167,7 +174,7 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
       alt=""
       // The APK's `https://localhost` Referer trips some hotlink protections.
       referrerPolicy="no-referrer"
-      className={cn("absolute inset-0 h-full w-full object-cover", className)}
+      className={imgClass}
       onError={(e) => {
         advance()
         onError?.(e)

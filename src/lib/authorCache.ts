@@ -44,6 +44,7 @@ export function parseAuthorEvent(event: NostrRumor): AuthorResult & { event: Nos
  * All seeders must use this, or a background path can revert a fresher profile.
  */
 export function seedAuthorCache(queryClient: QueryClient, pubkey: string, event: NostrRumor): void {
+  markProfileSettled(pubkey);
   // A banned user's profile isn't shown, so isn't held.
   if (isUserBannedNow(pubkey)) return;
   const key = authorQueryKey(pubkey);
@@ -51,5 +52,4 @@ export function seedAuthorCache(queryClient: QueryClient, pubkey: string, event:
   if (!existing?.event || existing.event.created_at < event.created_at) {
     queryClient.setQueryData<AuthorResult>(key, parseAuthorEvent(event));
   }
-  markProfileSettled(pubkey);
 }

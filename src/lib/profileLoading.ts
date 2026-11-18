@@ -6,8 +6,11 @@
  */
 import { useCallback, useSyncExternalStore } from "react";
 
-/** Past this, a pubkey still unsettled shows its fallback: a stalled sync must not leave skeletons forever. */
-const PENDING_MAX_MS = 20_000;
+/**
+ * Past this, a pubkey still unsettled shows its fallback: a stalled sync must not leave skeletons forever.
+ * Above a round's worst case (the 5s floor before it starts, then its 15s timeout), so a slow round isn't cut short.
+ */
+const PENDING_MAX_MS = 30_000;
 
 const HEX_PUBKEY = /^[0-9a-f]{64}$/;
 

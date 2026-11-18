@@ -309,7 +309,7 @@ function ParticipantVolumeRow({ participant }: { participant: Participant }) {
         <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
           <AvatarFallback className="bg-success/20 text-success text-monogram">
-            <AvatarInitial name={name} />
+            <AvatarInitial name={name} pubkey={verified ? pubkey : undefined} />
           </AvatarFallback>
         </Avatar>
         <span className="truncate text-sm flex-1">

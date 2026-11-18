@@ -68,7 +68,7 @@ function ReportRow({ report }: { report: ReportEntry }) {
         <Avatar className="size-6 shrink-0">
           <AvatarImage src={accusedAuthor.data?.metadata?.picture} imeta={accusedAuthor.data?.imeta?.picture} alt={accusedName} />
           <AvatarFallback className="bg-destructive/20 text-3xs text-destructive">
-            <AvatarInitial name={accusedName} />
+            <AvatarInitial name={accusedName} pubkey={accused} />
           </AvatarFallback>
         </Avatar>
         <span className="min-w-0 flex-1 truncate font-medium">

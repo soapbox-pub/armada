@@ -173,6 +173,40 @@ describe("profileSync — the profiles topic", () => {
     m._resetSyncManagerForTests();
   });
 
+  it("seeds a profile as soon as one source answers, not when the slowest relay does", { timeout: 30_000 }, async () => {
+    const m = await freshModules();
+    const event = profile(sk1, "alice", 1_700_000_000);
+    let answerSlow: (events: NostrEvent[]) => void = () => undefined;
+    const nostr = {
+      async query() {
+        return [event];
+      },
+      relay() {
+        return { query: () => new Promise<NostrEvent[]>((resolve) => (answerSlow = resolve)) };
+      },
+    };
+    const queryClient = new QueryClient();
+
+    const dropHints = m.addProfileRelayHints(["wss://slow.test"]);
+    const release = m.demandProfiles([PK1], { nostr, queryClient });
+
+    await vi.waitFor(
+      () => expect(queryClient.getQueryData<AuthorResult>(["author", PK1])?.metadata?.name).toBe("alice"),
+      { timeout: 10_000 },
+    );
+    expect(m.syncState("profiles").status).not.toBe("settled");
+
+    answerSlow([]);
+    await settled(m);
+    const store = await m.appEventStore();
+    expect((await store.query([{ kinds: [0], authors: [PK1] }])).map((r) => r.id)).toEqual([event.id]);
+
+    release();
+    dropHints();
+    m._resetProfileSyncForTests();
+    m._resetSyncManagerForTests();
+  });
+
   it("batches the demand of one mounting burst into a single round", { timeout: 30_000 }, async () => {
     const m = await freshModules();
     const { nostr, queries } = makeNostr({

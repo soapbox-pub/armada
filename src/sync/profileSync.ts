@@ -209,6 +209,22 @@ async function runProfileSync(signal: AbortSignal): Promise<void> {
 
   const runSignal = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
 
+  // Shown as each answer lands, so a slow relay holds back only what it alone
+  // has. Kept and stamped even if torn down (re-fetching after scroll costs
+  // megabytes of kind 0s on phones).
+  const newest = new Map<string, NostrEvent>();
+  const writes: Promise<unknown>[] = [];
+  const take = (events: (NostrEvent | undefined)[]) => {
+    for (const ev of events) {
+      if (!ev || ev.kind !== 0) continue;
+      const prev = newest.get(ev.pubkey);
+      if (prev && ev.created_at <= prev.created_at) continue;
+      newest.set(ev.pubkey, ev);
+      writes.push(store.event(ev).catch(() => undefined));
+      seedAuthorCache(c.queryClient, ev.pubkey, ev);
+    }
+  };
+
   // Pool pass: the batcher merges these into chunked multi-author REQs.
   const poolPass = Promise.all(
     candidates.map(async (pk) => {
@@ -217,9 +233,9 @@ async function runProfileSync(signal: AbortSignal): Promise<void> {
           [{ kinds: [0], authors: [pk], limit: 1 }],
           { signal: runSignal },
         );
-        return ev;
+        take([ev]);
       } catch {
-        return undefined;
+        // a miss for now; the round's end stamps it
       }
     }),
   );
@@ -228,48 +244,32 @@ async function runProfileSync(signal: AbortSignal): Promise<void> {
   const hinted = [...hintRelays.keys()].slice(0, MAX_HINT_RELAYS);
   const hintPass = Promise.all(
     hinted.map(async (url) => {
-      const out: NostrEvent[] = [];
       for (let i = 0; i < candidates.length; i += HINT_CHUNK) {
         const chunk = candidates.slice(i, i + HINT_CHUNK);
         try {
-          out.push(
-            ...(await c.nostr.relay(url).query(
-              [{ kinds: [0], authors: chunk, limit: chunk.length }],
-              { signal: runSignal },
-            )),
-          );
+          take(await c.nostr.relay(url).query(
+            [{ kinds: [0], authors: chunk, limit: chunk.length }],
+            { signal: runSignal },
+          ));
         } catch {
           // one relay must not fail the round
         }
       }
-      return out;
     }),
   );
 
-  const [poolEvents, hintEvents] = await Promise.all([poolPass, hintPass]);
+  await Promise.all([poolPass, hintPass]);
   perfCount(signal.aborted ? "profiles.run (torn down)" : "profiles.run", 0, candidates.length, "pubkeys");
 
-  const newest = new Map<string, NostrEvent>();
-  for (const ev of [...poolEvents, ...hintEvents.flat()]) {
-    if (!ev || ev.kind !== 0) continue;
-    const prev = newest.get(ev.pubkey);
-    if (!prev || ev.created_at > prev.created_at) newest.set(ev.pubkey, ev);
-  }
-
-  // Keep and stamp what arrived even if torn down (re-fetching after scroll
-  // costs megabytes of kind 0s on phones).
-  await Promise.all(
-    [...newest.values()].map((ev) => store.event(ev).catch(() => undefined)),
-  );
+  await Promise.all(writes);
   const at = Date.now();
-  for (const [pk, ev] of newest) {
+  for (const pk of newest.keys()) {
     stamps.set(pk, at);
     stampedGeneration.set(pk, hintGeneration);
     capFifo(stampedGeneration);
     foundProfiles.add(pk);
     capFifo(foundProfiles);
     missAttempts.delete(pk);
-    seedAuthorCache(c.queryClient, pk, ev);
   }
   // Stamp MISSES only for a completed round.
   if (signal.aborted) return;

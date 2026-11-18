@@ -1,3 +1,7 @@
+import { QueryClientContext } from "@tanstack/react-query";
+import { useContext } from "react";
+
+import { authorQueryKey, type AuthorResult } from "@/lib/authorCache";
 import { isAnonymousName } from "@/lib/getDisplayName";
 import { useProfilePending } from "@/lib/profileLoading";
 import { pubkeyHue, pubkeyHueColor } from "@/lib/pubkeyHue";
@@ -24,16 +28,21 @@ export function AnonymousFigure({ className }: { className?: string }) {
  * A person's avatar fallback: their initial, or {@link AnonymousFigure} while
  * they have no name — tinted by their pubkey, so nameless people tell apart.
  * The tint covers the whole avatar (the Avatar root is `relative`) over its
- * call site's own fallback colors. While their profile is still loading it is a skeleton instead.
+ * call site's own fallback colors. While their profile is still loading it is a
+ * skeleton instead, even under a known name: a nickname says nothing about
+ * whether they have a picture.
  */
 export function AvatarInitial({ name, pubkey }: { name: string | undefined; pubkey?: string }) {
   const anonymous = isAnonymousName(name);
-  const pending = useProfilePending(anonymous ? pubkey : undefined);
+  const queryClient = useContext(QueryClientContext);
+  // Settling lags the cache by a task; a profile already in hand is not loading.
+  const pending = useProfilePending(pubkey)
+    && !(pubkey && queryClient?.getQueryData<AuthorResult>(authorQueryKey(pubkey))?.event);
   if (pending) {
     return (
       <span
         aria-hidden
-        className="absolute inset-0 animate-pulse bg-muted [animation-iteration-count:8]"
+        className="absolute inset-0 animate-pulse bg-muted"
       />
     );
   }

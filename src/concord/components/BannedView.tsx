@@ -86,7 +86,7 @@ function BannedRow({
       <Avatar className="size-6 shrink-0">
         <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
         <AvatarFallback className="bg-destructive/20 text-3xs text-destructive">
-          <AvatarInitial name={name} />
+          <AvatarInitial name={name} pubkey={pubkey} />
         </AvatarFallback>
       </Avatar>
       <span className="min-w-0 flex-1 truncate font-medium">

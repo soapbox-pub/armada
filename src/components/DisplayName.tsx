@@ -51,7 +51,7 @@ export function NameSkeleton() {
   return (
     <span
       aria-hidden
-      className="inline-block h-[0.8em] w-[6em] max-w-full animate-pulse rounded-sm bg-muted align-[-0.05em] [animation-iteration-count:8]"
+      className="inline-block h-[0.8em] w-[6em] max-w-full animate-pulse rounded-sm bg-muted align-[-0.05em]"
     />
   );
 }

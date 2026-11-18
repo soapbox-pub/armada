@@ -28,7 +28,7 @@ function ParticipantAvatar({ pubkey, className }: { pubkey: string; className?: 
     >
       <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
       <AvatarFallback className="bg-success/20 text-success text-monogram">
-        <AvatarInitial name={name} />
+        <AvatarInitial name={name} pubkey={pubkey} />
       </AvatarFallback>
     </Avatar>
   );
@@ -185,7 +185,7 @@ function VoiceParticipantRow({
           <Avatar shape={getAvatarShape(metadata)} className="size-6">
             <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
             <AvatarFallback className="bg-success/20 text-success text-3xs">
-              <AvatarInitial name={name} />
+              <AvatarInitial name={name} pubkey={pubkey} />
             </AvatarFallback>
           </Avatar>
         </div>
