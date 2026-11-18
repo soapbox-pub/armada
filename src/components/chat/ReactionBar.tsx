@@ -223,7 +223,8 @@ function ReactionPill({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    // Modal on touch, so a tap outside the long-pressed detail only dismisses it.
+    <Popover modal={isTouch} open={open} onOpenChange={setOpen}>
       {/* ANCHOR, not Trigger: a Trigger would open the popover on every toggle click. */}
       <PopoverAnchor asChild>
         <button

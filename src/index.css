@@ -308,7 +308,8 @@
    * over the one above for the hover toolbar (MessageRow, `-top-4`) and down
    * over the one below for an avatar's Ultra halo; those reaches pass pointers
    * through. The parent is a flex column, so the two negative margins add
-   * rather than collapse.
+   * rather than collapse. The rows stay inert while a modal layer has set
+   * `pointer-events: none` on body, so an outside press only dismisses it.
    */
   .timeline-row {
     contain-intrinsic-size: auto 4rem;
@@ -321,7 +322,7 @@
   .timeline-row[data-settled] {
     content-visibility: auto;
   }
-  .timeline-row > * {
+  :where(body:not([style*="pointer-events: none"])) .timeline-row > * {
     pointer-events: auto;
   }
 
