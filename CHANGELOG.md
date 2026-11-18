@@ -4,6 +4,30 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.8] - 2026-11-18
+
+Call audio settings open as a bottom sheet on touch, profile pictures fade in
+as they load, and text fields get a cleaner look. Edited direct messages keep
+their place, channel messages stay in the right order, and opening
+communities is quicker.
+
+### Changed
+- Call audio settings open as a bottom sheet on touch, with each device picker on its own page showing the current choice
+- Avatars pulse while their picture loads and fade in when ready
+- Text fields have a borderless look with a cut corner
+- Channel drag handles in settings show on touch only in Reorder mode
+- Community notifications show each sender's avatar, and channel notifications show the community's image
+- Profile share links can be pasted into the invite people picker
+- Reply previews of a quoted note show its text instead of an identifier
+- Opening communities, switching pages and opening the member list are faster
+
+### Fixed
+- An edited direct message stays where the original was instead of jumping to the bottom
+- Your own direct messages are always ordered by when you sent them
+- Messages in a channel keep their correct order alongside Git, timer and calendar entries
+- Timeline messages can't be tapped through an open dialog or menu
+- Profile names display consistently on the user page, share dialog, settings and Discover
+
 ## [0.69.7] - 2026-11-17
 
 Channel settings get one editor for a channel or category, with a review of
