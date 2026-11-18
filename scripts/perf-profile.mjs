@@ -80,6 +80,14 @@
  *                     community open and nothing touched
  *     --offline       after settling, answer every REQ locally: the switch cost
  *                     against what is on disk, with no history paging behind it
+ *     live-open-touch with `--only …,live-open-touch`: then a phone-sized touch
+ *                     launch into the community's channel list, tapping each of
+ *                     --open-channels <a,b,…> (general,announcements,armada,general)
+ *                     after --open-wait <s> (8): each frame's header/skeleton/rows
+ *     --more-invites <file>  join these too first (one invite per line), so the
+ *                     community shares the app with others catching up
+ *     --trace         write the app's sync trace for the run to live-trace.log
+ *   concord-open-touch  the same taps on the seeded community
  *
  * Offline except `discover`: the seeds go straight into the app's own
  * ArmadaDB through the production writers (`e2e/screenshotSeed.ts`,
@@ -128,7 +136,7 @@ const OUT = resolve(root, "perf-reports");
 /** Messages in the seeded community's #general. */
 const CONCORD_BIG = 3000;
 
-const LIVE = ["live-switch", "live-boot", "live-idle", "account-hop", "account-storage"];
+const LIVE = ["live-switch", "live-boot", "live-idle", "live-open-touch", "account-hop", "account-storage"];
 const wants = (name) => (ONLY.length === 0 && !LIVE.includes(name)) || ONLY.includes(name);
 
 // ─── Build + serve ──────────────────────────────────────────────────────────
@@ -791,6 +799,58 @@ const softNavigate = (page, path) =>
     dispatchEvent(new PopStateEvent("popstate"));
   }, path);
 
+/**
+ * Phone-sized with touch: load `root` (a community's channel list), then tap each of
+ * `names` in turn from the list, going Back between them. Records each frame's state
+ * for 12 s after a tap as `title|skel|rows|composer` transitions, ms after the tap.
+ */
+async function touchOpens(page, cdp, root, names, { firstWaitMs = 8000 } = {}) {
+  await page.setViewportSize({ width: 412, height: 915 });
+  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+  const tapOn = async (loc) => {
+    const box = await loc.boundingBox();
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  };
+  const opens = [];
+  const bootAt = Date.now();
+  for (const [round, name] of names.entries()) {
+    if (round === 0) await page.goto(root);
+    else await tapOn(page.locator("main header button[aria-label]").first());
+    const link = page.getByText(name, { exact: true }).first();
+    await link.waitFor({ state: "visible", timeout: 90_000 });
+    const listedMs = round === 0 ? Date.now() - bootAt : undefined;
+    await page.waitForTimeout(round === 0 ? firstWaitMs : 1500);
+    await page.evaluate(() => {
+      window.__openStates = [];
+      const t0 = performance.now();
+      let last = "";
+      const tick = () => {
+        const header = document.querySelector("main header h1");
+        const title = header?.textContent ?? "-";
+        const skel = document.querySelectorAll("main .animate-pulse").length;
+        const rows = document.querySelectorAll("main [data-scroll-anchor]").length;
+        const composer = document.querySelectorAll("main textarea").length;
+        const s = `${title}|skel=${skel}|rows=${rows}|composer=${composer}`;
+        if (s !== last) window.__openStates.push(`${Math.round(performance.now() - t0)} ${s}`);
+        last = s;
+        if (performance.now() - t0 < 12_000) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await tapOn(link);
+    await page.waitForTimeout(12_500);
+    const states = await page.evaluate(() => window.__openStates);
+    console.log(`  ${name}${listedMs !== undefined ? ` (list up ${listedMs}ms after load)` : ""}: ${states.join("  →  ")}`);
+    opens.push({ name, listedMs, states });
+  }
+  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  return opens;
+}
+
 const results = {};
 
 function save(name, data) {
@@ -1213,7 +1273,7 @@ try {
     });
   }
 
-  const concordScenarios = ["concord-boot", "concord-idle", "concord-scroll", "concord-switch", "concord-type", "concord-type-touch", "leak"];
+  const concordScenarios = ["concord-boot", "concord-idle", "concord-scroll", "concord-switch", "concord-open-touch", "concord-type", "concord-type-touch", "leak"];
   if (concordScenarios.some(wants)) {
     // Seed a community: a 3000-message #general and seven small channels.
     await page.goto("/e2e/concordSeed.html");
@@ -1330,6 +1390,13 @@ try {
         errors: errorsSince(mark),
         report: await report(page),
       });
+    }
+
+    if (wants("concord-open-touch")) {
+      console.log("▶ concord-open-touch (tap a channel from the list on a phone)");
+      mark = errors.length;
+      const opens = await touchOpens(page, cdp, `/c/${concord.communityId}`, ["general", "channel-1", "channel-2", "general", "channel-3", "general"]);
+      save("concord-open-touch", { opens, errors: errorsSince(mark) });
     }
 
     for (const touch of [false, true]) {
@@ -2007,13 +2074,44 @@ try {
     } else {
       console.log("\n▶ live-switch (join a real community, then switch in and out of it)");
       const mark = errors.length;
-      const invite = new URL(INVITE);
-      await page.goto(invite.pathname + invite.hash);
-      const accept = page.getByRole("button", { name: /accept invite/i });
-      await until(page, () => accept.isVisible(), 90_000);
-      await accept.click();
-      await until(page, async () => /^\/c\/[^/]+/.test(new URL(page.url()).pathname), 90_000);
-      const communityPath = new URL(page.url()).pathname.match(/^\/c\/[^/]+/)[0];
+      // `--trace`: the app's sync trace for the whole run (`localStorage.debugSync`), ms since
+      // the first join, in `live-trace.log`. Off by default: the logging costs main-thread time.
+      const liveT0 = Date.now();
+      const traceLines = [];
+      if (flag("trace")) {
+        page.on("console", (m) => {
+          const text = m.text();
+          if (text.includes("[sync")) traceLines.push(`${Date.now() - liveT0} ${text.replace(/%c/g, "").replace(/color:\S+/g, "")}`);
+        });
+      }
+      const join = async (url) => {
+        if (flag("trace")) await page.evaluate(() => localStorage.setItem("debugSync", "1")).catch(() => undefined);
+        const invite = new URL(url);
+        await page.goto(invite.pathname + invite.hash);
+        const accept = page.getByRole("button", { name: /accept invite/i });
+        if (!(await until(page, () => accept.isVisible(), 90_000))) throw new Error(`no Accept for ${invite.pathname}`);
+        await accept.click();
+        if (!(await until(page, async () => /^\/c\/[^/]+/.test(new URL(page.url()).pathname), 90_000))) throw new Error("join never landed");
+        return new URL(page.url()).pathname.match(/^\/c\/[^/]+/)[0];
+      };
+      const communityPath = await join(INVITE);
+      // `--more-invites <file>`: further communities to join (one invite per line), so the
+      // measured one shares the app with others catching up, as on a real account.
+      const more = opt("more-invites", "");
+      if (more) {
+        let joined = 0;
+        for (const url of readFileSync(more, "utf8").split("\n").map((l) => l.trim()).filter(Boolean)) {
+          try {
+            await join(url);
+            joined++;
+          } catch (e) {
+            console.log(`  skipped an invite: ${e.message}`);
+          }
+        }
+        console.log(`  joined ${joined} more communities`);
+        // Settle in the measured community, so its channel is on disk as a regular's is.
+        await page.goto(communityPath);
+      }
       // Let the join's sweeps settle: this is the community as a member has
       // it on disk, which is what switching back into it reads.
       const settleSec = Number(opt("settle", "45"));
@@ -2035,24 +2133,40 @@ try {
       const rounds = Number(opt("rounds", "6"));
       /** Time from the navigation to the first frame after it with a message row rendered. */
       const switchInMs = [];
+      let switchAt0 = 0;
       const { hot } = await cpuProfile("live-switch", async () => {
         for (let round = 0; round < rounds; round++) {
+          if (round === 0) switchAt0 = Date.now();
           const ms = await page.evaluate(
             (path) =>
               new Promise((done) => {
                 const start = performance.now();
                 history.pushState({}, "", path);
                 dispatchEvent(new PopStateEvent("popstate"));
+                // Each frame's state as it changes, ms after the navigation.
+                const states = [];
+                let last = "";
                 const check = () => {
-                  if (document.querySelector("main [data-scroll-anchor]")) done(Math.round(performance.now() - start));
-                  else if (performance.now() - start > 15_000) done(-1);
+                  const title = document.querySelector("main header h1")?.textContent ?? "-";
+                  const main = document.querySelector("main");
+                  const body = (main?.textContent ?? "").replace(main?.querySelector("header")?.textContent ?? "", "").replace(/\s+/g, " ");
+                  const s = `${title}|skel=${document.querySelectorAll("main .animate-pulse").length}|rows=${document.querySelectorAll("main [data-scroll-anchor]").length}|text=${body.slice(0, 160)}`;
+                  if (s !== last) states.push(`${Math.round(performance.now() - start)} ${s}`);
+                  last = s;
+                  if (document.querySelector("main [data-scroll-anchor]")) done({ ms: Math.round(performance.now() - start), states });
+                  else if (performance.now() - start > 15_000) done({ ms: -1, states });
                   else requestAnimationFrame(check);
                 };
                 requestAnimationFrame(check);
               }),
             communityPath,
           );
-          switchInMs.push(ms);
+          switchInMs.push(ms.ms);
+          console.log(`  switch-in ${round}: ${ms.states.join("  →  ")}`);
+          if (round === 0 && flag("trace")) {
+            traceLines.push(`${switchAt0 - liveT0} ==== switch-in 0 starts`);
+            writeFileSync(resolve(OUT, "live-trace.log"), traceLines.join("\n"));
+          }
           await page.waitForTimeout(3000);
           await softNavigate(page, away);
           await page.waitForTimeout(1500);
@@ -2093,6 +2207,18 @@ try {
           errors: errorsSince(bootMark),
           report: await report(page),
         });
+      }
+
+      if (wants("live-open-touch")) {
+        // The video's path on a phone: launch into the community's channel list, tap a
+        // channel, Back, tap another. `--open-wait <s>` is how long the list sits first.
+        console.log("▶ live-open-touch (cold launch into the channel list, then tap channels)");
+        const openMark = errors.length;
+        const names = opt("open-channels", "general,announcements,armada,general").split(",");
+        const { result: opens, hot: openHot } = await cpuProfile("live-open-touch", () =>
+          touchOpens(page, cdp, communityPath, names, { firstWaitMs: Number(opt("open-wait", "8")) * 1000 }),
+        );
+        save("live-open-touch", { opens, hot: openHot, errors: errorsSince(openMark), report: await report(page) });
       }
 
       if (wants("live-idle")) {
