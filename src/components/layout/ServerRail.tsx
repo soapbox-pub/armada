@@ -2162,7 +2162,6 @@ function ServerRailInner({
               aria-label={intl.formatMessage({ id: "serverRail.folderName", defaultMessage: "Folder name" })}
               autoFocus
               maxLength={64}
-              className="bg-background/40 border-transparent"
             />
             <ChromeDialogFooter>
               <Button type="button" variant="ghost" onClick={() => setRenameId(null)}>

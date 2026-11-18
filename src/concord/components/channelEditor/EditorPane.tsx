@@ -10,7 +10,7 @@ import { ChannelGlyph } from "@/concord/components/ChannelGlyph";
 import { EditorLegacyAccess } from "@/concord/components/channelEditor/EditorLegacyAccess";
 import { editorMessages as m } from "@/concord/components/channelEditor/editorMessages";
 import { ConfirmText, EditorField, GeneralFields, RuleGroups, TargetLabel, TargetLead, TargetPicker, TargetSummary } from "@/concord/components/channelEditor/editorParts";
-import { field, GROUP_LABEL, type Surface } from "@/concord/components/channelEditor/editorStyles";
+import { GROUP_LABEL, type Surface } from "@/concord/components/channelEditor/editorStyles";
 import type { EditorModel, EditorTab } from "@/concord/components/channelEditor/useChannelEditor";
 import { useEditorFlow } from "@/concord/components/channelEditor/useEditorFlow";
 import { WriteProgress } from "@/concord/components/WriteProgress";
@@ -213,7 +213,7 @@ export function EditorPane({
             onValueChange={(key) => model.setCategory(key === NO_CATEGORY ? undefined : key)}
             disabled={!model.canManageChannels || model.busy}
           >
-            <SelectTrigger id={categoryId} className={field(surface)}>
+            <SelectTrigger id={categoryId}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -264,7 +264,7 @@ export function EditorPane({
   ) : (
     <div className="max-w-md space-y-4">
       <div className={CARD}>{privateRow}</div>
-      <EditorLegacyAccess model={model} surface={surface} />
+      <EditorLegacyAccess model={model} />
       {rotate}
     </div>
   );

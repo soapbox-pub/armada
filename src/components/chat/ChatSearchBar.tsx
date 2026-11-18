@@ -69,7 +69,8 @@ export function ChatSearchBar({
         }}
         placeholder={placeholder}
         aria-label={label ?? intl.formatMessage({ id: "chatSearchBar.label", defaultMessage: "Search messages" })}
-        className="h-8 touch:h-11 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+        variant="bare"
+        className="h-8 touch:h-11 flex-1 px-1"
       />
       {open && suggestions?.(inputRef)}
       {filters}

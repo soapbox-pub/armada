@@ -142,7 +142,7 @@ export function KeyBackupSettings({ nsec, pubkey }: KeyBackupSettingsProps) {
               type={showKey ? "text" : "password"}
               value={nsec}
               readOnly
-              className="pr-10 font-mono bg-background/40 border-transparent"
+              className="pr-10 font-mono"
             />
             <Button
               type="button"

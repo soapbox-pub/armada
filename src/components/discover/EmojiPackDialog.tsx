@@ -685,23 +685,17 @@ function EmojiPackForm({ editEvent, onDone }: { editEvent?: NostrRumor; onDone: 
                       />
                     )}
                   </span>
-                  <div
-                    className={cn(
-                      "flex min-w-0 flex-1 items-center rounded-md border bg-background px-2 focus-within:ring-1",
-                      invalid
-                        ? "border-destructive focus-within:ring-destructive"
-                        : "border-input focus-within:ring-ring",
-                    )}
-                  >
+                  <div className="field flex min-w-0 flex-1 items-center px-2">
                     <span className="text-sm text-muted-foreground">:</span>
-                    <input
+                    <Input
+                      variant="bare"
                       value={e.shortcode}
                       onChange={(ev) => setShortcode(e.id, ev.target.value)}
                       placeholder={intl.formatMessage({ id: "emojiPackDialog.shortcodePlaceholder", defaultMessage: "shortcode" })}
                       aria-label={intl.formatMessage({ id: "emojiPackDialog.shortcodeLabel", defaultMessage: "Emoji shortcode" })}
                       aria-invalid={invalid}
                       disabled={busy}
-                      className="min-w-0 flex-1 bg-transparent py-1.5 touch:py-2.5 text-sm outline-none"
+                      className="h-auto touch:h-auto min-w-0 flex-1 px-0 py-1.5 touch:py-2.5 text-sm md:text-sm"
                     />
                     <span className="text-sm text-muted-foreground">:</span>
                   </div>

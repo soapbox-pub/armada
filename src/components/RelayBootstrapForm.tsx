@@ -264,7 +264,7 @@ export function RelayBootstrapForm({
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
-          className="h-12 bg-background/50 font-mono text-base"
+          className="h-12 font-mono text-base"
         />
       </div>
 

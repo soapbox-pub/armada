@@ -151,7 +151,7 @@ export function CreateGroupDialog({ relayUrl, open, onOpenChange }: CreateGroupD
                 maxLength={64}
                 autoComplete="off"
                 autoFocus
-                className="pl-9 bg-background/40 border-transparent"
+                className="pl-9"
               />
             </div>
             {slug && (
@@ -183,7 +183,6 @@ export function CreateGroupDialog({ relayUrl, open, onOpenChange }: CreateGroupD
               placeholder={intl.formatMessage({ id: "createGroupDialog.topicPlaceholder", defaultMessage: "What's this channel about?" })}
               maxLength={300}
               rows={2}
-              className="bg-background/40 border-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
             />
           </div>
 

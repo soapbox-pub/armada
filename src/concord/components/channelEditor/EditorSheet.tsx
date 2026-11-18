@@ -252,7 +252,7 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
       {privateSwitch}
       <Divider />
       <div className="px-3 py-2">
-        <EditorLegacyAccess model={model} surface="background" />
+        <EditorLegacyAccess model={model} />
       </div>
       {rotateRow}
     </>

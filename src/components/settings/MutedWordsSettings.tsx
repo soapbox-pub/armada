@@ -69,7 +69,7 @@ export function MutedWordsSettings() {
             autoComplete="off"
             autoCapitalize="none"
             spellCheck={false}
-            className="text-base md:text-sm bg-background/40 border-transparent"
+            className="text-base md:text-sm"
           />
           <Button type="submit" disabled={!normalizeMutedWord(draft)} className="clip-corner-lg shrink-0">
             <Plus className="size-4 mr-1.5" /> <FormattedMessage {...common.add} />

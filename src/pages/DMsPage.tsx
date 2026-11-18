@@ -2419,7 +2419,8 @@ export function ConversationList({
                 defaultMessage: "Search messages or people…",
               })}
               aria-label={searchLabel}
-              className="h-8 touch:h-10 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              variant="bare"
+              className="h-8 touch:h-10 flex-1 px-1"
             />
             <Button
               variant="ghost"

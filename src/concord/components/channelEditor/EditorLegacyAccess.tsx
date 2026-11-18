@@ -3,12 +3,12 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { field, GROUP_LABEL, type Surface } from "@/concord/components/channelEditor/editorStyles";
+import { GROUP_LABEL } from "@/concord/components/channelEditor/editorStyles";
 import type { EditorModel } from "@/concord/components/channelEditor/useChannelEditor";
 import { FormattedMessage, useIntl } from "@/i18n";
 
 /** Who reads a Channel on a legacy Roster: every member, or the holders of its access Roles. */
-export function EditorLegacyAccess({ model, surface }: { model: EditorModel; surface: Surface }) {
+export function EditorLegacyAccess({ model }: { model: EditorModel }) {
   const intl = useIntl();
   const [roleName, setRoleName] = useState("");
   const mint = model.mintAccessRole;
@@ -68,7 +68,6 @@ export function EditorLegacyAccess({ model, surface }: { model: EditorModel; sur
             autoComplete="off"
             aria-label={intl.formatMessage({ id: "channelEditor.legacy.newRoleName", defaultMessage: "New access role name" })}
             placeholder={intl.formatMessage({ id: "channelEditor.legacy.newRoleName", defaultMessage: "New access role name" })}
-            className={field(surface)}
           />
           <Button type="submit" variant="secondary" className="shrink-0 clip-corner-lg" disabled={model.busy || !roleName.trim()}>
             {model.busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}

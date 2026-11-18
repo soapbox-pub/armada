@@ -206,19 +206,17 @@ export function ProfileStepBody({ expectedPubkey, onPublished, onFinish }: Profi
         <label htmlFor="onboarding-name" className="sr-only">
           <FormattedMessage id="profileStep.yourName" defaultMessage="Your name" />
         </label>
-        <div className="clip-hairline-lg [--edge:var(--border)] [--fill:var(--muted)] [--fill-hover:var(--muted)] focus-within:[--edge:var(--ring)]">
-          <Input
-            id="onboarding-name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder={intl.formatMessage({ id: "profileStep.yourName", defaultMessage: "Your name" })}
-            autoComplete="name"
-            autoCapitalize="words"
-            enterKeyHint="done"
-            maxLength={64}
-            className="h-12 touch:h-12 border-0 bg-transparent text-center text-base focus-visible:border-0"
-          />
-        </div>
+        <Input
+          id="onboarding-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder={intl.formatMessage({ id: "profileStep.yourName", defaultMessage: "Your name" })}
+          autoComplete="name"
+          autoCapitalize="words"
+          enterKeyHint="done"
+          maxLength={64}
+          className="h-12 touch:h-12 text-center text-base"
+        />
       </div>
 
       {/* Own provider: tests render this alone, and a Radix Tooltip without one throws. */}

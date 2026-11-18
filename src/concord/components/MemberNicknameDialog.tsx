@@ -86,7 +86,6 @@ export function MemberNicknameDialog({
               autoComplete="off"
               autoFocus
               maxLength={NICKNAME_MAX_CHARS * 2}
-              className="bg-background/40 border-transparent"
             />
             {clean === undefined && (
               <p className="text-xs text-destructive">

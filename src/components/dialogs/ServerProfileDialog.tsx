@@ -158,7 +158,6 @@ export function ServerProfileDialog({ relayUrl, open, onOpenChange }: ServerProf
               autoComplete="off"
               maxLength={64}
               disabled={isLoading}
-              className="bg-background/40 border-transparent"
             />
           </div>
 
@@ -174,7 +173,6 @@ export function ServerProfileDialog({ relayUrl, open, onOpenChange }: ServerProf
               autoComplete="off"
               maxLength={32}
               disabled={isLoading}
-              className="bg-background/40 border-transparent"
             />
           </div>
 

@@ -281,7 +281,7 @@ export function OnchainZapContent({ target, bitcoinTarget, sendOnchainZap, onSuc
           maxLength={280}
           aria-label={intl.formatMessage({ id: 'onchainZapContent.comment', defaultMessage: 'Comment' })}
           autoFocus
-          className="text-sm rounded-full motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-200"
+          className="text-sm motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-200"
         />
       )}
 

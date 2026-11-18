@@ -132,7 +132,7 @@ export function StatusDialog({ open, onOpenChange }: StatusDialogProps) {
                 autoComplete="off"
                 maxLength={MAX_LEN}
                 autoFocus
-                className="pr-10 bg-background/40 border-transparent"
+                className="pr-10"
               />
               <EmojiShortcodeAutocomplete
                 textareaRef={inputRef}

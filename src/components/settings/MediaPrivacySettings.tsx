@@ -179,7 +179,7 @@ function TrustedHostListEditor({ hosts, onChange }: { hosts: string[]; onChange:
           autoComplete="off"
           autoCapitalize="none"
           spellCheck={false}
-          className="text-base md:text-sm bg-background/40 border-transparent"
+          className="text-base md:text-sm"
         />
         <Button type="submit" disabled={!draft.trim()} className="clip-corner-lg shrink-0">
           <Plus className="size-4 mr-1.5" /> <FormattedMessage {...common.add} />
@@ -273,7 +273,7 @@ function MediaProxyListEditor({ proxies, onChange, onReset }: MediaProxyListEdit
           aria-label={intl.formatMessage({ id: "mediaPrivacySettings.addProxy", defaultMessage: "Add proxy" })}
           autoComplete="off"
           spellCheck={false}
-          className="font-mono text-base md:text-sm bg-background/40 border-transparent"
+          className="font-mono text-base md:text-sm"
         />
         <Button type="submit" disabled={!draft.trim()} className="clip-corner-lg shrink-0">
           <Plus className="size-4 mr-1.5" /> <FormattedMessage {...common.add} />

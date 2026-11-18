@@ -138,7 +138,7 @@ export function GroupSettingsDialog({ relayUrl, group, open, onOpenChange }: Gro
             </Label>
             <div className="relative">
               <Hash className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-              <Input id="settings-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} className="pl-9 bg-background/40 border-transparent" />
+              <Input id="settings-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} className="pl-9" />
             </div>
           </div>
 
@@ -148,7 +148,7 @@ export function GroupSettingsDialog({ relayUrl, group, open, onOpenChange }: Gro
             </Label>
             {inviteCode ? (
               <div className="flex gap-2">
-                <Input readOnly value={inviteCode} className="font-mono bg-background/40 border-transparent" />
+                <Input readOnly value={inviteCode} className="font-mono" />
                 <Button variant="outline" size="icon" className="clip-corner-lg shrink-0" aria-label={intl.formatMessage({ id: "groupSettingsDialog.copyInviteCode", defaultMessage: "Copy invite code" })} onClick={copyInvite}>
                   {copied ? <Check className="size-4 text-primary" /> : <Copy className="size-4" />}
                 </Button>
@@ -178,7 +178,7 @@ export function GroupSettingsDialog({ relayUrl, group, open, onOpenChange }: Gro
                   <Label htmlFor="settings-about" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     <FormattedMessage id="groupSettingsDialog.topic" defaultMessage="Topic" />
                   </Label>
-                  <Textarea id="settings-about" value={about} onChange={(e) => setAbout(e.target.value)} maxLength={300} rows={2} className="bg-background/40 border-transparent focus-visible:ring-0 focus-visible:ring-offset-0" />
+                  <Textarea id="settings-about" value={about} onChange={(e) => setAbout(e.target.value)} maxLength={300} rows={2} />
                 </div>
 
                 <div className="space-y-1.5">
@@ -194,7 +194,6 @@ export function GroupSettingsDialog({ relayUrl, group, open, onOpenChange }: Gro
                     autoCapitalize="off"
                     autoCorrect="off"
                     spellCheck={false}
-                    className="bg-background/40 border-transparent"
                   />
                 </div>
 

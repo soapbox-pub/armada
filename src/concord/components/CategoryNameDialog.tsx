@@ -91,7 +91,6 @@ export function CategoryNameDialog({
               autoComplete="off"
               autoFocus
               maxLength={NAME_MAX_BYTES}
-              className="bg-background/40 border-transparent"
             />
           </div>
 

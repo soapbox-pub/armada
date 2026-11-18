@@ -172,7 +172,7 @@ export function RelayListEditor({
             aria-label={intl.formatMessage({ id: "relayListEditor.addRelay", defaultMessage: "Add relay" })}
             autoComplete="off"
             disabled={disabled}
-            className="text-base md:text-sm bg-background/40 border-transparent"
+            className="text-base md:text-sm"
           />
           <Button type="submit" disabled={disabled || !newUrl.trim()} className="clip-corner-lg shrink-0">
             <Plus className="size-4 mr-1.5" /> <FormattedMessage {...common.add} />

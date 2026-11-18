@@ -436,7 +436,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ isOpen, onClose, onLogin, onS
                     readOnly
                     value={nostrConnectUri}
                     aria-label={intl.formatMessage({ id: "loginScreen.connectLink", defaultMessage: "Signer connect link" })}
-                    className='pr-12 font-mono text-xs bg-background border-transparent clip-corner-lg'
+                    className='pr-12 font-mono text-xs'
                   />
                   <Button
                     type='button'
@@ -523,9 +523,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ isOpen, onClose, onLogin, onS
                     }}
                     placeholder={intl.formatMessage({ id: "loginScreen.inputPlaceholder", defaultMessage: "nsec1… or bunker://…" })}
                     autoComplete='off'
-                    className={`pr-12 clip-corner-lg bg-background border-transparent ${
-                      loginError ? 'border-destructive focus-visible:ring-destructive' : ''
-                    }`}
+                    aria-invalid={!!loginError}
+                    className='pr-12'
                   />
                   <input
                     type='file'

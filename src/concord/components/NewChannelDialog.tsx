@@ -16,7 +16,6 @@ import type { ChannelView } from "@/concord/lib/types";
 
 /** A chrome dialog sinks its fields into the background rather than outlining them. */
 const WELL = "bg-background/40";
-const FIELD = `border-transparent ${WELL}`;
 const LABEL = "block text-xs font-medium uppercase tracking-wide text-muted-foreground";
 
 /** The value the category picker holds for "no Category". */
@@ -232,7 +231,6 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
                   autoComplete="off"
                   autoFocus
                   disabled={creating}
-                  className={FIELD}
                 />
               </div>
 
@@ -249,7 +247,7 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
                     <FormattedMessage id="newChannelDialog.category" defaultMessage="Category" />
                   </div>
                   <Select value={category} onValueChange={setCategory} disabled={creating}>
-                    <SelectTrigger className={FIELD} aria-label={intl.formatMessage({ id: "newChannelDialog.category", defaultMessage: "Category" })}>
+                    <SelectTrigger aria-label={intl.formatMessage({ id: "newChannelDialog.category", defaultMessage: "Category" })}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -320,7 +318,6 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
                     }
                     disabled={creating}
                     maxLength={64}
-                    className={FIELD}
                   />
                   <p className="text-xs text-muted-foreground">
                     <FormattedMessage
@@ -391,7 +388,7 @@ export function NewChannelDialog({ open, onOpenChange, connectedCoordinates, onC
                 aria-label={intl.formatMessage({ id: "newChannelDialog.channelName", defaultMessage: "Channel name" })}
                 autoFocus
                 disabled={creating}
-                className={cn("h-12 text-base", FIELD)}
+                className="h-12 text-base"
               />
               {error && <p className="text-xs text-destructive">{error}</p>}
               <Button

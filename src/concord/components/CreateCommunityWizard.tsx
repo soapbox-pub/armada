@@ -530,7 +530,7 @@ function VoiceServerListEditor({
             placeholder="voice.example.com"
             aria-label={intl.formatMessage({ id: "createCommunityWizard.voice.add", defaultMessage: "Add voice server" })}
             autoComplete="off"
-            className="bg-background/40 border-transparent text-base md:text-sm"
+            className="text-base md:text-sm"
           />
           <Button type="submit" disabled={!draft.trim()} className="clip-corner-lg shrink-0">
             <Plus className="size-4 mr-1.5" /> <FormattedMessage {...common.add} />

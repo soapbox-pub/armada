@@ -420,7 +420,7 @@ export function VoiceDeviceSettings() {
         </div>
         {routeChoice && (
           <Select value={micId} onValueChange={onMicChange}>
-            <SelectTrigger className="bg-background/40 border-transparent">
+            <SelectTrigger>
               <SelectValue placeholder={intl.formatMessage({ id: "voiceDeviceSettings.systemDefault", defaultMessage: "System default" })} />
             </SelectTrigger>
             <SelectContent>
@@ -504,7 +504,7 @@ export function VoiceDeviceSettings() {
             </label>
           </div>
           <Select value={speakerId} onValueChange={onSpeakerChange}>
-            <SelectTrigger className="bg-background/40 border-transparent">
+            <SelectTrigger>
               <SelectValue placeholder={intl.formatMessage({ id: "voiceDeviceSettings.systemDefault", defaultMessage: "System default" })} />
             </SelectTrigger>
             <SelectContent>
@@ -652,7 +652,6 @@ export function VoiceDeviceSettings() {
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
-          className="bg-background/40 border-transparent"
         />
         {voiceServerInvalid ? (
           <p className="text-xs text-destructive">

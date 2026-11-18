@@ -20,14 +20,14 @@ interface SearchFieldProps
   busy?: boolean;
 }
 
-/** The inline search idiom: a cut-corner chrome well. Escape and the X both clear it. */
+/** The inline search idiom: a field well around a bare input. Escape and the X both clear it. */
 export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(
   ({ value, onChange, placeholder, className, hint, busy, onKeyDown, ...inputProps }, ref) => {
     const intl = useIntl();
     return (
     <div
       className={cn(
-        "flex h-9 touch:h-11 min-w-0 items-center gap-1.5 px-2 clip-corner-lg bg-chrome",
+        "field flex h-9 touch:h-11 min-w-0 items-center gap-1.5 px-2",
         className,
       )}
     >
@@ -49,7 +49,8 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(
           }
         }}
         placeholder={placeholder}
-        className="h-full flex-1 min-w-0 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+        variant="bare"
+        className="h-full flex-1 min-w-0 px-1"
       />
       {busy ? (
         <Loader2 className="mx-1.5 size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />

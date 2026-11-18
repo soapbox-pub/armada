@@ -484,7 +484,7 @@ function LightningZapPane({
           maxLength={280}
           aria-label={intl.formatMessage({ id: "zapDialogImpl.comment", defaultMessage: "Comment" })}
           autoFocus
-          className="text-sm rounded-full motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-200"
+          className="text-sm motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-200"
         />
       )}
 

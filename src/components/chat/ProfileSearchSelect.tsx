@@ -65,7 +65,7 @@ export function ProfileSearchSelect({
           spellCheck={false}
           autoFocus={autoFocus}
           busy={isFetching}
-          className="h-10 touch:h-11 bg-background/40"
+          className="h-10 touch:h-11"
         />
       </PopoverAnchor>
 

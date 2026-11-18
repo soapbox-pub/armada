@@ -155,7 +155,6 @@ export function AddChannelMembersDialog({
               value={query}
               onChange={setQuery}
               placeholder={intl.formatMessage({ id: "addChannelMembersDialog.searchPlaceholder", defaultMessage: "Search members" })}
-              className="bg-background/40"
               autoFocus
             />
 

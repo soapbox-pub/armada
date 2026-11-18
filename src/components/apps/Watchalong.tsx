@@ -282,10 +282,7 @@ export function Watchalong({ sync }: { sync: AppSync }) {
       <div>
         <div className="flex items-center gap-2">
           <div
-            className={cn(
-              "flex h-9 touch:h-11 min-w-0 flex-1 items-center gap-1.5 px-2 clip-corner-lg",
-              inputError ? "bg-destructive/10" : "bg-foreground/5",
-            )}
+            className="field flex h-9 touch:h-11 min-w-0 flex-1 items-center gap-1.5 px-2"
           >
             <Link2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
             <Input
@@ -300,7 +297,9 @@ export function Watchalong({ sync }: { sync: AppSync }) {
               inputMode="url"
               placeholder={intl.formatMessage({ id: "watchalong.linkPlaceholder", defaultMessage: "Paste a YouTube or video link" })}
               aria-label={intl.formatMessage({ id: "watchalong.linkLabel", defaultMessage: "YouTube or video link" })}
-              className="h-full flex-1 min-w-0 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              variant="bare"
+              aria-invalid={!!inputError}
+              className="h-full flex-1 min-w-0 px-1 text-sm"
             />
           </div>
           <Button size="sm" className="h-9 touch:h-11 clip-corner-lg" onClick={addToQueue} disabled={!urlInput.trim()}>

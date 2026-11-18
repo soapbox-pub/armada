@@ -162,7 +162,7 @@ export function BackupKeyDialog({ open, onOpenChange, nsec, pubkey, onLogout }: 
               type={showKey ? "text" : "password"}
               value={nsec}
               readOnly
-              className="pr-10 font-mono bg-background border-transparent"
+              className="pr-10 font-mono"
             />
             {showKey ? (
               <Button

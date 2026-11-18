@@ -185,7 +185,7 @@ export function BlossomServerListEditor({
           placeholder={placeholder}
           aria-label={intl.formatMessage({ id: "blossomServerListEditor.addLabel", defaultMessage: "Add media server" })}
           autoComplete="off"
-          className="text-base md:text-sm bg-background/40 border-transparent"
+          className="text-base md:text-sm"
         />
         <Button type="submit" disabled={!newUrl.trim()} className="clip-corner-lg shrink-0">
           <Plus className="size-4 mr-1.5" /> <FormattedMessage {...common.add} />

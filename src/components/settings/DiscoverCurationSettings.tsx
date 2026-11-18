@@ -319,7 +319,7 @@ export function DiscoverCurationSettings() {
                 aria-invalid={error ? true : undefined}
                 autoComplete="off"
                 spellCheck={false}
-                className="font-mono text-base md:text-sm bg-background/40 border-transparent"
+                className="font-mono text-base md:text-sm"
               />
               <Button type="submit" disabled={!draft.trim()} className="clip-corner-lg shrink-0">
                 <Plus className="size-4" />

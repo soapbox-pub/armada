@@ -11,7 +11,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { Textarea } from "@/components/ui/textarea";
 import { ChannelTypeStrip } from "@/concord/components/ChannelTypeStrip";
 import { EVERYONE, memberFrom, RULE_GROUPS, ruleState, targetKey, type RuleState } from "@/concord/components/channelEditor/editorDraft";
-import { field, GROUP_LABEL, SHEET_ROW, SHEET_TILE, well, type Surface } from "@/concord/components/channelEditor/editorStyles";
+import { GROUP_LABEL, SHEET_ROW, SHEET_TILE, well, type Surface } from "@/concord/components/channelEditor/editorStyles";
 import type { EditorModel, EditorTarget } from "@/concord/components/channelEditor/useChannelEditor";
 import type { EditorConfirm } from "@/concord/components/channelEditor/useEditorFlow";
 import { useMemberSearch } from "@/concord/components/channelEditor/useMemberSearch";
@@ -238,7 +238,6 @@ export function GeneralFields({ model, surface }: { model: EditorModel; surface:
           disabled={disabled}
           autoComplete="off"
           maxLength={NAME_MAX_BYTES}
-          className={field(surface)}
         />
       </EditorField>
       {model.scope.kind === "channel" && (
@@ -250,7 +249,7 @@ export function GeneralFields({ model, surface }: { model: EditorModel; surface:
               onChange={(e) => model.setTopic(e.target.value)}
               disabled={disabled}
               placeholder={intl.formatMessage({ id: "channelEditor.topicPlaceholder", defaultMessage: "What's this channel about?" })}
-              className={cn("min-h-[72px] resize-none focus-visible:ring-0 focus-visible:ring-offset-0", field(surface))}
+              className="min-h-[72px] resize-none"
             />
             {topicBytes > CHANNEL_TOPIC_MAX_BYTES && (
               <p className="text-xs text-destructive">
@@ -328,7 +327,6 @@ export function TargetPicker({ model, variant, onDone }: { model: EditorModel; v
           value={query}
           onChange={setQuery}
           placeholder={intl.formatMessage({ id: "channelEditor.picker.search", defaultMessage: "Search roles and members" })}
-          className={sheet ? undefined : "bg-secondary/40"}
         />
       </div>
       <div className={sheet ? "min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-1" : "max-h-80 overflow-y-auto rounded-lg bg-secondary/40 p-1"}>
