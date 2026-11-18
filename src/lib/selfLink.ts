@@ -9,6 +9,7 @@
 import { nip19 } from "nostr-tools";
 
 import { isRouterPath } from "@/lib/deepLinkUrl";
+import { resolvePubkey } from "@/lib/resolvePubkey";
 import { parseChatRoute, type ChatRoute } from "@/lib/routes";
 import { PUBLIC_WEB_ORIGIN, shareOrigin } from "@/lib/shareOrigin";
 
@@ -69,4 +70,16 @@ export function parseSelfLink(url: string): SelfLink | null {
   }
 
   return null;
+}
+
+/**
+ * Pubkey named by pasted text: an npub/nprofile/hex (optionally `nostr:`), or
+ * one of our profile share links (`<origin>/<npub>`, scheme optional).
+ */
+export function resolvePastedPubkey(input: string): string | undefined {
+  const value = input.trim();
+  const direct = resolvePubkey(value.replace(/^nostr:/i, ""));
+  if (direct) return direct;
+  const link = parseSelfLink(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+  return link?.kind === "profile" ? link.pubkey : undefined;
 }

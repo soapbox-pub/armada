@@ -11,7 +11,7 @@ import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { useAuthor } from "@/hooks/useAuthor";
 import { useSearchProfiles, type SearchProfile } from "@/hooks/useSearchProfiles";
 import { getAvatarShape } from "@/lib/avatarShape";
-import { resolvePubkey } from "@/lib/resolvePubkey";
+import { resolvePastedPubkey } from "@/lib/selfLink";
 import { cn } from "@/lib/utils";
 import { parseProfileImeta } from "@/lib/profileImeta";
 import { useIntl } from "@/i18n";
@@ -39,8 +39,8 @@ export function ProfileSearchSelect({
   const { data: profiles, isFetching, followedPubkeys } = useSearchProfiles(query);
 
   const trimmed = query.trim();
-  // A pasted npub/nprofile/hex names the person directly (text search can't).
-  const pastedPubkey = resolvePubkey(trimmed);
+  // A pasted npub/nprofile/hex or profile share link names the person directly (text search can't).
+  const pastedPubkey = resolvePastedPubkey(trimmed);
   const results = trimmed.length >= 1 ? profiles ?? [] : [];
 
   // Clearing the query closes the popover (open is derived from `trimmed`).

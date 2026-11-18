@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 
-import { parseSelfLink } from "@/lib/selfLink";
+import { parseSelfLink, resolvePastedPubkey } from "@/lib/selfLink";
 
 /**
  * jsdom's own origin stands in for a self-hosted deployment here, and
@@ -59,5 +59,26 @@ describe("parseSelfLink", () => {
   it("refuses a non-http scheme", () => {
     expect(parseSelfLink("javascript:alert(1)")).toBeNull();
     expect(parseSelfLink("not a url")).toBeNull();
+  });
+});
+
+describe("resolvePastedPubkey", () => {
+  const HEX = "0461fcbecc4c3374439932d6b8f11269ccdb7cc973ad7a50ae362db135a474dd";
+
+  it("accepts a bare or nostr: npub", () => {
+    expect(resolvePastedPubkey(NPUB)).toBe(HEX);
+    expect(resolvePastedPubkey(`nostr:${NPUB}`)).toBe(HEX);
+  });
+
+  it("accepts a profile share link, with or without a scheme", () => {
+    expect(resolvePastedPubkey(`https://armada.buzz/${NPUB}`)).toBe(HEX);
+    expect(resolvePastedPubkey(` armada.buzz/${NPUB} `)).toBe(HEX);
+    expect(resolvePastedPubkey(`${window.location.origin}/${NPUB}`)).toBe(HEX);
+  });
+
+  it("refuses names, other hosts and non-profile links", () => {
+    expect(resolvePastedPubkey("alice")).toBeUndefined();
+    expect(resolvePastedPubkey(`https://example.com/${NPUB}`)).toBeUndefined();
+    expect(resolvePastedPubkey(`https://armada.buzz/dm/${NPUB}`)).toBeUndefined();
   });
 });
