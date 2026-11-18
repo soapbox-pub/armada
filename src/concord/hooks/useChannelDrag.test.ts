@@ -2,7 +2,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useChannelDrag, type ChannelDropSlot } from "./useChannelDrag";
+import { cancelGripTouchMove, useChannelDrag, type ChannelDropSlot } from "./useChannelDrag";
 
 /** Two rows in the uncategorized run, then two under "Voice". */
 const ROW_SLOTS: ChannelDropSlot[] = [
@@ -160,6 +160,29 @@ describe("useChannelDrag", () => {
       category: "Voice",
       newCategory: undefined,
     });
+  });
+
+  it("leaves a grip-dragged scroller free of blocking touch listeners", () => {
+    for (const handle of [false, true]) {
+      const { result } = setup(true, handle);
+      const scroller = document.createElement("div");
+      const add = vi.spyOn(scroller, "addEventListener");
+      act(() => result.current.attachColumn(scroller));
+      expect(add.mock.calls.some(([type]) => type === "touchmove")).toBe(!handle);
+    }
+  });
+
+  it("cancels every touch move that starts on a grip", () => {
+    const grip = document.createElement("span");
+    const detach = cancelGripTouchMove(grip);
+    const move = new Event("touchmove", { cancelable: true });
+    grip.dispatchEvent(move);
+    expect(move.defaultPrevented).toBe(true);
+
+    detach?.();
+    const after = new Event("touchmove", { cancelable: true });
+    grip.dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false);
   });
 
   it("does nothing at all for a member who can't rearrange", () => {

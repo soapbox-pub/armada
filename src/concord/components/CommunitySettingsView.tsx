@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  ArrowUpDown,
   Check,
   Folder,
   FolderPlus,
@@ -68,7 +69,7 @@ import { CategoryNameDialog } from "@/concord/components/CategoryNameDialog";
 import { ChannelEditor, ChannelEditorPane } from "@/concord/components/channelEditor/ChannelEditor";
 import type { EditorOps, EditorScope } from "@/concord/components/channelEditor/useChannelEditor";
 import { useRankedCategoryControls } from "@/concord/components/RankedCategoryControls";
-import { useChannelDrag, type ChannelDrop, type ChannelDropSlot } from "@/concord/hooks/useChannelDrag";
+import { cancelGripTouchMove, useChannelDrag, type ChannelDrop, type ChannelDropSlot } from "@/concord/hooks/useChannelDrag";
 import { useCommunityManagement } from "@/concord/hooks/useCommunityActions";
 import { useChannels, useControlFold } from "@/concord/hooks/useControlPlane";
 import { useDecryptedImage } from "@/concord/hooks/useDecryptedImage";
@@ -454,7 +455,7 @@ export function CommunitySettingsView({
       )}
 
       {tab === "channels" && (
-        <ChannelsSection community={community} canManage={canManageChannels} split={split} editorOps={editorOps} onNewChannel={onNewChannel} />
+        <ChannelsSection community={community} canManage={canManageChannels} split={split} touch={touch} editorOps={editorOps} onNewChannel={onNewChannel} />
       )}
 
       {tab === "integrations" && (
@@ -945,7 +946,7 @@ const LIST_ROW = "flex items-center gap-1 rounded-md pl-2 pr-1 transition-colors
 /** `touch-none`, so a finger on it drags while the rest of the row scrolls the page. */
 function ListGrip({ onPointerDown }: { onPointerDown: (e: React.PointerEvent) => void }) {
   return (
-    <span aria-hidden data-drag-grip onPointerDown={onPointerDown} className={cn(LIST_GRIP, "cursor-grab touch-none text-muted-foreground/50")}>
+    <span aria-hidden data-drag-grip ref={cancelGripTouchMove} onPointerDown={onPointerDown} className={cn(LIST_GRIP, "cursor-grab touch-none text-muted-foreground/50")}>
       <GripVertical className="size-4" />
     </span>
   );
@@ -955,28 +956,33 @@ function ListGrip({ onPointerDown }: { onPointerDown: (e: React.PointerEvent) =>
  * The community's channels and categories. A row opens the editor: beside the
  * list where the pane is `split`, over the page otherwise. MANAGE_CHANNELS drags
  * a row by its grip, with the same `useChannelDrag` and optimistic order as the sidebar.
+ * On touch the grips show only in Reorder mode, so the list otherwise scrolls from anywhere.
  */
 function ChannelsSection({
   community,
   canManage,
   split,
+  touch,
   editorOps,
   onNewChannel,
 }: {
   community: Community;
   canManage: boolean;
   split: boolean;
+  touch: boolean;
   editorOps?: EditorOps;
   onNewChannel?: () => void;
 }) {
   const intl = useIntl();
+  const [reordering, setReordering] = useState(false);
+  const grips = canManage && (!touch || reordering);
   const channels = useChannels(community);
   const { setChannelCategory, arrangeChannels, nameCategory } = useCommunityManagement(community);
   const { moveCategory } = useRankedRoles(community);
   const rankedControls = useRankedCategoryControls(community, canManage);
   const { ranked } = rankedControls;
   // MANAGE_ROLES alone still opens the editor, for its permissions.
-  const canOpen = canManage || Boolean(rankedControls.openChannelPermissions);
+  const canOpen = (canManage || Boolean(rankedControls.openChannelPermissions)) && !(touch && reordering);
 
   // A Category drop shows at once, until the fold moves on from the order it was made against.
   const [pendingCategories, setPendingCategories] = useState<{ from: string; order: readonly string[] } | null>(null);
@@ -1169,7 +1175,7 @@ function ChannelsSection({
   );
 
   const channelDrag = useChannelDrag({
-    enabled: canManage,
+    enabled: grips,
     columnRef: channelScrollRef,
     boundsRef: channelListRef,
     measure: measureDropSlots,
@@ -1216,7 +1222,7 @@ function ChannelsSection({
   );
 
   const categoryDrag = useChannelDrag({
-    enabled: canManage && ranked,
+    enabled: grips && ranked,
     columnRef: categoryScrollRef,
     boundsRef: channelListRef,
     measure: measureCategorySlots,
@@ -1229,11 +1235,11 @@ function ChannelsSection({
   const attachChannelList = useCallback(
     (el: HTMLDivElement | null) => {
       channelListRef.current = el;
-      const scroller = el ? (scrollParentOf(el) ?? el) : null;
+      const scroller = el && grips ? (scrollParentOf(el) ?? el) : null;
       attachChannelColumn(scroller);
       attachCategoryColumn(scroller);
     },
-    [attachChannelColumn, attachCategoryColumn],
+    [attachChannelColumn, attachCategoryColumn, grips],
   );
 
   const draggedChannel = channelDrag.sourceIdHex
@@ -1269,7 +1275,7 @@ function ChannelsSection({
       >
         {/* Dragged row stays MOUNTED (invisible): unmounting it cancels the touch gesture. */}
         <div className={cn(LIST_ROW, canOpen && "hover:bg-secondary/70", selected && "bg-secondary", dragged && "invisible")}>
-          {canManage && <ListGrip onPointerDown={channelDrag.onPointerDown(ch.idHex)} />}
+          {grips && <ListGrip onPointerDown={channelDrag.onPointerDown(ch.idHex)} />}
           {canOpen ? (
             <button
               type="button"
@@ -1304,7 +1310,7 @@ function ChannelsSection({
         {/* Mounted while dragged, like a channel row. */}
         <div className={cn("space-y-1", dragged && "invisible")}>
           <div className={cn(LIST_ROW, canOpen && "hover:bg-secondary/70", selected && "bg-secondary")}>
-            {canManage && (ranked
+            {grips && (ranked
               ? <ListGrip onPointerDown={categoryDrag.onPointerDown(group.key)} />
               : <span aria-hidden className={LIST_GRIP} />)}
             {canOpen ? (
@@ -1340,6 +1346,21 @@ function ChannelsSection({
         </span>
         {canManage && (
           <span className="flex items-center">
+            {touch && (
+              <Button
+                type="button"
+                size="icon"
+                variant={reordering ? "secondary" : "ghost"}
+                className={cn("size-7 shrink-0 touch:size-11", reordering ? "text-primary" : "text-muted-foreground")}
+                aria-pressed={reordering}
+                aria-label={reordering
+                  ? intl.formatMessage({ id: "communitySettingsView.channels.reorderDone", defaultMessage: "Done reordering" })
+                  : intl.formatMessage({ id: "communitySettingsView.channels.reorder", defaultMessage: "Reorder channels" })}
+                onClick={() => setReordering((on) => !on)}
+              >
+                {reordering ? <Check className="size-4" /> : <ArrowUpDown className="size-4" />}
+              </Button>
+            )}
             {ranked && (
               <Button
                 type="button"

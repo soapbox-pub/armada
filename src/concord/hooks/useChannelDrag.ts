@@ -17,12 +17,27 @@ export interface ChannelDrop {
 }
 
 /**
+ * Ref callback for a `handle` grip. A touch's moves all target the element it started on, so
+ * this covers the whole drag, including the fast lift from which Chromium would otherwise
+ * start an invisible fling that eats the next tap.
+ */
+export function cancelGripTouchMove(el: HTMLElement | null) {
+  if (!el) return;
+  const cancel = (ev: TouchEvent) => {
+    if (ev.cancelable) ev.preventDefault();
+  };
+  el.addEventListener("touchmove", cancel, { passive: false });
+  return () => el.removeEventListener("touchmove", cancel);
+}
+
+/**
  * Channel-shaped half of the sidebar drag; the gesture is {@link usePressDrag}
  * (shared with the server rail). Rows carry `touch-none` while a mouse could drag
  * them and while armed; an unarmed row scrolls natively on touch.
  *
  * With `handle`, presses come from a dedicated `touch-none` grip instead: every
- * pointer picks up by moving, and the rest of the row is left to scroll.
+ * pointer picks up by moving, and the rest of the row is left to scroll. Each grip
+ * attaches {@link cancelGripTouchMove}.
  */
 export function useChannelDrag({
   enabled,
@@ -103,6 +118,8 @@ export function useChannelDrag({
     // Touch on a row: a hold opens the row's menu, whose "Move" arms the row.
     touchHold: handle ? "drag" : "menu",
     pickupOnMove: handle ? "all" : "mouse",
+    // A grip cancels its own moves ({@link cancelGripTouchMove}); the scroller stays non-blocking.
+    containerTouchMove: !handle,
   });
 
   /** Re-measure once the "new category" zone mounts (it only exists mid-drag). */
