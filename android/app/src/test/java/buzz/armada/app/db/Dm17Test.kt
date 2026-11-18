@@ -331,6 +331,11 @@ class Dm17Test {
         assertNull(Dm17.arrivalFact(self, rumor(kind = 14, pubkey = alice, tags = listOf(listOf("edited", "$now"))), now))
     }
 
+    @Test
+    fun `records no arrival for the viewer's own message, whose gap is the send's latency`() {
+        assertNull(Dm17.arrivalFact(self, rumor(kind = 14, pubkey = self, tags = listOf(listOf("p", alice))), now))
+    }
+
     private fun rumor(
         kind: Int,
         pubkey: String,

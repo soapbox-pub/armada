@@ -412,7 +412,7 @@ async function prepareDm(
   const unwrapped = await openDm(wrap, cfg.sk, cfg.self);
   if (!unwrapped) return undefined;
   // A push is delivered as the message is published: time it by its arrival where the sender's clock was off.
-  const opened = withArrival(unwrapped, Math.floor(Date.now() / 1000));
+  const opened = withArrival(unwrapped, Math.floor(Date.now() / 1000), cfg.self);
 
   // Persist first (including own sent copies from other devices).
   await writeDm17Rumors(cfg.self, [opened]).catch(() => undefined);

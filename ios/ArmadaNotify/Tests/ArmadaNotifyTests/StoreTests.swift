@@ -35,9 +35,9 @@ final class StoreTests: XCTestCase {
         return (decoded as? [[String: Any]]) ?? []
     }
 
-    private func dm(kind: Int = 14, tags: [[String]] = [], content: String = "hi") -> OpenedDm {
+    private func dm(kind: Int = 14, tags: [[String]] = [], content: String = "hi", author: String? = nil) -> OpenedDm {
         OpenedDm(
-            rumorId: String(repeating: "1", count: 64), author: peer, kind: kind,
+            rumorId: String(repeating: "1", count: 64), author: author ?? peer, kind: kind,
             content: content, tags: tags, createdAt: now, peers: [peer]
         )
     }
@@ -89,6 +89,12 @@ final class StoreTests: XCTestCase {
     func testRecordsNoArrivalForAnEdit() throws {
         // An edit's replacement is dated at the original on purpose (buildDmEditRumors).
         try store.writeDm(dm(tags: [["edited", String(now + 120)]]), self: self_, now: now, arrivedAt: now + 120)
+        XCTAssertNil(store.kvGet("dm17at:\(self_):\(String(repeating: "1", count: 64))"))
+    }
+
+    func testRecordsNoArrivalForTheViewersOwnMessage() throws {
+        // Its gap to arrival is only how long the send took (withArrival in dm17Store.ts).
+        try store.writeDm(dm(author: self_), self: self_, now: now, arrivedAt: now + 120)
         XCTAssertNil(store.kvGet("dm17at:\(self_):\(String(repeating: "1", count: 64))"))
     }
 

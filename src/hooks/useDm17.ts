@@ -328,7 +328,7 @@ async function openAndStore(
         const unwrapped = await openDmWrap(wrap, ctx.signer as Dm17Signer, ctx.self, remember ? undefined : { cache: false });
         if (remember) seen.add(wrap.id);
         if (!unwrapped) return;
-        const dm = withArrival(unwrapped, arrivedAt);
+        const dm = withArrival(unwrapped, arrivedAt, ctx.self);
         openedWrapIds.push(wrap.id);
         if (opts?.stats) opts.stats.opened++;
         // Peer signals are live routing, not history: dispatched, not stored.

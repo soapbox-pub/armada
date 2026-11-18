@@ -6,6 +6,7 @@ import {
   ARRIVAL_SKEW_SECS,
   conversationFilters,
   countUnreadDm17Messages,
+  DM_ARRIVAL_PREFIX,
   dm17Store,
   dm17ToStored,
   forgetDm17Arrivals,
@@ -25,6 +26,7 @@ import {
   withArrival,
   writeDm17Rumors,
 } from "@/lib/nip17/dm17Store";
+import { getArmadaDB } from "@/lib/db/armadaDB";
 import {
   buildDmEditRumors,
   buildDmRumor,
@@ -977,24 +979,44 @@ describe("a message from a sender whose clock is off", () => {
     const friend = getPublicKey(generateSecretKey());
     const mine = opened({ author: viewer, peer: friend, content: "mine", tags: dmChatTags([friend]) });
     const at = mine.createdAt + 5;
-    const reply = withArrival({ ...opened({ author: friend, peer: friend, content: "slow", tags: dmChatTags([viewer]) }), createdAt: mine.createdAt - 120 }, at);
+    const reply = withArrival({ ...opened({ author: friend, peer: friend, content: "slow", tags: dmChatTags([viewer]) }), createdAt: mine.createdAt - 120 }, at, viewer);
     await writeDm17Rumors(viewer, [mine, reply]);
     return { viewer, friend, mine, reply, at };
   }
 
   it("is stamped with its arrival only past the skew, and only as a message", () => {
     const m = opened({ author: alice, peer: alice });
-    expect(withArrival(m, m.createdAt + ARRIVAL_SKEW_SECS).arrivedAt).toBeUndefined();
-    expect(withArrival(m, m.createdAt + ARRIVAL_SKEW_SECS + 1).arrivedAt).toBe(m.createdAt + ARRIVAL_SKEW_SECS + 1);
-    expect(withArrival(m, m.createdAt - 60).arrivedAt).toBe(m.createdAt - 60);
-    expect(withArrival(m, undefined)).toBe(m);
-    expect(withArrival({ ...m, kind: KIND_DM_REACTION }, m.createdAt + 60).arrivedAt).toBeUndefined();
+    expect(withArrival(m, m.createdAt + ARRIVAL_SKEW_SECS, bob).arrivedAt).toBeUndefined();
+    expect(withArrival(m, m.createdAt + ARRIVAL_SKEW_SECS + 1, bob).arrivedAt).toBe(m.createdAt + ARRIVAL_SKEW_SECS + 1);
+    expect(withArrival(m, m.createdAt - 60, bob).arrivedAt).toBe(m.createdAt - 60);
+    expect(withArrival(m, undefined, bob)).toBe(m);
+    expect(withArrival({ ...m, kind: KIND_DM_REACTION }, m.createdAt + 60, bob).arrivedAt).toBeUndefined();
   });
 
   it("is not an edit, whose replacement keeps the original's date", () => {
     const m = opened({ author: alice, peer: alice });
     const edited = { ...m, tags: [...m.tags, ["edited", String(m.createdAt + 600)]] };
-    expect(withArrival(edited, m.createdAt + 600).arrivedAt).toBeUndefined();
+    expect(withArrival(edited, m.createdAt + 600, bob).arrivedAt).toBeUndefined();
+  });
+
+  it("is never the viewer's own, whose gap is only how long the send took", () => {
+    const m = opened({ author: alice, peer: bob });
+    expect(withArrival(m, m.createdAt + 30, alice).arrivedAt).toBeUndefined();
+  });
+
+  it("is ignored when recorded for the viewer's own message, which keeps its place on reload", async () => {
+    const viewer = getPublicKey(generateSecretKey());
+    const friend = getPublicKey(generateSecretKey());
+    const sent = opened({ author: viewer, peer: friend, content: "sent", tags: dmChatTags([friend]) });
+    const during = { ...opened({ author: friend, peer: friend, content: "during", tags: dmChatTags([viewer]) }), createdAt: sent.createdAt + 10 };
+    await writeDm17Rumors(viewer, [sent, during]);
+    // As an earlier build recorded the echo of a slow send.
+    await getArmadaDB().kv.set(`${DM_ARRIVAL_PREFIX}${viewer}:${sent.rumorId}`, { at: sent.createdAt + 30, sent: sent.createdAt, conv: friend, in: false });
+    forgetDm17Arrivals();
+    const thread = await queryDm17Thread(viewer, [friend], { limit: 50 });
+    expect(dmAt(thread.find((r) => r.rumorId === sent.rumorId)!)).toBe(sent.createdAt);
+    const row = (await queryDm17Conversations(viewer)).find((c) => c.key === friend)!;
+    expect(row.latest.rumorId).toBe(during.rumorId);
   });
 
   it("is read back after the message it answers, at its arrival", async () => {

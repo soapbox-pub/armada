@@ -166,7 +166,7 @@ export async function queryDm17Thread(
     const floor = Math.min(...events.map((ev) => ev.created_at));
     const held = new Set(events.map((ev) => ev.id));
     const late = [...(await readDm17Arrivals(self))]
-      .filter(([id, fact]) => fact.conv === key && fact.at >= floor && fact.sent < floor && !held.has(id))
+      .filter(([id, fact]) => fact.in && fact.conv === key && fact.at >= floor && fact.sent < floor && !held.has(id))
       .map(([id]) => id);
     if (late.length > 0) events.push(...await store.query([{ ids: late, kinds: DM_THREAD_KINDS }], { signal: opts.signal }));
   }
@@ -592,15 +592,15 @@ async function readDm17Conversations(
   // below it by a slow clock, is the newest message all the same.
   const known = await readDm17Arrivals(self);
   if (known.size > 0) {
-    for (const [key, latest] of byConversation) byConversation.set(key, withArrival(latest, known.get(latest.rumorId)?.at));
+    for (const [key, latest] of byConversation) byConversation.set(key, withArrival(latest, known.get(latest.rumorId)?.at, self));
     const later = [...known].filter(([id, f]) => {
       const head = byConversation.get(f.conv);
-      return head !== undefined && head.rumorId !== id && f.at > dmAt(head);
+      return f.in && head !== undefined && head.rumorId !== id && f.at > dmAt(head);
     });
     if (later.length > 0) {
       const rows = (await store.query([{ ids: later.map(([id]) => id), kinds: [KIND_DM_CHAT, KIND_DM_FILE] }], { signal: opts.signal }))
         .filter((ev) => !isExpired(ev.tags))
-        .map((ev) => withArrival(storedToDm17(ev, self), known.get(ev.id)?.at));
+        .map((ev) => withArrival(storedToDm17(ev, self), known.get(ev.id)?.at, self));
       const deleted = await authorDeleted(store, rows, opts.signal);
       for (const row of rows) {
         if (deleted.has(row.rumorId) || row.peers.length === 0) continue;
@@ -966,9 +966,14 @@ export function arrivalCounts(kind: number, tags: readonly string[][], createdAt
   return DM_MESSAGE_KINDS.includes(kind) && Math.abs(at - createdAt) > ARRIVAL_SKEW_SECS && !tags.some(([name]) => name === "edited");
 }
 
-/** `opened`, stamped with when it arrived where that counts (see {@link arrivalCounts}). */
-export function withArrival(opened: OpenedDm, at: number | undefined): OpenedDm {
-  if (at === undefined || opened.arrivedAt !== undefined || !arrivalCounts(opened.kind, opened.tags, opened.createdAt, at)) return opened;
+/**
+ * `opened`, stamped with when it arrived where that counts (see {@link arrivalCounts}).
+ * Never the viewer's own: it is dated by our corrected clock, and its gap to arrival is
+ * only how long the send took (signing, PoW), which would file it below later messages.
+ */
+export function withArrival(opened: OpenedDm, at: number | undefined, self: string): OpenedDm {
+  if (at === undefined || opened.arrivedAt !== undefined || opened.author === self) return opened;
+  if (!arrivalCounts(opened.kind, opened.tags, opened.createdAt, at)) return opened;
   return { ...opened, arrivedAt: at };
 }
 
@@ -1038,5 +1043,5 @@ export async function withDm17Arrivals(self: string, rows: OpenedDm[]): Promise<
   if (rows.length === 0) return rows;
   const known = await readDm17Arrivals(self);
   if (known.size === 0) return rows;
-  return rows.map((row) => withArrival(row, known.get(row.rumorId)?.at));
+  return rows.map((row) => withArrival(row, known.get(row.rumorId)?.at, self));
 }
