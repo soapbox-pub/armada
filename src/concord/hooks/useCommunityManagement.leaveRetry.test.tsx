@@ -67,6 +67,7 @@ vi.mock("@/hooks/useToast", () => ({ toast: () => undefined }));
 // On-disk state is this map; it outlives `vi.resetModules()` (process death).
 vi.mock("@/lib/foldedCache", () => ({
   readFolded: async (key: string) => h.folded.get(key),
+  readFoldedShared: async (key: string) => h.folded.get(key),
   writeFolded: async (key: string, value: unknown) => {
     h.folded.set(key, value);
   },

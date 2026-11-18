@@ -29,7 +29,7 @@
 import { currentControlGroup } from "@/concord/lib/control";
 import { guestbookGroups } from "@/concord/lib/guestbook";
 import { KIND_WRAP, type Plane } from "@/concord/lib/kinds";
-import { afterRead, planRead, type ReadPlan, type RelayRead } from "@/concord/lib/planeRead";
+import { afterRead, planRead, readWorthSaving, type ReadPlan, type RelayRead } from "@/concord/lib/planeRead";
 import { readControlSnapshot, writeOpened } from "@/concord/lib/rumorStore";
 import { isStreamPubkey, streamAuthsSettled } from "@/concord/lib/streamAuth";
 import { openWrap, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib/stream";
@@ -610,7 +610,8 @@ const planeReadKey = (scope: string) => `plane-read:${scope}`;
 /** Record how a paged scope's read ended. */
 async function savePlaneRead(scope: string, plan: ReadPlan, stopped: number | undefined): Promise<void> {
   const held = await readFoldedShared<RelayRead>(planeReadKey(scope));
-  await writeFolded(planeReadKey(scope), afterRead(held, plan, stopped));
+  const next = afterRead(held, plan, stopped);
+  if (readWorthSaving(held, next)) await writeFolded(planeReadKey(scope), next);
 }
 
 /**

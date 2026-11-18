@@ -51,6 +51,21 @@ export function planRead(read: RelayRead | undefined, now: number): ReadPlan {
   return { since, began: now };
 }
 
+/** A cursor move smaller than this isn't worth a write: the next read reaches {@link OVERLAP_SECS} behind it. */
+export const CURSOR_WRITE_SECS = 10 * 60;
+
+/**
+ * Whether `next` should replace the stored `held`. Every sweep moves the cursor to
+ * when it began, and on Android each write crosses the bridge, once per relay per
+ * scope per sweep; a stored cursor up to {@link CURSOR_WRITE_SECS} behind only makes
+ * the next read reach a little further back.
+ */
+export function readWorthSaving(held: RelayRead | undefined, next: RelayRead): boolean {
+  if (!held || held.cursor === undefined || next.cursor === undefined) return true;
+  if (held.pass || next.pass || held.wholeAt !== next.wholeAt) return true;
+  return next.cursor - held.cursor >= CURSOR_WRITE_SECS;
+}
+
 /** `read` after `plan` ran to the end of the plane, or ran out of pages at `stopped`. */
 export function afterRead(read: RelayRead | undefined, plan: ReadPlan, stopped?: number): RelayRead {
   if (stopped !== undefined) return { ...read, pass: { until: stopped, since: plan.since, began: plan.began } };

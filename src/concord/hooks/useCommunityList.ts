@@ -10,7 +10,7 @@ import { useRemoveRailKey } from "@/hooks/useRemoveRailKey";
 import { useEventStore } from "@/hooks/useEventStore";
 import { selfStateRelays } from "@/contexts/AppContext";
 import { useIsBlocked } from "@/lib/blocklistStore";
-import { readFolded, writeFolded } from "@/lib/foldedCache";
+import { readFolded, readFoldedShared, writeFolded } from "@/lib/foldedCache";
 import {
   addToList,
   communityListFoldKey,
@@ -1014,7 +1014,9 @@ export function useCommunityList() {
     let cancelled = false;
     void (async () => {
       if (queryClient.getQueryData(queryKey)) return;
-      const persisted = await readFolded<PersistedList>(foldKey);
+      // Shared: every mounted instance runs this at boot, and on Android each
+      // unshared read carried the whole list across the bridge again.
+      const persisted = await readFoldedShared<PersistedList>(foldKey);
       if (cancelled) return;
       if (persisted) {
         logSync("list2", `boot from folded cache: ${persisted.list.entries.length} entry(ies)`);
