@@ -90,6 +90,10 @@ android {
             // two keep separate data. Log in to the profiling copy to measure.
             if (project.findProperty("armadaProfile") == "true") {
                 applicationIdSuffix ".profile"
+                // A debuggable app runs its Java/Kotlin in ART's interpreter: the
+                // ArmadaDb thread's KV encode measured mostly interpreter frames, so
+                // its timings were nothing like the release app's.
+                debuggable false
             } else if (project.findProperty("armadaDev") == "true") {
                 // -ParmadaDev=true: the same side-by-side install, without the profiler.
                 applicationIdSuffix ".dev"

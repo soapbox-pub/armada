@@ -380,7 +380,10 @@ class ArmadaDbPlugin : Plugin() {
             }
             out.append(']')
             buzz.armada.app.ServiceProfiler.units("plugin.out bytes kvOps", out.length.toLong())
+            buzz.armada.app.ServiceProfiler.elapsed("plugin.kvOps encode", encodeStarted)
+            val resolveStarted = buzz.armada.app.ServiceProfiler.begin("plugin.kvOps resolve")
             call.resolve(JSObject().put("results", out.toString()))
+            buzz.armada.app.ServiceProfiler.end("plugin.kvOps resolve", resolveStarted)
             buzz.armada.app.ServiceProfiler.end("plugin.kvOps encode+resolve", encodeStarted)
         } catch (error: Exception) {
             call.reject(error.message, error)

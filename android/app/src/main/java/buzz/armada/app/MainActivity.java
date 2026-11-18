@@ -106,6 +106,10 @@ public class MainActivity extends BridgeActivity {
         EdgeToEdge.enable(this);
         super.onCreate(savedInstanceState);
 
+        // A profiling build is not debuggable (so ART compiles it as it does a release),
+        // which leaves Capacitor's default of no WebView inspection; the harness needs it.
+        if (BuildConfig.PROFILE) WebView.setWebContentsDebuggingEnabled(true);
+
         // Replace Capacitor's chrome client with one that honours HTML
         // fullscreen (embedded video players). Must happen in onCreate: the
         // client registers activity-result launchers, which may not be
