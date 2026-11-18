@@ -90,12 +90,20 @@ export async function perfTime<T>(
  * hex collapsed) with its size.
  */
 export function perfKvWrite(key: string, value: unknown): void {
-  const family = key.split(":").slice(0, 2).join(":").replace(/[0-9a-f]{16,}/g, "…");
   let size = 0;
   try {
     size = typeof value === "string" ? value.length : (JSON.stringify(value)?.length ?? 0);
   } catch { /* ignore */ }
-  perfCount(`kv.set ${family}`, 0, size, "chars");
+  perfCount(`kv.set ${kvFamily(key)}`, 0, size, "chars");
+}
+
+/** Profiling builds only: count a KV read or list by key family, with what it returned. */
+export function perfKvRead(op: "get" | "list", key: string, units: number, unitName: string): void {
+  perfCount(`kv.${op} ${kvFamily(key)}`, 0, units, unitName);
+}
+
+function kvFamily(key: string): string {
+  return key.split(":").slice(0, 2).join(":").replace(/[0-9a-f]{16,}/g, "…");
 }
 
 /** The collected profile, for a report or a test. */

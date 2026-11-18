@@ -14,7 +14,7 @@
  */
 import { Capacitor, registerPlugin } from "@capacitor/core";
 
-import { perfCount, perfKvWrite, perfMark, perfTime } from "@/lib/perf";
+import { perfCount, perfKvRead, perfKvWrite, perfMark, perfTime } from "@/lib/perf";
 
 import type { NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -416,10 +416,12 @@ class NativeKV implements ArmadaKV {
     for (const [i, op] of ops.entries()) {
       if (op.op === "get") {
         const value = results[slot[i]!];
+        if (import.meta.env.VITE_PROFILE === "1") perfKvRead("get", op.key, typeof value === "string" ? value.length : 0, "chars");
         op.resolve(typeof value === "string" ? parseStored(value) : undefined);
       } else if (op.op === "list") {
         const result = results[slot[i]!];
         const entries = Array.isArray(result) ? (result as Array<{ key: string; value: string }>) : [];
+        if (import.meta.env.VITE_PROFILE === "1") perfKvRead("list", op.prefix ?? op.start ?? "", entries.length, "entries");
         op.resolve(entries.map(({ key, value }) => ({ key, value: parseStored(value) })));
       } else {
         op.resolve();
