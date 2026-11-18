@@ -88,6 +88,22 @@ describe("identical writes", () => {
     expect(seen).toEqual(["k", "k"]);
     unsubscribe();
   });
+
+  it("waits out a read still in flight, so a value equal to what it finds isn't written back", async () => {
+    await writeFolded("k", { v: 1 });
+    __resetFoldedForTests();
+    const seen: string[] = [];
+    const unsubscribe = onFoldedWrite((key) => seen.push(key));
+    // A fresh session: the boot read and a recomputed copy of the same value race.
+    const read = readFolded("k");
+    await writeFolded("k", { v: 1 });
+    await expect(read).resolves.toEqual({ v: 1 });
+    expect(seen).toEqual([]);
+    // A different value still lands.
+    await writeFolded("k", { v: 2 });
+    expect(seen).toEqual(["k"]);
+    unsubscribe();
+  });
 });
 
 describe("readFoldedShared", () => {

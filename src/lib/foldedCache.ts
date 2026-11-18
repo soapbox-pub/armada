@@ -104,6 +104,12 @@ export function decode<T>(json: string): T | undefined {
  * each entry is a full encoding; an evicted key only costs one redundant write.
  */
 const knownEncoding = new Map<string, string>();
+/**
+ * Reads of a key still waiting on storage. A write waits for one, so it compares
+ * against what the read finds: a fold recomputed at boot before its saved copy has
+ * been read back is usually that same copy, and rewriting it costs a full write.
+ */
+const readsInFlight = new Map<string, Promise<unknown>>();
 const KNOWN_ENCODING_MAX = 4096;
 
 function rememberEncoding(key: string, json: string): void {
@@ -129,7 +135,14 @@ export async function readFolded<T>(key: string): Promise<T | undefined> {
       perfCount(`readFolded ${key.split(":")[0]} @ ${site}`, 0);
     }
     const before = knownEncoding.get(key);
-    const json = await getArmadaDB().kv.get<string>(foldedKey(key));
+    const reading = getArmadaDB().kv.get<string>(foldedKey(key));
+    readsInFlight.set(key, reading);
+    let json: string | undefined;
+    try {
+      json = await reading;
+    } finally {
+      if (readsInFlight.get(key) === reading) readsInFlight.delete(key);
+    }
     // A write during the read is newer than what the read saw.
     if (typeof json === "string" && knownEncoding.get(key) === before) rememberEncoding(key, json);
     // A non-string (undefined normalized to null) reads as a miss.
@@ -186,6 +199,7 @@ const sharedMissing = new Set<string>();
  */
 export function clearFoldedMemory(): void {
   knownEncoding.clear();
+  readsInFlight.clear();
   sharedDecoded.clear();
   sharedInFlight.clear();
   sharedMissing.clear();
@@ -211,6 +225,8 @@ export function onFoldedWrite(listener: FoldedWriteListener): () => void {
  */
 export async function writeFolded(key: string, value: unknown, encoded?: string): Promise<void> {
   try {
+    const reading = readsInFlight.get(key);
+    if (reading) await reading.catch(() => undefined);
     const json = encoded ?? encode(value);
     if (knownEncoding.get(key) === json) return;
     // Set before the await so concurrent identical writes collapse to one.
@@ -255,6 +271,7 @@ export async function deleteFolded(key: string): Promise<void> {
 /** Test seam: forget this session's in-memory state. */
 export function __resetFoldedForTests(): void {
   knownEncoding.clear();
+  readsInFlight.clear();
   sharedDecoded.clear();
   sharedInFlight.clear();
   sharedMissing.clear();
