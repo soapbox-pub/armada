@@ -90,7 +90,7 @@ function sortDedupe(events: NostrRumor[]): NostrRumor[] {
     if (prev && isSigned(prev) && !isSigned(e)) continue;
     byId.set(e.id, e);
   }
-  return [...byId.values()].sort((a, b) => a.created_at - b.created_at);
+  return [...byId.values()].sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 /**

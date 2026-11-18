@@ -60,17 +60,48 @@ export function timelineEntryAuthor(entry: ChannelTimelineEntry): string | undef
   }
 }
 
-/** Deterministic oldest-first merge. IDs break timestamp ties across sources.
- *  `extra` carries pre-built non-chat entries (e.g. Concord timer notices). */
+/**
+ * Slots `others` into the already-ordered `ordered` list by time, never
+ * reordering `ordered` itself: its order is finer than `at` can say (sub-second
+ * `ms`, a reply lifted after its parent). An ordered item stands at the latest
+ * time seen so far and wins a tie; `others` tie-break by `tie`.
+ */
+export function mergeIntoOrdered<A, B>(
+  ordered: readonly A[],
+  others: readonly B[],
+  atA: (a: A) => number,
+  atB: (b: B) => number,
+  tie: (x: B, y: B) => number,
+): (A | B)[] {
+  const rest = [...others].sort((x, y) => atB(x) - atB(y) || tie(x, y));
+  const out: (A | B)[] = [];
+  let j = 0;
+  let floor = -Infinity;
+  for (const item of ordered) {
+    floor = Math.max(floor, atA(item));
+    while (j < rest.length && atB(rest[j]) < floor) out.push(rest[j++]);
+    out.push(item);
+  }
+  while (j < rest.length) out.push(rest[j++]);
+  return out;
+}
+
+/**
+ * Oldest-first merge. `chat` is taken in the order given (the source's fold
+ * already ordered it); Git and `extra` entries (e.g. Concord timer notices)
+ * slot in by time, with IDs breaking their ties.
+ */
 export function mergeChannelTimeline(chat: readonly ChatMsg[], git: readonly GitTimelineActivity[], extra: readonly ChannelTimelineEntry[] = []): ChannelTimelineEntry[] {
-  const entries: ChannelTimelineEntry[] = [
-    ...chat.map((message) => ({ type: "chat" as const, id: `chat:${message.id}`, createdAt: message.created_at, message })),
-    ...git.map(gitActivityEntry),
-    ...extra,
-  ];
+  const chatEntries: ChannelTimelineEntry[] = chat.map((message) => ({ type: "chat" as const, id: `chat:${message.id}`, createdAt: message.created_at, message }));
+  const entries = mergeIntoOrdered(
+    chatEntries,
+    [...git.map(gitActivityEntry), ...extra],
+    (e) => e.createdAt,
+    (e) => e.createdAt,
+    (a, b) => a.id.localeCompare(b.id),
+  );
   const seen = new Set<string>();
   return entries
-    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
     .filter((entry) => {
       if (seen.has(entry.id)) return false;
       seen.add(entry.id);

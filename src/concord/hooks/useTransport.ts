@@ -19,7 +19,7 @@ import { expirationOf, timerNoticeSeconds } from "@/concord/lib/disappearing";
 import { sendRefusal } from "@/concord/lib/sendRateLimit";
 import { hasEveryoneMention } from "@/concord/lib/everyoneMention";
 import { channelKey, type TimelineSpan } from "@/concord/hooks/useChannel";
-import type { DmTimerTimelineEntry } from "@/components/chat/channelTimeline";
+import { mergeIntoOrdered, type DmTimerTimelineEntry } from "@/components/chat/channelTimeline";
 import { buildCalendarTags, type CalendarEvent, type CalendarEventInput, type CalendarTransport, parseCalendarEvents, type RsvpStatus, type RsvpTally, tallyRsvps } from "@/lib/calendar";
 import { buildPollTags, parsePoll, tallyPollVotes, type PollTally, type PollVote } from "@/lib/polls";
 import { zapRumorTags, type ZapTally } from "@/lib/zaps";
@@ -447,9 +447,7 @@ export function useTransport(
   const timeline = useMemo<ChatMsg[]>(() => {
     const merged = calendarMsgs.length === 0
       ? topLevel
-      : [...topLevel, ...calendarMsgs].sort((a, b) =>
-          a.created_at !== b.created_at ? a.created_at - b.created_at : a.id < b.id ? -1 : 1,
-        );
+      : mergeIntoOrdered(topLevel, calendarMsgs, (m) => m.created_at, (m) => m.created_at, (a, b) => (a.id < b.id ? -1 : 1));
     if (!span) return merged;
     const shown = merged.filter((m) => m.created_at >= span.from && (span.to === undefined || m.created_at <= span.to));
     return shown.length === merged.length ? merged : shown;

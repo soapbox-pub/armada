@@ -20,8 +20,15 @@ const ciRun = (workflow: string, createdAt: number): GitTimelineActivity => ({
 });
 
 describe("mixed channel timeline", () => {
-  it("merges chat and Git chronologically with a deterministic id tie-break", () => {
-    expect(mergeChannelTimeline([chat("z", 20), chat("a", 10)], [git("c", 20)]).map((entry) => entry.id)).toEqual(["chat:a", "chat:z", "git:c"]);
+  it("slots Git into chat chronologically with a deterministic id tie-break", () => {
+    expect(mergeChannelTimeline([chat("a", 10), chat("z", 20)], [git("d", 20), git("c", 20), git("b", 15)]).map((entry) => entry.id))
+      .toEqual(["chat:a", "git:b", "chat:z", "git:c", "git:d"]);
+  });
+
+  it("keeps the chat order it is given, even within one second", () => {
+    // The fold orders by ms and lifts a reply after its parent; whole seconds can't.
+    expect(mergeChannelTimeline([chat("z", 20), chat("a", 20), chat("reply", 19)], [git("c", 19)]).map((entry) => entry.id))
+      .toEqual(["git:c", "chat:z", "chat:a", "chat:reply"]);
   });
 
   it("groups only adjacent comments on the same ticket", () => {
