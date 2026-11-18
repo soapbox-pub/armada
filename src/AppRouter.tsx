@@ -398,8 +398,11 @@ function AppRoutes() {
 
 export function AppRouter() {
   useWarmRouteChunks();
+  // Navigations are urgent updates, not transitions: a transition yields to every other
+  // task and restarts on any urgent render, so on a busy phone a channel tap waited out
+  // React's 5 s transition expiry before anything changed on screen.
   return (
-    <BrowserRouter>
+    <BrowserRouter useTransitions={false}>
       <NotificationNavigation />
       <SignedInRouterServicesGate />
       <VersionCheck />

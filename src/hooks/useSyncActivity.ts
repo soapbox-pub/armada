@@ -14,6 +14,11 @@ export function useSyncTasks(): readonly SyncTask[] {
   return useSyncExternalStore(subscribe, getSyncTasks);
 }
 
+/** Whether any task is in flight: a boolean, so progress alone re-renders nothing. */
+export function useSyncActive(): boolean {
+  return useSyncExternalStore(subscribe, () => getSyncTasks().length > 0);
+}
+
 /**
  * Whether a task scoped to `scope` is in flight. A boolean snapshot, so a
  * screen re-renders only when that answer flips, not on every task's progress.

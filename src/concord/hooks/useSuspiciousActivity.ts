@@ -9,7 +9,6 @@ import {
   controlSweepTruncated,
   controlSweepUnreadable,
   subscribeSweepVerdicts,
-  sweepVerdictRevision,
 } from "@/concord/lib/planeSync";
 import { Permissions, isAuthorized } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
@@ -118,8 +117,19 @@ export function useSuspiciousActivity(
     folded && me && isAuthorized(folded.roster, me, folded.ownerHex, Permissions.BAN),
   );
 
-  // Verdicts live in module state a sweep mutates after mount.
-  const verdicts = useSyncExternalStore(subscribeSweepVerdicts, sweepVerdictRevision);
+  // Verdicts live in module state a sweep mutates after mount. Read as THIS community's
+  // verdicts, not the global revision: every relay's sweep of every community bumps that,
+  // and each bump was an urgent re-render that restarted a pending navigation's render.
+  const verdictSig = useSyncExternalStore(
+    subscribeSweepVerdicts,
+    useCallback(
+      () =>
+        community && canAct
+          ? `${controlSweepAnswered(community)}|${controlSweepTruncated(community)}|${controlSweepQuorum(community)}|${controlSweepUnreadable(community)}`
+          : "",
+      [community, canAct],
+    ),
+  );
 
   const { actors, unreadable, flooded } = useMemo<{
     actors: SuspiciousActor[];
@@ -128,7 +138,7 @@ export function useSuspiciousActivity(
   }>(() => {
     const none = { actors: [], unreadable: 0, flooded: false };
     if (!community || !folded || !control.data || !canAct) return none;
-    void verdicts;
+    void verdictSig;
     if (!controlSweepAnswered(community)) return none;
     // A read cut short by our budget IS the alarm (someone inflating the plane);
     // suppressing on it would hand the attacker a mute button.
@@ -148,7 +158,7 @@ export function useSuspiciousActivity(
       // Only wraps that would NOT open; junk that opened is counted on its author's row.
       unreadable: controlSweepUnreadable(community),
     };
-  }, [community, folded, control.data, canAct, dismissed.at, verdicts]);
+  }, [community, folded, control.data, canAct, dismissed.at, verdictSig]);
 
   // Ratchet the junk watermark DOWN as floods recede (`unreadable` is per-sweep),
   // or one dismissal at 500 would silence the signal forever.
