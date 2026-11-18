@@ -12,8 +12,18 @@ const LAZY_MARGIN = "400px";
  * drawn far below their natural size and cropped to cover it. The box is
  * measured once from a placeholder with the same classes, which is what starts
  * the fetch: with `loading="lazy"`, only once that placeholder nears the screen.
+ *
+ * `originalWhilePending` fills that placeholder with the original image, for an
+ * image that is part of the text (a custom emoji in a name) and so must not be
+ * missing while the shared queue reaches it.
  */
-export function ThumbImg({ src, className, style, ...props }: ImgHTMLAttributes<HTMLImageElement>) {
+export function ThumbImg({
+  src,
+  className,
+  style,
+  originalWhilePending,
+  ...props
+}: ImgHTMLAttributes<HTMLImageElement> & { originalWhilePending?: boolean }) {
   const lazy = props.loading === "lazy";
   const [box, setBox] = useState(0);
   const observer = useRef<IntersectionObserver | null>(null);
@@ -36,7 +46,15 @@ export function ThumbImg({ src, className, style, ...props }: ImgHTMLAttributes<
   }, [lazy]);
   useEffect(() => () => observer.current?.disconnect(), []);
   const thumb = useImageThumb(src, box);
-  if (thumb.pending) return <span ref={measure} aria-hidden className={className} style={{ ...style, display: "inline-block" }} />;
+  if (thumb.pending) {
+    return (
+      <span ref={measure} aria-hidden className={className} style={{ ...style, display: "inline-block" }}>
+        {originalWhilePending && src && (
+          <MotionImg {...props} src={src} alt="" className="block size-full" style={{ objectFit: "contain", imageRendering: style?.imageRendering }} />
+        )}
+      </span>
+    );
+  }
   if (thumb.anim) return <ThumbAnimation anim={thumb.anim} className={className} style={style} alt={props.alt} title={props.title} />;
   return <MotionImg {...props} src={thumb.src} className={className} style={style} />;
 }

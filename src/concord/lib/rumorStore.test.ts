@@ -996,6 +996,35 @@ describe("concord rumor store", () => {
     expect([...((await readControlSnapshot(CID, control.pk)) ?? [])].sort()).toEqual([a.id, b.id].sort());
   });
 
+  it("lists a snapshot from KV once a session, with later records joining what was read", async () => {
+    const alice = signer();
+    const control = channelGroupKey(new Uint8Array(32).fill(16), new Uint8Array(32).fill(16), 1);
+    const edition = async (eid: string) => {
+      const rumor = buildRumor({ kind: 3308, content: "{}", tags: [["vsk", "0"], ["eid", eid], ["ev", "1"]], pubkey: alice.pubkey, ms: null });
+      return { id: rumor.id, opened: openWrap(await wrapSeal(await sealRumor(rumor, KIND_SEAL_PLAINTEXT, control, alice), control), control) };
+    };
+    const list = vi.spyOn(getArmadaDB().kv, "list");
+    try {
+      // Read while empty: the memo holds an empty set, which a later record must still reach.
+      expect(await readControlSnapshot(CID, control.pk)).toBeUndefined();
+      const a = await edition("c1".repeat(32));
+      await writeOpened(CID, [a.opened], "control");
+      const got = await eventually(
+        () => readControlSnapshot(CID, control.pk),
+        (s) => Boolean(s?.has(a.id)),
+      );
+      expect(got?.has(a.id)).toBe(true);
+      const prefix = `c2snap:${CID}:${control.pk}:`;
+      const listed = list.mock.calls.filter(([selector]) => selector && "prefix" in selector && selector.prefix === prefix);
+      expect(listed).toHaveLength(1);
+      // A caller's copy can't change the memo.
+      got!.clear();
+      expect((await readControlSnapshot(CID, control.pk))?.has(a.id)).toBe(true);
+    } finally {
+      list.mockRestore();
+    }
+  });
+
   it("keeps no snapshot for a community that has never rotated its root", async () => {
     // Nothing reads the set for such a community — there is no compaction to
     // tell from old-root fragments — so writing one was an id list growing per

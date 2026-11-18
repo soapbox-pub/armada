@@ -49,6 +49,7 @@ export function CustomEmojiImg({
       decoding="async"
       onLoad={handleLoad}
       onError={onError}
+      originalWhilePending
     />
   );
 }

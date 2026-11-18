@@ -4221,6 +4221,8 @@ function ConcordCommunityPage() {
               >
                 <div aria-hidden className="absolute inset-0 -z-10 bg-background sidebar:hidden" />
                 {membersVisible && <PaneResizeHandle pane="member" />}
+                {/* Built on first open: hidden off-screen on touch, it re-rendered every row with the page. */}
+                <MountWhenOpened open={membersVisible || membersOpen}>
                 <CommunityBoosters listings={discoverListings} members={memberSet} enabled={membersVisible || membersOpen}>
                 <MemberList
                   admins={panelAdmins}
@@ -4233,6 +4235,7 @@ function ConcordCommunityPage() {
                   onClose={closeMembers}
                 />
                 </CommunityBoosters>
+                </MountWhenOpened>
               </div>
             </div>
           </div>

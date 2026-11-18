@@ -94,6 +94,8 @@ export function clearRumorStoreMemory(): void {
   guestbookAddrsReady.clear();
   guestbookAddrsPending.clear();
   snapshotsNoted.clear();
+  snapshotSets.clear();
+  snapshotSetsReady.clear();
   pendingChat.clear();
 }
 
@@ -118,6 +120,37 @@ export const snapshotKey = (communityIdHex: string, controlPk: string, rumorId: 
   `${snapshotPrefix(communityIdHex)}${controlPk}:${rumorId}`;
 
 /**
+ * Per (community, control address), the snapshot's rumor ids: listed from KV once a
+ * session, then kept current by {@link noteControlSnapshot}. Sweeps ask on every
+ * relay batch, and on Android each listed key crosses the bridge.
+ */
+const snapshotSets = new Map<string, Promise<Set<string>>>();
+const snapshotSetsReady = new Map<string, Set<string>>();
+
+function loadSnapshotSet(communityIdHex: string, controlPk: string): Promise<Set<string>> {
+  const memoKey = `${communityIdHex}:${controlPk}`;
+  let loaded = snapshotSets.get(memoKey);
+  if (!loaded) {
+    const prefix = `${snapshotPrefix(communityIdHex)}${controlPk}:`;
+    const load: Promise<Set<string>> = getArmadaDB().kv.list({ prefix }).then((entries) => {
+      const ids = new Set(entries.map(({ key }) => key.slice(prefix.length)));
+      // Keys written while the list was in flight.
+      for (const key of snapshotsNoted) if (key.startsWith(prefix)) ids.add(key.slice(prefix.length));
+      // A load a session clear or prune superseded publishes nothing.
+      if (snapshotSets.get(memoKey) === load) snapshotSetsReady.set(memoKey, ids);
+      return ids;
+    });
+    // A failed read is retried by the next caller rather than remembered as empty.
+    load.catch(() => {
+      if (snapshotSets.get(memoKey) === load) snapshotSets.delete(memoKey);
+    });
+    snapshotSets.set(memoKey, load);
+    loaded = load;
+  }
+  return loaded;
+}
+
+/**
  * The rumor ids that arrived under `controlPk`, or undefined. May be a superset
  * of what's stored (deletes don't rewrite it); callers only use it as a filter.
  */
@@ -127,9 +160,8 @@ export async function readControlSnapshot(
 ): Promise<Set<string> | undefined> {
   if (!communityIdHex || !controlPk) return undefined;
   try {
-    const prefix = `${snapshotPrefix(communityIdHex)}${controlPk}:`;
-    const entries = await getArmadaDB().kv.list({ prefix });
-    return entries.length > 0 ? new Set(entries.map(({ key }) => key.slice(prefix.length))) : undefined;
+    const ids = await loadSnapshotSet(communityIdHex, controlPk);
+    return ids.size > 0 ? new Set(ids) : undefined;
   } catch {
     return undefined;
   }
@@ -145,11 +177,15 @@ export async function noteControlSnapshot(
 ): Promise<void> {
   const kv = getArmadaDB().kv;
   // Sweeps re-offer what they read: a key recorded this session isn't written again.
-  const keys = opened.flatMap((o) => (o.streamPk ? [snapshotKey(communityIdHex, o.streamPk, o.rumorId)] : []));
+  const fresh = opened.filter((o): o is { streamPk: string; rumorId: string } =>
+    Boolean(o.streamPk) && !snapshotsNoted.has(snapshotKey(communityIdHex, o.streamPk!, o.rumorId)),
+  );
   await Promise.all(
-    keys.filter((key) => !snapshotsNoted.has(key)).map(async (key) => {
+    fresh.map(async (o) => {
+      const key = snapshotKey(communityIdHex, o.streamPk, o.rumorId);
       await kv.set(key, 1);
       snapshotsNoted.add(key);
+      snapshotSetsReady.get(`${communityIdHex}:${o.streamPk}`)?.add(o.rumorId);
     }),
   );
 }
@@ -262,6 +298,11 @@ export async function pruneControlSnapshots(
       await kv.delete(key);
       snapshotsNoted.delete(key);
     }));
+    for (const memoKey of [...snapshotSets.keys()]) {
+      if (!memoKey.startsWith(`${communityIdHex}:`) || keep.has(memoKey.slice(communityIdHex.length + 1))) continue;
+      snapshotSets.delete(memoKey);
+      snapshotSetsReady.delete(memoKey);
+    }
   } catch {
     // best-effort
   }
