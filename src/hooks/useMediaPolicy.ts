@@ -30,12 +30,7 @@ export function useMediaPolicy(): MediaPolicy {
 
 /** Bridge shape for the background writers' configs; primary proxy only (native doesn't rotate). */
 export function useMediaPolicyConfig(): MediaPolicyConfig {
-  const policy = useMediaPolicy();
-  const allAvatars = useContext(AppContext)?.config.communityMediaAutoload === "always";
-  return useMemo(
-    () => (allAvatars ? { proxy: policy.proxy, allCommunityAvatars: true } : { proxy: policy.proxy }),
-    [policy, allAvatars],
-  );
+  return useMediaPolicy();
 }
 
 /** With several proxies, the whole set is the pool `useRoutedCandidates` rotates across. */

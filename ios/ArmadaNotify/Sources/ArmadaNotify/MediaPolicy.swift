@@ -15,13 +15,8 @@ struct MediaPolicy: Equatable {
 
     /// Normalized proxy template, or "" for none.
     let proxy: String
-    /// Any community sender's avatar may be a notification icon (the reader
-    /// loads everyone's media); false = known peers only.
-    let allCommunityAvatars: Bool
-
-    init(proxy: String = "", allCommunityAvatars: Bool = false) {
+    init(proxy: String = "") {
         self.proxy = MediaPolicy.normalizeProxy(proxy)
-        self.allCommunityAvatars = allCommunityAvatars
     }
 
     /// The policy a fresh install has: proxying off, the app's own default. A
@@ -34,10 +29,7 @@ struct MediaPolicy: Equatable {
     /// never turned a proxy on.
     static func parse(_ object: [String: Any]?) -> MediaPolicy {
         guard let object else { return defaults }
-        return MediaPolicy(
-            proxy: object["proxy"] as? String ?? "",
-            allCommunityAvatars: object["allCommunityAvatars"] as? Bool ?? false
-        )
+        return MediaPolicy(proxy: object["proxy"] as? String ?? "")
     }
 
     /// The URL to fetch `url` from, or nil when the policy would not fetch it at

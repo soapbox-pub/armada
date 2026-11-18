@@ -91,8 +91,6 @@ final class MediaPolicyTests: XCTestCase {
         // Empty and absent are both proxying off, the app's default.
         XCTAssertEqual(MediaPolicy.parse(["proxy": ""]).proxy, "")
         XCTAssertEqual(MediaPolicy.parse([:]).proxy, "")
-        XCTAssertFalse(MediaPolicy.parse(["proxy": ""]).allCommunityAvatars)
-        XCTAssertTrue(MediaPolicy.parse(["proxy": "", "allCommunityAvatars": true]).allCommunityAvatars)
     }
 
     func testMissingConfigIsTheDefaultPolicyProxyOff() {

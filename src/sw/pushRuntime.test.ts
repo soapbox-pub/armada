@@ -9,7 +9,7 @@ import { appEventStore } from "@/lib/db/mainEventStore";
 import { queryDm17Thread } from "@/lib/nip17/dm17Store";
 import { fetchProfiles } from "@/sw/profileFetch";
 
-import { communityAvatarShown, openConcord, openDm, preparePush, pushScope } from "./pushRuntime";
+import { openConcord, openDm, preparePush, pushScope } from "./pushRuntime";
 
 // No sockets in the suite: profile lookups answer from whatever a test sets.
 vi.mock("@/sw/profileFetch", () => ({ fetchProfiles: vi.fn(async () => []) }));
@@ -1186,26 +1186,6 @@ describe("napp.push.payload: the plane read off the event", () => {
     const forged = { ...JSON.parse(JSON.stringify(event(9, [["h", "general"]]))), content: "not what was signed" };
     const prepared = await preparePush({ event: forged, relays: ["wss://relay-a.example"] }, cfg());
     expect(prepared?.drop).toBe(true);
-  });
-});
-
-describe("communityAvatarShown", () => {
-  it("shows a community sender's avatar only for a known peer", () => {
-    const known = "a".repeat(64);
-    const cfg = { policy: "generic", self: "c".repeat(64), knownPeers: [known] } as SwPushConfig;
-    expect(communityAvatarShown(known, cfg)).toBe(true);
-    expect(communityAvatarShown("f".repeat(64), cfg)).toBe(false);
-    expect(communityAvatarShown(known, null)).toBe(false);
-  });
-
-  it("shows every sender's avatar when the reader loads everyone's media", () => {
-    const cfg = {
-      policy: "generic",
-      self: "c".repeat(64),
-      knownPeers: [],
-      mediaPolicy: { proxy: "", allCommunityAvatars: true },
-    } as SwPushConfig;
-    expect(communityAvatarShown("f".repeat(64), cfg)).toBe(true);
   });
 });
 

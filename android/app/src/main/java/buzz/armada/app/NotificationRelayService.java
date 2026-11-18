@@ -5655,7 +5655,7 @@ public class NotificationRelayService extends Service {
                 resolveAuthor(author2, relayUrl, profile -> {
                     String nick = fStR.nicknames.get(author2);
                     String name = nick != null ? nick : authorName(profile);
-                    String picture = communityAvatarShown(author2) && profile != null ? profile.picture : null;
+                    String picture = profile != null ? profile.picture : null;
                     if (BuildConfig.DEBUG) Log.d(TAG, "NOTIFY concord reaction: " + fStR.name + " / " + name);
                     enqueueRoomMessage(
                             fStR.community, "c2:" + fStR.channelId, fStR.name,
@@ -5701,7 +5701,7 @@ public class NotificationRelayService extends Service {
             resolveAuthor(author2, relayUrl, profile -> {
                 String nick = fSt.nicknames.get(author2);
                 String name = nick != null ? nick : authorName(profile);
-                String picture = communityAvatarShown(author2) && profile != null ? profile.picture : null;
+                String picture = profile != null ? profile.picture : null;
                 String text = NotificationContent.messageText(labels(), preview2, threadRoot2 != null);
                 if (BuildConfig.DEBUG) Log.d(TAG, "NOTIFY concord: " + fSt.name + " / " + name);
                 enqueueRoomMessage(
@@ -6016,25 +6016,6 @@ public class NotificationRelayService extends Service {
             }
         }
         return true;
-    }
-
-    /**
-     * Whether a Concord sender's avatar may appear on a notification. Anyone with
-     * the key can post (CORD-04 §1), so unless the reader loads everyone's media
-     * only a known peer's face reaches the lock screen; mirrors
-     * {@code communityAvatarShown} in {@code pushRuntime.ts}.
-     */
-    private boolean communityAvatarShown(String author) {
-        return communityAvatarShown(author, dmFollows, dmKnownPeers, mediaPolicy.allCommunityAvatars);
-    }
-
-    static boolean communityAvatarShown(String author, Set<String> follows, Set<String> knownPeers) {
-        return communityAvatarShown(author, follows, knownPeers, false);
-    }
-
-    static boolean communityAvatarShown(String author, Set<String> follows, Set<String> knownPeers,
-                                        boolean all) {
-        return author != null && (all || follows.contains(author) || knownPeers.contains(author));
     }
 
     /**
@@ -6516,21 +6497,9 @@ public class NotificationRelayService extends Service {
         // The shortcut names the CONVERSATION, so its person is the last
         // INCOMING sender — a reply we sent must not repoint a DM's shortcut
         // (and its avatar) at ourselves.
-        MsgEntry lastEntry = room.messages.get(room.messages.size() - 1);
-        for (int i = room.messages.size() - 1; i >= 0; i--) {
-            if (!room.messages.get(i).fromSelf) {
-                lastEntry = room.messages.get(i);
-                break;
-            }
-        }
-        Person lastSender = personFor(lastEntry);
+        MsgEntry lastEntry = lastIncoming(room);
         Bitmap communityIcon = community != null ? groupImageCache.get(community.imageCacheKey()) : null;
-        if (community == null) {
-            pushConversationShortcut(room, lastSender,
-                    avatar != null ? avatar : room.lastAvatar);
-        } else {
-            pushConversationShortcut(room, lastSender, communityIcon);
-        }
+        pushRoomShortcut(room, lastEntry, communityIcon != null ? communityIcon : communityMonogram(community));
 
         // Drop rooms the user already dismissed from the tray so a later message
         // starts a fresh notification instead of resurrecting cleared lines.
@@ -6550,11 +6519,75 @@ public class NotificationRelayService extends Service {
                 NotificationManager m2 =
                         (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                 if (m2 == null || !isNotifActive(m2, r.notifId)) return;
-                MsgEntry le = r.messages.get(r.messages.size() - 1);
-                pushConversationShortcut(r, personFor(le), bmp);
+                pushRoomShortcut(r, lastIncoming(r), bmp);
                 postRoomNotification(m2, r, /*alert=*/false);
             });
         }
+    }
+
+    /** The room's newest line from someone else, or its newest line when every one is ours. */
+    private static MsgEntry lastIncoming(RoomNotif room) {
+        for (int i = room.messages.size() - 1; i >= 0; i--) {
+            if (!room.messages.get(i).fromSelf) return room.messages.get(i);
+        }
+        return room.messages.get(room.messages.size() - 1);
+    }
+
+    /**
+     * The room's conversation shortcut. A 1:1 DM is its peer, face and all. A room
+     * with several speakers is the room: the community's image, and never a sender's
+     * face, which the system would paint as the whole conversation's icon while each
+     * line already carries its own.
+     */
+    private void pushRoomShortcut(RoomNotif room, MsgEntry lastEntry, Bitmap communityIcon) {
+        if (!isGroupRoom(room)) {
+            pushConversationShortcut(room, personFor(lastEntry), lastEntry.avatar != null ? lastEntry.avatar : room.lastAvatar);
+        } else {
+            pushConversationShortcut(room, null, communityIcon);
+        }
+    }
+
+    /** The community's image once fetched, else its monogram; null for no community. */
+    private Bitmap communityIcon(CommunityRef community) {
+        if (community == null) return null;
+        Bitmap image = groupImageCache.get(community.imageCacheKey());
+        return image != null ? image : communityMonogram(community);
+    }
+
+    /**
+     * The community's initials on a disc, as the app's rail shows a community with no
+     * image: without an icon the system draws the last senders' faces as the room's.
+     */
+    private Bitmap communityMonogram(CommunityRef community) {
+        if (community == null) return null;
+        String name = community.title != null ? community.title.trim() : "";
+        int end = name.isEmpty() ? 0 : name.offsetByCodePoints(0, Math.min(2, name.codePointCount(0, name.length())));
+        String initials = name.isEmpty() ? "#" : name.substring(0, end).toUpperCase(java.util.Locale.ROOT);
+        String key = "ci:mono:" + initials;
+        Bitmap cached = groupImageCache.get(key);
+        if (cached != null) return cached;
+        Bitmap b = Bitmap.createBitmap(AVATAR_PX, AVATAR_PX, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(MONOGRAM_BG);
+        c.drawCircle(AVATAR_PX / 2f, AVATAR_PX / 2f, AVATAR_PX / 2f, p);
+        p.setColor(MONOGRAM_FG);
+        p.setTextSize(AVATAR_PX * (initials.length() > 1 ? 0.32f : 0.42f));
+        p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        p.setTextAlign(Paint.Align.CENTER);
+        Paint.FontMetrics m = p.getFontMetrics();
+        c.drawText(initials, AVATAR_PX / 2f, AVATAR_PX / 2f - (m.ascent + m.descent) / 2f, p);
+        groupImageCache.put(key, b);
+        return b;
+    }
+
+    /** The rail's monogram colours (`bg-muted`, `text-success`). */
+    private static final int MONOGRAM_BG = 0xFF2B2433;
+    private static final int MONOGRAM_FG = 0xFF22C55E;
+
+    /** A channel or a group DM: several people speak in it, so it is titled and has no one face. */
+    private static boolean isGroupRoom(RoomNotif room) {
+        return room.community != null || isDmGroupKey(room.roomKey);
     }
 
     /**
@@ -6669,12 +6702,11 @@ public class NotificationRelayService extends Service {
         // below), Android 11+ renders the shortcut's avatar as the LEFT icon
         // in place of the app icon — the peer's avatar for a 1:1 DM, the
         // community image for a channel (like a Signal group chat).
-        boolean isDm = room.community == null;
         // A group DM is a DM — no community brands it — that nonetheless has
         // several people speaking in it, so it takes a conversation title like
         // a channel does. Without one the system titles the notification with
         // whichever member spoke last, which reads as a 1:1 with them.
-        boolean titled = !isDm || isDmGroupKey(room.roomKey);
+        boolean titled = isGroupRoom(room);
 
         // The local user, who a sent quick reply is attributed to: their own
         // kind-0 name + avatar when we hold one, "You" when we don't.
@@ -6698,11 +6730,11 @@ public class NotificationRelayService extends Service {
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, MSG_CHANNEL_ID)
                 .setStyle(style)
                 .setSmallIcon(R.drawable.ic_stat_armada)
-                // Sender avatar fallback for surfaces that don't do the
-                // conversation layout (pre-Android-11, some OEM skins). On the
-                // conversation layout the system ignores this and uses the
-                // shortcut/Person avatar on the left instead.
-                .setLargeIcon(room.lastAvatar)
+                // The conversation's icon where no shortcut icon replaces it: the
+                // peer of a 1:1, the community's image for a channel. Never a
+                // sender in a group room: the conversation layout paints the large
+                // icon as the whole conversation's, under every line's own face.
+                .setLargeIcon(titled ? communityIcon(room.community) : room.lastAvatar)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(roomPendingIntent(room))
@@ -7783,7 +7815,9 @@ public class NotificationRelayService extends Service {
             // notification. Skip a push that would change nothing, and every
             // push once the quota is gone, so the quota goes on real changes.
             String id = shortcutIdFor(room);
-            String signature = label + "\u0000" + (avatar != null);
+            // The icon by identity: a community's monogram is replaced by its image once
+            // fetched, and both are held in a cache, so the same icon is the same object.
+            String signature = label + "\u0000" + (avatar != null ? System.identityHashCode(avatar) : 0);
             if (signature.equals(pushedShortcuts.get(id))) return;
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N_MR1) {
                 android.content.pm.ShortcutManager sm =
@@ -7799,7 +7833,6 @@ public class NotificationRelayService extends Service {
             // both writers update in place, rather than two that evict.
             ShortcutInfoCompat.Builder sb = new ShortcutInfoCompat.Builder(this, id)
                     .setShortLabel(label)
-                    .setPerson(sender)
                     .setLongLived(true)
                     // The base route, not room.url: a launcher/share tap should
                     // open the room, not scroll to whatever message last
@@ -7811,6 +7844,7 @@ public class NotificationRelayService extends Service {
             // The shortcut icon is what the conversation layout paints on the
             // left; without it (avatar not fetched yet) the app icon shows until
             // the silent avatar re-post refreshes the shortcut.
+            if (sender != null) sb.setPerson(sender);
             if (avatar != null) sb.setIcon(IconCompat.createWithBitmap(avatar));
             ShortcutManagerCompat.pushDynamicShortcut(this, sb.build());
             pushedShortcuts.put(id, signature);
