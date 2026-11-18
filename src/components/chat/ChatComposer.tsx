@@ -2827,7 +2827,7 @@ function ReplyBanner({ event, onCancel, onJump }: { event: NostrRumor; onCancel?
             <DisplayName pubkey={event.pubkey} name={displayName} />
           </span>
           <span className="min-w-0 flex-1 truncate text-muted-foreground/70">
-            <ReplyPreview content={event.content} tags={held ? undefined : event.tags} />
+            <ReplyPreview content={event.content} tags={held ? undefined : event.tags} quotesBy={held ? undefined : event.pubkey} />
           </span>
         </span>
       </button>

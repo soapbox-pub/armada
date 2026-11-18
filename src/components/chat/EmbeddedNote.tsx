@@ -150,6 +150,11 @@ const KIND_META: Record<number, KindMeta> = {
   [MAGAZINE_ISSUE_KIND]: { label: KIND_LABELS.magazineIssue, Icon: Newspaper },
 };
 
+/** The kind's label when its card is a tag preview rather than its content as text. */
+export function embedKindLabel(kind: number): MessageDescriptor | undefined {
+  return KIND_META[kind]?.label;
+}
+
 /** NIP-68 photo kinds (images in imeta). */
 const PHOTO_KINDS = new Set([20]);
 /** NIP-71 video kinds + vines (media in imeta). */

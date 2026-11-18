@@ -33,7 +33,7 @@ export function ReplyContext({
     <ReplyContextLine
       name={name}
       pubkey={parent.pubkey}
-      preview={<ReplyPreview content={parent.content} tags={held ? undefined : parent.tags} hideMediaPlaceholder={!!image} />}
+      preview={<ReplyPreview content={parent.content} tags={held ? undefined : parent.tags} quotesBy={held ? undefined : parent.pubkey} hideMediaPlaceholder={!!image} />}
       thumbnail={image ? <ReplyThumbnail image={image} /> : undefined}
       onClick={() => onJump(parent.id)}
     />

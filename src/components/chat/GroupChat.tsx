@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import { ChatMessage, ReplyContextLine, ReplyPreview, ReplyThumbnail } from "@/components/chat/ChatMessage";
+import { useMediaHeld, useMessageRevealed } from "@/components/chat/mediaHold";
 import { firstImageRef, getReplyToId } from "@/components/chat/messageHelpers";
 import { MessageTimeline } from "@/components/chat/MessageTimeline";
 import { ThreadPanel } from "@/components/chat/ThreadPanel";
@@ -82,11 +83,13 @@ function ReplyContextFor({ event, onJump }: { event: ChatMsg; onJump: (id: strin
   const author = useAuthor(event.pubkey);
   const displayName = useScopedDisplayName(event.pubkey, author.data?.metadata);
   const image = firstImageRef(event);
+  const revealed = useMessageRevealed(event.id);
+  const held = useMediaHeld(event.pubkey) && !revealed;
   return (
     <ReplyContextLine
       name={displayName}
       pubkey={event.pubkey}
-      preview={<ReplyPreview content={event.content} tags={event.tags} hideMediaPlaceholder={!!image} />}
+      preview={<ReplyPreview content={event.content} tags={event.tags} quotesBy={held ? undefined : event.pubkey} hideMediaPlaceholder={!!image} />}
       thumbnail={image ? <ReplyThumbnail image={image} /> : undefined}
       onClick={() => onJump(event.id)}
     />

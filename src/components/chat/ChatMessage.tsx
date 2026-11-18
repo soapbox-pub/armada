@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Braces, Copy, CornerDownRight, EyeOff, Flag, Forward, Link, Link2, MessagesSquare, Pencil, Pin, PinOff, Reply, Trash2, User, Zap } from "lucide-react";
+import { AlertCircle, Braces, Copy, CornerDownRight, EyeOff, Flag, Forward, Link, Link2, MessagesSquare, Pencil, Pin, PinOff, Quote, Reply, Trash2, User, Zap } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
 
@@ -35,7 +35,10 @@ import { MenuReactionPicker, MenuReactionRow } from "@/components/chat/MenuReact
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { LazyContextMenuContent, useLazyContextMenu } from "@/components/chat/LazyContextMenu";
 import { EventJsonDialog } from "@/components/EventJsonDialog";
+import { embedKindLabel } from "@/components/chat/EmbeddedNote";
+import { useMediaHeld } from "@/components/chat/mediaHold";
 import { useAuthor } from "@/hooks/useAuthor";
+import { publicRelayHints, useEvent } from "@/hooks/useEvent";
 import { useIsUserBanned } from "@/lib/blocklistStore";
 import { useChatScope } from "@/hooks/useChatScope";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -46,7 +49,7 @@ import { useMediaWithFallback } from "@/hooks/useMediaWithFallback";
 import { useOpenProfile } from "@/hooks/useOpenProfile";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { useToast } from "@/hooks/useToast";
-import { common, FormattedMessage, t, useIntl } from "@/i18n";
+import { common, defineMessage, FormattedMessage, t, useIntl } from "@/i18n";
 import { AppContext } from "@/contexts/AppContext";
 import { isIosApp } from "@/lib/platform";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
@@ -72,6 +75,7 @@ import { cn } from "@/lib/utils";
 import type { MessageActionItem } from "@/components/chat/messageActions";
 import type { ChatMsg, MessageCalendar, MessagePoll, MessageReactions, MessageZaps, OnchainZapAnnouncement, SendStatus, ZapPayment } from "@/components/chat/transport";
 import type { EncryptedRef } from "@/hooks/useResolvedMediaSrc";
+import type { NostrRumor } from "@/lib/nostrRumor";
 import type { ReactNode } from "react";
 
 import { KIND_CALENDAR_DATE, KIND_CALENDAR_TIME } from "@/lib/calendar";
@@ -79,12 +83,58 @@ import { KIND_POLL } from "@/lib/polls";
 import { AvatarInitial } from "@/components/AvatarInitial";
 import { MotionImg } from "@/components/ui/MotionImg";
 
-/** A `nostr:npub…`/`nostr:nprofile…`/bare-bech32 mention inside preview text. */
-const REPLY_MENTION_RE =
-  /(?:nostr:)?(npub1|nprofile1)([023456789acdefghjklmnpqrstuvwxyz]+)/gi;
+/** A `nostr:`/bare-bech32 mention or event reference inside preview text. */
+const REPLY_NOSTR_RE =
+  /(?:nostr:)?(npub1|nprofile1|note1|nevent1|naddr1)([023456789acdefghjklmnpqrstuvwxyz]+)/gi;
+
+const quotedPost = defineMessage({ id: "chatMessage.quotedPost", defaultMessage: "Quoted post" });
 
 function ReplyMentionName({ pubkey }: { pubkey: string }) {
   return <span className="text-primary">@<DisplayName pubkey={pubkey} /></span>;
+}
+
+function ReplyQuoteLabel({ kind }: { kind?: number }) {
+  const label = kind === undefined ? undefined : embedKindLabel(kind);
+  return (
+    <span className="italic">
+      <Quote aria-hidden className="inline size-3 mr-1 align-[-0.1em]" />
+      <FormattedMessage {...(label ?? quotedPost)} />
+    </span>
+  );
+}
+
+/** One line of what a tag-preview kind would show, else its text; none for an empty one. */
+function quotedText(event: NostrRumor): string | undefined {
+  const tag = (name: string) => event.tags.find(([n]) => n === name)?.[1]?.trim();
+  const title = tag("title") || tag("name") || tag("subject");
+  if (embedKindLabel(event.kind)) return title || undefined;
+  return title || event.content.trim() || undefined;
+}
+
+/**
+ * A quoted note inside a reply preview, as its own text. Same query as the
+ * message's {@link EmbeddedNote} card, so a visible parent costs no fetch.
+ */
+function ReplyQuotedNote({ eventId, relays, author, kind, fallbackAuthor }: {
+  eventId: string;
+  relays?: string[];
+  author?: string;
+  kind?: number;
+  fallbackAuthor: string;
+}) {
+  const hints = useMemo(() => publicRelayHints(relays), [relays]);
+  const { data: event } = useEvent(eventId, hints, author, { fallbackAuthor, discover: true });
+  const banned = useIsUserBanned()(event?.pubkey ?? "");
+  // The quoted author's emoji images, like their card's, wait on their own hold.
+  const held = useMediaHeld(event?.pubkey);
+  const text = event && !banned ? quotedText(event) : undefined;
+  if (!event || banned || !text) return <ReplyQuoteLabel kind={event?.kind ?? kind} />;
+  return (
+    <span>
+      <Quote aria-hidden className="inline size-3 mr-1 align-[-0.1em]" />
+      <ReplyPreview content={text} tags={held ? undefined : event.tags} />
+    </span>
+  );
 }
 
 function InvokedBotName({ pubkey }: { pubkey: string }) {
@@ -94,8 +144,15 @@ function InvokedBotName({ pubkey }: { pubkey: string }) {
 /**
  * One-line reply preview: mentions as `@name`, URLs as 📎 (dropped with
  * `hideMediaPlaceholder` when a thumbnail shows), NIP-30 emoji when `tags` given.
+ * A quoted note shows its own text when `quotesBy` (the content's author) is
+ * given — omit it where that author's embeds are held — else a label naming it.
  */
-export function ReplyPreview({ content, hideMediaPlaceholder = false, tags }: { content: string; hideMediaPlaceholder?: boolean; tags?: string[][] }) {
+export function ReplyPreview({ content, hideMediaPlaceholder = false, tags, quotesBy }: {
+  content: string;
+  hideMediaPlaceholder?: boolean;
+  tags?: string[][];
+  quotesBy?: string;
+}) {
   const placeholder = hideMediaPlaceholder ? "" : "📎";
   const withoutUrls = content.replace(/https?:\/\/\S+/g, placeholder);
   const emojiMap = tags ? buildEmojiMap(tags) : undefined;
@@ -107,7 +164,7 @@ export function ReplyPreview({ content, hideMediaPlaceholder = false, tags }: { 
   let last = 0;
   let key = 0;
   let hasText = false;
-  for (const m of withoutUrls.matchAll(REPLY_MENTION_RE)) {
+  for (const m of withoutUrls.matchAll(REPLY_NOSTR_RE)) {
     const start = m.index ?? 0;
     if (start > last) {
       const text = withoutUrls.slice(last, start);
@@ -120,6 +177,16 @@ export function ReplyPreview({ content, hideMediaPlaceholder = false, tags }: { 
       if (pubkey) {
         hasText = true;
         parts.push(<ReplyMentionName key={key++} pubkey={pubkey} />);
+      } else if (decoded.type === "note" || decoded.type === "nevent") {
+        hasText = true;
+        const ref: nip19.EventPointer = decoded.type === "note" ? { id: decoded.data } : decoded.data;
+        parts.push(quotesBy
+          ? <ReplyQuotedNote key={key++} eventId={ref.id} relays={ref.relays} author={ref.author} kind={ref.kind} fallbackAuthor={quotesBy} />
+          : <ReplyQuoteLabel key={key++} kind={ref.kind} />);
+      } else if (decoded.type === "naddr") {
+        // Not fetched: an naddr can name a group or an invite, which the body cards specially.
+        hasText = true;
+        parts.push(<ReplyQuoteLabel key={key++} kind={decoded.data.kind} />);
       } else {
         parts.push(<span key={key++}>{m[0]}</span>);
         hasText = true;
