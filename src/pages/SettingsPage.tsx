@@ -29,6 +29,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useLocation } from "react-router-dom";
 
 import { ChatSearchBar } from "@/components/chat/ChatSearchBar";
+import { DisplayName } from "@/components/DisplayName";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { ProfileSettings } from "@/components/ProfileSettings";
 import { AboutSettings, SupportSettings } from "@/components/settings/AboutSettings";
@@ -350,7 +351,7 @@ function ProfileCard({ compact, active, onOpen }: { compact?: boolean; active?: 
       <span className="min-w-0 flex-1 space-y-0.5">
         <span className={cn("block truncate font-semibold leading-tight", compact ? "text-sm" : "text-base", !name && "text-muted-foreground")}>
           {user
-            ? (name ?? (author.isLoading
+            ? (name ? <DisplayName pubkey={user.pubkey} name={name} tags={author.data?.event?.tags ?? []} /> : (author.isLoading
               ? "\u00a0"
               : intl.formatMessage({ id: "settingsPage.profileCard.setName", defaultMessage: "Set your name" })))
             : intl.formatMessage({ id: "settingsPage.profileCard.logIn", defaultMessage: "Log in or sign up" })}

@@ -2,6 +2,7 @@ import { Globe, List, Plus, RotateCcw, Users, X } from "lucide-react";
 import { useState } from "react";
 
 import { AvatarInitial } from "@/components/AvatarInitial";
+import { DisplayName } from "@/components/DisplayName";
 import { InfoTip, SettingsRow } from "@/components/settings/SettingsSection";
 import {
   AlertDialog,
@@ -42,7 +43,13 @@ import { cn } from "@/lib/utils";
 function OwnerName({ pubkey }: { pubkey: string }) {
   const { data } = useAuthor(pubkey);
   const name = data?.metadata?.name || data?.metadata?.display_name;
-  if (name) return <span className="font-medium text-foreground">{name}</span>;
+  if (name) {
+    return (
+      <span className="font-medium text-foreground">
+        <DisplayName pubkey={pubkey} name={name} tags={data?.event?.tags ?? []} />
+      </span>
+    );
+  }
   const npub = tryNpubEncode(pubkey);
   return <span className="font-mono">{npub ? `${npub.slice(0, 12)}…` : pubkey.slice(0, 8)}</span>;
 }
