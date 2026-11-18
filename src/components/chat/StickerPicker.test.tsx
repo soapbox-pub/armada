@@ -54,6 +54,15 @@ describe("StickerPicker", () => {
     }
   });
 
+  it("pins each pack's heading to the top while its stickers scroll under it", () => {
+    render(<StickerPicker customEmojis={palette} onSelect={vi.fn()} autoFocus={false} />);
+
+    for (const name of ["Custom", "Cats", "Dogs"]) {
+      const group = screen.getByRole("group", { name });
+      expect(within(group).getByText(name).className).toContain("sticky top-0");
+    }
+  });
+
   it("sends the sticker that was clicked", () => {
     const onSelect = vi.fn();
     render(<StickerPicker customEmojis={palette} onSelect={onSelect} autoFocus={false} />);
