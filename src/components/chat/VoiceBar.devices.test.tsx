@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InCallView } from "./VoiceBar";
@@ -185,6 +185,75 @@ describe("call device menu", () => {
     expect(await screen.findByText("USB Mic")).toBeTruthy();
     expect(checkOf("Default")).toContain("opacity-100");
     expect(checkOf("USB Mic")).toContain("opacity-0");
+  });
+
+  describe("on touch", () => {
+    beforeEach(() => {
+      vi.stubGlobal("matchMedia", (query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }));
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    function openSheet() {
+      render(
+        <TooltipProvider>
+          <InCallView label="#general" compact />
+        </TooltipProvider>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Audio settings" }));
+      return screen.getByRole("dialog", { name: "Audio settings" });
+    }
+
+    it("opens a sheet whose pickers are pages showing the current choice", async () => {
+      picker.devices = [
+        { deviceId: "default", kind: "audioinput", label: "Default" },
+        { deviceId: "mic-1", kind: "audioinput", label: "USB Mic" },
+      ] as MediaDeviceInfo[];
+      const sheet = openSheet();
+      expect(screen.queryByRole("menu")).toBeNull();
+      const row = await within(sheet).findByRole("button", { name: /Microphone/ });
+      expect(row).toHaveTextContent("Default");
+      fireEvent.click(row);
+      fireEvent.click(within(sheet).getByRole("radio", { name: "USB Mic" }));
+      expect(localStorage.getItem("armada:voice:micDeviceId")).toBe("mic-1");
+      expect(screen.getByRole("dialog", { name: "Audio settings" })).toBeInTheDocument();
+    });
+
+    it("toggles processing in place, leaving the sheet open", () => {
+      const sheet = openSheet();
+      const toggle = within(sheet).getByRole("switch", { name: "Echo cancellation" });
+      const before = toggle.getAttribute("aria-checked");
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute("aria-checked")).not.toBe(before);
+      expect(screen.getByRole("dialog", { name: "Audio settings" })).toBeInTheDocument();
+    });
+
+    it("pages the native output routes on Android", async () => {
+      platform.name = "android";
+      nativeCall.available = true;
+      nativeCall.routes = {
+        supported: true,
+        routes: [
+          { id: 3, type: "speaker", name: "" },
+          { id: 2, type: "earpiece", name: "" },
+        ],
+        active: 3,
+      };
+      const sheet = openSheet();
+      const row = await within(sheet).findByRole("button", { name: /Output/ });
+      expect(row).toHaveTextContent("Speaker");
+      fireEvent.click(row);
+      fireEvent.click(within(sheet).getByRole("radio", { name: "Phone earpiece" }));
+      await waitFor(() => expect(nativeCall.selectRoute).toHaveBeenCalledWith({ id: 2 }));
+    });
   });
 
   it("only remembers a mic pick, leaving the live switch to VoiceDeviceSync", async () => {

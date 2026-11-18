@@ -7,6 +7,7 @@ import {
   MenuSheet,
   MenuSheetCheckboxItem,
   MenuSheetItem,
+  MenuSheetSwitchItem,
   MenuSheetLabel,
   MenuSheetRadioGroup,
   MenuSheetRadioItem,
@@ -16,6 +17,7 @@ import {
   MenuSheetSubTrigger,
   type MenuSheetIdentity,
 } from "@/components/ui/menu-sheet"
+import { Switch } from "@/components/ui/switch"
 import { useBackDismiss } from "@/hooks/useAndroidBack"
 import { useIsTouch } from "@/hooks/useIsMobile"
 import { MenuSheetContext, useMenuSheet } from "@/hooks/useMenuSheet"
@@ -307,6 +309,40 @@ const DropdownMenuCheckboxItem = React.forwardRef<
 DropdownMenuCheckboxItem.displayName =
   DropdownMenuPrimitive.CheckboxItem.displayName
 
+/** A setting toggled in place. Not a Radix item, which would close the menu on the toggle. */
+const DropdownMenuSwitchItem = ({
+  className,
+  disabled,
+  checked,
+  onCheckedChange,
+  children,
+}: {
+  className?: string
+  disabled?: boolean
+  checked?: boolean
+  onCheckedChange?: (checked: boolean) => void
+  children?: React.ReactNode
+}) => {
+  const sheet = useMenuSheet()
+  if (sheet) {
+    return (
+      <MenuSheetSwitchItem className={className} disabled={disabled} checked={checked} onCheckedChange={onCheckedChange}>
+        {children}
+      </MenuSheetSwitchItem>
+    )
+  }
+  return (
+    <label
+      className={cn("flex items-center justify-between gap-3 px-2 py-1.5 touch:py-3 text-sm cursor-pointer", className)}
+      onPointerDown={(e) => e.preventDefault()}
+    >
+      <span className="flex items-center gap-2">{children}</span>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} />
+    </label>
+  )
+}
+DropdownMenuSwitchItem.displayName = "DropdownMenuSwitchItem"
+
 const DropdownMenuRadioItem = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
@@ -398,6 +434,7 @@ export {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
+  DropdownMenuSwitchItem,
   DropdownMenuRadioItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,

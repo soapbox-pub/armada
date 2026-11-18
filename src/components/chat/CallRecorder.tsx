@@ -7,11 +7,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DisplayName } from "@/components/DisplayName";
 import { Button } from "@/components/ui/button";
 import { ChromeDialogContent, Dialog, DialogDescription } from "@/components/ui/dialog";
-import { DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSwitchItem } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { ToastAction } from "@/components/ui/toast";
 import {
   CallRecorderContext,
@@ -569,16 +568,10 @@ export function RecordingMenuItems() {
           )}
         </DropdownMenuItem>
       )}
-      <label
-        className="flex items-center justify-between gap-3 px-2 py-1.5 touch:py-3 text-sm cursor-pointer"
-        onPointerDown={(e) => e.preventDefault()}
-      >
-        <span className="flex items-center gap-2">
-          <Ban className="size-4" />
-          <FormattedMessage {...msg.dontRecordMe} />
-        </span>
-        <Switch checked={signals.noRecord} onCheckedChange={signals.setNoRecord} />
-      </label>
+      <DropdownMenuSwitchItem checked={signals.noRecord} onCheckedChange={signals.setNoRecord}>
+        <Ban className="size-4" />
+        <FormattedMessage {...msg.dontRecordMe} />
+      </DropdownMenuSwitchItem>
     </>
   );
 }

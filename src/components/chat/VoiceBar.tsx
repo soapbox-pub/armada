@@ -22,16 +22,24 @@ import "@livekit/components-styles";
 
 import { DisplayName } from "@/components/DisplayName";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Switch } from "@/components/ui/switch";
 import { useCallback, useContext, useEffect, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuSwitchItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { MenuSheetTile } from "@/components/ui/menu-sheet";
+import { useIsTouch } from "@/hooks/useIsMobile";
+import { useMenuSheet } from "@/hooks/useMenuSheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CameraButton, LeaveButton, MicButton, ScreenShareButton } from "@/components/chat/CallControls";
 import { RecordingMenuItems } from "@/components/chat/CallRecorder";
@@ -41,7 +49,7 @@ import { useAuthor } from "@/hooks/useAuthor";
 import { useCall } from "@/hooks/useCall";
 import { useCallRoutes } from "@/hooks/useCallRoutes";
 import { toast } from "@/hooks/useToast";
-import { routeLabel } from "@/lib/callRoutes";
+import { routeLabel, type CallRoute } from "@/lib/callRoutes";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { useScreenShareVolume, useUserVolume } from "@/hooks/useUserVolume";
 import { useVoiceIdentity } from "@/contexts/VoiceIdentityContext";
@@ -98,6 +106,7 @@ function DeviceSelectGroup({
   icon: React.ReactNode;
 }) {
   const intl = useIntl();
+  const sheet = useMenuSheet() !== null;
   const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({
     kind,
     requestPermissions: useNeedsAudioLabels(kind),
@@ -105,35 +114,53 @@ function DeviceSelectGroup({
 
   if (devices.length === 0) return null;
 
+  // LiveKit records the system default as "" when, under webAudioMix, it
+  // can't map "default" to a concrete device.
+  const activeId = activeDeviceId || "default";
+  const nameOf = (device: MediaDeviceInfo, index: number) => audioDeviceLabel(
+    device,
+    intl.formatMessage({ id: "voiceBar.deviceNumbered", defaultMessage: "{label} {number}" }, { label, number: index + 1 }),
+  );
+  const choose = (deviceId: string) => {
+    // VoiceDeviceSync (PersistentVoiceRoom.tsx) switches the room to a
+    // remembered mic or speaker; switching here too would race it.
+    if (kind === "videoinput") void setActiveMediaDevice(deviceId);
+    rememberVoiceDevice(kind, deviceId);
+  };
+
+  if (sheet) {
+    const index = devices.findIndex((d) => d.deviceId === activeId);
+    return (
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger value={index >= 0 ? nameOf(devices[index], index) : undefined}>
+          {icon}
+          {label}
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent>
+          <DropdownMenuRadioGroup value={activeId} onValueChange={choose}>
+            {devices.map((device, i) => (
+              <DropdownMenuRadioItem key={device.deviceId} value={device.deviceId}>
+                {nameOf(device, i)}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+    );
+  }
+
   return (
     <>
       <DropdownMenuLabel className="flex items-center gap-2 text-xs">
         {icon}
         {label}
       </DropdownMenuLabel>
-      {devices.map((device, index) => {
-        // LiveKit records the system default as "" when, under webAudioMix, it
-        // can't map "default" to a concrete device.
-        const active = device.deviceId === (activeDeviceId || "default");
-        return (
-          <DropdownMenuItem
-            key={device.deviceId}
-            onSelect={() => {
-              // VoiceDeviceSync (PersistentVoiceRoom.tsx) switches the room to a
-              // remembered mic or speaker; switching here too would race it.
-              if (kind === "videoinput") void setActiveMediaDevice(device.deviceId);
-              rememberVoiceDevice(kind, device.deviceId);
-            }}
-            className="gap-2"
-          >
-            <Check className={cn("size-3.5 shrink-0", active ? "opacity-100" : "opacity-0")} />
-            <span className="truncate">{audioDeviceLabel(
-              device,
-              intl.formatMessage({ id: "voiceBar.deviceNumbered", defaultMessage: "{label} {number}" }, { label, number: index + 1 }),
-            )}</span>
-          </DropdownMenuItem>
-        );
-      })}
+      {devices.map((device, index) => (
+        <DropdownMenuItem key={device.deviceId} onSelect={() => choose(device.deviceId)} className="gap-2">
+          <Check className={cn("size-3.5 shrink-0", device.deviceId === activeId ? "opacity-100" : "opacity-0")} />
+          <span className="truncate">{nameOf(device, index)}</span>
+        </DropdownMenuItem>
+      ))}
     </>
   );
 }
@@ -144,8 +171,51 @@ function DeviceSelectGroup({
  * phone and never offers the earpiece.
  */
 function CallRouteGroup() {
+  const sheet = useMenuSheet() !== null;
   const { supported, routes, active, select } = useCallRoutes();
   if (!supported || routes.length === 0) return null;
+
+  const choose = (route: CallRoute) => {
+    void select(route.id).then((ok) => {
+      if (!ok) {
+        toast({
+          title: t({ id: "voiceBar.switchOutputFailed", defaultMessage: "Couldn't switch output" }),
+          description: t(
+            { id: "voiceBar.switchOutputFailedDescription", defaultMessage: "{route} is no longer available." },
+            { route: routeLabel(route) },
+          ),
+          variant: "destructive",
+        });
+      }
+    });
+  };
+
+  if (sheet) {
+    const current = routes.find((r) => r.id === active);
+    return (
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger value={current ? routeLabel(current) : undefined}>
+          <Volume2 className="size-3.5" />
+          <FormattedMessage id="voiceBar.output" defaultMessage="Output" />
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent>
+          <DropdownMenuRadioGroup
+            value={active == null ? undefined : String(active)}
+            onValueChange={(id) => {
+              const route = routes.find((r) => String(r.id) === id);
+              if (route) choose(route);
+            }}
+          >
+            {routes.map((route) => (
+              <DropdownMenuRadioItem key={route.id} value={String(route.id)}>
+                {routeLabel(route)}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+    );
+  }
 
   return (
     <>
@@ -154,24 +224,7 @@ function CallRouteGroup() {
         <FormattedMessage id="voiceBar.output" defaultMessage="Output" />
       </DropdownMenuLabel>
       {routes.map((route) => (
-        <DropdownMenuItem
-          key={route.id}
-          onSelect={() => {
-            void select(route.id).then((ok) => {
-              if (!ok) {
-                toast({
-                  title: t({ id: "voiceBar.switchOutputFailed", defaultMessage: "Couldn't switch output" }),
-                  description: t(
-                    { id: "voiceBar.switchOutputFailedDescription", defaultMessage: "{route} is no longer available." },
-                    { route: routeLabel(route) },
-                  ),
-                  variant: "destructive",
-                });
-              }
-            });
-          }}
-          className="gap-2"
-        >
+        <DropdownMenuItem key={route.id} onSelect={() => choose(route)} className="gap-2">
           <Check className={cn("size-3.5 shrink-0", route.id === active ? "opacity-100" : "opacity-0")} />
           <span className="truncate">{routeLabel(route)}</span>
         </DropdownMenuItem>
@@ -225,14 +278,18 @@ export function DeviceMenu({ className }: { className?: string }) {
     { key: "autoGainControl", label: intl.formatMessage({ id: "voiceBar.processing.autoGainControl", defaultMessage: "Auto gain control" }) },
   ];
 
+  const title = intl.formatMessage({ id: "voiceBar.audioSettings", defaultMessage: "Audio settings" });
+  // On the touch sheet each picker is one row opening a page, so no rule divides them.
+  const rule = useIsTouch() ? null : <DropdownMenuSeparator />;
+
   return (
-    <DropdownMenu>
+    <DropdownMenu touchSheet>
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              aria-label={intl.formatMessage({ id: "voiceBar.audioSettings", defaultMessage: "Audio settings" })}
+              aria-label={title}
               className={cn(
                 "inline-flex items-center justify-center rounded-md size-8 touch:size-11 shrink-0 transition-colors",
                 "bg-foreground/5 text-muted-foreground hover:bg-foreground/10",
@@ -243,16 +300,20 @@ export function DeviceMenu({ className }: { className?: string }) {
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent>{intl.formatMessage({ id: "voiceBar.audioSettings", defaultMessage: "Audio settings" })}</TooltipContent>
+        <TooltipContent>{title}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="max-w-72 max-h-[min(70vh,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto">
+      <DropdownMenuContent
+        align="end"
+        className="max-w-72 max-h-[min(70vh,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto"
+        sheetIdentity={{ lead: <MenuSheetTile><Settings2 /></MenuSheetTile>, title }}
+      >
         {platformRoutesCallAudio() && <CallRouteGroup />}
         {!platformRoutesCallAudio() && (
           <>
             <DeviceSelectGroup kind="audioinput" label={intl.formatMessage({ id: "voiceBar.microphone", defaultMessage: "Microphone" })} icon={<Mic className="size-3.5" />} />
             {supportsSpeakerSelection() && (
               <>
-                <DropdownMenuSeparator />
+                {rule}
                 <DeviceSelectGroup
                   kind="audiooutput"
                   label={intl.formatMessage({ id: "voiceBar.speaker", defaultMessage: "Speaker" })}
@@ -260,7 +321,7 @@ export function DeviceMenu({ className }: { className?: string }) {
                 />
               </>
             )}
-            <DropdownMenuSeparator />
+            {rule}
           </>
         )}
         <DeviceSelectGroup kind="videoinput" label={intl.formatMessage({ id: "voiceBar.camera", defaultMessage: "Camera" })} icon={<Video className="size-3.5" />} />
@@ -269,17 +330,13 @@ export function DeviceMenu({ className }: { className?: string }) {
           <FormattedMessage id="voiceBar.processing" defaultMessage="Processing" />
         </DropdownMenuLabel>
         {toggles.map(({ key, label }) => (
-          <label
+          <DropdownMenuSwitchItem
             key={key}
-            className="flex items-center justify-between gap-3 px-2 py-1.5 touch:py-3 text-sm cursor-pointer"
-            onPointerDown={(e) => e.preventDefault()}
+            checked={processing[key]}
+            onCheckedChange={(checked) => update({ [key]: checked })}
           >
-            <span>{label}</span>
-            <Switch
-              checked={processing[key]}
-              onCheckedChange={(checked) => update({ [key]: checked })}
-            />
-          </label>
+            {label}
+          </DropdownMenuSwitchItem>
         ))}
         <RecordingMenuItems />
         <ParticipantVolumeGroup />
@@ -291,6 +348,7 @@ export function DeviceMenu({ className }: { className?: string }) {
 /** Remote participant's mic and screen-share volume. Local participant is skipped (not played back locally). */
 function ParticipantVolumeRow({ participant }: { participant: Participant }) {
   const intl = useIntl();
+  const inSheet = useMenuSheet() !== null;
   const resolveIdentity = useVoiceIdentity();
   const { pubkey, verified } = resolveIdentity(participant.identity);
   const author = useAuthor(verified ? pubkey : undefined);
@@ -304,7 +362,8 @@ function ParticipantVolumeRow({ participant }: { participant: Participant }) {
   );
 
   return (
-    <div className="px-2 py-1.5" onPointerDown={(e) => e.stopPropagation()}>
+    // No drawer drag here, or the sheet would swallow a slider drag.
+    <div data-vaul-no-drag className={inSheet ? "px-3 py-2" : "px-2 py-1.5"} onPointerDown={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-2 mb-1.5">
         <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
           <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />

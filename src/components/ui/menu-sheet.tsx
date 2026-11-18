@@ -3,6 +3,7 @@ import { createPortal } from "react-dom"
 import { Check, ChevronLeft, ChevronRight } from "lucide-react"
 
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer"
+import { Switch } from "@/components/ui/switch"
 import { useOverlayBack } from "@/hooks/useAndroidBack"
 import { MenuSheetContext, trackOpenMenuSheet, useMenuSheet, type MenuSheetApi } from "@/hooks/useMenuSheet"
 import { common, FormattedMessage, useIntl } from "@/i18n"
@@ -287,6 +288,25 @@ function MenuSheetCheckboxItem({
   )
 }
 
+/** A setting toggled in place, which leaves the sheet open. */
+function MenuSheetSwitchItem({
+  className,
+  disabled,
+  checked,
+  onCheckedChange,
+  children,
+}: Omit<ItemProps, "onSelect"> & { checked?: boolean; onCheckedChange?: (checked: boolean) => void }) {
+  return (
+    <Row
+      as={<label />}
+      className={className}
+      trailing={<Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} />}
+    >
+      {children}
+    </Row>
+  )
+}
+
 const RadioContext = React.createContext<{ value?: string; onValueChange?: (value: string) => void }>({})
 
 function MenuSheetRadioGroup({
@@ -429,6 +449,7 @@ export {
   MenuSheetTile,
   MenuSheetItem,
   MenuSheetCheckboxItem,
+  MenuSheetSwitchItem,
   MenuSheetRadioGroup,
   MenuSheetRadioItem,
   MenuSheetSub,
