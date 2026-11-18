@@ -247,7 +247,10 @@ object ServiceStore {
 
     /** Whether a DM that arrived at [at] keeps that as its time — [Dm17.arrivalCounts] for Java. */
     @JvmStatic
-    fun dm17ArrivalCounts(kind: Int, createdAt: Long, at: Long): Boolean = Dm17.arrivalCounts(kind, createdAt, at)
+    fun dm17ArrivalCounts(rumor: JSONObject, at: Long): Boolean {
+        val parsed = Rumor.parse(rumor) ?: return false
+        return Dm17.arrivalCounts(parsed.kind, parsed.tags, parsed.createdAt, at)
+    }
 
     /** The participants a conversation key names — [Dm17.convPeers] for Java. */
     @JvmStatic

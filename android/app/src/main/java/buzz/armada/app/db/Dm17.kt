@@ -254,18 +254,24 @@ internal object Dm17 {
     /** A gap within this is latency, not a clock. The port of `ARRIVAL_SKEW_SECS`. */
     const val ARRIVAL_SKEW_SECS = 2L
 
-    /** Whether a message that arrived at [at] keeps that as its time. The port of `arrivalCounts`. */
-    fun arrivalCounts(kind: Int, createdAt: Long, at: Long): Boolean =
-        kind in MESSAGE_KINDS && kotlin.math.abs(at - createdAt) > ARRIVAL_SKEW_SECS
+    /**
+     * Whether a message that arrived at [at] keeps that as its time. The port of
+     * `arrivalCounts`: an edit's replacement is dated at the original on purpose.
+     */
+    fun arrivalCounts(kind: Int, tags: List<List<String?>>, createdAt: Long, at: Long): Boolean =
+        kind in MESSAGE_KINDS && kotlin.math.abs(at - createdAt) > ARRIVAL_SKEW_SECS &&
+            tags.none { it.firstOrNull() == "edited" }
 
     fun arrivalKey(self: String, rumorId: String): String = "$ARRIVAL_PREFIX$self:$rumorId"
 
     /**
      * The fact recorded for [rumor] arriving at [at], or null where none is:
-     * `{ at, sent, conv, in }`, the shape `Dm17Arrival` reads.
+     * `{ at, sent, conv, in }`, the shape `Dm17Arrival` reads. Never for the
+     * viewer's own message, the port of `withArrival`: its gap is the send's latency.
      */
     fun arrivalFact(self: String, rumor: Rumor, at: Long): String? {
-        if (!arrivalCounts(rumor.kind, rumor.createdAt, at)) return null
+        if (rumor.pubkey == self) return null
+        if (!arrivalCounts(rumor.kind, rumor.tags, rumor.createdAt, at)) return null
         val peers = peersOf(rumor, self) ?: return null
         return org.json.JSONObject()
             .put("at", at)

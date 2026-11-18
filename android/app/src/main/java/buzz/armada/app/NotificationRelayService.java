@@ -4600,7 +4600,7 @@ public class NotificationRelayService extends Service {
                                 rumorKind == 15 ? str(R.string.notif_sent_file) : messagePreview(rumor);
                         final long rts = rumor.optLong("created_at", 0);
                         // Its arrival where the sender's clock was off, as the app orders and reads it.
-                        final long fTs = arrivedAtSec != null && ServiceStore.dm17ArrivalCounts(rumorKind, rts, arrivedAtSec)
+                        final long fTs = arrivedAtSec != null && ServiceStore.dm17ArrivalCounts(rumor, arrivedAtSec)
                                 ? arrivedAtSec * 1000L
                                 : (rts > 0 ? rts * 1000L : System.currentTimeMillis());
                         resolveAuthor(peer, relayUrl, profile -> {

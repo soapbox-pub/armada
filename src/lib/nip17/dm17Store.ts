@@ -958,14 +958,17 @@ export interface Dm17Arrival {
 
 const arrivalKey = (self: string, rumorId: string) => `${DM_ARRIVAL_PREFIX}${self}:${rumorId}`;
 
-/** Whether a message that arrived at `at` keeps that as its time. */
-export function arrivalCounts(kind: number, createdAt: number, at: number): boolean {
-  return DM_MESSAGE_KINDS.includes(kind) && Math.abs(at - createdAt) > ARRIVAL_SKEW_SECS;
+/**
+ * Whether a message that arrived at `at` keeps that as its time. An edit's
+ * replacement is dated at the original on purpose (`buildDmEditRumors`), so it keeps its place.
+ */
+export function arrivalCounts(kind: number, tags: readonly string[][], createdAt: number, at: number): boolean {
+  return DM_MESSAGE_KINDS.includes(kind) && Math.abs(at - createdAt) > ARRIVAL_SKEW_SECS && !tags.some(([name]) => name === "edited");
 }
 
 /** `opened`, stamped with when it arrived where that counts (see {@link arrivalCounts}). */
 export function withArrival(opened: OpenedDm, at: number | undefined): OpenedDm {
-  if (at === undefined || opened.arrivedAt !== undefined || !arrivalCounts(opened.kind, opened.createdAt, at)) return opened;
+  if (at === undefined || opened.arrivedAt !== undefined || !arrivalCounts(opened.kind, opened.tags, opened.createdAt, at)) return opened;
   return { ...opened, arrivedAt: at };
 }
 
@@ -1035,8 +1038,5 @@ export async function withDm17Arrivals(self: string, rows: OpenedDm[]): Promise<
   if (rows.length === 0) return rows;
   const known = await readDm17Arrivals(self);
   if (known.size === 0) return rows;
-  return rows.map((row) => {
-    const fact = known.get(row.rumorId);
-    return fact && row.arrivedAt === undefined ? { ...row, arrivedAt: fact.at } : row;
-  });
+  return rows.map((row) => withArrival(row, known.get(row.rumorId)?.at));
 }

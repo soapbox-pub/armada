@@ -991,6 +991,12 @@ describe("a message from a sender whose clock is off", () => {
     expect(withArrival({ ...m, kind: KIND_DM_REACTION }, m.createdAt + 60).arrivedAt).toBeUndefined();
   });
 
+  it("is not an edit, whose replacement keeps the original's date", () => {
+    const m = opened({ author: alice, peer: alice });
+    const edited = { ...m, tags: [...m.tags, ["edited", String(m.createdAt + 600)]] };
+    expect(withArrival(edited, m.createdAt + 600).arrivedAt).toBeUndefined();
+  });
+
   it("is read back after the message it answers, at its arrival", async () => {
     const { viewer, friend, reply, at } = await slowReply();
     forgetDm17Arrivals();

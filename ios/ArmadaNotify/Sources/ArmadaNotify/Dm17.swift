@@ -40,9 +40,11 @@ enum Dm17 {
     /// A gap within this is latency, not a clock. The port of `ARRIVAL_SKEW_SECS`.
     static let arrivalSkewSecs = 2
 
-    /// Whether a message that arrived at `at` keeps that as its time. The port of `arrivalCounts`.
-    static func arrivalCounts(kind: Int, createdAt: Int, at: Int) -> Bool {
+    /// Whether a message that arrived at `at` keeps that as its time. The port of
+    /// `arrivalCounts`: an edit's replacement is dated at the original on purpose.
+    static func arrivalCounts(kind: Int, tags: [[String]], createdAt: Int, at: Int) -> Bool {
         (kind == kindChat || kind == kindFile) && abs(at - createdAt) > arrivalSkewSecs
+            && !tags.contains { $0.first == "edited" }
     }
 
     static func arrivalKey(self selfPubkey: String, rumorId: String) -> String {
@@ -50,9 +52,10 @@ enum Dm17 {
     }
 
     /// The fact recorded for `opened` arriving at `at`, or nil where none is:
-    /// `{ at, sent, conv, in }`, the shape `Dm17Arrival` reads.
+    /// `{ at, sent, conv, in }`, the shape `Dm17Arrival` reads. Never for the
+    /// viewer's own message, the port of `withArrival`: its gap is the send's latency.
     static func arrivalFact(_ opened: OpenedDm, self selfPubkey: String, at: Int) -> String? {
-        guard arrivalCounts(kind: opened.kind, createdAt: opened.createdAt, at: at), !opened.peers.isEmpty else { return nil }
+        guard opened.author != selfPubkey, arrivalCounts(kind: opened.kind, tags: opened.tags, createdAt: opened.createdAt, at: at), !opened.peers.isEmpty else { return nil }
         let fact: [String: Any] = [
             "at": at,
             "sent": opened.createdAt,

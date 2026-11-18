@@ -322,8 +322,13 @@ class Dm17Test {
     fun `records no arrival within the skew, or for anything but a message`() {
         assertNull(Dm17.arrivalFact(self, rumor(kind = 14, pubkey = alice), now - 8))
         assertNull(Dm17.arrivalFact(self, rumor(kind = 7, pubkey = alice), now))
-        assertFalse(Dm17.arrivalCounts(14, now, now + Dm17.ARRIVAL_SKEW_SECS))
-        assertTrue(Dm17.arrivalCounts(15, now, now - Dm17.ARRIVAL_SKEW_SECS - 1))
+        assertFalse(Dm17.arrivalCounts(14, emptyList(), now, now + Dm17.ARRIVAL_SKEW_SECS))
+        assertTrue(Dm17.arrivalCounts(15, emptyList(), now, now - Dm17.ARRIVAL_SKEW_SECS - 1))
+    }
+
+    @Test
+    fun `records no arrival for an edit, whose replacement keeps the original's date`() {
+        assertNull(Dm17.arrivalFact(self, rumor(kind = 14, pubkey = alice, tags = listOf(listOf("edited", "$now"))), now))
     }
 
     private fun rumor(

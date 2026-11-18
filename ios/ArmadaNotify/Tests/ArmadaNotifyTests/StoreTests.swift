@@ -86,6 +86,12 @@ final class StoreTests: XCTestCase {
         XCTAssertNil(store.kvGet("dm17at:\(self_):\(String(repeating: "1", count: 64))"))
     }
 
+    func testRecordsNoArrivalForAnEdit() throws {
+        // An edit's replacement is dated at the original on purpose (buildDmEditRumors).
+        try store.writeDm(dm(tags: [["edited", String(now + 120)]]), self: self_, now: now, arrivedAt: now + 120)
+        XCTAssertNil(store.kvGet("dm17at:\(self_):\(String(repeating: "1", count: 64))"))
+    }
+
     func testStoresTheRumorAndNothingBesideIt() throws {
         // Its tags are the bytes its id commits to, so a provenance tag written
         // in here would make the row something the sender never signed — and
