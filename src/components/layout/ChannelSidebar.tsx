@@ -13,7 +13,7 @@ import { LoginArea } from "@/components/auth/LoginArea";
 import { VoiceParticipantList } from "@/components/VoicePresence";
 import { ChannelSidebarView } from "@/components/layout/ChannelSidebarView";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { CollapsibleContent, LazyCollapsible } from "@/components/ui/collapsible";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -346,7 +346,7 @@ export function ChannelSidebar({ relayUrl, onNavigate, className }: ChannelSideb
         </button>
       }
       titleExpansion={
-        <Collapsible open={serverMenuOpen} onOpenChange={setServerMenuOpen}>
+        <LazyCollapsible open={serverMenuOpen} onOpenChange={setServerMenuOpen}>
           <CollapsibleContent className="overflow-hidden data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up">
             <div className="mx-3 mb-2 mt-1 p-1 space-y-0.5 clip-corner-lg bg-secondary">
               {([
@@ -422,7 +422,7 @@ export function ChannelSidebar({ relayUrl, onNavigate, className }: ChannelSideb
                 ))}
             </div>
           </CollapsibleContent>
-        </Collapsible>
+        </LazyCollapsible>
       }
       banner={
         relayBanner ? (

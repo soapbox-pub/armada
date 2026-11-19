@@ -93,7 +93,7 @@ import { useChatEditing } from "@/components/chat/useChatEditing";
 import { SyncStatusIndicator } from "@/components/SyncStatusIndicator";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/UserAvatar";
-import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { CollapsibleContent, LazyCollapsible } from "@/components/ui/collapsible";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -3127,7 +3127,7 @@ function ConcordCommunityPage() {
       }
       titleExpansion={
         community ? (
-          <Collapsible open={communityMenuOpen} onOpenChange={setCommunityMenuOpen}>
+          <LazyCollapsible open={communityMenuOpen} onOpenChange={setCommunityMenuOpen}>
             <CollapsibleContent className="overflow-hidden data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up">
               <div className="mx-3 mb-2 mt-1 p-1 space-y-0.5 clip-corner-lg bg-secondary">
                 {[
@@ -3259,7 +3259,7 @@ function ConcordCommunityPage() {
                 )}
               </div>
             </CollapsibleContent>
-          </Collapsible>
+          </LazyCollapsible>
         ) : undefined
       }
       banner={folded?.metadata?.banner ? <Banner banner={folded.metadata.banner} /> : undefined}
