@@ -198,17 +198,6 @@ export interface WireSpec {
 }
 
 /**
- * Each root's parse, by event object: the spec is rebuilt whenever any input moves
- * (several times per community switch) and the roots rarely do.
- */
-const parsedTickets = new WeakMap<object, ReturnType<typeof parseGitTicket> | null>();
-function parsedTicket(root: Parameters<typeof parseGitTicket>[0]): ReturnType<typeof parseGitTicket> {
-  let ticket = parsedTickets.get(root);
-  if (ticket === undefined) parsedTickets.set(root, (ticket = parseGitTicket(root) ?? null));
-  return ticket ?? undefined;
-}
-
-/**
  * Build the per-relay subscription spec. NIP-29 gets one `#h` filter per host
  * (NIP-42 AUTH handled by the pool; Concord stream keys via stream-auth).
  * Muted channels are deliberately INCLUDED: muting is a notification concern,
@@ -387,7 +376,7 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
   const repositoryByAddress = new Map((inputs.gitRepositories ?? []).map((entry) => [entry.address, entry]));
   const rootCreatedAt = new Map((inputs.gitTicketRoots ?? []).map((root) => [root.id, root.created_at]));
   for (const root of inputs.gitTicketRoots ?? []) {
-    const ticket = parsedTicket(root);
+    const ticket = parseGitTicket(root);
     const matched = ticket ? matchGitTicketRepository(ticket, gitByRepository) : undefined;
     if (!ticket || !matched) continue;
     const address = matched.coordinate;

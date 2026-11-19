@@ -138,7 +138,19 @@ export function matchGitTicketRepository(
   return ticket.repositoryAddresses.find((address) => known.has(address.coordinate));
 }
 
+/**
+ * Each event's parse, by object: a community's activity is built once per channel
+ * over the same events, and the wire spec re-reads its roots on every rebuild.
+ */
+const parsedTickets = new WeakMap<NostrRumor, GitTicket | null>();
+
 export function parseGitTicket(event: NostrRumor): GitTicket | undefined {
+  let ticket = parsedTickets.get(event);
+  if (ticket === undefined) parsedTickets.set(event, (ticket = parseTicket(event) ?? null));
+  return ticket ?? undefined;
+}
+
+function parseTicket(event: NostrRumor): GitTicket | undefined {
   if (!isGitTicketKind(event.kind) || !isNostrId(event.pubkey)) return undefined;
 
   const branchName = firstTagValue(event, "branch-name")?.trim();
