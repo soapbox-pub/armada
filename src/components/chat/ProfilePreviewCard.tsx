@@ -1,5 +1,5 @@
 import { useCommunityNickname } from "@/contexts/CommunityNicknamesContext";
-import { AtSign, Check, Copy, Globe, MessageSquare, MoreHorizontal, Music, UserCog, UserMinus } from "lucide-react";
+import { AtSign, Check, Copy, MessageSquare, MoreHorizontal, Music, UserCog, UserMinus } from "lucide-react";
 import { Slot } from "@radix-ui/react-slot";
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
@@ -28,7 +28,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuthor } from "@/hooks/useAuthor";
-import { useNsite } from "@/hooks/useNsite";
 import { useOpenProfile } from "@/hooks/useOpenProfile";
 import { useCheckUserBan } from "@/hooks/useUserBan";
 import { usePrefetchProfile } from "@/hooks/usePrefetchProfile";
@@ -137,7 +136,6 @@ function ProfilePreviewBody({
 
   const shortNpub = npub ? `${npub.slice(0, 12)}…${npub.slice(-6)}` : "";
   const dittoProfileHref = dittoProfileUrl(pubkey);
-  const nsite = useNsite(pubkey).data;
 
   const viewProfile = () => {
     onAction?.();
@@ -348,7 +346,7 @@ function ProfilePreviewBody({
           </div>
         )}
 
-        {/* Full profile, plus ditto.pub and the person's nsite when published. */}
+        {/* Full profile, plus ditto.pub. */}
         <div className="mt-2 flex items-center gap-2">
           <Button
             size="sm"
@@ -371,20 +369,6 @@ function ProfilePreviewBody({
                 aria-label={intl.formatMessage({ id: "profilePreviewCard.viewOnDitto", defaultMessage: "View on Ditto" })}
               >
                 <DittoIcon className="size-3.5" />
-              </a>
-            </Button>
-          )}
-          {nsite && (
-            <Button size="icon" variant="secondary" className="size-8 touch:size-11 clip-corner-lg shrink-0" asChild>
-              <a
-                href={nsite.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => onAction?.()}
-                title={nsite.title ?? intl.formatMessage({ id: "profilePreviewCard.viewWebsite", defaultMessage: "View website" })}
-                aria-label={intl.formatMessage({ id: "profilePreviewCard.viewWebsite", defaultMessage: "View website" })}
-              >
-                <Globe className="size-3.5" />
               </a>
             </Button>
           )}

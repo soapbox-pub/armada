@@ -64,7 +64,6 @@ import { useFollowToggle } from "@/hooks/useFollowToggle";
 import { useMediaPolicy, useMediaSrc } from "@/hooks/useMediaPolicy";
 import { useUserModeration } from "@/hooks/useUserModeration";
 import { UserModerationMenuSection } from "@/components/chat/ModerationMenuSection";
-import { useNsite } from "@/hooks/useNsite";
 import { useOpenProfile } from "@/hooks/useOpenProfile";
 import { useProfileBadges, type ProfileBadge } from "@/hooks/useProfileBadges";
 import { useProfileTheme } from "@/hooks/useProfileTheme";
@@ -220,7 +219,6 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
   const banner = sanitizeImageSrc(metadata?.banner);
   const bannerImeta = imetaFor(banner, author.data?.imeta?.banner);
   const theme = useProfileTheme(pubkey).data?.theme;
-  const nsite = useNsite(pubkey).data;
   const badgesQuery = useProfileBadges(pubkey);
   const sharedQuery = useSharedCommunities(pubkey);
   const badges = badgesQuery.data ?? [];
@@ -464,24 +462,6 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
                     >
                       <a href={dittoHref} target="_blank" rel="noopener noreferrer" title={intl.formatMessage({ id: "profileDialog.viewOnDitto", defaultMessage: "View on Ditto" })} aria-label={intl.formatMessage({ id: "profileDialog.viewOnDitto", defaultMessage: "View on Ditto" })}>
                         <DittoIcon className="size-4" />
-                      </a>
-                    </Button>
-                  )}
-                  {nsite && (
-                    <Button
-                      size="icon"
-                      variant="secondary"
-                      className="size-9 touch:size-11 clip-corner-lg"
-                      asChild
-                    >
-                      <a
-                        href={nsite.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={nsite.title ?? intl.formatMessage({ id: "profileDialog.siteTitle", defaultMessage: "{name}'s site" }, { name: displayName })}
-                        aria-label={intl.formatMessage({ id: "profileDialog.viewWebsite", defaultMessage: "View website" })}
-                      >
-                        <Globe className="size-4" />
                       </a>
                     </Button>
                   )}

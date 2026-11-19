@@ -23,7 +23,6 @@ export const CONFIG_NAMES = [
   // "off" keeps a user's "none" from reading Discover unvetted (app-store installs never do). Unset = allowed.
   "DISCOVER_UNFILTERED",
   "NIP85_STATS_PUBKEY",
-  "NSITE_GATEWAY",
   "DEFAULT_NOISE_SUPPRESSION",
   "DEFAULT_ECHO_CANCELLATION",
   "DEFAULT_AUTO_GAIN_CONTROL",

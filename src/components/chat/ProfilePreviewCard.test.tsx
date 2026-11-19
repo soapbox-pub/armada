@@ -16,7 +16,6 @@ vi.mock("@/hooks/useAuthor", () => ({
 }));
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: undefined }) }));
 vi.mock("@/hooks/useAppContext", () => ({ useAppContext: () => ({ config: {} }) }));
-vi.mock("@/hooks/useNsite", () => ({ useNsite: () => ({ data: undefined }) }));
 vi.mock("@/hooks/useOpenProfile", () => ({ useOpenProfile: () => vi.fn() }));
 vi.mock("@/hooks/useUserBan", () => ({ useCheckUserBan: () => vi.fn() }));
 vi.mock("@/hooks/usePrefetchProfile", () => ({ usePrefetchProfile: () => vi.fn() }));

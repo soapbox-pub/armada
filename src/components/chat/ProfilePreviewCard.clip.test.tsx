@@ -27,7 +27,6 @@ vi.mock("@/hooks/useChatScope", () => ({ useChatScope: () => undefined }));
 vi.mock("@/hooks/useMuteList", () => ({
   useMuteToggle: () => ({ canMute: true, muted: false, pending: false, label: "Mute", toggle: vi.fn() }),
 }));
-vi.mock("@/hooks/useNsite", () => ({ useNsite: () => ({ data: undefined }) }));
 vi.mock("@/hooks/useOpenProfile", () => ({ useOpenProfile: () => vi.fn() }));
 vi.mock("@/hooks/useUserBan", () => ({ useCheckUserBan: () => vi.fn() }));
 vi.mock("@/hooks/usePrefetchProfile", () => ({ usePrefetchProfile: () => vi.fn() }));
