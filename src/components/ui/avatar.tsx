@@ -41,7 +41,8 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
     const fontScale = useFontScale()
     const box = React.useMemo(() => {
       const css = boxFromClasses(className)
-      return css === undefined ? undefined : Math.round(css * fontScale)
+      // The text size is a percentage.
+      return css === undefined ? undefined : Math.round((css * fontScale) / 100)
     }, [className, fontScale])
 
     const hasValidShape = !!shape && isValidAvatarShape(shape)
