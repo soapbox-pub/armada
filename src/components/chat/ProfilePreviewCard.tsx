@@ -46,7 +46,7 @@ import { getDisplayName } from "@/lib/getDisplayName";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { useIsUserBanned } from "@/lib/blocklistStore";
 import { getPronouns } from "@/lib/pronouns";
-import { useUltra } from "@/lib/ultra";
+import { useFrameCss, useUltra } from "@/lib/ultra";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
 import { cn } from "@/lib/utils";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -104,6 +104,8 @@ function ProfilePreviewBody({
   // A Community Nickname names them here, their profile name beside it (CORD-04 §10).
   const nickname = useCommunityNickname(pubkey);
   const ultra = useUltra(metadata);
+  // On the round button: a drop-shadow on the bordered avatar itself draws square.
+  const frameStyle = useFrameCss(ultra?.frame);
   const pronouns = getPronouns(metadata);
   const picture = sanitizeImageSrc(metadata?.picture);
   const npub = tryNpubEncode(pubkey);
@@ -206,6 +208,7 @@ function ProfilePreviewBody({
             onClick={() => picture && onViewImage({ src: picture, imeta: author.data?.imeta?.picture })}
             aria-label={intl.formatMessage({ id: "profilePreviewCard.viewPicture", defaultMessage: "View profile picture" })}
             className="block rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring enabled:cursor-zoom-in"
+            style={frameStyle}
           >
             <UserAvatar
               pubkey={pubkey}
@@ -213,6 +216,7 @@ function ProfilePreviewBody({
               imeta={author.data?.imeta?.picture}
               name={displayName}
               className="size-16 border-[3px] border-background"
+              frame={false}
               fallbackClassName="text-lg"
             />
           </button>

@@ -322,6 +322,7 @@ export function ProfileCard({
                 shape={shape}
                 className={cn("shadow-sm", hasCustomShape ? "size-[88px]" : "size-24 border-4 border-background")}
                 fallbackClassName="text-2xl font-bold"
+                frame={false}
               />
             </div>
           )}

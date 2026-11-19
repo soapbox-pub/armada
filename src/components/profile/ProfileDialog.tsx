@@ -71,7 +71,7 @@ import { useProfileTheme } from "@/hooks/useProfileTheme";
 import { useStartedDms } from "@/hooks/useStartedDms";
 import { isStatusExpired, useUserStatus } from "@/hooks/useUserStatus";
 import { getPronouns } from "@/lib/pronouns";
-import { useUltra } from "@/lib/ultra";
+import { useFrameCss, useUltra } from "@/lib/ultra";
 import { dittoNip19Url, dittoProfileUrl } from "@/lib/dittoUrl";
 import { faviconUrl } from "@/lib/faviconUrl";
 import { loadThemeFont } from "@/lib/fontLoader";
@@ -213,6 +213,8 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
   const ultra = useUltra(metadata);
+  // On the round button: a drop-shadow on the bordered avatar itself draws square.
+  const frameStyle = useFrameCss(ultra?.frame);
   const pronouns = getPronouns(metadata);
   // kind-0 is author-controlled.
   const banner = sanitizeImageSrc(metadata?.banner);
@@ -367,6 +369,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
                     onClick={() => setViewing("picture")}
                     aria-label={intl.formatMessage({ id: "profileDialog.viewPicture", defaultMessage: "View profile picture" })}
                     className="block rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring enabled:cursor-zoom-in"
+                    style={frameStyle}
                   >
                     <UserAvatar
                       pubkey={pubkey}
@@ -374,6 +377,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
                       imeta={author.data?.imeta?.picture}
                       name={displayName}
                       className="size-20 md:size-24 border-4 border-background"
+                      frame={false}
                       fallbackClassName="text-2xl"
                     />
                   </button>
