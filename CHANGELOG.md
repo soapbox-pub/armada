@@ -4,6 +4,30 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.9] - 2026-11-19
+
+Messages show which app they were sent from, and a new setting hides Armada
+Ultra styling everywhere. Ultra name styles and avatar frames now look the
+same across the app, mentions in notifications read as names, and Brave users
+get clear steps for turning on background notifications.
+
+### Added
+- Messages show the app they were sent from beside their timestamp, and a Privacy setting stops Armada from naming itself on what you send
+- A Show Armada Ultra switch in Appearance hides Ultra badges, name styles, avatar frames and profile effects
+- Blocklist moderation keys can be changed or removed in Settings
+- On Brave, Settings explains that background notifications are switched off and how to turn them on
+
+### Changed
+- Ultra name styles and avatar frames appear the same way everywhere, including direct messages, mentions and profile search
+- The Ultra pill no longer appears beside names in messages and lists
+- Mentions in notifications and the inbox show as @names
+- Mention notifications drop the @ icon and show the sender's name in bold
+- The Settings profile card no longer shows your npub
+- Windows updates install silently when the app restarts
+
+### Removed
+- The nsite link on profile dialogs and preview cards
+
 ## [0.69.8] - 2026-11-18
 
 Call audio settings open as a bottom sheet on touch, profile pictures fade in
