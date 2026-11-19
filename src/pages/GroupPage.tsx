@@ -73,6 +73,7 @@ import { useRelayGroups } from "@/hooks/useRelayGroups";
 import { toast } from "@/hooks/useToast";
 import { FormattedMessage, t, useIntl } from "@/i18n";
 import { routeParamToRelay } from "@/lib/platform";
+import { rememberLastChannel } from "@/lib/lastChannel";
 import { chatRoute } from "@/lib/routes";
 import { NIP29_REMOVE_CONFIRM, tierChangeConfirm, type TierChange } from "@/lib/memberTierConfirm";
 import { relayRejectionMessage, type Nip29Admin } from "@/lib/nip29";
@@ -341,16 +342,8 @@ export function GroupPage() {
   }, [relayUrl]);
   // Last-opened channel for ServerPage's auto-open (local-only).
   useEffect(() => {
-    if (!relayUrl || !groupId) return;
-    updateConfig((c) =>
-      c.lastChannelByServer[relayUrl] === groupId
-        ? c
-        : {
-            ...c,
-            lastChannelByServer: { ...c.lastChannelByServer, [relayUrl]: groupId },
-          },
-    );
-  }, [relayUrl, groupId, updateConfig]);
+    if (relayUrl && groupId) rememberLastChannel(relayUrl, groupId);
+  }, [relayUrl, groupId]);
 
   // Visiting deliberately does NOT add the server to the rail or publish an
   // `add-server`: passive mounts (notifications, restores, back-nav) would undo

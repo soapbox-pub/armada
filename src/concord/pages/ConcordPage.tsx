@@ -155,6 +155,7 @@ import { concordChannelMuteKey, useMutes } from "@/hooks/useMutes";
 import { useNotifLevels, concordChannelScopeKey } from "@/hooks/useNotifLevels";
 import { concordThreadReadKey, useReadState } from "@/hooks/useReadState";
 import { useIsBlocked } from "@/lib/blocklistStore";
+import { rememberLastChannel, useLastChannels } from "@/lib/lastChannel";
 import { homeSkippedOf, type HomeLandingState } from "@/lib/railLayout";
 import { usePageCovered } from "@/lib/settingsOverlay";
 import { NotifLevelMenu } from "@/components/NotifLevelMenu";
@@ -1419,9 +1420,10 @@ function ConcordCommunityPage() {
   // name one: knowing the id at first render lets the timeline snapshot paint
   // before the control fold resolves. Mobile picks none, leaving the channel list up.
   const autoSelectChannel = useIsDesktop();
+  const lastChannels = useLastChannels();
   const channelIdHex =
     routeChannelId ??
-    (autoSelectChannel && lastChannelKey ? config.lastChannelByServer[lastChannelKey] ?? null : null);
+    (autoSelectChannel && lastChannelKey ? lastChannels[lastChannelKey] ?? null : null);
   const view: "channel" | Concord2Pane = routePane ?? "channel";
   const paneHeader =
     view === "channel" ? null : isModerationPane(view) ? MODERATION_TABS[view] : PANE_HEADERS[view];
@@ -1559,19 +1561,19 @@ function ConcordCommunityPage() {
     if (!folded || !autoSelectChannel) return undefined;
     return pickDefaultChannel(
       channels,
-      config.lastChannelByServer[lastChannelKey],
+      lastChannels[lastChannelKey],
       (c) => c.idHex,
       (c) => c.name,
     );
-  }, [channels, channelIdHex, folded, autoSelectChannel, config.lastChannelByServer, lastChannelKey]);
+  }, [channels, channelIdHex, folded, autoSelectChannel, lastChannels, lastChannelKey]);
   // What closing the mobile channel list opens when no channel is selected yet.
   const closeTarget = useMemo(
     () =>
       channel ??
       (folded && !routePane
-        ? pickDefaultChannel(channels, config.lastChannelByServer[lastChannelKey], (c) => c.idHex, (c) => c.name)
+        ? pickDefaultChannel(channels, lastChannels[lastChannelKey], (c) => c.idHex, (c) => c.name)
         : undefined),
-    [channel, folded, routePane, channels, config.lastChannelByServer, lastChannelKey],
+    [channel, folded, routePane, channels, lastChannels, lastChannelKey],
   );
 
   // Chat scope for in-message app affordances and the app stage (like NIP-29).
@@ -1600,8 +1602,8 @@ function ConcordCommunityPage() {
   );
   const communityMuted = Boolean(community && isCommunityMuted(`c2:${community.idHex}`));
 
-  // Remember the channel only once settled: config writes re-render most of the
-  // app. Leaving the community flushes the pending write.
+  // Remember the channel once settled (a write re-renders this page). Leaving the
+  // community flushes the pending write.
   const channelIdToRemember = channel?.idHex;
   const pendingLastChannel = useRef<((() => void) & { key?: string }) | undefined>(undefined);
   useEffect(() => {
@@ -1611,16 +1613,12 @@ function ConcordCommunityPage() {
     }
     const write = () => {
       pendingLastChannel.current = undefined;
-      updateConfig((c) =>
-        c.lastChannelByServer[lastChannelKey] === channelIdToRemember
-          ? c
-          : { ...c, lastChannelByServer: { ...c.lastChannelByServer, [lastChannelKey]: channelIdToRemember } },
-      );
+      rememberLastChannel(lastChannelKey, channelIdToRemember);
     };
     pendingLastChannel.current = Object.assign(write, { key: lastChannelKey });
     const timer = setTimeout(write, LAST_CHANNEL_SETTLE_MS);
     return () => clearTimeout(timer);
-  }, [channelIdToRemember, lastChannelKey, updateConfig]);
+  }, [channelIdToRemember, lastChannelKey]);
   useEffect(() => () => pendingLastChannel.current?.(), []);
 
   // Canonicalize `/c/<id>` to name the resolved default channel, so the URL and

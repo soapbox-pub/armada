@@ -134,7 +134,6 @@ export const AppConfigSchema = z.object({
   relayMetadata: RelayMetadataSchema.catch(defaultConfig.relayMetadata),
   dmRelays: z.array(z.string()).catch(defaultConfig.dmRelays),
   blossomServerMetadata: BlossomServerMetadataSchema.catch(defaultConfig.blossomServerMetadata),
-  lastChannelByServer: z.record(z.string(), z.string()).catch({}),
   mutedCommunities: z.array(z.string()).catch([]),
   mutedChannels: z.array(z.string()).catch([]),
   notifLevels: z.record(z.string(), z.enum(["all", "mentions", "nothing"])).catch({}),

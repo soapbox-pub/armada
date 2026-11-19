@@ -125,11 +125,6 @@ export interface AppConfig {
    */
   blossomServerMetadata: BlossomServerMetadata;
   /**
-   * Last open channel per server/community: `relayUrl` → groupId, `c:${communityId}`
-   * → channel id hex.
-   */
-  lastChannelByServer: Record<string, string>;
-  /**
    * Muted communities by rail key (relay URL or `c2:${communityId}`): silences
    * notifications and unread badges. Synced.
    */
@@ -429,7 +424,6 @@ export const PER_DEVICE_CONFIG_KEYS = [
   "memberListVisible",
   "channelListWidth",
   "memberListWidth",
-  "lastChannelByServer",
   "meshIncognito",
   "meshEnabled",
   "androidBackLeavesApp",
@@ -453,7 +447,6 @@ export const defaultConfig: AppConfig = {
   relayMetadata: { relays: [], updatedAt: 0 },
   dmRelays: [],
   blossomServerMetadata: { servers: [], updatedAt: 0 },
-  lastChannelByServer: {},
   mutedCommunities: [],
   mutedChannels: [],
   notifLevels: {},
