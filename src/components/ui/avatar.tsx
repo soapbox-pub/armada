@@ -5,6 +5,8 @@ import { useImetaImage } from "@/hooks/useImetaImage"
 import type { ImetaEntry } from "@/lib/imeta"
 import { imetaFor } from "@/lib/profileImeta"
 import { cn } from "@/lib/utils"
+import { boxFromClasses } from "@/components/ui/avatarBox"
+import { useFontScale } from "@/lib/fontScale"
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl"
 import { type AvatarShape, isEmoji, emojiMaskFontVersion, getAvatarMaskUrl, isValidAvatarShape, subscribeEmojiMaskFont } from "@/lib/avatarShape"
 import { MotionImg } from "@/components/ui/MotionImg"
@@ -14,6 +16,15 @@ import { AVATAR_LOOPS } from "@/components/ui/avatarLoops"
 
 /** Lets AvatarFallback see a sibling AvatarImage's src without state; mutating a ref in render is safe. */
 const AvatarHasSrcContext = React.createContext<React.MutableRefObject<boolean>>({ current: false })
+
+/**
+ * The avatar's CSS width when its classes say it (`size-10`, `size-[52px]`, `h-12`;
+ * the base `h-10 w-10` otherwise), else undefined to measure. Only picks a thumbnail
+ * bucket, so an estimate is enough, and it spares every mount a forced layout and a
+ * second render: measured, a history scroll spent 2 s of 16 on `offsetWidth`.
+ */
+const AvatarBoxContext = React.createContext<number | undefined>(undefined)
+
 
 const AvatarShapeContext = React.createContext<AvatarShape | undefined>(undefined)
 
@@ -26,6 +37,12 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
   ({ className, children, shape, style, ...props }, ref) => {
     const hasSrcRef = React.useRef(false)
     hasSrcRef.current = false
+
+    const fontScale = useFontScale()
+    const box = React.useMemo(() => {
+      const css = boxFromClasses(className)
+      return css === undefined ? undefined : Math.round(css * fontScale)
+    }, [className, fontScale])
 
     const hasValidShape = !!shape && isValidAvatarShape(shape)
     const isEmojiShape = hasValidShape && isEmoji(shape)
@@ -55,6 +72,7 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
 
     return (
       <AvatarHasSrcContext.Provider value={hasSrcRef}>
+        <AvatarBoxContext.Provider value={box}>
         <AvatarShapeContext.Provider value={shape}>
           <div
             ref={ref}
@@ -69,6 +87,7 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
             {children}
           </div>
         </AvatarShapeContext.Provider>
+        </AvatarBoxContext.Provider>
       </AvatarHasSrcContext.Provider>
     )
   }
@@ -146,7 +165,9 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
 
   // Shown downscaled to its box (`lib/imageThumb.ts`); measured once, before
   // anything loads. An unlaid-out box (display:none, jsdom) assumes 40px.
-  const [box, setBox] = React.useState(0)
+  const hintedBox = React.useContext(AvatarBoxContext)
+  const [measuredBox, setBox] = React.useState(0)
+  const box = hintedBox ?? measuredBox
   const measure = React.useCallback((el: HTMLElement | null) => {
     if (el) setBox(el.offsetWidth || 40)
   }, [])
@@ -162,7 +183,7 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
   }
 
   if (!showImage) return null
-  if (thumb.pending) return <span ref={measure} aria-hidden className="absolute inset-0 animate-pulse bg-muted" />
+  if (thumb.pending) return <span ref={hintedBox === undefined ? measure : undefined} aria-hidden className="absolute inset-0 animate-pulse bg-muted" />
   const imgClass = cn(
     "absolute inset-0 h-full w-full object-cover",
     sawPending && "animate-in fade-in-0 duration-300",
