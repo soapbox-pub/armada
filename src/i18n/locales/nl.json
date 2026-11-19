@@ -4625,6 +4625,8 @@
   "ultraSettings.themesTitle": "Ultra-thema's",
   "ultraSettings.welcome": "Welkom bij Ultra!",
   "ultraSettings.you": "Jij",
+  "ultraVisibility.description": "Ultra-badges, naamstijlen, avatarhalo’s, profieleffecten en cadeaus. Als dit uit staat, ziet iedereen er hetzelfde uit.",
+  "ultraVisibility.label": "Armada Ultra tonen",
   "useBlossomServerList.notLoggedIn": "Niet ingelogd",
   "useBlossomServerList.unconfirmed": "Kon je huidige mediaserverlijst niet bevestigen; er zijn geen wijzigingen gepubliceerd",
   "useBuzzActions.emptyMessage": "Bericht mag niet leeg zijn",

@@ -6,14 +6,38 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useStableNavigate } from "@/hooks/useStableNavigate";
 import { FormattedMessage } from "@/i18n";
 import { getDisplayName } from "@/lib/getDisplayName";
-import { nameStyleCss } from "@/lib/ultra";
+import { sanitizeUrl } from "@/lib/sanitizeUrl";
+import { nameStyleCss, useUltraShown } from "@/lib/ultra";
 import { giftPath } from "@/lib/ultraGift";
 import { cn } from "@/lib/utils";
 
 const TITLE_STYLE = nameStyleCss("aurora");
 
 /** Card for an Armada Ultra gift link; opening it lands on the in-app gift page. */
-export function GiftEmbed({ from, className }: { from: string; className?: string }) {
+export function GiftEmbed({ from, url, className }: { from: string; url: string; className?: string }) {
+  const shown = useUltraShown();
+  if (!shown) return <PlainGiftLink url={url} />;
+  return <GiftCard from={from} className={className} />;
+}
+
+/** The link as any other, for a viewer who turned Ultra off. */
+function PlainGiftLink({ url }: { url: string }) {
+  const safe = sanitizeUrl(url);
+  if (!safe) return <span>{url}</span>;
+  return (
+    <a
+      href={safe}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-primary hover:underline break-all"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {url}
+    </a>
+  );
+}
+
+function GiftCard({ from, className }: { from: string; className?: string }) {
   const navigate = useStableNavigate();
   const { user } = useCurrentUser();
   const author = useAuthor(from);

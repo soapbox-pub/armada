@@ -316,6 +316,8 @@ export interface AppConfig {
   powDifficulty?: number;
   /** Whether what this account signs carries the NIP-89 `client` tag (`lib/clientTag.ts`, default on). Synced. */
   clientTag: boolean;
+  /** Whether anyone's Armada Ultra (badges, name styles, halos, effects, gifts) is drawn. Synced. */
+  showUltra: boolean;
 }
 
 /** Cap on message-less DM rows in {@link AppConfig.startedDms} (they ride in synced settings). */
@@ -374,6 +376,7 @@ export const METADATA_CONFIG_KEYS = [
   "zapsEnabled",
   "accountStandingSeen",
   "clientTag",
+  "showUltra",
 ] as const satisfies ReadonlyArray<keyof AppConfig>;
 
 /** `${APP_ID}/rail` — grows with every community; rewritten on every drag. */
@@ -483,6 +486,7 @@ export const defaultConfig: AppConfig = {
   zapsEnabled: true,
   accountStandingSeen: false,
   clientTag: true,
+  showUltra: true,
 };
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);

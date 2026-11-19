@@ -4625,6 +4625,8 @@
   "ultraSettings.themesTitle": "Thèmes Ultra",
   "ultraSettings.welcome": "Bienvenue dans Ultra !",
   "ultraSettings.you": "Vous",
+  "ultraVisibility.description": "Badges Ultra, styles de nom, halos d’avatar, effets de profil et cadeaux. Désactivé, tout le monde a la même apparence.",
+  "ultraVisibility.label": "Afficher Armada Ultra",
   "useBlossomServerList.notLoggedIn": "Non connecté",
   "useBlossomServerList.unconfirmed": "Impossible de confirmer votre liste actuelle de serveurs de médias ; aucune modification n’a été publiée",
   "useBuzzActions.emptyMessage": "Le message ne peut pas être vide",

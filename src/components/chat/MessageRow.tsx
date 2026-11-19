@@ -1,5 +1,5 @@
 import { Reply } from "lucide-react";
-import { memo, useContext, useEffect, useMemo, useState } from "react";
+import { memo, useContext, useEffect, useState } from "react";
 
 import { ExpirationTimerIcon } from "@/components/chat/ExpirationTimerIcon";
 import { MeshProfilePreviewCard } from "@/components/chat/MeshProfilePreviewCard";
@@ -16,7 +16,7 @@ import { useScopedIdentity } from "@/hooks/useScopedDisplayName";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { isoDateTime, shortClockTime, shortTimeAgo } from "@/lib/formatTime";
 import { formatTimeLeft } from "@/lib/nip17/disappearing";
-import { useFrameCss, nameStyleCss, readUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
+import { useFrameCss, nameStyleCss, useUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { sentLabel } from "@/components/chat/sentLabel";
 import { FormattedMessage, useIntl } from "@/i18n";
@@ -170,7 +170,7 @@ export const MessageRow = memo(function MessageRow({
   const displayName = identityOverride?.name ?? scoped.displayName;
   const color = identityOverride?.color ?? scoped.color;
   const label = identityOverride ? undefined : scoped.label;
-  const ultra = useMemo(() => readUltra(metadata), [metadata]);
+  const ultra = useUltra(metadata);
   const frameStyle = useFrameCss(ultra?.frame);
   const suffix = identityOverride?.suffix;
 

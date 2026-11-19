@@ -29,6 +29,7 @@ vi.mock("@/components/settings/VoiceSettings", () => ({ VoiceSettings: stub("Voi
 vi.mock("@/components/settings/RelaysSettings", () => ({ RelaysSettings: stub("Relays") }));
 vi.mock("@/components/settings/EmojiPackSettings", () => ({ EmojiPackSettings: stub("Emoji") }));
 vi.mock("@/components/settings/UltraSettings", () => ({ UltraSettings: stub("Ultra") }));
+vi.mock("@/components/settings/UltraVisibilitySettings", () => ({ UltraVisibilitySettings: stub("Ultra visibility") }));
 vi.mock("@/components/settings/WalletSettings", () => ({ WalletSettings: stub("Wallet") }));
 vi.mock("@/components/settings/MutedWordsSettings", () => ({ MutedWordsSettings: stub("Muted words") }));
 vi.mock("@/components/settings/MutedPeopleSettings", () => ({ MutedPeopleSettings: stub("Blocked") }));

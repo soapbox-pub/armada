@@ -1,9 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { UltraPill } from './UltraPill';
 
 import { SettingsOverlayContext } from '@/lib/settingsOverlay';
+import { setUltraShown } from '@/lib/ultra';
 
 const login = vi.hoisted(() => ({ logins: [] as unknown[] }));
 vi.mock('@nostrify/react/login', () => ({ useNostrLogin: () => login }));
@@ -22,6 +23,20 @@ describe('UltraPill', () => {
   it('renders nothing for a profile without Ultra', () => {
     const { container } = render(<UltraPill metadata={{ name: 'Ana' }} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('hides a member\'s pill when the viewer turned Ultra off', () => {
+    const ultra = { name: 'Ana', armada_ultra: { since: 1 } };
+    setUltraShown(false);
+    try {
+      const { container } = render(<UltraPill metadata={ultra} interactive={false} />);
+      expect(container).toBeEmptyDOMElement();
+      // Turning it back on redraws what is already mounted.
+      act(() => setUltraShown(true));
+      expect(screen.getByTitle('Armada Ultra member')).toBeInTheDocument();
+    } finally {
+      setUltraShown(true);
+    }
   });
 
   it('opens the details popover on click', async () => {

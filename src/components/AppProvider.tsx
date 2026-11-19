@@ -13,6 +13,7 @@ import { appThemeFont } from "@/lib/fontLoader";
 import { parseProxyList } from "@/lib/mediaPolicy";
 import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { setClientTagEnabled } from "@/lib/clientTag";
+import { setUltraShown } from "@/lib/ultra";
 import { setPowDifficulty } from "@/lib/pow";
 import { useThemePreview } from "@/lib/themePreview";
 import { hslStringToHex, isDarkTheme } from "@/lib/colorUtils";
@@ -143,6 +144,10 @@ export function AppProvider({ storageKey, children }: AppProviderProps) {
   useLayoutEffect(() => {
     setClientTagEnabled(config.clientTag);
   }, [config.clientTag]);
+
+  useLayoutEffect(() => {
+    setUltraShown(config.showUltra);
+  }, [config.showUltra]);
 
   // public/theme.js handles the very first paint.
   useEffect(() => {

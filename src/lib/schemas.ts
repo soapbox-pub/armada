@@ -172,6 +172,7 @@ export const AppConfigSchema = z.object({
   accountStandingSeen: z.boolean().catch(defaultConfig.accountStandingSeen),
   powDifficulty: PowDifficultySchema.optional().catch(undefined),
   clientTag: z.boolean().catch(defaultConfig.clientTag),
+  showUltra: z.boolean().catch(defaultConfig.showUltra),
   meshIncognito: z.boolean().catch(defaultConfig.meshIncognito),
   meshEnabled: z.boolean().catch(defaultConfig.meshEnabled),
   androidBackLeavesApp: z.boolean().catch(defaultConfig.androidBackLeavesApp),
@@ -237,6 +238,7 @@ export const MetadataDocSchema = z.looseObject({
   zapsEnabled: z.boolean().optional(),
   accountStandingSeen: z.boolean().optional(),
   clientTag: z.boolean().optional(),
+  showUltra: z.boolean().optional(),
 
   // Read-only legacy: `addedRelays`, `themes` and `lastChannelByServer` may remain
   // in older blobs; the loose schema passes them through and they're ignored.

@@ -4625,6 +4625,8 @@
   "ultraSettings.themesTitle": "Ultra themes",
   "ultraSettings.welcome": "Welcome to Ultra!",
   "ultraSettings.you": "You",
+  "ultraVisibility.description": "Ultra badges, name styles, avatar halos, profile effects and gifts. When off, everyone looks the same.",
+  "ultraVisibility.label": "Show Armada Ultra",
   "useBlossomServerList.notLoggedIn": "Not logged in",
   "useBlossomServerList.unconfirmed": "Could not confirm your current media-server list; no changes were published",
   "useBuzzActions.emptyMessage": "Message cannot be empty",

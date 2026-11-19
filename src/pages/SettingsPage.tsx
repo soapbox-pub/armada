@@ -66,6 +66,7 @@ import {
 import { useSettingsFilter } from "@/components/settings/settingsSearch";
 import { StorageSettings } from "@/components/settings/StorageSettings";
 import { UltraSettings } from "@/components/settings/UltraSettings";
+import { UltraVisibilitySettings } from "@/components/settings/UltraVisibilitySettings";
 import { VoiceSettings } from "@/components/settings/VoiceSettings";
 import { WalletSettings } from "@/components/settings/WalletSettings";
 import { ThemeSelector } from "@/components/ThemeSelector";
@@ -82,6 +83,7 @@ import { appVersionLabel } from "@/lib/appVersion";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { isDesktop } from "@/lib/desktop";
 import { isIosApp } from "@/lib/platform";
+import { useUltraShown } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 
 import type { LucideIcon } from "lucide-react";
@@ -104,6 +106,7 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
   const { user } = useCurrentUser();
   const intl = useIntl();
   const ultra = !!useMyUltra().ultra;
+  const ultraShown = useUltraShown();
   return useMemo(() => {
     const profiling = import.meta.env.VITE_PROFILE === "1";
     const pages: Partial<Record<SettingsPageId, PageDef>> = {
@@ -151,6 +154,9 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
             <SettingsGroup title={intl.formatMessage({ id: "settingsPage.appearance.motion", defaultMessage: "Effects" })}>
               <MotionSettings />
             </SettingsGroup>
+            <SettingsGroup id="ultra-visibility" title="Armada Ultra">
+              <UltraVisibilitySettings />
+            </SettingsGroup>
           </>
         ),
       },
@@ -197,7 +203,7 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
         render: () => <AboutSettings />,
       },
     };
-    if (user) {
+    if (user && ultraShown) {
       pages.ultra = {
         title: "Armada Ultra",
         icon: Gem,
@@ -207,6 +213,8 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
           : intl.formatMessage({ id: "settingsPage.ultra.summary", defaultMessage: "Premium, for $0.00" }),
         render: () => <UltraSettings />,
       };
+    }
+    if (user) {
       pages.profile = {
         title: intl.formatMessage({ id: "settingsPage.profile.title", defaultMessage: "Profile" }),
         icon: UserRound,
@@ -315,7 +323,7 @@ function useSettingsPages(): { pages: Partial<Record<SettingsPageId, PageDef>>; 
       ["support", "about"],
     ];
     return { pages, groups: groups.map((ids) => ids.filter((id) => pages[id])).filter((ids) => ids.length > 0) };
-  }, [user, intl, ultra]);
+  }, [user, intl, ultra, ultraShown]);
 }
 
 /** The root list's identity card: the account at a glance, opening Profile (or Account when logged out). */

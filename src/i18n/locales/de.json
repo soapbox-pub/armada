@@ -4625,6 +4625,8 @@
   "ultraSettings.themesTitle": "Ultra-Themes",
   "ultraSettings.welcome": "Willkommen bei Ultra!",
   "ultraSettings.you": "Du",
+  "ultraVisibility.description": "Ultra-Abzeichen, Namensstile, Avatar-Leuchtringe, Profileffekte und Geschenke. Wenn aus, sehen alle gleich aus.",
+  "ultraVisibility.label": "Armada Ultra anzeigen",
   "useBlossomServerList.notLoggedIn": "Nicht angemeldet",
   "useBlossomServerList.unconfirmed": "Deine aktuelle Medienserver-Liste konnte nicht bestätigt werden; es wurden keine Änderungen veröffentlicht",
   "useBuzzActions.emptyMessage": "Nachricht darf nicht leer sein",

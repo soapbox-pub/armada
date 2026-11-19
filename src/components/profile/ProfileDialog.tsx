@@ -73,7 +73,7 @@ import { useStartedDms } from "@/hooks/useStartedDms";
 import { isStatusExpired, useUserStatus } from "@/hooks/useUserStatus";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { getPronouns } from "@/lib/pronouns";
-import { useFrameCss, nameStyleCss, readUltra, ULTRA_NAME_CLASS } from "@/lib/ultra";
+import { useFrameCss, nameStyleCss, useUltra, ULTRA_NAME_CLASS } from "@/lib/ultra";
 import { dittoNip19Url, dittoProfileUrl } from "@/lib/dittoUrl";
 import { faviconUrl } from "@/lib/faviconUrl";
 import { loadThemeFont } from "@/lib/fontLoader";
@@ -213,7 +213,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
   const { config } = useAppContext();
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
-  const ultra = readUltra(metadata);
+  const ultra = useUltra(metadata);
   const frameStyle = useFrameCss(ultra?.frame);
   const pronouns = getPronouns(metadata);
   // kind-0 is author-controlled.
@@ -245,7 +245,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
   const { start } = useStartedDms();
   const { sendToPeer: giftUltra } = useUltraGift();
   // Pointless for someone who already has it; the gift travels as a DM.
-  const canGift = !!user && !isSelf && !!npub && !config.dmsDisabled && !ultra;
+  const canGift = !!user && !isSelf && !!npub && !config.dmsDisabled && config.showUltra && !ultra;
 
   // Followers come from the NIP-85 stats provider (Ditto's source).
   const followingQuery = useFollowingOf(pubkey);

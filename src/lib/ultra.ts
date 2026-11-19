@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useMemo, useSyncExternalStore, type CSSProperties } from "react";
 
 import type { ThemePreset } from "@/themes";
 import { useHiddenFlair } from "@/lib/reducedMotion";
@@ -116,9 +116,37 @@ export function frameCss(id: AvatarFrameId | undefined): CSSProperties | undefin
   return id ? FRAME_CSS[id] : undefined;
 }
 
-/** {@link frameCss}, unless the viewer hides Ultra flair on this device. */
+// The viewer's `showUltra` setting, mirrored here so rows outside an AppProvider can read it.
+let ultraShown = true;
+const ultraListeners = new Set<() => void>();
+
+export function setUltraShown(on: boolean): void {
+  if (on === ultraShown) return;
+  ultraShown = on;
+  for (const listener of ultraListeners) listener();
+}
+
+function onUltraShownChange(listener: () => void): () => void {
+  ultraListeners.add(listener);
+  return () => ultraListeners.delete(listener);
+}
+
+/** Whether the viewer wants Armada Ultra drawn at all. */
+export function useUltraShown(): boolean {
+  return useSyncExternalStore(onUltraShownChange, () => ultraShown);
+}
+
+/** {@link readUltra} for display: nothing when the viewer turned Ultra off. */
+export function useUltra(metadata: { [key: string]: unknown } | undefined): UltraProfile | undefined {
+  const shown = useUltraShown();
+  return useMemo(() => (shown ? readUltra(metadata) : undefined), [shown, metadata]);
+}
+
+/** {@link frameCss}, unless the viewer hides Ultra flair on this device or Ultra altogether. */
 export function useFrameCss(id: AvatarFrameId | undefined): CSSProperties | undefined {
-  return useHiddenFlair() ? undefined : frameCss(id);
+  const hidden = useHiddenFlair();
+  const shown = useUltraShown();
+  return hidden || !shown ? undefined : frameCss(id);
 }
 
 /** Themes only the Ultra page offers. Applied locally, like any preset. */

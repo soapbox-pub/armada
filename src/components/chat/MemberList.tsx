@@ -50,7 +50,7 @@ import { requestMention } from "@/hooks/useMentionBus";
 import { toast } from "@/hooks/useToast";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { tryNpubEncode } from "@/lib/safeNip19";
-import { useFrameCss, nameStyleCss, readUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
+import { useFrameCss, nameStyleCss, useUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { writeClipboardText } from "@/lib/clipboard";
 import { FormattedMessage, t, useIntl } from "@/i18n";
@@ -183,7 +183,7 @@ const MemberRow = memo(function MemberRow({
   const intl = useIntl();
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
-  const ultra = useMemo(() => readUltra(metadata), [metadata]);
+  const ultra = useUltra(metadata);
   const frameStyle = useFrameCss(ultra?.frame);
   const { displayName, color } = useScopedIdentity(pubkey, metadata);
   const status = useUserStatus(pubkey).data?.status;

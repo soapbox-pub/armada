@@ -48,7 +48,7 @@ import { getDisplayName } from "@/lib/getDisplayName";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { useIsUserBanned } from "@/lib/blocklistStore";
 import { getPronouns } from "@/lib/pronouns";
-import { useFrameCss, nameStyleCss, readUltra, ULTRA_NAME_CLASS } from "@/lib/ultra";
+import { useFrameCss, nameStyleCss, useUltra, ULTRA_NAME_CLASS } from "@/lib/ultra";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
 import { cn } from "@/lib/utils";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -106,7 +106,7 @@ function ProfilePreviewBody({
   // A Community Nickname names them here, their profile name beside it (CORD-04 §10).
   const nickname = useCommunityNickname(pubkey);
   const avatarShape = getAvatarShape(metadata);
-  const ultra = readUltra(metadata);
+  const ultra = useUltra(metadata);
   const frameStyle = useFrameCss(ultra?.frame);
   const pronouns = getPronouns(metadata);
   const picture = sanitizeImageSrc(metadata?.picture);

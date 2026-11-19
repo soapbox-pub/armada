@@ -5,7 +5,7 @@ import { useContext, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { FormattedMessage, useIntl } from '@/i18n';
 import { SettingsOverlayContext } from '@/lib/settingsOverlay';
-import { readUltra } from '@/lib/ultra';
+import { readUltra, useUltraShown } from '@/lib/ultra';
 import { cn } from '@/lib/utils';
 
 import type { NostrMetadata } from '@nostrify/nostrify';
@@ -26,7 +26,8 @@ interface UltraPillProps {
 export function UltraPill({ metadata, force, className, labelClassName, interactive = true }: UltraPillProps) {
   const intl = useIntl();
   const [open, setOpen] = useState(false);
-  if (!force && !readUltra(metadata)) return null;
+  const shown = useUltraShown();
+  if (!force && !(shown && readUltra(metadata))) return null;
 
   const title = intl.formatMessage({ id: 'ultraPill.title', defaultMessage: 'Armada Ultra member' });
   const body = (

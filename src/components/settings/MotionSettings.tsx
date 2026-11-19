@@ -2,6 +2,7 @@ import { SettingsRow } from "@/components/settings/SettingsSection";
 import { Switch } from "@/components/ui/switch";
 import { defineMessage, useIntl, type MessageDescriptor } from "@/i18n";
 import { setEffectPart, setReduceEffects, useEffectSettings, type EffectPart } from "@/lib/reducedMotion";
+import { useUltraShown } from "@/lib/ultra";
 
 const PARTS: Array<{ part: EffectPart; label: MessageDescriptor; hint: MessageDescriptor }> = [
   {
@@ -29,6 +30,8 @@ const PARTS: Array<{ part: EffectPart; label: MessageDescriptor; hint: MessageDe
 export function MotionSettings() {
   const intl = useIntl();
   const settings = useEffectSettings();
+  // With Ultra off there is no flair left to hide.
+  const ultraShown = useUltraShown();
 
   return (
     <>
@@ -43,7 +46,7 @@ export function MotionSettings() {
         <Switch checked={settings.enabled} disabled={settings.system} onCheckedChange={setReduceEffects} />
       </SettingsRow>
       {settings.enabled &&
-        PARTS.map(({ part, label, hint }) => (
+        PARTS.filter(({ part }) => part !== "flair" || ultraShown).map(({ part, label, hint }) => (
           <SettingsRow key={part} label={intl.formatMessage(label)} description={intl.formatMessage(hint)} className="pl-8">
             <Switch
               checked={settings[part]}

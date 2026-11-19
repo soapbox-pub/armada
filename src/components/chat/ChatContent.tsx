@@ -1377,7 +1377,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         return <InviteEmbed key={key} url={token.url} className="my-1.5" />;
       case "gift-embed":
         if (inQuote || holdMedia) return inlineLink(key, token.url);
-        return <GiftEmbed key={key} from={token.from} className="my-1.5" />;
+        return <GiftEmbed key={key} from={token.from} url={token.url} className="my-1.5" />;
       case "buzz-invite-embed":
         if (inQuote || holdMedia) return inlineLink(key, token.url);
         return <BuzzInviteEmbed key={key} url={token.url} className="my-1.5" />;

@@ -4625,6 +4625,8 @@
   "ultraSettings.themesTitle": "Ultra テーマ",
   "ultraSettings.welcome": "Ultra へようこそ！",
   "ultraSettings.you": "あなた",
+  "ultraVisibility.description": "Ultra バッジ、名前のスタイル、アバターのハロー、プロフィールエフェクト、ギフト。オフにすると全員が同じ見た目になります。",
+  "ultraVisibility.label": "Armada Ultra を表示",
   "useBlossomServerList.notLoggedIn": "ログインしていません",
   "useBlossomServerList.unconfirmed": "現在のメディアサーバーリストを確認できなかったため、変更は公開されませんでした",
   "useBuzzActions.emptyMessage": "メッセージを空にすることはできません",
