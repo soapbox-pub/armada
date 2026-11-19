@@ -21,7 +21,15 @@ vi.mock("@/lib/blocklist", async (importOriginal) => {
 });
 
 const { blocklistHash, BLOCKLIST_KIND } = await import("@/lib/blocklist");
-const { checkUserBan, isBlockedNow, refreshBlocklist, resetBlocklistForTests } = await import("@/lib/blocklistStore");
+const {
+  applyBlocklistSetting,
+  blocklistAuthors,
+  checkUserBan,
+  isBlockedNow,
+  refreshBlocklist,
+  resetBlocklistForTests,
+  setBlocklistAuthors,
+} = await import("@/lib/blocklistStore");
 const { isUserBannedNow } = await import("@/lib/bannedUsers");
 
 const SCRAMTOWN = "ef9453dbfeda7afa8e6b48bf5e2b8e8bc5bf6ed8175204ddb54e80249d33158b";
@@ -110,5 +118,50 @@ describe("blocklistStore", () => {
     expect((query.mock.calls[0] as unknown[])[0]).toMatchObject([{ "#d": [blocklistHash(OTHER, "user")] }]);
     expect(isUserBannedNow(OTHER)).toBe(true);
     expect(kv.get("blocklist:events")).toHaveLength(1);
+  });
+
+  it("stops counting a removed key's entries at once", async () => {
+    await refreshBlocklist(pool([entry(SCRAMTOWN, "blocked", 100), entry(OTHER, "blocked", 100, "user")]).pool);
+    setBlocklistAuthors([]);
+    expect(isBlockedNow(SCRAMTOWN)).toBe(false);
+    expect(isUserBannedNow(OTHER)).toBe(false);
+    expect(kv.get("blocklist:events")).toHaveLength(0);
+  });
+
+  it("fetches nothing with no keys", async () => {
+    setBlocklistAuthors([]);
+    const { query, pool: p } = pool([]);
+    await refreshBlocklist(p);
+    await checkUserBan(p, OTHER);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("fetches a new key's entries even while fresh", async () => {
+    const { query, pool: p } = pool([]);
+    await refreshBlocklist(p);
+    const other = "22".repeat(32);
+    setBlocklistAuthors([other]);
+    await refreshBlocklist(p);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect((query.mock.calls[1] as unknown[])[0]).toMatchObject([{ authors: [other] }]);
+  });
+
+  it("ignores a fetch that finishes after the keys change", async () => {
+    let resolve: ((events: NostrEvent[]) => void) | undefined;
+    const p = { group: () => ({ query: () => new Promise<NostrEvent[]>((r) => (resolve = r)) }) };
+    const pending = refreshBlocklist(p);
+    await vi.waitFor(() => expect(resolve).toBeDefined());
+    if (!resolve) return;
+    setBlocklistAuthors(["22".repeat(32), pk]);
+    resolve([entry(SCRAMTOWN, "blocked", 100)]);
+    await pending;
+    expect(isBlockedNow(SCRAMTOWN)).toBe(false);
+  });
+
+  it("applies the user's setting on the web", () => {
+    applyBlocklistSetting("none");
+    expect(blocklistAuthors()).toEqual([]);
+    applyBlocklistSetting("");
+    expect(blocklistAuthors()).toContain(pk);
   });
 });

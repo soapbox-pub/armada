@@ -15,7 +15,8 @@ const picker = vi.hoisted(() => ({
   setActiveMediaDevice: vi.fn(),
 }));
 
-vi.mock("@capacitor/core", () => ({
+vi.mock("@capacitor/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@capacitor/core")>()),
   Capacitor: { getPlatform: () => platform.name, isNativePlatform: () => platform.name !== "web" },
 }));
 

@@ -1,6 +1,7 @@
 import { LifeBuoy, SpellCheck, UserX } from "lucide-react";
 import { useContext } from "react";
 
+import { BlocklistAuthorsSettings } from "@/components/settings/BlocklistAuthorsSettings";
 import { DiscoverCurationSettings } from "@/components/settings/DiscoverCurationSettings";
 import { MediaPrivacySettings } from "@/components/settings/MediaPrivacySettings";
 import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
@@ -98,6 +99,8 @@ export function PrivacySettings() {
         </SettingsRow>
         <DiscoverCurationSettings />
       </SettingsGroup>
+
+      <BlocklistAuthorsSettings />
 
       <SettingsGroup>
         <SettingsRow

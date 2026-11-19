@@ -40,7 +40,7 @@ import { tryNpubEncode } from "@/lib/safeNip19";
 import { cn } from "@/lib/utils";
 
 /** A pubkey's profile name, or a shortened npub while it has none. */
-function OwnerName({ pubkey }: { pubkey: string }) {
+export function OwnerName({ pubkey }: { pubkey: string }) {
   const { data } = useAuthor(pubkey);
   const name = data?.metadata?.name || data?.metadata?.display_name;
   if (name) {
@@ -54,7 +54,7 @@ function OwnerName({ pubkey }: { pubkey: string }) {
   return <span className="font-mono">{npub ? `${npub.slice(0, 12)}…` : pubkey.slice(0, 8)}</span>;
 }
 
-function OwnerAvatar({ pubkey, className }: { pubkey: string; className?: string }) {
+export function OwnerAvatar({ pubkey, className }: { pubkey: string; className?: string }) {
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
   const name = getDisplayName(metadata, pubkey);

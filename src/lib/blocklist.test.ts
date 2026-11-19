@@ -2,7 +2,7 @@
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { BLOCKLIST_KIND, bannedUserHashes, blocklistHash, foldBlocklist, isCommunityBlocked, parseBlocklistEntry } from "./blocklist";
+import { BLOCKLIST_KIND, bannedUserHashes, blocklistHash, foldBlocklist, isCommunityBlocked, parseBlocklistEntry, resolveBlocklistAuthors } from "./blocklist";
 
 const ID = "ef9453dbfeda7afa8e6b48bf5e2b8e8bc5bf6ed8175204ddb54e80249d33158b";
 const sk = generateSecretKey();
@@ -106,5 +106,23 @@ describe("BLOCKLIST_AUTHORS", () => {
     window.ENV = { BLOCKLIST_AUTHORS: "" };
     vi.resetModules();
     expect((await import("./blocklist")).BLOCKLIST_AUTHORS).toEqual([]);
+  });
+});
+
+describe("resolveBlocklistAuthors", () => {
+  const DEPLOYMENT = ["c".repeat(64)];
+
+  it("follows the deployment when unset", () => {
+    expect(resolveBlocklistAuthors("", DEPLOYMENT)).toEqual(DEPLOYMENT);
+    expect(resolveBlocklistAuthors("  ", DEPLOYMENT)).toEqual(DEPLOYMENT);
+  });
+
+  it("is empty for none", () => {
+    expect(resolveBlocklistAuthors("none", DEPLOYMENT)).toEqual([]);
+    expect(resolveBlocklistAuthors(" NONE ", DEPLOYMENT)).toEqual([]);
+  });
+
+  it("replaces the deployment's keys with the user's, normalized and deduplicated", () => {
+    expect(resolveBlocklistAuthors(`${pk.toUpperCase()}, ${pk}, junk`, DEPLOYMENT)).toEqual([pk]);
   });
 });

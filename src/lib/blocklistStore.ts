@@ -7,13 +7,24 @@
  * A failed fetch keeps what is held, and the app doesn't refuse to work
  * because a relay is down. Before the first fetch nothing is blocked.
  */
+import { Capacitor } from "@capacitor/core";
 import { useMemo, useSyncExternalStore } from "react";
 
 import { STOCK_RELAYS } from "@/concord/lib/stockRelays";
-import { bannedUserHashes, BLOCKLIST_AUTHORS, BLOCKLIST_KIND, blocklistHash, foldBlocklist, isCommunityBlocked, type BlocklistEntry } from "@/lib/blocklist";
+import {
+  bannedUserHashes,
+  BLOCKLIST_AUTHORS,
+  BLOCKLIST_KIND,
+  blocklistHash,
+  foldBlocklist,
+  isCommunityBlocked,
+  resolveBlocklistAuthors,
+  type BlocklistEntry,
+} from "@/lib/blocklist";
 import { isUserBannedNow, resetBannedUsers, setBannedUserHashes } from "@/lib/bannedUsers";
 import { getArmadaDB } from "@/lib/db/armadaDB";
 import { DEPLOYMENT_RELAYS } from "@/lib/platform";
+import { isStoreInstall } from "@/lib/storeInstall";
 
 import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 
@@ -33,17 +44,30 @@ const FETCH_LIMIT = 1000;
 
 const RELAYS = [...new Set([...STOCK_RELAYS, ...DEPLOYMENT_RELAYS])];
 
+/** The keys in effect: the deployment's until {@link applyBlocklistSetting} says otherwise. */
+let authors: readonly string[] = BLOCKLIST_AUTHORS;
 let events: NostrEvent[] = [];
-let entries: Map<string, BlocklistEntry> = foldBlocklist(events, BLOCKLIST_AUTHORS);
+let entries: Map<string, BlocklistEntry> = foldBlocklist(events, authors);
 let version = 0;
 let fetchedAt = 0;
 let inflight: Promise<void> | undefined;
 let warming: Promise<void> | undefined;
+/** Bumped with {@link authors}, so a fetch begun under the old keys doesn't count as fresh. */
+let authorsGeneration = 0;
+/** Bumped per {@link applyBlocklistSetting}, so only the latest one's async answer applies. */
+let settingGeneration = 0;
+/** When each user's entry was last fetched on its own, by {@link checkUserBan}. */
+const checkedUsers = new Map<string, number>();
 const listeners = new Set<() => void>();
+
+function notify(): void {
+  version++;
+  for (const listener of listeners) listener();
+}
 
 /** Merge `incoming`, keeping only the newest event per entry, and tell subscribers if anything changed. */
 function absorb(incoming: NostrEvent[]): boolean {
-  const next = foldBlocklist([...events, ...incoming], BLOCKLIST_AUTHORS);
+  const next = foldBlocklist([...events, ...incoming], authors);
   const changed = next.size !== entries.size
     || [...next].some(([hash, entry]) => entries.get(hash)?.id !== entry.id);
   if (!changed) return false;
@@ -51,9 +75,50 @@ function absorb(incoming: NostrEvent[]): boolean {
   events = [...events, ...incoming].filter((event, i, all) => kept.has(event.id) && all.findIndex((e) => e.id === event.id) === i);
   entries = next;
   setBannedUserHashes(bannedUserHashes(entries));
-  version++;
-  for (const listener of listeners) listener();
+  notify();
   return true;
+}
+
+/** The moderation keys whose entries count right now. */
+export function blocklistAuthors(): readonly string[] {
+  return authors;
+}
+
+/**
+ * Count only `next`'s entries: what is held is refolded at once (an entry of a
+ * dropped key stops counting), and the next refresh fetches whatever is fresh.
+ */
+export function setBlocklistAuthors(next: readonly string[]): void {
+  if (next.length === authors.length && next.every((pk) => authors.includes(pk))) return;
+  authors = [...next];
+  authorsGeneration++;
+  entries = foldBlocklist(events, authors);
+  const kept = new Set([...entries.values()].map((entry) => entry.id));
+  events = events.filter((event) => kept.has(event.id));
+  setBannedUserHashes(bannedUserHashes(entries));
+  fetchedAt = 0;
+  checkedUsers.clear();
+  inflight = undefined;
+  notify();
+  void getArmadaDB().kv.set(KV_KEY, events).catch(() => undefined);
+}
+
+/**
+ * Apply the user's `AppConfig.blocklistAuthors`. A store install keeps the
+ * deployment's keys whatever the setting says, and until the install is known
+ * on Android, so content the store build blocks never shows there.
+ */
+export function applyBlocklistSetting(setting: string): void {
+  const resolved = resolveBlocklistAuthors(setting, BLOCKLIST_AUTHORS);
+  const platform = Capacitor.getPlatform();
+  const asked = ++settingGeneration;
+  if (platform === "ios") return setBlocklistAuthors(BLOCKLIST_AUTHORS);
+  if (platform !== "android") return setBlocklistAuthors(resolved);
+  void isStoreInstall()
+    .catch(() => true)
+    .then((store) => {
+      if (asked === settingGeneration) setBlocklistAuthors(store ? BLOCKLIST_AUTHORS : resolved);
+    });
 }
 
 /** Load what the last session fetched. Once. */
@@ -71,29 +136,30 @@ function warm(): Promise<void> {
  * {@link FRESH_MS} (`force` skips that). Never throws.
  */
 export function refreshBlocklist(pool: BlocklistPool, { force = false } = {}): Promise<void> {
-  if (BLOCKLIST_AUTHORS.length === 0) return Promise.resolve();
+  if (authors.length === 0) return Promise.resolve();
   if (inflight) return inflight;
   if (!force && Date.now() - fetchedAt < FRESH_MS) return warm();
-  inflight = (async () => {
+  const generation = authorsGeneration;
+  const asked = [...authors];
+  const run: Promise<void> = (async () => {
     await warm();
     try {
       const fetched = await pool.group(RELAYS).query(
-        [{ kinds: [BLOCKLIST_KIND], authors: BLOCKLIST_AUTHORS, limit: FETCH_LIMIT }],
+        [{ kinds: [BLOCKLIST_KIND], authors: asked, limit: FETCH_LIMIT }],
         { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
       );
+      if (generation !== authorsGeneration) return;
       fetchedAt = Date.now();
       if (absorb(fetched)) await getArmadaDB().kv.set(KV_KEY, events).catch(() => undefined);
     } catch {
       // Keep what is held.
     }
   })().finally(() => {
-    inflight = undefined;
+    if (inflight === run) inflight = undefined;
   });
-  return inflight;
+  inflight = run;
+  return run;
 }
-
-/** When each user's entry was last fetched on its own, by {@link checkUserBan}. */
-const checkedUsers = new Map<string, number>();
 
 /**
  * Fetch `pubkey`'s own entry, by `#d`, as their profile opens: a ban published
@@ -101,25 +167,28 @@ const checkedUsers = new Map<string, number>();
  * once per {@link FRESH_MS} per user. Never throws.
  */
 export async function checkUserBan(pool: BlocklistPool, pubkey: string): Promise<void> {
-  if (BLOCKLIST_AUTHORS.length === 0 || !/^[0-9a-f]{64}$/.test(pubkey)) return;
+  if (authors.length === 0 || !/^[0-9a-f]{64}$/.test(pubkey)) return;
   const last = checkedUsers.get(pubkey);
   if (last !== undefined && Date.now() - last < FRESH_MS) return;
   checkedUsers.set(pubkey, Date.now());
+  const generation = authorsGeneration;
+  const asked = [...authors];
   await warm();
   try {
     const fetched = await pool.group(RELAYS).query(
-      [{ kinds: [BLOCKLIST_KIND], authors: BLOCKLIST_AUTHORS, "#d": [blocklistHash(pubkey, "user")], limit: 10 }],
+      [{ kinds: [BLOCKLIST_KIND], authors: asked, "#d": [blocklistHash(pubkey, "user")], limit: 10 }],
       { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
     );
+    if (generation !== authorsGeneration) return;
     if (absorb(fetched)) await getArmadaDB().kv.set(KV_KEY, events).catch(() => undefined);
   } catch {
-    checkedUsers.delete(pubkey);
+    if (generation === authorsGeneration) checkedUsers.delete(pubkey);
   }
 }
 
 /** Whether `communityId` is blocked, by what is held right now. Not an id, not blocked. */
 export function isBlockedNow(communityId: string): boolean {
-  if (BLOCKLIST_AUTHORS.length === 0 || !/^[0-9a-f]{64}$/i.test(communityId)) return false;
+  if (authors.length === 0 || !/^[0-9a-f]{64}$/i.test(communityId)) return false;
   return isCommunityBlocked(entries, communityId);
 }
 
@@ -154,6 +223,11 @@ export function useIsUserBanned(): (pubkey: string | undefined) => boolean {
   }, [current]);
 }
 
+/** {@link blocklistAuthors}, re-rendering when they change. */
+export function useBlocklistAuthors(): readonly string[] {
+  return useSyncExternalStore(subscribe, blocklistAuthors, blocklistAuthors);
+}
+
 /** Subscribe to changes in the held entries. */
 export function onBlocklistChange(listener: () => void): () => void {
   return subscribe(listener);
@@ -161,8 +235,11 @@ export function onBlocklistChange(listener: () => void): () => void {
 
 /** For tests: forget everything. */
 export function resetBlocklistForTests(): void {
+  authors = BLOCKLIST_AUTHORS;
+  authorsGeneration++;
+  settingGeneration++;
   events = [];
-  entries = foldBlocklist(events, BLOCKLIST_AUTHORS);
+  entries = foldBlocklist(events, authors);
   resetBannedUsers();
   checkedUsers.clear();
   version++;

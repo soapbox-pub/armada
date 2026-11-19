@@ -318,6 +318,12 @@ export interface AppConfig {
   clientTag: boolean;
   /** Whether anyone's Armada Ultra (badges, name styles, halos, effects, gifts) is drawn. Synced. */
   showUltra: boolean;
+  /**
+   * Moderation keys whose blocklist entries count (`lib/blocklist.ts`): `""`
+   * follows the deployment's `BLOCKLIST_AUTHORS`, `"none"` is none, else
+   * comma-separated hex pubkeys. Ignored in store installs. Synced.
+   */
+  blocklistAuthors: string;
 }
 
 /** Cap on message-less DM rows in {@link AppConfig.startedDms} (they ride in synced settings). */
@@ -377,6 +383,7 @@ export const METADATA_CONFIG_KEYS = [
   "accountStandingSeen",
   "clientTag",
   "showUltra",
+  "blocklistAuthors",
 ] as const satisfies ReadonlyArray<keyof AppConfig>;
 
 /** `${APP_ID}/rail` — grows with every community; rewritten on every drag. */
@@ -487,6 +494,7 @@ export const defaultConfig: AppConfig = {
   accountStandingSeen: false,
   clientTag: true,
   showUltra: true,
+  blocklistAuthors: "",
 };
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);

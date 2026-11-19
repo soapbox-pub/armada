@@ -35,14 +35,31 @@ const HEX64 = /^[0-9a-f]{64}$/;
 /** Soapbox's moderation key, npub1ph0kcd0kr6cyqvtdq8mgmm2d8z6hnst5y0fxw90afzgst2vpjy9qfz24jj. */
 const DEFAULT_BLOCKLIST_AUTHORS = "0ddf6c35f61eb040316d01f68ded4d38b579c17423d26715fd489105a981910a";
 
+/** Comma-separated hex pubkeys, lowercased and deduplicated; anything else is dropped. */
+export function parseBlocklistAuthors(value: string): string[] {
+  const keys = value
+    .split(",")
+    .map((pubkey: string) => pubkey.trim().toLowerCase())
+    .filter((pubkey: string) => HEX64.test(pubkey));
+  return [...new Set(keys)];
+}
+
 /**
- * Moderation keys whose entries count (hex). Unlike `RELEASE_AUTHORS` a host's
+ * The deployment's moderation keys (hex). Unlike `RELEASE_AUTHORS` a host's
  * `window.ENV` may replace them: a deployment answers for what it serves.
  */
-export const BLOCKLIST_AUTHORS: string[] = (config("BLOCKLIST_AUTHORS") ?? DEFAULT_BLOCKLIST_AUTHORS)
-  .split(",")
-  .map((pubkey: string) => pubkey.trim().toLowerCase())
-  .filter((pubkey: string) => HEX64.test(pubkey));
+export const BLOCKLIST_AUTHORS: string[] = parseBlocklistAuthors(config("BLOCKLIST_AUTHORS") ?? DEFAULT_BLOCKLIST_AUTHORS);
+
+/** The `AppConfig.blocklistAuthors` value for "no moderation keys". */
+export const BLOCKLIST_AUTHORS_NONE = "none";
+
+/** The keys a user's setting names: `""` follows `deployment`, {@link BLOCKLIST_AUTHORS_NONE} is none. */
+export function resolveBlocklistAuthors(setting: string, deployment: readonly string[] = BLOCKLIST_AUTHORS): string[] {
+  const value = setting.trim();
+  if (value === "") return [...deployment];
+  if (value.toLowerCase() === BLOCKLIST_AUTHORS_NONE) return [];
+  return parseBlocklistAuthors(value);
+}
 
 export type BlocklistStatus = "blocked" | "lifted";
 
