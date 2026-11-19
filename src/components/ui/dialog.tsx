@@ -39,13 +39,15 @@ const DialogContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     hideClose?: boolean
     portalContainer?: HTMLElement
+    /** Raise the backdrop with `className`'s z-index, e.g. above the post-login wizard (`z-[260]`). */
+    overlayClassName?: string
   }
->(({ className, children, hideClose, portalContainer, ...props }, ref) => {
+>(({ className, children, hideClose, portalContainer, overlayClassName, ...props }, ref) => {
   const inheritedPortalContainer = usePortalContainer()
 
   return (
     <DialogPortal container={portalContainer ?? inheritedPortalContainer}>
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
@@ -80,12 +82,14 @@ const ChromeDialogContent = React.forwardRef<
     contentClassName?: string
     hideClose?: boolean
     portalContainer?: HTMLElement
+    overlayClassName?: string
   }
->(({ className, contentClassName, title, children, hideClose, portalContainer, ...props }, ref) => (
+>(({ className, contentClassName, title, children, hideClose, portalContainer, overlayClassName, ...props }, ref) => (
   <DialogContent
     ref={ref}
     hideClose={hideClose}
     portalContainer={portalContainer}
+    overlayClassName={overlayClassName}
     className={cn(
       "sm:max-w-md border-0 rounded-none p-0 bg-transparent shadow-none",
       className

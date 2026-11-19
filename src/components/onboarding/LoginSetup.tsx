@@ -419,7 +419,7 @@ function WebPushStep({ onDone }: { onDone: () => void }) {
           >
             <FormattedMessage id="loginSetup.webpush.notifyWhileOpen" defaultMessage="Notify me while Armada is open" />
           </Button>
-          <BravePushHelpButton className="h-12 w-full clip-corner-lg" />
+          <BravePushHelpButton className="h-12 w-full clip-corner-lg" aboveWizard />
           <Button
             variant="ghost"
             className="w-full text-muted-foreground"

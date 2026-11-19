@@ -38,21 +38,27 @@ export function BravePushServiceNotice({ onRetry, retrying }: {
 }
 
 /** Opens the steps to turn Brave's push service on, and what that exposes. */
-export function BravePushHelpButton({ size, className }: { size?: "sm" | "lg"; className?: string }) {
+export function BravePushHelpButton({ size, className, aboveWizard }: {
+  size?: "sm" | "lg";
+  className?: string;
+  /** The post-login wizard stacks above dialogs (`z-[260]`), so one opened from it must go higher. */
+  aboveWizard?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <Button size={size} variant="secondary" className={className} onClick={() => setOpen(true)}>
         <FormattedMessage id="bravePush.howTo" defaultMessage="How to turn them on" />
       </Button>
-      <BravePushHelpDialog open={open} onOpenChange={setOpen} />
+      <BravePushHelpDialog open={open} onOpenChange={setOpen} aboveWizard={aboveWizard} />
     </>
   );
 }
 
-function BravePushHelpDialog({ open, onOpenChange }: {
+function BravePushHelpDialog({ open, onOpenChange, aboveWizard }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  aboveWizard?: boolean;
 }) {
   const intl = useIntl();
   const [copied, setCopied] = useState(false);
@@ -71,7 +77,11 @@ function BravePushHelpDialog({ open, onOpenChange }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <ChromeDialogContent title={title}>
+      <ChromeDialogContent
+        title={title}
+        className={aboveWizard ? "z-[270]" : undefined}
+        overlayClassName={aboveWizard ? "z-[270]" : undefined}
+      >
         <ChromeDialogHeader icon={BellOff} tone="warning" title={title} />
         <ol className="mt-6 space-y-3 text-sm">
           <Step n={1}>
