@@ -56,6 +56,7 @@ import { useNip29Servers } from "@/hooks/useNip29Servers";
 import { useDragPointerDown, usePressDrag } from "@/hooks/usePressDrag";
 import { useFlipReorder } from "@/hooks/useFlipReorder";
 import { getDisplayName } from "@/lib/getDisplayName";
+import { LocationRefContext } from "@/lib/locationRef";
 import { relayToRouteParam } from "@/lib/platform";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
 import { useMediaSrc } from "@/hooks/useMediaPolicy";
@@ -721,12 +722,13 @@ const Concord2Button = memo(function Concord2Button({
   }, [byChannel, markC2Read]);
 
   // Tombstone locally; Guestbook leave and vault write follow in the background.
-  const navigate = useNavigate();
+  // `navigate` through the ref: `useNavigate` would re-render every rail button on each navigation.
+  const router = useContext(LocationRefContext);
   const { leave } = useCommunityManagement(community);
   const handleLeave = async () => {
     try {
       await leave();
-      navigate("/");
+      router?.navigate.current?.("/");
     } catch (e) {
       toast({
         title: t({ id: "serverRail.leaveFailed", defaultMessage: "Couldn't leave" }),
