@@ -1,7 +1,13 @@
 import { bytesToHex, randomBytes } from "@noble/hashes/utils.js";
 import type { NostrFilter } from "@nostrify/nostrify";
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate, type NostrEvent } from "nostr-tools/pure";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const opens = vi.hoisted(() => ({ count: 0 }));
+vi.mock("@/concord/lib/stream", async (orig) => {
+  const real = await orig<typeof import("@/concord/lib/stream")>();
+  return { ...real, openWrap: (...args: Parameters<typeof real.openWrap>) => (opens.count++, real.openWrap(...args)) };
+});
 
 import { clearAccessPlaneMemory, readAccessPlanes } from "@/concord/hooks/useChannelAccess";
 import { accessPlane } from "@/concord/lib/delivery";
@@ -65,6 +71,17 @@ describe("readAccessPlanes", () => {
     const nostr = { relay: () => relayOver(events, []) };
     const got = await readAccessPlanes(nostr as never, community, [channel, other], signal);
     expect(got.filter((g) => g.channelIdHex === other)).toHaveLength(1);
+  });
+
+  it("reopens only the wraps a re-read adds", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const plane = await wraps(5, now - 600);
+    const nostr = { relay: () => relayOver(plane, []) };
+    await readAccessPlanes(nostr as never, community, [channel], signal);
+    opens.count = 0;
+    plane.push(...(await wraps(1, now)));
+    expect(await readAccessPlanes(nostr as never, community, [channel], signal)).toHaveLength(6);
+    expect(opens.count).toBe(1);
   });
 
   it("throws when no relay answered, rather than reading the planes as empty", async () => {

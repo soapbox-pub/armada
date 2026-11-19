@@ -61,6 +61,14 @@ const ACCESS_FULL_READ_MS = 6 * 60 * 60_000;
 const ACCESS_OVERLAP_SECS = 3600;
 const planeReads = new Map<string, { fullAt: number; readAt: number; wraps: Map<string, NostrEvent> }>();
 
+/**
+ * Each held wrap's opening, keyed by the wrap OBJECT `planeReads` holds, so a re-read
+ * reopens only what's new; `null` for one that doesn't open. Lives as long as the wrap.
+ */
+const openedPlaneWraps = new WeakMap<NostrEvent, ReturnType<typeof openWrap> | null>();
+/** Max unbroken decrypt time before yielding (as `openPlaneWrapsChunked`). */
+const OPEN_SLICE_MS = 5;
+
 /** Forget the access-plane wraps read this session. Logout. */
 export function clearAccessPlaneMemory(): void {
   planeReads.clear();
@@ -138,7 +146,8 @@ async function readPlaneNow(nostr: NPool, url: string, pk: string): Promise<Nost
   }
 
   const wraps = delta?.wraps ?? new Map<string, NostrEvent>();
-  for (const [id, e] of fresh) wraps.set(id, e);
+  // A wrap already held keeps its object, and so its opening.
+  for (const [id, e] of fresh) if (!wraps.has(id)) wraps.set(id, e);
   planeReads.set(key, { fullAt: delta?.fullAt ?? now, readAt, wraps });
   return [...wraps.values()];
 }
@@ -188,16 +197,27 @@ export async function readAccessPlanes(
   }
   const out: Array<{ channelIdHex: string; opened: ReturnType<typeof openWrap> }> = [];
   const seen = new Set<string>();
+  let sliceStart = performance.now();
   for (const wrap of results.flatMap((r) => r ?? [])) {
     if (seen.has(wrap.id)) continue;
     seen.add(wrap.id);
     const at = planes.get(wrap.pubkey);
     if (!at) continue;
-    try {
-      out.push({ channelIdHex: at.id, opened: openWrap(wrap, at.plane) });
-    } catch {
-      // not ours / malformed
+    let opened = openedPlaneWraps.get(wrap);
+    if (opened === undefined) {
+      try {
+        opened = openWrap(wrap, at.plane);
+      } catch {
+        opened = null; // not ours / malformed
+      }
+      openedPlaneWraps.set(wrap, opened);
+      // A flooded plane is thousands of wraps: decrypting them in one task froze the UI.
+      if (performance.now() - sliceStart >= OPEN_SLICE_MS) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        sliceStart = performance.now();
+      }
     }
+    if (opened) out.push({ channelIdHex: at.id, opened: { ...opened } });
   }
   return out;
 }
