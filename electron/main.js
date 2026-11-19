@@ -219,7 +219,9 @@ function installBundleIpc() {
     if (!mainWindow || event.sender !== mainWindow.webContents) return;
     if (installerDownloaded) {
       isQuitting = true;
-      updater().quitAndInstall(false, true);
+      // Silent: the assisted NSIS installer otherwise walks the user through its
+      // install-mode, progress and finish pages on every update.
+      updater().quitAndInstall(true, true);
       return;
     }
     if (pendingWebSite === null) return;
@@ -1235,7 +1237,7 @@ function installElectronUpdater() {
     });
     if (response === 0) {
       isQuitting = true;
-      autoUpdater.quitAndInstall(false, true);
+      autoUpdater.quitAndInstall(true, true);
     }
   });
 }
