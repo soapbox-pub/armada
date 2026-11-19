@@ -13,6 +13,8 @@ const LAZY_MARGIN = "400px";
  * measured once from a placeholder with the same classes, which is what starts
  * the fetch: with `loading="lazy"`, only once that placeholder nears the screen.
  *
+ * `loops` caps an animation's loops each time it comes into view (see `ThumbAnimation`).
+ *
  * `originalWhilePending` fills that placeholder with the original image, for an
  * image that is part of the text (a custom emoji in a name) and so must not be
  * missing while the shared queue reaches it.
@@ -22,8 +24,9 @@ export function ThumbImg({
   className,
   style,
   originalWhilePending,
+  loops,
   ...props
-}: ImgHTMLAttributes<HTMLImageElement> & { originalWhilePending?: boolean }) {
+}: ImgHTMLAttributes<HTMLImageElement> & { originalWhilePending?: boolean; loops?: number }) {
   const lazy = props.loading === "lazy";
   const [box, setBox] = useState(0);
   const observer = useRef<IntersectionObserver | null>(null);
@@ -55,6 +58,6 @@ export function ThumbImg({
       </span>
     );
   }
-  if (thumb.anim) return <ThumbAnimation anim={thumb.anim} className={className} style={style} alt={props.alt} title={props.title} />;
+  if (thumb.anim) return <ThumbAnimation anim={thumb.anim} className={className} style={style} alt={props.alt} title={props.title} loops={loops} />;
   return <MotionImg {...props} src={thumb.src} className={className} style={style} />;
 }

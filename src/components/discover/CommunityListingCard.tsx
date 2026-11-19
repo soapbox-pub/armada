@@ -6,6 +6,8 @@ import { useNavigate } from "react-router-dom";
 
 import { DisplayName } from "@/components/DisplayName";
 import { UserAvatar } from "@/components/UserAvatar";
+import { ThumbImg } from "@/components/ui/ThumbImg";
+import { AVATAR_LOOPS } from "@/components/ui/avatarLoops";
 import { BoostedBy } from "@/components/discover/BoostedBy";
 import { DiscoverBoostsContext } from "@/components/discover/discoverBoosts";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
@@ -411,14 +413,16 @@ export function CommunityListingCard({
       {/* Bannerless communities still get the 3:1 strip (blurred icon or initial) so card heights match. */}
       {(() => {
         const bannerContent = bannerUrl ? (
-          <img src={bannerUrl} alt="" className="size-full object-cover" />
+          <ThumbImg src={bannerUrl} alt="" loading="lazy" loops={AVATAR_LOOPS} className="size-full object-cover" />
         ) : (
           <>
             {iconUrl ? (
-              <img
+              <ThumbImg
                 src={iconUrl}
                 alt=""
                 aria-hidden
+                loading="lazy"
+                loops={AVATAR_LOOPS}
                 className="size-full scale-125 object-cover opacity-50 blur-2xl"
               />
             ) : (
@@ -455,7 +459,7 @@ export function CommunityListingCard({
         <div className="flex items-center gap-2.5 min-w-0">
           <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted text-success">
             {iconUrl ? (
-              <img src={iconUrl} alt="" className="size-full object-cover" />
+              <ThumbImg src={iconUrl} alt="" loading="lazy" loops={AVATAR_LOOPS} className="size-full object-cover" />
             ) : (
               <span className="text-sm font-semibold">{initial}</span>
             )}
