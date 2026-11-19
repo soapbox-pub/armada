@@ -181,7 +181,6 @@ function NotificationRow({ item, onOpen }: { item: CenterItem; onOpen: (item: Ce
   const title = item.kind === "invite"
     ? intl.formatMessage({ id: "notificationsPage.inviteFrom", defaultMessage: "Invite from {name}" }, { name: authorName })
     : authorName;
-  const Icon = item.kind === "invite" ? MailPlus : AtSign;
 
   return (
     <button
@@ -195,8 +194,8 @@ function NotificationRow({ item, onOpen }: { item: CenterItem; onOpen: (item: Ce
       <UserAvatar pubkey={item.author} metadata={metadata} imeta={author.data?.imeta?.picture} name={authorName} className="size-10 shrink-0" fallbackClassName="text-sm" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className={cn("truncate text-sm", item.unread ? "font-semibold" : "font-medium")}>
+          {item.kind === "invite" && <MailPlus className="size-3.5 shrink-0 text-muted-foreground" />}
+          <span className="truncate text-sm font-name font-semibold">
             {item.kind === "invite" ? title : (
               <DisplayName pubkey={item.author} name={title} />
             )}
