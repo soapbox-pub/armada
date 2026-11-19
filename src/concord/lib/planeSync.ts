@@ -749,7 +749,29 @@ async function runScopes(
         }),
   }));
   const out = new Map<string, OpenedEvent[]>(scopes.map((s) => [s.scope, []]));
+  // Only a read that catches up shows as sync activity. The routine delta re-reads
+  // run every few seconds across every community, and an indicator always on keeps
+  // its spinner, and so the compositor, running at full frame rate.
+  const catchingUp = scopes.some((s, i) => (s.complete ? deltaSince[i] === undefined : plans[i]!.since === 0 || plans[i]!.until !== undefined));
+  const task = catchingUp ? beginSyncTask(t({ id: "planeSync.communityUpdates", defaultMessage: "community updates" })) : undefined;
+  try {
+    return await readScopes(nostr, url, scopes, filters, plans, deltaSince, rebuildSnapshot, out);
+  } finally {
+    task?.end();
+  }
+}
 
+/** {@link runScopes}' query and ingest, with its plans made. */
+async function readScopes(
+  nostr: NostrLike,
+  url: string,
+  scopes: PlaneScope[],
+  filters: NostrFilter[],
+  plans: Array<ReadPlan | undefined>,
+  deltaSince: Array<number | undefined>,
+  rebuildSnapshot: boolean[],
+  out: Map<string, OpenedEvent[]>,
+): Promise<Map<string, OpenedEvent[]>> {
   for (let attempt = 1; attempt <= 2; attempt++) {
     const started = Date.now();
     // Invalidate at the TOP of each attempt so a throw leaves no stale verdict
@@ -945,19 +967,13 @@ const batches = new Map<string, RelayBatch[]>();
 function newBatch(nostr: NostrLike, url: string): RelayBatch {
   const b: RelayBatch = { scopes: [], closed: false, promise: Promise.resolve(new Map()) };
   b.promise = (async () => {
-    // The whole batch lifetime counts as sync activity (auth hold can take seconds).
-    const task = beginSyncTask(t({ id: "planeSync.communityUpdates", defaultMessage: "community updates" }));
-    try {
-      await new Promise((r) => setTimeout(r, BATCH_WINDOW_MS));
-      await whenAuthReady(url, () => b.scopes.flatMap((s) => s.groups));
-      b.closed = true;
-      const open = batches.get(url)?.filter((other) => other !== b) ?? [];
-      if (open.length > 0) batches.set(url, open);
-      else batches.delete(url);
-      return await runScopes(nostr, url, b.scopes);
-    } finally {
-      task.end();
-    }
+    await new Promise((r) => setTimeout(r, BATCH_WINDOW_MS));
+    await whenAuthReady(url, () => b.scopes.flatMap((s) => s.groups));
+    b.closed = true;
+    const open = batches.get(url)?.filter((other) => other !== b) ?? [];
+    if (open.length > 0) batches.set(url, open);
+    else batches.delete(url);
+    return runScopes(nostr, url, b.scopes);
   })();
   batches.set(url, [...(batches.get(url) ?? []), b]);
   return b;

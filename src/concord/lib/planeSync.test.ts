@@ -33,6 +33,7 @@ import {
   whenAuthSettled,
 } from "@/concord/lib/planeSync";
 import { pruneControlSnapshots, readControlSnapshot, updateStreamCursor } from "@/concord/lib/rumorStore";
+import { getSyncTasks, onSyncActivity } from "@/lib/syncActivity";
 import {
   _resetStreamAuthRegistry,
   noteAuthResult,
@@ -632,6 +633,27 @@ describe("control completeness — whole-plane reads with a session delta", () =
     relay.events.push(e2.wrap);
     const third = await sweepControl(nostr, community);
     expect(third.map((e) => e.rumorId)).toEqual([e2.rumor.id]);
+  });
+
+  it("shows the whole read as sync activity, and not the routine deltas after it", async () => {
+    const owner = signer();
+    const community = communityOf(84, owner.pubkey);
+    const control = controlGroupKey(community.root, community.id, 0);
+    const relay = new FakeRelay();
+    relay.events = [(await wrapAt(control, owner, "ef".repeat(32), Math.floor(Date.now() / 1000) - 100)).wrap];
+    const nostr = poolOf({ [RELAY_A]: relay });
+    const labels: string[][] = [];
+    const off = onSyncActivity(() => labels.push(getSyncTasks().map((t) => t.label)));
+    try {
+      await sweepControl(nostr, community);
+      expect(labels.flat(), "the whole read").toContain("community updates");
+      labels.length = 0;
+      await sweepControl(nostr, community);
+      expect(relay.calls[1][0].since, "a delta").toBeDefined();
+      expect(labels, "the delta").toEqual([]);
+    } finally {
+      off();
+    }
   });
 
   it("a clean full read still licenses a delta after a relaunch inside its window", async () => {
