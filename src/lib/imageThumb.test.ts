@@ -81,6 +81,33 @@ describe("imageThumb", () => {
     expect(sniffImageType(bytes("<svg"), "image/svg+xml")).toBe("image/svg+xml");
   });
 
+  it("holds the first frame after a subscriber's loops, while another plays on", () => {
+    vi.useFakeTimers();
+    try {
+      const frames = [0, 1, 2].map((n) => ({ n, close() {} }) as unknown as ImageBitmap);
+      const anim = new AnimatedThumb(8, 8, frames, [100, 100, 100], Infinity);
+      const n = (f: ImageBitmap) => (f as unknown as { n: number }).n;
+      const listed: number[] = [];
+      const profile: number[] = [];
+      anim.subscribe((f) => listed.push(n(f)), 2);
+      anim.subscribe((f) => profile.push(n(f)));
+      vi.advanceTimersByTime(1000);
+      expect(listed).toEqual([0, 1, 2, 0, 1, 2, 0]);
+      expect(profile.length).toBeGreaterThan(listed.length);
+      // Seen again (back into view): it plays its loops again.
+      const again: number[] = [];
+      const off = anim.subscribe((f) => again.push(n(f)), 1);
+      vi.advanceTimersByTime(1000);
+      // A loop's worth of frames from wherever the shared timer is, ending held on the first.
+      expect(again.length).toBeGreaterThanOrEqual(3);
+      expect(again.length).toBeLessThanOrEqual(4);
+      expect(again.at(-1)).toBe(0);
+      off();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("plays an animation on one timer while watched, and stops after its repetitions", () => {
     vi.useFakeTimers();
     try {

@@ -7,9 +7,10 @@ import { isTrayResting, onTrayRest } from "@/lib/trayRest";
  * Plays an {@link AnimatedThumb} on a canvas, which takes the classes an
  * `<img>` would (a canvas is a replaced element, so sizing and `object-fit`
  * carry over). Subscribed only while on screen and the desktop window isn't
- * resting, so nothing ticks for a row nobody can see.
+ * resting, so nothing ticks for a row nobody can see. `loops` caps the loops
+ * played each time it comes into view, then holds the first frame.
  */
-export function ThumbAnimation({ anim, className, style, alt, title }: { anim: AnimatedThumb; className?: string; style?: CSSProperties; alt?: string; title?: string }) {
+export function ThumbAnimation({ anim, className, style, alt, title, loops }: { anim: AnimatedThumb; className?: string; style?: CSSProperties; alt?: string; title?: string; loops?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
@@ -22,7 +23,7 @@ export function ThumbAnimation({ anim, className, style, alt, title }: { anim: A
     let visible = false;
     let off: (() => void) | undefined;
     const sync = () => {
-      if (visible && !isTrayResting()) off ??= anim.subscribe(draw);
+      if (visible && !isTrayResting()) off ??= anim.subscribe(draw, loops);
       else {
         off?.();
         off = undefined;
@@ -39,7 +40,7 @@ export function ThumbAnimation({ anim, className, style, alt, title }: { anim: A
       offRest();
       off?.();
     };
-  }, [anim]);
+  }, [anim, loops]);
   return (
     <canvas
       ref={ref}

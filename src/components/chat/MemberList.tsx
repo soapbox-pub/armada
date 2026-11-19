@@ -3,6 +3,7 @@ import { AtSign, Bot, ChevronDown, Copy, Crown, Gem, IdCard, MessageSquareText, 
 import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
 
 import { BoostersContext } from "@/components/chat/boostersContext";
+import { AvatarLoopsContext, LIST_AVATAR_LOOPS } from "@/components/ui/avatarLoops";
 import { BotPill } from "@/components/BotPill";
 import { DeferredRow } from "@/components/DeferredRow";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
@@ -461,9 +462,18 @@ interface MemberListProps {
 
 /**
  * Right-hand member panel. Memoized: the page re-renders on every store write
- * and a roster render walks a row per member.
+ * and a roster render walks a row per member. Its avatars play briefly, then
+ * hold (see {@link AvatarLoopsContext}).
  */
-export const MemberList = memo(function MemberList({
+export const MemberList = memo(function MemberList(props: MemberListProps) {
+  return (
+    <AvatarLoopsContext.Provider value={LIST_AVATAR_LOOPS}>
+      <MemberListInner {...props} />
+    </AvatarLoopsContext.Provider>
+  );
+});
+
+function MemberListInner({
   admins,
   members,
   currentUserPubkey,
@@ -700,4 +710,4 @@ export const MemberList = memo(function MemberList({
       </div>
     </aside>
   );
-});
+}

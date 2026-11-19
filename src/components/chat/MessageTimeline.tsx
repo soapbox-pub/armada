@@ -16,6 +16,7 @@ import {
 } from "@/components/chat/timelineWindow";
 import { formatDayLabel, isSameDay } from "@/components/chat/dayLabel";
 import { FloatingDateBadge } from "@/components/chat/FloatingDateBadge";
+import { AvatarLoopsContext, LIST_AVATAR_LOOPS } from "@/components/ui/avatarLoops";
 import { flashRow } from "@/components/chat/rowFlash";
 import {
   captureScrollAnchor,
@@ -430,7 +431,16 @@ function jumpTargetRow(content: HTMLElement | null, id: string): HTMLElement | n
   );
 }
 
-export function MessageTimeline({
+/** Avatars in a timeline play briefly, then hold (see {@link AvatarLoopsContext}). */
+export function MessageTimeline(props: MessageTimelineProps) {
+  return (
+    <AvatarLoopsContext.Provider value={LIST_AVATAR_LOOPS}>
+      <MessageTimelineInner {...props} />
+    </AvatarLoopsContext.Provider>
+  );
+}
+
+function MessageTimelineInner({
   transport,
   renderMessage,
   entries,

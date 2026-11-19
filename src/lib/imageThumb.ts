@@ -60,18 +60,30 @@ export class AnimatedThumb {
     return this.width * this.height * 4 * this.frames.length;
   }
 
-  /** Draw the current frame now and every later one. Returns an unsubscribe. */
-  subscribe(draw: (frame: ImageBitmap) => void): () => void {
-    this.listeners.add(draw);
-    draw(this.frames[this.frame]);
-    if (!this.timer) this.schedule();
-    return () => {
-      this.listeners.delete(draw);
+  /**
+   * Draw the current frame now and every later one; after `loops` loops' worth of
+   * frames, draw the first frame and stop. Returns an unsubscribe.
+   */
+  subscribe(draw: (frame: ImageBitmap) => void, loops = Infinity): () => void {
+    const limit = loops * this.frames.length;
+    let shown = 0;
+    const listener = (frame: ImageBitmap) => {
+      draw(frame);
+      if (++shown < limit) return;
+      off();
+      if (frame !== this.frames[0]) draw(this.frames[0]);
+    };
+    const off = () => {
+      this.listeners.delete(listener);
       if (this.listeners.size === 0 && this.timer) {
         clearTimeout(this.timer);
         this.timer = undefined;
       }
     };
+    this.listeners.add(listener);
+    listener(this.frames[this.frame]);
+    if (this.listeners.size > 0 && !this.timer) this.schedule();
+    return off;
   }
 
   private schedule(): void {

@@ -10,6 +10,7 @@ import { type AvatarShape, isEmoji, emojiMaskFontVersion, getAvatarMaskUrl, isVa
 import { MotionImg } from "@/components/ui/MotionImg"
 import { useImageThumb } from "@/hooks/useImageThumb"
 import { ThumbAnimation } from "@/components/ui/ThumbAnimation"
+import { AvatarLoopsContext } from "@/components/ui/avatarLoops"
 
 /** Lets AvatarFallback see a sibling AvatarImage's src without state; mutating a ref in render is safe. */
 const AvatarHasSrcContext = React.createContext<React.MutableRefObject<boolean>>({ current: false })
@@ -145,6 +146,7 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
     if (el) setBox(el.offsetWidth || 40)
   }, [])
   const thumb = useImageThumb(failed ? undefined : src, box)
+  const loops = React.useContext(AvatarLoopsContext)
   // Fade in only over a placeholder that was shown: a cached thumbnail appears at once.
   const [sawPending, setSawPending] = React.useState(false)
   if (thumb.pending && !sawPending) setSawPending(true)
@@ -163,7 +165,7 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
     className,
   )
   if (thumb.anim) {
-    return <ThumbAnimation anim={thumb.anim} className={imgClass} />
+    return <ThumbAnimation anim={thumb.anim} className={imgClass} loops={loops} />
   }
 
   return (
