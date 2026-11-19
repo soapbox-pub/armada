@@ -1229,11 +1229,13 @@ function ConcordCommunityPage() {
   // What `useSendMessage` stamps messages with, so their attachments can expire alongside.
   const messageTimer = messageExpirationOf(folded?.metadata);
   const resolveMessageTimer = useCallback(async () => messageTimer, [messageTimer]);
+  // Keyed on the name alone, so a fold that changes nothing else keeps every row's `community` prop.
+  const foldedName = folded?.metadata?.name;
   const community = useMemo<Community | undefined>(() => {
     if (!baseCommunity) return undefined;
-    if (!folded?.metadata) return baseCommunity;
-    return { ...baseCommunity, name: folded.metadata.name || baseCommunity.name };
-  }, [baseCommunity, folded]);
+    if (foldedName === undefined) return baseCommunity;
+    return { ...baseCommunity, name: foldedName || baseCommunity.name };
+  }, [baseCommunity, foldedName]);
   const channels = useChannels(baseCommunity);
   // Serial gate before the timeline: rehydrate → fold control plane → Channel
   // exists. Each step gets a profiling milestone.
@@ -1284,10 +1286,11 @@ function ConcordCommunityPage() {
   }, [arrangedChannels, folded, user]);
 
   // A vsk-13 Category stands on its own (CORD-03 §4), so an empty one is offered too.
-  const categoryPicklist = useMemo(
-    () => (folded?.rankedRoster ? categoryOrder(folded).map((c) => c.name) : categoryNames(arrangedChannels, (c) => c.category)),
-    [arrangedChannels, folded],
-  );
+  const categoryNamesNow = folded?.rankedRoster ? categoryOrder(folded).map((c) => c.name) : categoryNames(arrangedChannels, (c) => c.category);
+  // The same names keep the same array, so the memoized rows it's handed to skip.
+  const categoryKey = categoryNamesNow.join("\u0000");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const categoryPicklist = useMemo(() => categoryNamesNow, [categoryKey]);
 
   /**
    * The sidebar's rendered sequence, flattened. Drop indices index into THIS
@@ -2093,6 +2096,10 @@ function ConcordCommunityPage() {
     },
     [community, user, activeCall, joinConcordCall, avBrokers, folded],
   );
+  // What every sidebar row gets: stable, reading the latest through a ref.
+  const joinVoiceRef = useRef(handleJoinVoice);
+  joinVoiceRef.current = handleJoinVoice;
+  const onRowJoinVoice = useCallback((ch: Channel, broker: string | null) => joinVoiceRef.current(ch, broker), []);
 
   // Compliant self-removal (CORD-04 §4/§6): tear down locally and route home.
   useSelfRemove(baseCommunity, useCallback(() => navigateTo("/"), [navigateTo]));
@@ -3047,7 +3054,7 @@ function ConcordCommunityPage() {
         unread={unreadByChannel[c.idHex]}
         onSelect={handleSelectChannel}
         onOpenChat={handleOpenChannelChat}
-        onJoinVoice={handleJoinVoice}
+        onJoinVoice={onRowJoinVoice}
         categories={categoryPicklist}
         onSetCategory={canManageChannels ? handleSetCategory : undefined}
         onNewCategory={handleNewCategory}
