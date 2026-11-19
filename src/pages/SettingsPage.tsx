@@ -24,7 +24,6 @@ import {
   Waypoints,
   Zap,
 } from "lucide-react";
-import { nip19 } from "nostr-tools";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
@@ -333,7 +332,6 @@ function ProfileCard({ compact, active, onOpen }: { compact?: boolean; active?: 
   const author = useAuthor(user?.pubkey);
   const metadata = author.data?.metadata;
   const name = metadata?.name || metadata?.display_name;
-  const npub = user ? nip19.npubEncode(user.pubkey) : "";
 
   return (
     <button
@@ -364,14 +362,14 @@ function ProfileCard({ compact, active, onOpen }: { compact?: boolean; active?: 
               : intl.formatMessage({ id: "settingsPage.profileCard.setName", defaultMessage: "Set your name" })))
             : intl.formatMessage({ id: "settingsPage.profileCard.logIn", defaultMessage: "Log in or sign up" })}
         </span>
-        <span className="block truncate text-xs text-muted-foreground">
-          {user
-            ? <span className="font-mono">{npub.slice(0, 12)}…{npub.slice(-6)}</span>
-            : intl.formatMessage({
+        {!user && (
+          <span className="block truncate text-xs text-muted-foreground">
+            {intl.formatMessage({
               id: "settingsPage.profileCard.loggedOutHint",
               defaultMessage: "Sync your settings and join communities",
             })}
-        </span>
+          </span>
+        )}
       </span>
       {!compact && <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" aria-hidden />}
     </button>
