@@ -120,6 +120,35 @@ async function queryEachRelay(
  */
 type DiscoverAuthors = string[] | null;
 
+/**
+ * A short, stable stand-in for a long list in a query key. React Query hashes a
+ * key on every render of every observer, and Discover's keys held its whole web of
+ * trust and every listing id: re-stringified on each of a dozen renders as it opens.
+ * Cached per array; the query function still reads the list itself.
+ */
+const listSigs = new WeakMap<readonly string[], string>();
+function listSig(list: readonly string[] | null): string | null {
+  if (list === null) return null;
+  let sig = listSigs.get(list);
+  if (sig === undefined) {
+    // FNV-1a over the joined list, in two 32-bit halves.
+    let h1 = 0x811c9dc5;
+    let h2 = 0x01000193;
+    for (const item of list) {
+      for (let i = 0; i < item.length; i++) {
+        const c = item.charCodeAt(i);
+        h1 = Math.imul(h1 ^ c, 0x01000193);
+        h2 = Math.imul(h2 ^ c, 0x5bd1e995);
+      }
+      h1 = Math.imul(h1 ^ 0x2c, 0x01000193);
+      h2 = Math.imul(h2 ^ 0x2c, 0x5bd1e995);
+    }
+    sig = `${list.length}:${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}`;
+    listSigs.set(list, sig);
+  }
+  return sig;
+}
+
 /** Whether a feed has anyone to read: everyone, or a non-empty allow-list. */
 const readsAnyone = (authors: DiscoverAuthors) => authors === null || authors.length > 0;
 
@@ -587,7 +616,7 @@ export async function forgetDiscoverAnnouncements(
 
 /** By the allow-list it was read under. */
 function directoryInfiniteKey(relays: string[], authors: DiscoverAuthors): QueryKey {
-  return ["discover", "directory-infinite", relays, authors];
+  return ["discover", "directory-infinite", relays, listSig(authors)];
 }
 
 /** Shared by the page hook and {@link useWarmDiscover} so both prime the same cache entry. */
@@ -829,7 +858,7 @@ export function useDiscoverCommunities(scope: DiscoverScope): DiscoverFeed<Disco
   // Once a listing is on screen, every boost on it (or on an older copy of its link) counts toward its total.
   const shownIds = useMemo(() => (data?.invites ?? NO_INVITES).flatMap(listingIdsOf).sort(), [data]);
   const shownBoosts = useQuery<BoostsByListing>({
-    queryKey: ["discover", "shown-boosts", relays, shownIds],
+    queryKey: ["discover", "shown-boosts", relays, listSig(shownIds)],
     enabled: relays.length > 0 && shownIds.length > 0,
     staleTime: 60_000,
     placeholderData: (prev) => prev,
@@ -878,7 +907,7 @@ function useDiscoverBoosts(
   const voucherList = useMemo(() => (vouchers ? [...vouchers].sort() : null), [vouchers]);
 
   const read = useQuery<BoostsByListing>({
-    queryKey: ["discover", "boosts", relays, voucherList],
+    queryKey: ["discover", "boosts", relays, listSig(voucherList)],
     enabled: relays.length > 0 && !authorsLoading && readsAnyone(voucherList),
     staleTime: 60_000,
     placeholderData: (prev) => prev,
@@ -886,7 +915,7 @@ function useDiscoverBoosts(
   });
   const ids = useMemo(() => [...(read.data ?? NO_BOOSTS).keys()].sort(), [read.data]);
   const listings = useQuery<DiscoveredInvite[]>({
-    queryKey: ["discover", "boosted-listings", relays, ids],
+    queryKey: ["discover", "boosted-listings", relays, listSig(ids)],
     enabled: relays.length > 0 && ids.length > 0,
     staleTime: 60_000,
     placeholderData: (prev) => prev,
@@ -911,7 +940,7 @@ export function useCommunityBoosts(listingIds: readonly string[], { enabled = tr
   const ids = useMemo(() => [...new Set(listingIds)].sort(), [listingIds]);
 
   const read = useQuery({
-    queryKey: ["discover", "community-boosts", relays, ids],
+    queryKey: ["discover", "community-boosts", relays, listSig(ids)],
     enabled: enabled && relays.length > 0 && ids.length > 0,
     staleTime: 60_000,
     queryFn: async ({ signal }) => {
