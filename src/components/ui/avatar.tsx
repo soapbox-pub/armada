@@ -10,7 +10,7 @@ import { type AvatarShape, isEmoji, emojiMaskFontVersion, getAvatarMaskUrl, isVa
 import { MotionImg } from "@/components/ui/MotionImg"
 import { useImageThumb } from "@/hooks/useImageThumb"
 import { ThumbAnimation } from "@/components/ui/ThumbAnimation"
-import { AvatarLoopsContext } from "@/components/ui/avatarLoops"
+import { AVATAR_LOOPS } from "@/components/ui/avatarLoops"
 
 /** Lets AvatarFallback see a sibling AvatarImage's src without state; mutating a ref in render is safe. */
 const AvatarHasSrcContext = React.createContext<React.MutableRefObject<boolean>>({ current: false })
@@ -92,11 +92,16 @@ export interface AvatarImageProps extends React.ImgHTMLAttributes<HTMLImageEleme
    * unless its `url` is `src`, so it's safe to pass while `src` is edited.
    */
   imeta?: ImetaEntry
+  /**
+   * Loops an animated picture plays each time it comes into view, then holds its
+   * first frame. Default {@link AVATAR_LOOPS}; a profile's own picture plays on.
+   */
+  loops?: number
 }
 
 /** Covers the fallback immediately; the browser renders progressively. */
 const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
-  ({ className, onError, src: rawSrc, imeta, ...props }, ref) => {
+  ({ className, onError, src: rawSrc, imeta, loops = AVATAR_LOOPS, ...props }, ref) => {
   const hasSrcRef = React.useContext(AvatarHasSrcContext)
   // The one chokepoint for untrusted avatar URLs, so scheme/local-network
   // checks live here. Must run BEFORE useBuzzMediaSrc (its object URL is ours).
@@ -146,7 +151,6 @@ const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
     if (el) setBox(el.offsetWidth || 40)
   }, [])
   const thumb = useImageThumb(failed ? undefined : src, box)
-  const loops = React.useContext(AvatarLoopsContext)
   // Fade in only over a placeholder that was shown: a cached thumbnail appears at once.
   const [sawPending, setSawPending] = React.useState(false)
   if (thumb.pending && !sawPending) setSawPending(true)

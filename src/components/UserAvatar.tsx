@@ -40,6 +40,8 @@ export interface UserAvatarProps {
   fallback?: ReactNode;
   /** Extra layers inside the avatar (status dots that must be masked with it). */
   children?: ReactNode;
+  /** Loops an animated picture plays before holding (`AvatarImage`); a profile's own picture plays on. */
+  loops?: number;
 }
 
 /**
@@ -71,6 +73,7 @@ function UserAvatarView({
   draggable,
   fallback,
   children,
+  loops,
   "aria-hidden": ariaHidden,
 }: UserAvatarProps) {
   const label = name ?? getDisplayName(metadata, pubkey ?? "");
@@ -88,7 +91,7 @@ function UserAvatarView({
       className={wrapped ? "size-full" : className}
       style={wrapped ? undefined : frameStyle}
     >
-      {!anonymous && <AvatarImage src={metadata?.picture} imeta={imeta} alt={alt ?? label} draggable={draggable} />}
+      {!anonymous && <AvatarImage src={metadata?.picture} imeta={imeta} alt={alt ?? label} draggable={draggable} loops={loops} />}
       <AvatarFallback className={cn("bg-primary/20 text-primary", fallbackClassName)} style={fallbackStyle}>
         {fallback ?? <AvatarInitial name={label} pubkey={pubkey} />}
       </AvatarFallback>

@@ -377,6 +377,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
                       className="size-20 md:size-24 border-4 border-background"
                       frame={false}
                       fallbackClassName="text-2xl"
+                      loops={Infinity}
                     />
                   </button>
                 </div>

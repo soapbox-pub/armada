@@ -216,6 +216,7 @@ function ProfilePreviewBody({
               className="size-16 border-[3px] border-background"
               frame={false}
               fallbackClassName="text-lg"
+              loops={Infinity}
             />
           </button>
         </div>

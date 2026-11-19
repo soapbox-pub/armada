@@ -232,7 +232,7 @@ export function ProfileCard({
                   <button type="button" className="relative shrink-0 cursor-pointer group outline-none">
                     <div style={hasCustomShape ? shapedAvatarBorderStyle : undefined}>
                       <Avatar shape={shape} className={cn("shadow-sm", hasCustomShape ? "size-[88px]" : "size-24 border-4 border-background")}>
-                        <AvatarImage src={metadata.picture} imeta={imeta?.picture} alt={displayName} className="object-cover" />
+                        <AvatarImage src={metadata.picture} imeta={imeta?.picture} alt={displayName} className="object-cover" loops={Infinity} />
                         <AvatarFallback className="bg-primary/20 text-primary text-2xl font-bold">
                           {metadata.picture ? initial : <Plus className="size-8 text-muted-foreground" strokeWidth={4} />}
                         </AvatarFallback>
@@ -323,6 +323,7 @@ export function ProfileCard({
                 className={cn("shadow-sm", hasCustomShape ? "size-[88px]" : "size-24 border-4 border-background")}
                 fallbackClassName="text-2xl font-bold"
                 frame={false}
+                loops={Infinity}
               />
             </div>
           )}
