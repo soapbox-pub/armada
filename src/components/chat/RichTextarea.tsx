@@ -296,6 +296,8 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
   const innerRef = useRef<HTMLDivElement>(null);
   const paintRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
+  /** The first sync has run; before it the overlay isn't laid out, so there is nothing to measure. */
+  const started = useRef(false);
   const [paint, setPaint] = useState<Paint[]>([]);
   const fontScale = useFontScale();
   const { textareaRef } = rich;
@@ -369,11 +371,6 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
       syncText(now);
     };
     const onEvent = () => sync();
-    sync(false);
-    setReady(true);
-    el.addEventListener("scroll", syncScroll);
-    window.addEventListener("resize", onEvent);
-    document.fonts?.addEventListener("loadingdone", onEvent);
     // The observer reports once on observe() with the box sync(false) just
     // measured; its flushSync would render every pending update (a whole
     // channel's timeline on a switch) synchronously for nothing.
@@ -382,15 +379,46 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
       if (`${style.width}|${style.height}` !== box) sync();
     };
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(onResize);
-    observer?.observe(el);
     // A theme font is a custom property on <html>; one that needs no loading
     // changes the textarea's font with no resize and no `loadingdone`.
     const onRootChange = () => {
       if (getComputedStyle(el).font !== font) sync();
     };
     const rootObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver(onRootChange);
-    rootObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class"] });
+    const start = () => {
+      started.current = true;
+      sync(false);
+      setReady(true);
+      el.addEventListener("scroll", syncScroll);
+      window.addEventListener("resize", onEvent);
+      document.fonts?.addEventListener("loadingdone", onEvent);
+      observer?.observe(el);
+      rootObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class"] });
+    };
+    // Mounted with a page (a channel switch), measuring now forces the first
+    // layout of the whole half-built page inside the commit: ~0.4 s on a phone.
+    // After the first paint it measures only this field; until then the
+    // textarea draws its own text.
+    let pending = true;
+    let frame = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (typeof requestAnimationFrame === "undefined") {
+      pending = false;
+      start();
+    } else {
+      frame = requestAnimationFrame(() => {
+        timer = setTimeout(() => {
+          pending = false;
+          start();
+        }, 0);
+      });
+    }
     return () => {
+      if (pending) {
+        cancelAnimationFrame(frame);
+        clearTimeout(timer);
+        return;
+      }
       el.removeEventListener("scroll", syncScroll);
       window.removeEventListener("resize", onEvent);
       document.fonts?.removeEventListener("loadingdone", onEvent);
@@ -406,7 +434,9 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
   }, [paint]);
 
   // A new value can scroll the field, or bring in a scrollbar, without an event reaching us first.
-  useLayoutEffect(() => syncText(), [rich.display, rich.model.atoms, syncText]);
+  useLayoutEffect(() => {
+    if (started.current) syncText();
+  }, [rich.display, rich.model.atoms, syncText]);
 
   return (
     <>

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { nip19 } from "nostr-tools";
 import { useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -87,6 +87,9 @@ describe("RichTextarea painting", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
+  // The field first measures after the first paint (a mount mid-page-switch must not force layout).
+  const painted = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))));
+
   const pieces = (container: HTMLElement) =>
     [...container.querySelectorAll<HTMLElement>(".rt-piece")].map((n) => ({
       text: n.textContent,
@@ -94,8 +97,9 @@ describe("RichTextarea painting", () => {
       at: [n.style.left, n.style.top].join(","),
     }));
 
-  it("draws each styled run where the text put it, markers upright", () => {
+  it("draws each styled run where the text put it, markers upright", async () => {
     const { container } = render(<Field initial="a **b** *it*" onValue={() => {}} />);
+    await painted();
     const drawn = pieces(container);
     expect(drawn).toContainEqual({ text: "b", cls: "rt-bold", at: "40px,0px" });
     expect(drawn).toContainEqual({ text: "it", cls: "rt-italic", at: "10px,20px" });
@@ -103,8 +107,9 @@ describe("RichTextarea painting", () => {
     expect(drawn.find((p) => p.text === "it")!.cls).not.toContain("muted");
   });
 
-  it("splits a run at each line it wraps across", () => {
+  it("splits a run at each line it wraps across", async () => {
     const { container } = render(<Field initial="abcdefghijklmnopqrst" onValue={() => {}} />);
+    await painted();
     expect(pieces(container)).toEqual([
       { text: "abcdefgh", cls: "", at: "0px,0px" },
       { text: "ijklmnop", cls: "", at: "0px,20px" },
@@ -112,7 +117,7 @@ describe("RichTextarea painting", () => {
     ]);
   });
 
-  it("keeps a wrapped line on its own line when its first glyph also reports the line before", () => {
+  it("keeps a wrapped line on its own line when its first glyph also reports the line before", async () => {
     // iOS WebKit: a range starting a soft-wrapped line also yields a zero-width box at the previous line's end.
     vi.spyOn(Range.prototype, "getClientRects").mockImplementation(function (this: Range) {
       const rects = [...fixedPitchRects.call(this)];
@@ -122,6 +127,7 @@ describe("RichTextarea painting", () => {
       return rects as unknown as DOMRectList;
     });
     const { container } = render(<Field initial="abcdefghijklmnopqrst" onValue={() => {}} />);
+    await painted();
     expect(pieces(container).map((p) => p.at)).toEqual(["0px,0px", "0px,20px", "0px,40px"]);
   });
 });
