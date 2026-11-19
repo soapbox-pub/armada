@@ -1,4 +1,13 @@
 import { WEBXDC_MIME } from "@/lib/webxdcMime";
+
+const TORRENT_MIME = "application/x-bittorrent";
+
+export function isTorrentAttachment(url: string, mime?: string, name?: string): boolean {
+  return mime?.split(";", 1)[0].trim().toLowerCase() === TORRENT_MIME
+    || /\.torrent$/i.test(name ?? "")
+    || /^https?:\/\/[^/?#]+\/[^?#]*\.torrent(?:[?#]|$)/i.test(url);
+}
+
 export const IMAGE_EXTS = 'jpg|jpeg|png|gif|webp|svg|avif';
 
 /** Video extensions rendered as players. */
@@ -92,6 +101,7 @@ export function mimeFromExt(ext: string): string {
     case 'opus': return 'audio/opus';
     case 'weba': return 'audio/webm';
     case 'xdc':  return WEBXDC_MIME;
+    case 'torrent': return TORRENT_MIME;
     default:     return modelMimeFromExt(ext) ?? 'application/octet-stream';
   }
 }

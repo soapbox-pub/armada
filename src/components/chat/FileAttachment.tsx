@@ -1,6 +1,7 @@
 import { Box, Download, File, FileArchive, FileAudio, FileImage, FileText, FileVideo, Loader2, Rotate3d } from "lucide-react";
 import { lazy, Suspense, useCallback, useState } from "react";
 
+import { TorrentAttachment } from "@/components/chat/TorrentAttachment";
 import { useBlossomCandidates } from "@/hooks/useBlossomCandidates";
 import { useMediaWithFallback } from "@/hooks/useMediaWithFallback";
 import { toast } from "@/hooks/useToast";
@@ -11,9 +12,9 @@ import {
   MAX_EXPLICIT_DECRYPT_BYTES,
   verifyPlaintextHash,
 } from "@/lib/encryptedMedia";
-import { formatBytes, safeFilename } from "@/lib/fileBytes";
+import { filenameFromUrl, formatBytes, safeFilename } from "@/lib/fileBytes";
 import { companionEncryption } from "@/lib/imeta";
-import { modelFormat } from "@/lib/mediaUrls";
+import { isTorrentAttachment, modelFormat } from "@/lib/mediaUrls";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, t, useIntl } from "@/i18n";
 
@@ -37,8 +38,9 @@ interface FileAttachmentProps {
    * models only; the caller passes none while the message's media is held.
    */
   thumbnail?: string;
-  /** Always the plain download row, never the 3D card (e.g. the pin bar). */
+  /** Always the plain download row (e.g. the pin bar). */
   compact?: boolean;
+  torrentHeld?: boolean;
   className?: string;
 }
 
@@ -64,22 +66,23 @@ function typeLabel(name: string, mime: string | undefined): string | null {
 }
 
 /**
- * Download card for non-media attachments.
- * SECURITY: bytes are never rendered as a document or opened. Web:
- * octet-stream object URL + `download`; native: written to Documents (the
- * anchor silently fails in the WebView). `safeFilename` guards the name; the
- * sender's MIME picks an icon, and for a 3D model the parser three.js draws it
- * with — on a tap, into a canvas, with no outside resources (`modelRenderer`).
+ * Downloads save bytes as octet-stream on web and to Documents on native.
+ * Previews read only torrent metainfo or draw models into a canvas without
+ * loading outside resources (`modelRenderer`).
  */
-export function FileAttachment({ url, mime, name, size, encryption, fallbacks, thumbnail, compact, className }: FileAttachmentProps) {
+export function FileAttachment({ url, mime, name, size, encryption, fallbacks, thumbnail, compact, torrentHeld, className }: FileAttachmentProps) {
   const intl = useIntl();
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [viewing3d, setViewing3d] = useState(false);
 
-  const displayName = safeFilename(name);
+  const torrent = !compact && isTorrentAttachment(url, mime, name);
+  const torrentName = torrent ? safeFilename(name ?? filenameFromUrl(url)) : undefined;
+  const displayName = torrentName && !/\.torrent$/i.test(torrentName)
+    ? `${torrentName.slice(0, 192)}.torrent`
+    : torrentName ?? safeFilename(name);
   const Icon = iconFor(mime);
   const kind = typeLabel(displayName, mime);
-  const format = compact ? undefined : modelFormat(mime, name ?? url);
+  const format = compact || torrent ? undefined : modelFormat(mime, name ?? url);
   // Mirrors on the viewer's other Blossom servers. Fetched directly, not via the
   // image proxy (that's for passive display): a download or a model is a deliberate open.
   const candidates = useBlossomCandidates(url, fallbacks);
@@ -103,14 +106,15 @@ export function FileAttachment({ url, mime, name, size, encryption, fallbacks, t
       setStatus("idle");
     } catch {
       setStatus("error");
-      // A model card has no status line to say so.
-      if (format) toast({
+      if (format || torrent) {
+        toast({
           title: t({ id: "fileAttachment.downloadFailed", defaultMessage: "Download failed" }),
           description: displayName,
           variant: "destructive",
         });
+      }
     }
-  }, [status, candidates, encryption, displayName, format]);
+  }, [status, candidates, encryption, displayName, format, torrent]);
 
   // A viewable model is its own card; its download lives in the viewer.
   if (format) {
@@ -171,7 +175,7 @@ export function FileAttachment({ url, mime, name, size, encryption, fallbacks, t
     );
   }
 
-  return (
+  const row = (
     <button
       type="button"
       onClick={(e) => {
@@ -203,6 +207,20 @@ export function FileAttachment({ url, mime, name, size, encryption, fallbacks, t
       </span>
     </button>
   );
+  return torrent ? (
+    <TorrentAttachment
+      key={`${url}:${encryption?.key}:${encryption?.nonce}:${encryption?.ox}`}
+      url={url}
+      name={displayName}
+      encryption={encryption}
+      fallbacks={fallbacks}
+      held={torrentHeld}
+      downloadRow={row}
+      downloadStatus={status}
+      onDownload={download}
+      className={className}
+    />
+  ) : row;
 }
 
 function ModelPlaceholder() {
