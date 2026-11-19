@@ -10,6 +10,7 @@ import { useSearchProfiles, useMemberProfiles, type SearchProfile } from "@/hook
 import { getAvatarShape } from "@/lib/avatarShape";
 import { getCaretCoordinates } from "@/lib/caretCoordinates";
 import { menuPickHandlers } from "@/lib/menuPick";
+import { nameStyleCss, useFrameCss, useUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, useIntl } from "@/i18n";
 import { parseProfileImeta } from "@/lib/profileImeta";
@@ -350,6 +351,8 @@ function MentionItem({
   const displayName = metadata.name || metadata.display_name
     || intl.formatMessage({ id: "mentionAutocomplete.anonymous", defaultMessage: "Anonymous" });
   const identifier = metadata.nip05 || nip19.npubEncode(pubkey);
+  const ultra = useUltra(metadata);
+  const frameStyle = useFrameCss(ultra?.frame);
 
   return (
     <button
@@ -361,16 +364,18 @@ function MentionItem({
       )}
       {...menuPickHandlers(onSelect)}
     >
-      <Avatar shape={getAvatarShape(metadata)} className="size-8 shrink-0">
-        <AvatarImage src={metadata.picture} imeta={parseProfileImeta(profile.event.tags, metadata)?.picture} alt={displayName} />
-        <AvatarFallback className="bg-primary/20 text-primary text-xs">
-          <AvatarInitial name={displayName} pubkey={pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      <span className="block shrink-0 rounded-full" style={frameStyle}>
+        <Avatar shape={getAvatarShape(metadata)} className="size-8 shrink-0">
+          <AvatarImage src={metadata.picture} imeta={parseProfileImeta(profile.event.tags, metadata)?.picture} alt={displayName} />
+          <AvatarFallback className="bg-primary/20 text-primary text-xs">
+            <AvatarInitial name={displayName} pubkey={pubkey} />
+          </AvatarFallback>
+        </Avatar>
+      </span>
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
-          <div className="font-semibold text-sm truncate">
+          <div className={cn("font-semibold text-sm truncate", ultra?.name && ULTRA_LIST_NAME_CLASS)} style={nameStyleCss(ultra?.name)}>
             <DisplayName pubkey={pubkey} name={displayName} tags={profile.event.tags} />
           </div>
           <BotPill metadata={metadata} />

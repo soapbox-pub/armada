@@ -137,6 +137,7 @@ import { resolvePubkey } from "@/lib/resolvePubkey";
 import { buildEmojiMap } from "@/lib/customEmoji";
 import { emojify } from "@/components/chat/emojify";
 import { sanitizeUrl } from "@/lib/sanitizeUrl";
+import { nameStyleCss, useUltra, ULTRA_LIST_NAME_CLASS, ULTRA_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
 
@@ -240,6 +241,7 @@ const ConversationRow = memo(function ConversationRow({
   const { name, metadata, emojiTags } = useDmConversationName(peers, selfPubkey);
   // Note to Self uses Signal's name/mark: your own face would read as a message FROM you.
   const noteToSelf = !group && peers[0] === selfPubkey;
+  const ultra = useUltra(!group && !noteToSelf ? metadata : undefined);
 
   // Per-person options are 1:1 only.
   const openProfile = useOpenProfile();
@@ -278,7 +280,11 @@ const ConversationRow = memo(function ConversationRow({
           />
           <div className="min-w-0 flex-1 space-y-0.5">
             <div className="flex items-center gap-1.5 min-w-0">
-              <div className={cn("text-chat truncate", unread ? "font-semibold text-foreground" : "font-medium")}>
+              <div
+                // The search highlight paints its own marks, which a clipped gradient would hide.
+                className={cn("text-chat truncate", unread ? "font-semibold text-foreground" : "font-medium", !q && ultra?.name && ULTRA_LIST_NAME_CLASS)}
+                style={q ? undefined : nameStyleCss(ultra?.name)}
+              >
                 {q ? (
                   <Highlight text={name} query={query} emojiTags={emojiTags} />
                 ) : noteToSelf ? (
@@ -683,6 +689,7 @@ const Conversation = memo(function Conversation({
   // Note to Self throughout (see ConversationRow).
   const noteToSelf = !group && peer === user?.pubkey;
   const { name, metadata: peerMetadata } = useDmConversationName(peers, user?.pubkey);
+  const peerUltra = useUltra(!group && !noteToSelf ? peerMetadata : undefined);
   const dittoProfileHref = group ? undefined : dittoProfileUrl(peer);
   const composerBoundsRef = useRef<HTMLElement | null>(null);
   const focusedRumorId = useMemo(() => {
@@ -1004,7 +1011,7 @@ const Conversation = memo(function Conversation({
           <SyncStatusIndicator className="absolute -bottom-1 -right-1 z-10" />
         </div>
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <h1 className="font-semibold truncate min-w-0">
+          <h1 className={cn("font-semibold truncate min-w-0", peerUltra?.name && ULTRA_NAME_CLASS)} style={nameStyleCss(peerUltra?.name)}>
             {noteToSelf ? name : group ? <GroupName peers={peers} name={name} /> : <DisplayName pubkey={peer} name={name} />}
           </h1>
           {!noteToSelf && !group && <BotPill metadata={peerMetadata} />}

@@ -9,6 +9,7 @@ import { NoteToSelfAvatar } from "@/components/NoteToSelfAvatar";
 import { useAuthor } from "@/hooks/useAuthor";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
+import { useFrameCss, useUltra } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { AvatarInitial } from "@/components/AvatarInitial";
 
@@ -30,7 +31,9 @@ function DmAvatarCell({
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
   const name = getDisplayName(metadata, pubkey);
-  return (
+  // A grid tile is clipped by its neighbours, so only a lone face wears an Ultra frame.
+  const frameStyle = useFrameCss(useUltra(tile ? undefined : metadata)?.frame);
+  const avatar = (
     <Avatar
       shape={tile ? "circle" : getAvatarShape(metadata)}
       className={cn("size-full", tile && "rounded-none")}
@@ -41,6 +44,7 @@ function DmAvatarCell({
       </AvatarFallback>
     </Avatar>
   );
+  return frameStyle ? <span className="block size-full rounded-full" style={frameStyle}>{avatar}</span> : avatar;
 }
 
 export function DmAvatar({

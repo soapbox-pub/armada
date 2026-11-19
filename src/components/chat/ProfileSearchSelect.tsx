@@ -11,6 +11,7 @@ import { useAuthor } from "@/hooks/useAuthor";
 import { useSearchProfiles, type SearchProfile } from "@/hooks/useSearchProfiles";
 import { getAvatarShape } from "@/lib/avatarShape";
 import { resolvePastedPubkey } from "@/lib/selfLink";
+import { nameStyleCss, useFrameCss, useUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { parseProfileImeta } from "@/lib/profileImeta";
 import { useIntl } from "@/i18n";
@@ -146,6 +147,8 @@ function ProfileRow({
   const displayName = metadata.name || metadata.display_name
     || intl.formatMessage({ id: "profileSearchSelect.anonymous", defaultMessage: "Anonymous" });
   const identifier = metadata.nip05 || nip19.npubEncode(pubkey);
+  const ultra = useUltra(metadata);
+  const frameStyle = useFrameCss(ultra?.frame);
 
   return (
     <button
@@ -158,12 +161,14 @@ function ProfileRow({
       )}
     >
       <div className="relative shrink-0">
-        <Avatar shape={getAvatarShape(metadata)} className="size-9">
-          <AvatarImage src={metadata.picture} imeta={parseProfileImeta(profile.event.tags, metadata)?.picture} alt={displayName} />
-          <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            <AvatarInitial name={displayName} pubkey={pubkey} />
-          </AvatarFallback>
-        </Avatar>
+        <span className="block shrink-0 rounded-full" style={frameStyle}>
+          <Avatar shape={getAvatarShape(metadata)} className="size-9">
+            <AvatarImage src={metadata.picture} imeta={parseProfileImeta(profile.event.tags, metadata)?.picture} alt={displayName} />
+            <AvatarFallback className="bg-primary/20 text-primary text-xs">
+              <AvatarInitial name={displayName} pubkey={pubkey} />
+            </AvatarFallback>
+          </Avatar>
+        </span>
         {isFollowed && (
           <span
             title={intl.formatMessage({ id: "profileSearchSelect.following", defaultMessage: "Following" })}
@@ -176,7 +181,7 @@ function ProfileRow({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 min-w-0">
-          <div className="truncate text-sm font-semibold">
+          <div className={cn("truncate text-sm font-semibold", ultra?.name && ULTRA_LIST_NAME_CLASS)} style={nameStyleCss(ultra?.name)}>
             <DisplayName pubkey={pubkey} name={displayName} tags={profile.event.tags} />
           </div>
           <BotPill metadata={metadata} />
