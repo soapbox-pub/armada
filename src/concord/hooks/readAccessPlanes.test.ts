@@ -1,7 +1,7 @@
 import { bytesToHex, randomBytes } from "@noble/hashes/utils.js";
 import type { NostrFilter } from "@nostrify/nostrify";
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate, type NostrEvent } from "nostr-tools/pure";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const opens = vi.hoisted(() => ({ count: 0 }));
 vi.mock("@/concord/lib/stream", async (orig) => {
@@ -41,6 +41,14 @@ async function wraps(n: number, at: number, on = plane): Promise<NostrEvent[]> {
   return Array.from({ length: n }, () => ({ ...wrap, id: bytesToHex(randomBytes(32)), created_at: at }));
 }
 
+/** `n` real, distinct plane wraps (each id its hash), dated `at`. */
+async function realWraps(n: number, at: number): Promise<NostrEvent[]> {
+  return Promise.all(Array.from({ length: n }, async (_, i) => {
+    const rumor = buildRumor({ kind: 3303, content: `x${i}`, tags: [], pubkey: getPublicKey(sk), createdAtSecs: at });
+    return wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, plane, signer), plane);
+  }));
+}
+
 /** A relay answering like strfry: newest first, ties by id, `limit` honored up to `cap`. */
 function relayOver(events: NostrEvent[], seen: NostrFilter[], cap = Infinity) {
   return {
@@ -58,6 +66,7 @@ const signal = new AbortController().signal;
 
 describe("readAccessPlanes", () => {
   beforeEach(() => clearAccessPlaneMemory());
+  afterEach(() => vi.restoreAllMocks());
 
   it("reads past a same-second wall wider than a page", async () => {
     const plane = [...(await wraps(450, 1_000)), ...(await wraps(3, 900))];
@@ -78,12 +87,38 @@ describe("readAccessPlanes", () => {
 
   it("reopens only the wraps a re-read adds", async () => {
     const now = Math.floor(Date.now() / 1000);
-    const plane = await wraps(5, now - 600);
+    const plane = await realWraps(5, now - 600);
     const nostr = { relay: () => relayOver(plane, []) };
     await readAccessPlanes(nostr as never, community, [channel], signal);
     opens.count = 0;
-    plane.push(...(await wraps(1, now)));
+    plane.push(...(await realWraps(1, now)));
     expect(await readAccessPlanes(nostr as never, community, [channel], signal)).toHaveLength(6);
+    expect(opens.count).toBe(1);
+  });
+
+  it("doesn't reopen a wrap a relay serves as a fresh copy", async () => {
+    const plane = await realWraps(4, Math.floor(Date.now() / 1000) - 600);
+    // Every read a new object per wrap, as each relay and each full read hands over.
+    const nostr = { relay: () => relayOver(plane.map((w) => ({ ...w, tags: w.tags.map((t) => [...t]) })), []) };
+    await readAccessPlanes(nostr as never, community, [channel], signal);
+    opens.count = 0;
+    // Past the full-read interval: the planes are read whole again, into new objects.
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 7 * 3_600_000);
+    expect(await readAccessPlanes(nostr as never, community, [channel], signal)).toHaveLength(4);
+    expect(opens.count).toBe(0);
+  });
+
+  it("still opens a copy whose id isn't its hash", async () => {
+    const plane = await realWraps(1, Math.floor(Date.now() / 1000) - 600);
+    const forged = { ...plane[0], content: plane[0].content.slice(0, -4) + "AAAA" };
+    let serve = plane;
+    const nostr = { relay: () => relayOver(serve, []) };
+    await readAccessPlanes(nostr as never, community, [channel], signal);
+    opens.count = 0;
+    // Past the full-read interval: the planes are read whole again, into new objects.
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 7 * 3_600_000);
+    serve = [forged];
+    await readAccessPlanes(nostr as never, community, [channel], signal);
     expect(opens.count).toBe(1);
   });
 

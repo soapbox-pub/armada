@@ -23,8 +23,8 @@ import { adoptHistoryDeliveries, heldHistoryViews, historyViewsGeneration, histo
 import { sweepControl, whenAuthSettled } from "@/concord/lib/planeSync";
 import { registerStreamKeys } from "@/concord/lib/streamAuth";
 import { peekPendingWraps } from "@/concord/lib/rumorStore";
-import { openWrap, openWrapsBatched } from "@/concord/lib/stream";
-import { verifyEventsOnce } from "@/lib/verifyCache";
+import { openWrap, openWrapsBatched, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib/stream";
+import { idIsHash, verifyEventsOnce } from "@/lib/verifyCache";
 import { ecVerifyBatch } from "@/lib/verifyPool";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -64,16 +64,33 @@ const ACCESS_OVERLAP_SECS = 3600;
 const planeReads = new Map<string, { fullAt: number; readAt: number; wraps: Map<string, NostrEvent> }>();
 
 /**
- * Each held wrap's opening, keyed by the wrap OBJECT `planeReads` holds, so a re-read
- * reopens only what's new; `null` for one that doesn't open. Lives as long as the wrap.
+ * Each wrap's opening by id, so a re-read reopens only what's new; `null` for one that
+ * doesn't open. By id, not object: every relay serves its own copy and a full re-read
+ * fresh ones, and whichever copy came first decided what was reopened: a whole flooded
+ * plane (thousands, ~1 s on a phone) per community open. Only a copy whose id is its
+ * hash is memoized or served from here. Held without the seal, which no reader of a
+ * plane uses and which is most of an opening. Holds plaintext: cleared on logout.
  */
-const openedPlaneWraps = new WeakMap<NostrEvent, ReturnType<typeof openWrap> | null>();
+const openedPlaneWraps = new Map<string, { pk: string; opened: OpenedEvent | null }>();
+const OPENED_PLANE_WRAPS_MAX = 32_768;
+
+function withoutSeal(opened: OpenedWireEvent | undefined): OpenedEvent | null {
+  if (!opened) return null;
+  const { seal: _seal, ...rest } = opened;
+  return rest;
+}
+
+function memoizedOpening(wrap: NostrEvent): OpenedEvent | null | undefined {
+  const hit = openedPlaneWraps.get(wrap.id);
+  return hit && hit.pk === wrap.pubkey && idIsHash(wrap) ? hit.opened : undefined;
+}
 /** Max unbroken decrypt time before yielding (as `openPlaneWrapsChunked`). */
 const OPEN_SLICE_MS = 5;
 
 /** Forget the access-plane wraps read this session. Logout. */
 export function clearAccessPlaneMemory(): void {
   planeReads.clear();
+  openedPlaneWraps.clear();
   planeReadsInFlight.clear();
 }
 
@@ -179,7 +196,7 @@ export async function readAccessPlanes(
   community: Community,
   channelIds: readonly string[],
   signal: AbortSignal,
-): Promise<Array<{ channelIdHex: string; opened: ReturnType<typeof openWrap> }>> {
+): Promise<Array<{ channelIdHex: string; opened: OpenedEvent }>> {
   const planes = new Map(channelIds.map((id) => [accessPlane(community, hex32(id)).pk, { id, plane: accessPlane(community, hex32(id)) }]));
   const groups = [...planes.values()].map((p) => p.plane);
   // On an auth-gating relay a plane is read AS the plane key (Vector `fetch_plane`).
@@ -197,7 +214,7 @@ export async function readAccessPlanes(
   if (planes.size > 0 && answered < majorityOf(community.relays.length)) {
     throw new Error(`access planes read on ${answered} of ${community.relays.length} relay(s)`);
   }
-  const out: Array<{ channelIdHex: string; opened: ReturnType<typeof openWrap> }> = [];
+  const out: Array<{ channelIdHex: string; opened: OpenedEvent }> = [];
   const seen = new Set<string>();
   const listed: Array<{ wrap: NostrEvent; at: { id: string; plane: ReturnType<typeof accessPlane> } }> = [];
   for (const wrap of results.flatMap((r) => r ?? [])) {
@@ -207,13 +224,21 @@ export async function readAccessPlanes(
     if (at) listed.push({ wrap, at });
   }
   // Only wraps not opened before; a flooded plane is thousands, and their seals verify in one batch.
-  const fresh = listed.filter(({ wrap }) => !openedPlaneWraps.has(wrap));
+  const openings = listed.map(({ wrap }) => memoizedOpening(wrap));
+  const fresh = listed.filter((_, i) => openings[i] === undefined);
   const opened = await openWrapsBatched(fresh.map(({ wrap, at }) => ({ wrap, stream: at.plane })), (seals) => verifyEventsOnce(seals, ecVerifyBatch), OPEN_SLICE_MS);
-  fresh.forEach(({ wrap }, i) => openedPlaneWraps.set(wrap, opened[i] ?? null));
-  for (const { wrap, at } of listed) {
-    const o = openedPlaneWraps.get(wrap);
+  const freshOpenings = new Map<NostrEvent, OpenedEvent | null>();
+  fresh.forEach(({ wrap }, i) => {
+    const o = withoutSeal(opened[i]);
+    freshOpenings.set(wrap, o);
+    if (!idIsHash(wrap)) return;
+    if (openedPlaneWraps.size >= OPENED_PLANE_WRAPS_MAX) openedPlaneWraps.delete(openedPlaneWraps.keys().next().value!);
+    openedPlaneWraps.set(wrap.id, { pk: wrap.pubkey, opened: o });
+  });
+  listed.forEach(({ wrap, at }, i) => {
+    const o = openings[i] ?? freshOpenings.get(wrap);
     if (o) out.push({ channelIdHex: at.id, opened: { ...o } });
-  }
+  });
   return out;
 }
 
