@@ -38,6 +38,7 @@ import { gitworkshopRepositoryUrl, ngitCloneUrl } from "@/lib/gitworkshopUrl";
 import { getCustomEmojiUrl, isCustomEmoji, isRenderableReactionKey } from "@/lib/customEmoji";
 import { dittoEventUrl, dittoHashtagUrl, dittoNip19Url } from "@/lib/dittoUrl";
 import { faviconUrl } from "@/lib/faviconUrl";
+import { highlightExternalSource } from "@/lib/highlightSource";
 import { shortTimeAgo } from "@/lib/formatTime";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { parseImetaMap } from "@/lib/imeta";
@@ -1038,12 +1039,15 @@ function EmbeddedTreasureCard({ event }: { event: NostrRumor }) {
 
 /**
  * NIP-84 highlight: the author's `comment` tag (a quote highlight) above the
- * excerpt in `content`, then the source URL from an `r` tag not marked `mention`.
+ * excerpt in `content`, then its source (an `i` tag's URI, else an `r` tag): a
+ * link when it's a web URL, its text otherwise.
  */
 function EmbeddedHighlightCard({ event }: { event: NostrRumor }) {
   const comment = event.tags.find(([n]) => n === "comment")?.[1]?.trim();
   const excerpt = event.content.trim();
-  const source = externalUrl(event.tags.find(([n, , marker]) => n === "r" && marker !== "mention")?.[1]);
+  const external = highlightExternalSource(event.tags);
+  const source = externalUrl(external);
+  const sourceText = source ? undefined : external;
 
   return (
     <EmbedTruncatedBody>
@@ -1057,6 +1061,9 @@ function EmbeddedHighlightCard({ event }: { event: NostrRumor }) {
           </blockquote>
         )}
         {source && <SourceLink url={source} />}
+        {sourceText && (
+          <p dir="auto" className="text-xs text-muted-foreground break-words line-clamp-2">{sourceText}</p>
+        )}
       </div>
     </EmbedTruncatedBody>
   );
