@@ -32,7 +32,7 @@ import { callGain, callGateVersion, callShows, subscribeCallGate } from "@/conco
 import { createPortal } from "react-dom";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -84,7 +84,6 @@ import type { ImetaEntry } from "@/lib/imeta";
 import type { ProfileImeta } from "@/lib/profileImeta";
 import { FallbackImage } from "@/components/ui/FallbackImage";
 import { PortalContainerProvider, usePortalContainer } from "@/hooks/usePortalContainer";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 const TILE_ASPECT = 16 / 9;
 
@@ -567,12 +566,15 @@ const StageReactionFloater = memo(function StageReactionFloater({
       <span className="font-emoji text-4xl leading-none drop-shadow shrink-0">{entry.emoji}</span>
       {/* Matches the tile nameplate's width budget so names don't clip. */}
       <span className="flex items-center gap-1 rounded-full bg-black/70 pl-0.5 pr-2 py-0.5 text-xs text-white shadow shrink-0 max-w-56">
-        <Avatar className="size-4 shrink-0">
-          <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
-          <AvatarFallback className="bg-primary/30 text-primary text-monogram">
-            <AvatarInitial name={displayName} pubkey={entry.author} />
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          pubkey={entry.author}
+          metadata={metadata}
+          imeta={author.data?.imeta?.picture}
+          name={displayName}
+          alt=""
+          className="size-4 shrink-0"
+          fallbackClassName="bg-primary/30 text-monogram"
+        />
         <span className="truncate min-w-0">
           <DisplayName pubkey={entry.author} name={displayName} />
         </span>
@@ -630,7 +632,6 @@ function VideoTile({
   const participant = trackRef.participant;
   const { pubkey, displayName, verified, metadata, imeta } = useTileDisplayName(participant);
   const intl = useIntl();
-  const shape = getAvatarShape(metadata);
   const isScreenShare = trackRef.source === Track.Source.ScreenShare;
   const { enabled: endToEndEncrypted } = useCallSignals();
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -722,12 +723,14 @@ function VideoTile({
       ) : (
         <>
           <BlurredAvatarBackdrop picture={metadata?.picture} imeta={imeta?.picture} />
-          <Avatar shape={shape} className={cn("relative", large ? "size-24" : "size-16")}>
-            <AvatarImage src={metadata?.picture} imeta={imeta?.picture} alt={displayName} />
-            <AvatarFallback className="bg-primary/20 text-primary text-xl">
-              <AvatarInitial name={displayName} pubkey={pubkey} />
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            pubkey={pubkey}
+            metadata={metadata}
+            imeta={imeta?.picture}
+            name={displayName}
+            className={cn("relative", large ? "size-24" : "size-16")}
+            fallbackClassName="text-xl"
+          />
         </>
       )}
       {isScreenShare && !isLocal && (
@@ -1080,12 +1083,14 @@ function AvatarTile({
         )}
         style={ringStyle}
       >
-        <Avatar shape={shape} className={large ? "size-28" : "size-16"}>
-          <AvatarImage src={metadata?.picture} imeta={imeta?.picture} alt={displayName} />
-          <AvatarFallback className="bg-primary/20 text-primary text-xl">
-            <AvatarInitial name={displayName} pubkey={pubkey} />
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          pubkey={pubkey}
+          metadata={metadata}
+          imeta={imeta?.picture}
+          name={displayName}
+          className={large ? "size-28" : "size-16"}
+          fallbackClassName="text-xl"
+        />
       </div>
       <FocusButton focused={focused} onClick={onToggleFocus} />
       <RaisedHandBadge pubkey={pubkey} />
@@ -1343,12 +1348,13 @@ function HeroAvatarView({
           // A mask clips box rings, so a custom shape glows as a silhouette.
           style={hasCustomShape && speaking ? { filter: shapedAvatarSpeakingStyle.filter } : undefined}
         >
-          <Avatar shape={shape} className={cn("shadow-xl", s.avatar, pending && "opacity-80")}>
-            <AvatarImage src={metadata?.picture} alt={name} />
-            <AvatarFallback className={cn("bg-primary/20 text-primary", s.initial)}>
-              <AvatarInitial name={name} pubkey={pubkey} />
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            pubkey={pubkey}
+            metadata={metadata}
+            name={name}
+            className={cn("shadow-xl", s.avatar, pending && "opacity-80")}
+            fallbackClassName={s.initial}
+          />
         </div>
         {muted && (
           <span
@@ -1387,7 +1393,7 @@ function HeroAvatarView({
         )}
       </div>
       <span className={cn("max-w-28 truncate text-muted-foreground", theater ? "text-sm" : "text-xs")}>
-        {caption}
+        {caption === name ? <DisplayName pubkey={pubkey} name={name} ultra="hero" /> : caption}
       </span>
     </div>
   );

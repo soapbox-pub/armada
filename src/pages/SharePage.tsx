@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -42,7 +42,6 @@ import {
   type SwitcherContext,
   type SwitcherEntries,
 } from "@/lib/switcher";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 const EMPTY_ENTRIES: SwitcherEntries = { spaces: [], channels: [] };
 
@@ -66,10 +65,7 @@ function DmDestination({
   const name = useScopedDisplayName(peer, author.data?.metadata);
   return (
     <CommandItem value={`${name} ${peer}`} onSelect={onSelect} className="touch:py-3">
-      <Avatar className="mr-2 size-7 shrink-0">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-        <AvatarFallback className="text-xs"><AvatarInitial name={name} pubkey={peer} /></AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={peer} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} className="mr-2 size-7 shrink-0" fallbackClassName="text-xs" />
       <span className="truncate">
         <DisplayName pubkey={peer} name={name} />
       </span>

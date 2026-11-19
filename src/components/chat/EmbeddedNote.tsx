@@ -15,7 +15,7 @@ import { ChestIcon } from "@/components/icons/ChestIcon";
 import { CalendarEventMessageCard } from "@/components/chat/CalendarEventCard";
 import { BannedTombstone } from "@/components/chat/BannedTombstone";
 import { ChatContent } from "@/components/chat/ChatContent";
-import { CustomEmojiImg, EmojifiedText } from "@/components/chat/CustomEmoji";
+import { CustomEmojiImg } from "@/components/chat/CustomEmoji";
 import { EmojiPackCard } from "@/components/chat/EmojiPackCard";
 import { MagazineCover } from "@/components/chat/MagazineCover";
 import { Lightbox, type LightboxItem } from "@/components/chat/Lightbox";
@@ -23,7 +23,6 @@ import { PollView } from "@/components/chat/PollView";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
 import { VideoPlayer } from "@/components/chat/VideoPlayer";
 import { ThemeDiscoverCard } from "@/components/discover/ThemeDiscoverCard";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { FallbackImage } from "@/components/ui/FallbackImage";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,7 +30,6 @@ import { publicRelayHints, useAddrEvent, useEvent, type AddrCoords } from "@/hoo
 import { useAuthor } from "@/hooks/useAuthor";
 import { useMediaWithFallback } from "@/hooks/useMediaWithFallback";
 import { toast } from "@/hooks/useToast";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { useIsUserBanned } from "@/lib/blocklistStore";
 import { parseCalendarEvent, type RsvpTally } from "@/lib/calendar";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -56,7 +54,10 @@ import { FormattedMessage, common, defineMessages, t, useIntl, type MessageDescr
 import type { GitRepositoryAnnouncement } from "@/lib/gitActivity";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type { PollTally } from "@/lib/polls";
-import { AvatarInitial } from "@/components/AvatarInitial";
+import { DisplayName } from "@/components/DisplayName";
+import { UserAvatar } from "@/components/UserAvatar";
+
+const NO_AUTHOR_TAGS: string[][] = [];
 
 interface EmbeddedNoteProps {
   eventId: string;
@@ -293,12 +294,14 @@ function GenericEventCard({ event, sourceUrl, className }: { event: NostrRumor; 
         <div className="flex items-center gap-2 min-w-0">
           <ProfilePreviewCard pubkey={event.pubkey}>
             <button type="button" className="shrink-0" onClick={(e) => e.stopPropagation()}>
-              <Avatar shape={getAvatarShape(metadata)} className="size-5">
-                <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-                <AvatarFallback className="bg-primary/20 text-primary text-3xs">
-                  <AvatarInitial name={displayName} pubkey={event.pubkey} />
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar
+                pubkey={event.pubkey}
+                metadata={metadata}
+                imeta={author.data?.imeta?.picture}
+                name={displayName}
+                className="size-5"
+                fallbackClassName="text-3xs"
+              />
             </button>
           </ProfilePreviewCard>
 
@@ -308,9 +311,7 @@ function GenericEventCard({ event, sourceUrl, className }: { event: NostrRumor; 
               className="text-sm font-semibold truncate hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
-              {author.data?.event
-                ? <EmojifiedText tags={author.data.event.tags}>{displayName}</EmojifiedText>
-                : displayName}
+              <DisplayName pubkey={event.pubkey} name={displayName} tags={author.data?.event?.tags ?? NO_AUTHOR_TAGS} metadata={metadata} />
             </button>
           </ProfilePreviewCard>
 

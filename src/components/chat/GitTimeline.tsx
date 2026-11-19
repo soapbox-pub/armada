@@ -6,10 +6,11 @@ import type { ChannelTimelineEntry, GitChannelTimelineEntry } from "@/components
 import { ThreadPanel } from "@/components/chat/ThreadPanel";
 import { ThreadPanelSlot } from "@/components/chat/ThreadPanelSlot";
 import type { ChatMsg, ChatTransport } from "@/components/chat/transport";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
+import { DisplayName } from "@/components/DisplayName";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
+import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/useToast";
 import { ciGroupsCounts, ciGroupsOutcome, ciRunOutcome, ciWorkflowName, groupCIRunsByWorkflow, type CIRun, type CIRunJob, type CIWorkflowGroup } from "@/lib/ci";
 import { shortTimeAgo } from "@/lib/formatTime";
@@ -31,7 +32,6 @@ import { gitworkshopTicketUrl } from "@/lib/gitworkshopUrl";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, defineMessages, t, useIntl, type IntlShape, type MessageDescriptor } from "@/i18n";
 import type { ReactNode } from "react";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Callbacks that make the conversation panel writable; absent means read-only. */
 export interface TicketPanelActions {
@@ -163,7 +163,7 @@ function TicketOpenedGroupRow({ entries, onOpen }: { entries: readonly Extract<G
   return (
     <article data-git-entry className="px-2.5">
       <div className="flex items-start gap-3 rounded py-1.5 transition-colors hover:bg-secondary/40">
-        <Avatar className="size-10 shrink-0"><ActorAvatar pubkey={ticket.author} /></Avatar>
+        <UserAvatar pubkey={ticket.author} className="size-10 shrink-0" fallbackClassName="text-3xs font-semibold" />
         <div className="min-w-0 flex-1 pr-2">
           <p className="flex flex-wrap items-baseline gap-x-1.5">
             <ActorName pubkey={ticket.author} className="text-chat" />
@@ -220,7 +220,7 @@ function GitCommentRow({ entry, onOpen, continuation }: { entry: Extract<GitChan
   }
   return (
     <div className="flex items-start gap-3">
-      <Avatar className="size-10 shrink-0"><ActorAvatar pubkey={comment.author} /></Avatar>
+      <UserAvatar pubkey={comment.author} className="size-10 shrink-0" fallbackClassName="text-3xs font-semibold" />
       <div className="min-w-0 flex-1 pr-2">
         <p><ActorName pubkey={comment.author} className="text-chat" /></p>
         <BodyPreview content={comment.content} onOpen={onOpen} />
@@ -262,12 +262,6 @@ function StatusGroupRow({ entries, onOpen }: { entries: readonly Extract<GitChan
       )}
     </NoticeRow>
   );
-}
-
-function ActorAvatar({ pubkey }: { pubkey: string }) {
-  const author = useAuthor(pubkey);
-  const name = useScopedDisplayName(pubkey, author.data?.metadata);
-  return <><AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} /><AvatarFallback className="text-3xs font-semibold"><AvatarInitial name={name} pubkey={pubkey} /></AvatarFallback></>;
 }
 
 const CI_OUTCOMES = defineMessages({
@@ -518,10 +512,16 @@ function ciSummary(intl: IntlShape, groups: readonly CIWorkflowGroup[]): string 
   return intl.formatList(parts, { type: "unit", style: "short" });
 }
 
+const NO_ACTOR_TAGS: string[][] = [];
+
 function ActorName({ pubkey, className }: { pubkey: string; className?: string }) {
   const author = useAuthor(pubkey);
   const name = useScopedDisplayName(pubkey, author.data?.metadata);
-  return <span className={cn("font-semibold text-foreground", className ?? "text-sm")}>{name}</span>;
+  return (
+    <span className={cn("font-semibold text-foreground", className ?? "text-sm")}>
+      <DisplayName pubkey={pubkey} name={name} tags={author.data?.event?.tags ?? NO_ACTOR_TAGS} metadata={author.data?.metadata} />
+    </span>
+  );
 }
 
 const STATUS_ACTIONS = defineMessages({

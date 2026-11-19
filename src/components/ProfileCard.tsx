@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { NostrMetadata } from '@nostrify/nostrify';
 import { DisplayName } from '@/components/DisplayName';
+import { UserAvatar } from '@/components/UserAvatar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type AvatarShape, isValidAvatarShape, isEmoji, getAvatarMaskUrlAsync, shapedAvatarBorderStyle } from '@/lib/avatarShape';
 import { CheckCircle2, Pencil, Plus, Trash2, ChevronDown, ImagePlus, SmilePlus, X as XIcon } from 'lucide-react';
@@ -313,12 +314,15 @@ export function ProfileCard({
             </>
           ) : (
             <div className="relative shrink-0" style={hasCustomShape ? shapedAvatarBorderStyle : undefined}>
-              <Avatar shape={shape} className={cn("shadow-sm", hasCustomShape ? "size-[88px]" : "size-24 border-4 border-background")}>
-                <AvatarImage src={metadata.picture} imeta={imeta?.picture} alt={displayName} className="object-cover" />
-                <AvatarFallback className="bg-primary/20 text-primary text-2xl font-bold">
-                  {initial}
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar
+                pubkey={pubkey}
+                metadata={metadata as NostrMetadata}
+                imeta={imeta?.picture}
+                name={displayName}
+                shape={shape}
+                className={cn("shadow-sm", hasCustomShape ? "size-[88px]" : "size-24 border-4 border-background")}
+                fallbackClassName="text-2xl font-bold"
+              />
             </div>
           )}
         </div>
@@ -332,7 +336,7 @@ export function ProfileCard({
           />
         ) : (
           <h2 className="text-xl font-bold truncate">
-            <DisplayName pubkey={pubkey} name={displayName} />
+            <DisplayName pubkey={pubkey} name={displayName} ultra="hero" />
           </h2>
         )}
 

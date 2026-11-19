@@ -1,14 +1,16 @@
-import { Lock, UserIcon } from "lucide-react";
+import { Lock } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { DisplayName } from "@/components/DisplayName";
 import { Button } from "@/components/ui/button";
-import { getAvatarShape } from "@/lib/avatarShape";
+import { UserAvatar } from "@/components/UserAvatar";
 import { type HomeLandingState } from "@/lib/railLayout";
 import { useLoggedInAccounts } from "@/hooks/useLoggedInAccounts";
 import { useSwitchAccount } from "@/hooks/useSwitchAccount";
 import { FormattedMessage, useIntl } from "@/i18n";
+
+const NO_TAGS: string[][] = [];
 
 /**
  * Shown at `/c/:communityId` when the active account has no membership. Shows
@@ -57,13 +59,16 @@ export function CommunityNoAccess({ communityId }: { communityId: string }) {
               onClick={() => switchTo(user.id)}
               className="flex items-center gap-2 clip-corner-lg p-2 text-left hover:bg-accent touch:min-h-11"
             >
-              <Avatar shape={getAvatarShape(user.metadata)} className="size-8 shrink-0">
-                <AvatarImage src={user.metadata.picture} imeta={user.imeta?.picture} alt={displayName(user.metadata)} />
-                <AvatarFallback>
-                  {displayName(user.metadata).charAt(0) || <UserIcon className="size-4" />}
-                </AvatarFallback>
-              </Avatar>
-              <span className="truncate text-sm font-medium">{displayName(user.metadata)}</span>
+              <UserAvatar
+                pubkey={user.pubkey}
+                metadata={user.metadata}
+                imeta={user.imeta?.picture}
+                name={displayName(user.metadata)}
+                className="size-8 shrink-0"
+              />
+              <span className="truncate text-sm font-medium">
+                <DisplayName pubkey={user.pubkey} name={displayName(user.metadata)} tags={user.event?.tags ?? NO_TAGS} metadata={user.metadata} />
+              </span>
             </button>
           ))}
         </div>

@@ -28,10 +28,10 @@ import { ChatComposer } from "@/components/chat/ChatComposer";
 import { ChatContent } from "@/components/chat/ChatContent";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { DisplayName } from "@/components/DisplayName";
+import { UserAvatar } from "@/components/UserAvatar";
 import { MessageTimeline, type MessageTimelineHandle } from "@/components/chat/MessageTimeline";
 import { ThreadPanel } from "@/components/chat/ThreadPanel";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,7 +58,6 @@ import { channelReadKey, useReadState } from "@/hooks/useReadState";
 import { usePageCovered } from "@/lib/settingsOverlay";
 import { toast } from "@/hooks/useToast";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { chatRoute, parseChatRoute, type ChatRoute } from "@/lib/routes";
 import { useLegacyFocusParams } from "@/hooks/useLegacyFocusParams";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -72,7 +71,6 @@ import { threadSummary } from "@/components/chat/transport";
 import type { ChatMsg, ChatTransport } from "@/components/chat/transport";
 import { useChatEditing } from "@/components/chat/useChatEditing";
 import type { NostrEvent } from "@nostrify/nostrify";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * Kinds rendered through the shared ChatMessage row. Agent job events
@@ -309,12 +307,14 @@ function BuzzForumPost({ event, transport, votes, onVote, isAgent }: BuzzForumPo
 
         <div className="min-w-0 flex-1 cursor-pointer px-3 py-2" onClick={handleBodyClick}>
           <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
-              <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-              <AvatarFallback className="bg-primary/20 text-primary text-monogram font-semibold">
-                <AvatarInitial name={displayName} pubkey={event.pubkey} />
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar
+              pubkey={event.pubkey}
+              metadata={metadata}
+              imeta={author.data?.imeta?.picture}
+              name={displayName}
+              className="size-4 shrink-0"
+              fallbackClassName="text-monogram font-semibold"
+            />
             <span className="truncate font-medium text-foreground">
               <DisplayName pubkey={event.pubkey} name={displayName} />
             </span>

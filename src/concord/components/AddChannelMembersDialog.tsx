@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
 import { SearchField } from "@/components/ui/search-field";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { ChromeDialogContent, ChromeDialogHeader, Dialog } from "@/components/ui/dialog";
 import {
@@ -20,7 +20,6 @@ import { useEventStore } from "@/hooks/useEventStore";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { common, FormattedMessage, useIntl } from "@/i18n";
 import { profileMatches, type SearchProfile } from "@/hooks/useSearchProfiles";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Render cap before "Show all" (slicing, not virtualization). */
 const RENDER_CAP = 50;
@@ -202,12 +201,7 @@ function CandidateRow({ pubkey, added, busy, onAdd }: {
   const name = useScopedDisplayName(pubkey, author.data?.metadata);
   return (
     <li className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent/50">
-      <Avatar className="size-8 shrink-0">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-        <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          <AvatarInitial name={name} pubkey={pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} className="size-8 shrink-0" fallbackClassName="text-3xs" />
       <span className="min-w-0 flex-1 truncate text-sm">
         <DisplayName pubkey={pubkey} name={name} />
       </span>

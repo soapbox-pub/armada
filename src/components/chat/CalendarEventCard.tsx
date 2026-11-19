@@ -1,7 +1,7 @@
 import { Calendar, CalendarDays, Check, Clock, HelpCircle, MapPin, X } from "lucide-react";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Dialog, ChromeDialogContent } from "@/components/ui/dialog";
 import { useAuthor } from "@/hooks/useAuthor";
 import { FormattedMessage, useIntl } from "@/i18n";
@@ -25,24 +25,17 @@ function AttendeeAvatars({ pubkeys, max = 5 }: { pubkeys: string[]; max?: number
     <div className="flex items-center">
       <div className="flex -space-x-2">
         {shown.map((pk) => (
-          <AttendeeAvatar key={pk} pubkey={pk} />
+          <UserAvatar
+            key={pk}
+            pubkey={pk}
+            className="size-6 ring-2 ring-background"
+            fallbackClassName="text-monogram"
+            frame={false}
+          />
         ))}
       </div>
       {extra > 0 && <span className="ml-2 text-xs text-muted-foreground">+{extra}</span>}
     </div>
-  );
-}
-
-function AttendeeAvatar({ pubkey }: { pubkey: string }) {
-  const author = useAuthor(pubkey);
-  const name = useScopedDisplayName(pubkey, author.data?.metadata);
-  return (
-    <Avatar className="size-6 ring-2 ring-background">
-      <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-        {name.slice(0, 2).toUpperCase()}
-      </AvatarFallback>
-    </Avatar>
   );
 }
 

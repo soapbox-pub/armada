@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useState, type ReactNode, type R
 
 import { DisplayName } from "@/components/DisplayName";
 import { ChatMessage } from "@/components/chat/ChatMessage";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -69,10 +69,7 @@ function AuthorChip({ pubkey, onRemove }: { pubkey: string; onRemove: () => void
   const intl = useIntl();
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 py-0.5 pl-1 pr-1.5 text-xs text-foreground">
-      <Avatar className="size-4">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} />
-        <AvatarFallback className="text-monogram">{(name || pubkey).slice(0, 2)}</AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} alt="" className="size-4" fallbackClassName="text-monogram" />
       <span className="max-w-28 truncate">
         {name ? <DisplayName pubkey={pubkey} name={name} /> : pubkey.slice(0, 8)}
       </span>
@@ -109,10 +106,7 @@ function AuthorOption({
       onClick={onToggle}
       className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-sm hover:bg-foreground/5"
     >
-      <Avatar className="size-6">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} />
-        <AvatarFallback className="text-monogram">{(name || pubkey).slice(0, 2)}</AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} alt="" className="size-6" fallbackClassName="text-monogram" />
       <span className="min-w-0 flex-1 truncate">
         {name ? <DisplayName pubkey={pubkey} name={name} /> : pubkey.slice(0, 12)}
       </span>
@@ -364,10 +358,7 @@ function SuggestProfile({ pubkey }: { pubkey: string }) {
   const name = useScopedDisplayName(pubkey, author.data?.metadata);
   return (
     <>
-      <Avatar className="size-6">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} />
-        <AvatarFallback className="text-monogram">{(name || pubkey).slice(0, 2)}</AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} alt="" className="size-6" fallbackClassName="text-monogram" />
       <span className="min-w-0 flex-1 truncate">
         {name ? <DisplayName pubkey={pubkey} name={name} /> : pubkey.slice(0, 12)}
       </span>

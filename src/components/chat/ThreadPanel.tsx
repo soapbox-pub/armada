@@ -22,6 +22,7 @@ import { ReportDialog } from "@/components/ReportDialog";
 import { ZapDialog } from "@/components/chat/ZapDialog";
 import { ZapPill } from "@/components/chat/ZapPill";
 import { DisplayName } from "@/components/DisplayName";
+import { UserAvatar } from "@/components/UserAvatar";
 import { StaffPill } from "@/components/StaffPill";
 import {
   AlertDialog,
@@ -33,7 +34,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { MessageMenuItems } from "@/components/chat/MessageMenuItems";
 import { MenuReactionPicker, MenuReactionRow } from "@/components/chat/MenuReactions";
@@ -57,7 +57,6 @@ import { isTombstoneRoot } from "@/concord/hooks/useConcordThreads";
 import { ComposerBoundsProvider, getComposerCollisionPadding, useComposerBoundsRef } from "@/contexts/ComposerBoundsContext";
 import { contextActionsAt, keepSelectionOnRightPress, withImageActions } from "@/contexts/ChatImageMenuContext";
 import { isIosApp } from "@/lib/platform";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
 import { fullDateTime, shortClockTime, shortTimeAgo } from "@/lib/formatTime";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -71,7 +70,6 @@ import { common, FormattedMessage, useIntl } from "@/i18n";
 import type { MessageActionItem } from "@/components/chat/messageActions";
 import { useChatEditing } from "@/components/chat/useChatEditing";
 import type { ChatMsg, ChatTransport, MessageReactions, MessageZaps, OnchainZapAnnouncement, ZapPayment } from "@/components/chat/transport";
-import { AvatarInitial } from "@/components/AvatarInitial";
 import { reducedMotion } from "@/lib/reducedMotion";
 
 /** Continuation window; matches MessageTimeline's `CONTINUATION_WINDOW_SECONDS`. */
@@ -383,12 +381,14 @@ export function ThreadMessage({
           <div className="flex items-center gap-3">
             <ProfilePreviewCard pubkey={event.pubkey}>
               <button type="button" className="shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                <Avatar shape={getAvatarShape(metadata)} className="size-10 cursor-pointer transition-opacity hover:opacity-90">
-                  <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-                  <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                    <AvatarInitial name={displayName} pubkey={event.pubkey} />
-                  </AvatarFallback>
-                </Avatar>
+                <UserAvatar
+                  pubkey={event.pubkey}
+                  metadata={metadata}
+                  imeta={author.data?.imeta?.picture}
+                  name={displayName}
+                  className="size-10 cursor-pointer transition-opacity hover:opacity-90"
+                  fallbackClassName="text-sm"
+                />
               </button>
             </ProfilePreviewCard>
             <div className="min-w-0 flex flex-col justify-center">
@@ -418,12 +418,14 @@ export function ThreadMessage({
       ) : (
         <ProfilePreviewCard pubkey={event.pubkey}>
           <button type="button" className="shrink-0 mt-0.5 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <Avatar shape={getAvatarShape(metadata)} className="size-9 cursor-pointer transition-opacity hover:opacity-90">
-              <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-              <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                <AvatarInitial name={displayName} pubkey={event.pubkey} />
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar
+              pubkey={event.pubkey}
+              metadata={metadata}
+              imeta={author.data?.imeta?.picture}
+              name={displayName}
+              className="size-9 cursor-pointer transition-opacity hover:opacity-90"
+              fallbackClassName="text-sm"
+            />
           </button>
         </ProfilePreviewCard>
       )}

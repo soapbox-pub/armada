@@ -3,7 +3,6 @@ import { AtSign, Bot, ChevronDown, Copy, Crown, Gem, IdCard, MessageSquareText, 
 import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
 
 import { BoostersContext } from "@/components/chat/boostersContext";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BotPill } from "@/components/BotPill";
 import { DeferredRow } from "@/components/DeferredRow";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
@@ -48,16 +47,14 @@ import { useScopedIdentity } from "@/hooks/useScopedDisplayName";
 import { isStatusExpired, useUserStatus } from "@/hooks/useUserStatus";
 import { requestMention } from "@/hooks/useMentionBus";
 import { toast } from "@/hooks/useToast";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { tryNpubEncode } from "@/lib/safeNip19";
-import { useFrameCss, nameStyleCss, useUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { writeClipboardText } from "@/lib/clipboard";
 import { FormattedMessage, t, useIntl } from "@/i18n";
 
 import type { Nip29Admin } from "@/lib/nip29";
 import type { ComponentType, ReactNode } from "react";
-import { AvatarInitial } from "@/components/AvatarInitial";
+import { UserAvatar } from "@/components/UserAvatar";
 
 const ROLE_OWNER = "owner";
 const ROLE_ADMIN = "admin";
@@ -183,8 +180,6 @@ const MemberRow = memo(function MemberRow({
   const intl = useIntl();
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
-  const ultra = useUltra(metadata);
-  const frameStyle = useFrameCss(ultra?.frame);
   const { displayName, color } = useScopedIdentity(pubkey, metadata);
   const status = useUserStatus(pubkey).data?.status;
   const rawMusicStatus = useUserStatus(pubkey, "music").data?.status;
@@ -280,13 +275,15 @@ const MemberRow = memo(function MemberRow({
     <ContextMenuTrigger className="block">
     <div className="member-row gutter-tick group flex items-center gap-2.5 pl-3 pr-2 py-2 clip-corner-lg transition-colors hover:bg-accent/50 hover:text-foreground">
       <ProfilePreviewCard pubkey={pubkey}>
-        <button type="button" className="relative shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" style={frameStyle}>
-          <Avatar shape={getAvatarShape(metadata)} className="size-8 cursor-pointer transition-opacity hover:opacity-90">
-            <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-            <AvatarFallback className="bg-primary/20 text-primary text-3xs">
-              <AvatarInitial name={displayName} pubkey={pubkey} />
-            </AvatarFallback>
-          </Avatar>
+        <button type="button" className="relative shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <UserAvatar
+            pubkey={pubkey}
+            metadata={metadata}
+            imeta={author.data?.imeta?.picture}
+            name={displayName}
+            className="size-8 cursor-pointer transition-opacity hover:opacity-90"
+            fallbackClassName="text-3xs"
+          />
           {presence && (
             <span
               aria-label={presence === "online"
@@ -306,10 +303,11 @@ const MemberRow = memo(function MemberRow({
           className="min-w-0 flex-1 text-left focus:outline-none"
         >
           <span
-            className={cn("block text-sm truncate", !color && ultra?.name && ULTRA_LIST_NAME_CLASS)}
-            style={color ? { color } : nameStyleCss(ultra?.name)}
+            className="block text-sm truncate"
+            style={color ? { color } : undefined}
           >
-            <DisplayName pubkey={pubkey} name={displayName} />
+            {/* A Concord role colour outranks the Ultra name style. */}
+            <DisplayName pubkey={pubkey} name={displayName} ultra={color ? false : "list"} />
             {boosting && (
               <span
                 role="img"
@@ -411,12 +409,15 @@ const MemberRow = memo(function MemberRow({
       className="w-56"
       sheetIdentity={{
         lead: (
-          <Avatar shape={getAvatarShape(metadata)} className="size-10 shrink-0">
-            <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
-            <AvatarFallback className="bg-primary/20 text-primary text-xs">
-              <AvatarInitial name={displayName} pubkey={pubkey} />
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            pubkey={pubkey}
+            metadata={metadata}
+            imeta={author.data?.imeta?.picture}
+            name={displayName}
+            alt=""
+            className="size-10 shrink-0"
+            fallbackClassName="text-xs"
+          />
         ),
         title: <DisplayName pubkey={pubkey} name={displayName} />,
       }}

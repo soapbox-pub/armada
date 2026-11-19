@@ -2,7 +2,7 @@
 // It is important that all functionality in this file is preserved, and should only be modified if explicitly requested.
 
 import { useContext, useRef, useState } from 'react';
-import { ChevronDown, IdCard, KeyRound, LogOut, QrCode, Smile, UserIcon, UserPen, UserPlus, Wallet } from 'lucide-react';
+import { ChevronDown, IdCard, KeyRound, LogOut, QrCode, Smile, UserPen, UserPlus, Wallet } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,9 +10,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.tsx';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx';
-import { EmojifiedText } from '@/components/chat/CustomEmoji';
-import { getAvatarShape } from '@/lib/avatarShape';
+import { UserAvatar } from '@/components/UserAvatar';
+import { DisplayName } from '@/components/DisplayName';
 import { Skeleton } from '@/components/ui/skeleton.tsx';
 import { useLoggedInAccounts, type Account } from '@/hooks/useLoggedInAccounts';
 import { useSwitchAccount } from '@/hooks/useSwitchAccount';
@@ -47,20 +46,23 @@ const hasName = (account: Account): boolean => {
   return Boolean(account.metadata.name || account.metadata.display_name);
 };
 
+const NO_TAGS: string[][] = [];
+
 /** Name with NIP-30 custom emoji rendered; plain-string sites use {@link getDisplayName}. */
 function AccountName({ account }: { account: Account }) {
   const intl = useIntl();
   return (
-    <EmojifiedText tags={account.event?.tags ?? []}>
-      {getDisplayName(account, intl.formatMessage(ANONYMOUS))}
-    </EmojifiedText>
+    <DisplayName
+      pubkey={account.pubkey}
+      name={getDisplayName(account, intl.formatMessage(ANONYMOUS))}
+      tags={account.event?.tags ?? NO_TAGS}
+      metadata={account.metadata}
+    />
   );
 }
 
 export function AccountSwitcher({ onAddAccountClick }: AccountSwitcherProps) {
   const { currentUser, otherUsers, isLoading } = useLoggedInAccounts();
-  const intl = useIntl();
-  const anonymous = intl.formatMessage(ANONYMOUS);
   // Both reload the app (see `switchAccount`), or the incoming account inherits
   // the outgoing one's caches.
   const { switchTo, signOut } = useSwitchAccount();
@@ -141,12 +143,12 @@ export function AccountSwitcher({ onAddAccountClick }: AccountSwitcherProps) {
             <Skeleton className='w-8 h-8 rounded-full shrink-0' />
           ) : (
             <span className='relative shrink-0'>
-              <Avatar shape={getAvatarShape(currentUser.metadata)} className='w-8 h-8'>
-                <AvatarImage src={currentUser.metadata.picture} imeta={currentUser.imeta?.picture} alt={getDisplayName(currentUser, anonymous)} />
-                <AvatarFallback>
-                  {profileIncomplete ? <UserIcon className='size-4' /> : getDisplayName(currentUser, anonymous).charAt(0)}
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar
+                pubkey={currentUser.pubkey}
+                metadata={currentUser.metadata}
+                imeta={currentUser.imeta?.picture}
+                className='w-8 h-8'
+              />
               {(profileIncomplete || backupPending) && (
                 <span className='absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-primary ring-2 ring-background' aria-hidden />
               )}
@@ -230,10 +232,7 @@ export function AccountSwitcher({ onAddAccountClick }: AccountSwitcherProps) {
             onClick={() => switchTo(user.id)}
             className='flex items-center gap-2 cursor-pointer p-2 clip-corner-lg'
           >
-            <Avatar shape={getAvatarShape(user.metadata)} className='w-8 h-8'>
-              <AvatarImage src={user.metadata.picture} imeta={user.imeta?.picture} alt={getDisplayName(user, anonymous)} />
-              <AvatarFallback>{getDisplayName(user, anonymous)?.charAt(0) || <UserIcon />}</AvatarFallback>
-            </Avatar>
+            <UserAvatar pubkey={user.pubkey} metadata={user.metadata} imeta={user.imeta?.picture} className='w-8 h-8' />
             <div className='flex-1 truncate'>
               <p className='text-sm font-medium'><AccountName account={user} /></p>
             </div>

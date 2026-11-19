@@ -1,14 +1,13 @@
 import { Check, Minus, Shield, Users, X } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 
-import { AvatarInitial } from "@/components/AvatarInitial";
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { SearchField } from "@/components/ui/search-field";
 import { Textarea } from "@/components/ui/textarea";
+import { UserAvatar } from "@/components/UserAvatar";
 import { ChannelTypeStrip } from "@/concord/components/ChannelTypeStrip";
 import { EVERYONE, memberFrom, RULE_GROUPS, ruleState, targetKey, type RuleState } from "@/concord/components/channelEditor/editorDraft";
 import { GROUP_LABEL, SHEET_ROW, SHEET_TILE, well, type Surface } from "@/concord/components/channelEditor/editorStyles";
@@ -40,12 +39,16 @@ export function MemberAvatar({ pubkey, className, fallbackClassName }: { pubkey:
   const name = useScopedDisplayName(pubkey, author.data?.metadata);
   return (
     // The name beside it says who this is.
-    <Avatar aria-hidden className={cn("shrink-0", className)}>
-      <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
-      <AvatarFallback className={cn("bg-muted font-semibold text-muted-foreground", fallbackClassName)}>
-        <AvatarInitial name={name} pubkey={pubkey} />
-      </AvatarFallback>
-    </Avatar>
+    <UserAvatar
+      aria-hidden
+      pubkey={pubkey}
+      metadata={author.data?.metadata}
+      imeta={author.data?.imeta?.picture}
+      name={name}
+      alt=""
+      className={cn("shrink-0", className)}
+      fallbackClassName={cn("bg-muted font-semibold text-muted-foreground", fallbackClassName)}
+    />
   );
 }
 

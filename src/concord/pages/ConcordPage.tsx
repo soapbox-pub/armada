@@ -92,7 +92,7 @@ import { ChatShell } from "@/components/chat/ChatShell";
 import { useChatEditing } from "@/components/chat/useChatEditing";
 import { SyncStatusIndicator } from "@/components/SyncStatusIndicator";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import {
   ContextMenu,
@@ -217,7 +217,6 @@ import { cn, pickDefaultChannel } from "@/lib/utils";
 import { chatRoute, parseChatRoute, type ChatRoute, type Concord2Pane } from "@/lib/routes";
 import { useLegacyFocusParams } from "@/hooks/useLegacyFocusParams";
 import { useApps } from "@/hooks/useApps";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { shortTimeAgo } from "@/lib/formatTime";
 
 import { authorsByRecency, threadSummary } from "@/components/chat/transport";
@@ -1138,12 +1137,17 @@ function ThreadReplyAvatar({ pubkey }: { pubkey: string }) {
   const metadata = author.data?.metadata;
   const name = metadata?.name ?? pubkey.slice(0, 8);
   return (
-    <Avatar shape={getAvatarShape(metadata)} className="size-5 ring-2 ring-chrome" title={name}>
-      <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="bg-primary/20 text-primary text-monogram font-semibold uppercase">
-        {name.slice(0, 1)}
-      </AvatarFallback>
-    </Avatar>
+    <span className="flex rounded-full" title={name}>
+      <UserAvatar
+        pubkey={pubkey}
+        metadata={metadata}
+        imeta={author.data?.imeta?.picture}
+        name={name}
+        className="size-5 ring-2 ring-chrome"
+        fallbackClassName="text-monogram font-semibold uppercase"
+        frame={false}
+      />
+    </span>
   );
 }
 

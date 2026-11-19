@@ -4,17 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BotPill } from "@/components/BotPill";
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { usePortalDropdown } from "@/hooks/usePortalDropdown";
 import { useSearchProfiles, useMemberProfiles, type SearchProfile } from "@/hooks/useSearchProfiles";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { getCaretCoordinates } from "@/lib/caretCoordinates";
 import { menuPickHandlers } from "@/lib/menuPick";
-import { nameStyleCss, useFrameCss, useUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, useIntl } from "@/i18n";
 import { parseProfileImeta } from "@/lib/profileImeta";
-import { AvatarInitial } from "@/components/AvatarInitial";
+import { UserAvatar } from "@/components/UserAvatar";
 
 interface MentionAutocompleteProps {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -351,8 +348,6 @@ function MentionItem({
   const displayName = metadata.name || metadata.display_name
     || intl.formatMessage({ id: "mentionAutocomplete.anonymous", defaultMessage: "Anonymous" });
   const identifier = metadata.nip05 || nip19.npubEncode(pubkey);
-  const ultra = useUltra(metadata);
-  const frameStyle = useFrameCss(ultra?.frame);
 
   return (
     <button
@@ -364,19 +359,12 @@ function MentionItem({
       )}
       {...menuPickHandlers(onSelect)}
     >
-      <span className="block shrink-0 rounded-full" style={frameStyle}>
-        <Avatar shape={getAvatarShape(metadata)} className="size-8 shrink-0">
-          <AvatarImage src={metadata.picture} imeta={parseProfileImeta(profile.event.tags, metadata)?.picture} alt={displayName} />
-          <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            <AvatarInitial name={displayName} pubkey={pubkey} />
-          </AvatarFallback>
-        </Avatar>
-      </span>
+      <UserAvatar pubkey={pubkey} metadata={metadata} imeta={parseProfileImeta(profile.event.tags, metadata)?.picture} name={displayName} className="size-8 shrink-0" fallbackClassName="text-xs" />
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
-          <div className={cn("font-semibold text-sm truncate", ultra?.name && ULTRA_LIST_NAME_CLASS)} style={nameStyleCss(ultra?.name)}>
-            <DisplayName pubkey={pubkey} name={displayName} tags={profile.event.tags} />
+          <div className="font-semibold text-sm truncate">
+            <DisplayName pubkey={pubkey} name={displayName} tags={profile.event.tags} metadata={metadata} />
           </div>
           <BotPill metadata={metadata} />
         </div>

@@ -3,20 +3,18 @@ import { Check, Copy, Link2, Loader2, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, ChromeDialogContent } from "@/components/ui/dialog";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { toast } from "@/hooks/useToast";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { writeClipboardText } from "@/lib/clipboard";
 import { getThemedQRColors } from "@/lib/qrColors";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { canShare, share as nativeShare } from "@/lib/share";
 import { shareOrigin } from "@/lib/shareOrigin";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface ProfileShareDialogProps {
   open: boolean;
@@ -88,12 +86,14 @@ export function ProfileShareDialog({ open, onOpenChange }: ProfileShareDialogPro
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <div className="flex flex-col items-center gap-2 text-center">
-          <Avatar shape={getAvatarShape(metadata)} className="size-14 ring-2 ring-primary/20">
-            <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-            <AvatarFallback className="text-lg font-semibold">
-              <AvatarInitial name={displayName} pubkey={user?.pubkey} />
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            pubkey={user?.pubkey}
+            metadata={metadata}
+            imeta={author.data?.imeta?.picture}
+            name={displayName}
+            className="size-14 ring-2 ring-primary/20"
+            fallbackClassName="text-lg font-semibold"
+          />
           <h2 className="chrome-dialog-title font-mono font-bold lowercase tracking-tight text-foreground">
             <FormattedMessage id="profileShareDialog.heading" defaultMessage="share your profile" />
           </h2>
@@ -103,7 +103,7 @@ export function ProfileShareDialog({ open, onOpenChange }: ProfileShareDialogPro
               defaultMessage="Scan or share this link to open <hl>{name}</hl> in Armada."
               values={{
                 name: ownName
-                  ? <DisplayName pubkey={user?.pubkey} name={ownName} tags={author.data?.event?.tags ?? []} />
+                  ? <DisplayName pubkey={user?.pubkey} name={ownName} tags={author.data?.event?.tags ?? []} metadata={metadata} />
                   : displayName,
                 hl: (chunks) => <span className="text-foreground">{chunks}</span> }}
             />

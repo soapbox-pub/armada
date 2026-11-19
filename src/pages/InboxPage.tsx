@@ -9,7 +9,7 @@ import { ServerScopeProvider } from "@/components/ServerScopeProvider";
 import { ReplyPreview } from "@/components/chat/ChatMessage";
 import { ThreadPanel } from "@/components/chat/ThreadPanel";
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChatScopeContext } from "@/contexts/ChatScopeContext";
@@ -32,7 +32,6 @@ import { FormattedMessage, useIntl } from "@/i18n";
 
 import type { ChatMsg, ChatTransport } from "@/components/chat/transport";
 import type { NostrRumor } from "@/lib/nostrRumor";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** One inbox row: who mentioned you, where, and a preview — click to open it. */
 function InboxRow({
@@ -62,12 +61,7 @@ function InboxRow({
         unread && !selected && "bg-primary/[0.06]",
       )}
     >
-      <Avatar className="size-9 shrink-0">
-        <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-        <AvatarFallback className="bg-primary/20 text-primary text-xs">
-          <AvatarInitial name={displayName} pubkey={event.pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={event.pubkey} metadata={metadata} imeta={author.data?.imeta?.picture} name={displayName} className="size-9 shrink-0" fallbackClassName="text-xs" />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
           <span className={cn("truncate text-sm", unread ? "font-semibold" : "font-medium")}>

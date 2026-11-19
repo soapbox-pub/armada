@@ -4,14 +4,9 @@
  * stacked, 4 = 2×2; past four the last cell is a `+N` count.
  */
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { NoteToSelfAvatar } from "@/components/NoteToSelfAvatar";
-import { useAuthor } from "@/hooks/useAuthor";
-import { getAvatarShape } from "@/lib/avatarShape";
-import { getDisplayName } from "@/lib/getDisplayName";
-import { useFrameCss, useUltra } from "@/lib/ultra";
+import { UserAvatar } from "@/components/UserAvatar";
 import { cn } from "@/lib/utils";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 const GRID_CELLS = 4;
 
@@ -28,23 +23,17 @@ function DmAvatarCell({
   fallbackClassName?: string;
   anonymous?: boolean;
 }) {
-  const author = useAuthor(pubkey);
-  const metadata = author.data?.metadata;
-  const name = getDisplayName(metadata, pubkey);
-  // A grid tile is clipped by its neighbours, so only a lone face wears an Ultra frame.
-  const frameStyle = useFrameCss(useUltra(tile ? undefined : metadata)?.frame);
-  const avatar = (
-    <Avatar
-      shape={tile ? "circle" : getAvatarShape(metadata)}
+  return (
+    <UserAvatar
+      pubkey={pubkey}
+      anonymous={anonymous}
+      // A grid tile is clipped by its neighbours, so only a lone face wears an Ultra frame.
+      frame={!tile}
+      shape={tile ? "circle" : undefined}
       className={cn("size-full", tile && "rounded-none")}
-    >
-      {!anonymous && <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />}
-      <AvatarFallback className={cn("bg-primary/20 text-primary", tile && "rounded-none", fallbackClassName)}>
-        <AvatarInitial name={name} pubkey={pubkey} />
-      </AvatarFallback>
-    </Avatar>
+      fallbackClassName={cn(tile && "rounded-none", fallbackClassName)}
+    />
   );
-  return frameStyle ? <span className="block size-full rounded-full" style={frameStyle}>{avatar}</span> : avatar;
 }
 
 export function DmAvatar({

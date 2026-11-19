@@ -3,7 +3,7 @@ import { useState } from "react";
 import { nip19 } from "nostr-tools";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { useSuspiciousActivity } from "@/concord/hooks/useSuspiciousActivity";
 import { useTimeTravelers } from "@/concord/hooks/useTimeTravelers";
@@ -83,7 +83,6 @@ function TravelerRow({
 }) {
   const author = useAuthor(traveler.author);
   const name = useScopedDisplayName(traveler.author, author.data?.metadata);
-  const picture = author.data?.metadata?.picture;
   const intl = useIntl();
 
   const copyNpub = () => {
@@ -102,12 +101,14 @@ function TravelerRow({
   return (
     <li className="clip-corner-lg bg-primary/10 p-3">
       <div className="flex items-start gap-3">
-        <Avatar className="size-9 shrink-0">
-          {picture ? <AvatarImage src={picture} imeta={author.data?.imeta?.picture} alt="" /> : null}
-          <AvatarFallback className="bg-primary/20 text-primary">
-            <Clock className="size-4" />
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          pubkey={traveler.author}
+          metadata={author.data?.metadata}
+          imeta={author.data?.imeta?.picture}
+          alt=""
+          className="size-9 shrink-0"
+          fallback={<Clock className="size-4" />}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="truncate font-semibold">

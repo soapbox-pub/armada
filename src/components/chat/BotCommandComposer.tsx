@@ -2,7 +2,7 @@ import { ArrowUpRight, X } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import {
   argReason,
@@ -17,7 +17,6 @@ import {
 import { FormattedMessage, useIntl } from "@/i18n";
 import { menuPickHandlers } from "@/lib/menuPick";
 import { cn } from "@/lib/utils";
-import type { ImetaEntry } from "@/lib/imeta";
 
 import type { BotRosterProfile } from "@/hooks/useBotManifests";
 
@@ -36,8 +35,6 @@ interface BotCommandComposerProps {
 interface Option {
   value: string;
   label: string;
-  picture?: string;
-  pictureImeta?: ImetaEntry;
 }
 
 const MAX_USER_OPTIONS = 6;
@@ -136,8 +133,6 @@ export function BotCommandComposer({
           .map((pk) => ({
             value: pk,
             label: displayName(pk, profiles),
-            picture: profiles[pk]?.picture,
-            pictureImeta: profiles[pk]?.pictureImeta,
           }));
       }
       return [];
@@ -309,12 +304,13 @@ export function BotCommandComposer({
             cmd: (chunks) => <span className="font-mono font-semibold text-foreground">{chunks}</span>,
             bot: (chunks) => (
               <>
-                <Avatar className="size-4 shrink-0">
-                  <AvatarImage src={profiles[bot]?.picture} imeta={profiles[bot]?.pictureImeta} alt="" />
-                  <AvatarFallback className="text-monogram">
-                    {displayName(bot, profiles).slice(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
+                <UserAvatar
+                  pubkey={bot}
+                  name={displayName(bot, profiles)}
+                  alt=""
+                  className="size-4 shrink-0"
+                  fallbackClassName="text-monogram"
+                />
                 <span className="font-medium text-foreground">{chunks}</span>
               </>
             ),
@@ -438,12 +434,13 @@ export function BotCommandComposer({
                       {...menuPickHandlers(() => pickOption(i, option))}
                     >
                       {arg.type === "user" && (
-                        <Avatar className="size-4 shrink-0">
-                          <AvatarImage src={option.picture} imeta={option.pictureImeta} alt="" />
-                          <AvatarFallback className="text-monogram">
-                            {option.label.slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
+                        <UserAvatar
+                          pubkey={option.value}
+                          name={option.label}
+                          alt=""
+                          className="size-4 shrink-0"
+                          fallbackClassName="text-monogram"
+                        />
                       )}
                       <span className="truncate">{option.label}</span>
                     </button>

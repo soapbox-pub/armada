@@ -2,18 +2,16 @@ import { Zap } from "lucide-react";
 import { useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { formatSats } from "@/lib/zaps";
 import { cn } from "@/lib/utils";
 import { FormattedMessage } from "@/i18n";
 
 import type { ZapEntry, ZapRail, ZapTally } from "@/lib/zaps";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 function RailIcon({ rail }: { rail: ZapRail }) {
   if (rail === "onchain") {
@@ -28,12 +26,14 @@ function ZapperRow({ zap }: { zap: ZapEntry }) {
   const displayName = useScopedDisplayName(zap.pubkey, metadata);
   return (
     <div className="flex items-start gap-2.5 px-3 py-1.5">
-      <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0 mt-0.5">
-        <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-        <AvatarFallback className="bg-amber-500/20 text-amber-500 text-monogram">
-          <AvatarInitial name={displayName} pubkey={zap.pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar
+        pubkey={zap.pubkey}
+        metadata={metadata}
+        imeta={author.data?.imeta?.picture}
+        name={displayName}
+        className="size-5 shrink-0 mt-0.5"
+        fallbackClassName="bg-amber-500/20 text-amber-500 text-monogram"
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-xs truncate">

@@ -7,7 +7,7 @@ import { DisplayName } from "@/components/DisplayName";
 import { DetailPage } from "@/components/layout/DetailPage";
 import { ProfileDialog } from "@/components/profile/ProfileDialog";
 import { UserBanned } from "@/components/profile/UserBanned";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useBackOrHome } from "@/hooks/useBackOrHome";
@@ -15,12 +15,10 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useNip05Resolve } from "@/hooks/useNip05Resolve";
 import { useUserBan } from "@/hooks/useUserBan";
 import { FormattedMessage, useIntl } from "@/i18n";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { parseNip05Address } from "@/lib/nip05Address";
 import { resolvePubkey } from "@/lib/resolvePubkey";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { NotFound } from "@/pages/NotFound";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * A person at `/<npub>`, `/<nprofile>`, `/<name@domain>` or `/<domain>`
@@ -120,19 +118,21 @@ export function UserPage() {
     >
       {!user && (
         <div className="flex flex-col items-center gap-4 clip-hairline-lg [--fill:var(--card)] [--fill-hover:var(--card)] px-6 py-8 text-center">
-          <Avatar shape={getAvatarShape(metadata)} className="size-24 border-[3px] border-background">
-            <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-            <AvatarFallback className="bg-primary/20 text-primary text-3xl">
-              <AvatarInitial name={displayName} pubkey={pubkey} />
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            pubkey={pubkey}
+            metadata={metadata}
+            imeta={author.data?.imeta?.picture}
+            name={displayName}
+            className="size-24 border-[3px] border-background"
+            fallbackClassName="text-3xl"
+          />
           <h2 className="text-2xl font-bold">
             <FormattedMessage
               id="userPage.chatWith"
               defaultMessage="Chat with <name>{displayName}</name> on Armada"
               values={{
                 displayName: profileName
-                  ? <DisplayName pubkey={pubkey} name={profileName} tags={author.data?.event?.tags ?? []} />
+                  ? <DisplayName pubkey={pubkey} name={profileName} tags={author.data?.event?.tags ?? []} metadata={metadata} ultra="hero" />
                   : displayName,
                 name: (chunks) => <span className="break-words">{chunks}</span> }}
             />

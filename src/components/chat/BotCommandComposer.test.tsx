@@ -6,6 +6,9 @@ import { BotCommandComposer } from "@/components/chat/BotCommandComposer";
 import { parseBotManifest, type BotCommandEntry } from "@/lib/botCommands";
 import concordiaManifest from "@/test/fixtures/concordia-manifest.json";
 
+// Avatars read the full profile for Ultra; the roster names are what these tests assert on.
+vi.mock("@/hooks/useAuthor", () => ({ useAuthor: () => ({ data: undefined }) }));
+
 const BOT = "eb1605aff0792094586c53338261e13228a2c4f0b4f109589cf5d510347c2a29";
 const MEMBER = "1111111111111111111111111111111111111111111111111111111111111111";
 /** The bech32 encoding of MEMBER, derived rather than transcribed. */

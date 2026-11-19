@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useAuthor } from "@/hooks/useAuthor";
 import { usePortalDropdown } from "@/hooks/usePortalDropdown";
 import { matchSlashCommands, type SlashCapability, type SlashCommand } from "@/lib/slashCommands";
@@ -56,13 +56,17 @@ function BotIdentity({ pubkey, avatarOnly }: { pubkey: string; avatarOnly?: bool
   const author = useAuthor(pubkey);
   const metadata = author.data?.metadata;
   const name = metadata?.name || metadata?.display_name || `${pubkey.slice(0, 8)}…`;
-  const image = metadata?.picture;
   return (
     <>
-      <Avatar className="size-4 shrink-0">
-        <AvatarImage src={image} imeta={author.data?.imeta?.picture} alt="" />
-        <AvatarFallback className="text-monogram">{name.slice(0, 2).toUpperCase()}</AvatarFallback>
-      </Avatar>
+      <UserAvatar
+        pubkey={pubkey}
+        metadata={metadata}
+        imeta={author.data?.imeta?.picture}
+        name={name}
+        alt=""
+        className="size-4 shrink-0"
+        fallbackClassName="text-monogram"
+      />
       {!avatarOnly && (
         <span className="truncate">
           <DisplayName pubkey={pubkey} name={name} />

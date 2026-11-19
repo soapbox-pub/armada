@@ -1,10 +1,8 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { useIntl } from "@/i18n";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Cap the avatar stack so an unbounded typer list doesn't resolve unbounded profiles. */
 const MAX_AVATARS = 3;
@@ -14,12 +12,17 @@ function TypingAvatar({ pubkey }: { pubkey: string }) {
   const metadata = author.data?.metadata;
   const name = useScopedDisplayName(pubkey, metadata);
   return (
-    <Avatar shape={getAvatarShape(metadata)} className="size-5 ring-2 ring-background" title={name}>
-      <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="bg-primary/25 text-primary text-monogram font-semibold">
-        <AvatarInitial name={name} pubkey={pubkey} />
-      </AvatarFallback>
-    </Avatar>
+    <span className="flex shrink-0" title={name}>
+      <UserAvatar
+        pubkey={pubkey}
+        metadata={metadata}
+        imeta={author.data?.imeta?.picture}
+        name={name}
+        className="size-5 ring-2 ring-background"
+        fallbackClassName="bg-primary/25 text-monogram font-semibold"
+        frame={false}
+      />
+    </span>
   );
 }
 

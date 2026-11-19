@@ -1,12 +1,10 @@
 import { Gem } from "lucide-react";
 
-import { AvatarInitial } from "@/components/AvatarInitial";
 import { DisplayName } from "@/components/DisplayName";
+import { UserAvatar } from "@/components/UserAvatar";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuthor } from "@/hooks/useAuthor";
 import { FormattedMessage, useIntl } from "@/i18n";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { boostLevel, type Boost } from "@/lib/discoverBoost";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { cn } from "@/lib/utils";
@@ -46,7 +44,13 @@ export function BoostedBy({ boosts, named, showLevel = true }: { boosts: Boost[]
       {first && (
         <span className="flex shrink-0 -space-x-1.5">
           {named.slice(0, SHOWN_BOOSTERS).map((b) => (
-            <BoosterAvatar key={b.pubkey} pubkey={b.pubkey} />
+            <UserAvatar
+              key={b.pubkey}
+              pubkey={b.pubkey}
+              className="size-4 ring-1 ring-card"
+              fallbackClassName="text-monogram"
+              frame={false}
+            />
           ))}
         </span>
       )}
@@ -76,19 +80,5 @@ export function BoostedBy({ boosts, named, showLevel = true }: { boosts: Boost[]
         {label}
       </button>
     </ProfilePreviewCard>
-  );
-}
-
-function BoosterAvatar({ pubkey }: { pubkey: string }) {
-  const author = useAuthor(pubkey);
-  const metadata = author.data?.metadata;
-  const name = getDisplayName(metadata, pubkey);
-  return (
-    <Avatar shape={getAvatarShape(metadata)} className="size-4 ring-1 ring-card">
-      <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-        <AvatarInitial name={name} pubkey={pubkey} />
-      </AvatarFallback>
-    </Avatar>
   );
 }

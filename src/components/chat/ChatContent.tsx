@@ -2198,6 +2198,8 @@ function fitImageBox(
   return { aspectRatio: `${w} / ${h}`, maxWidth: Math.round(w * scale) };
 }
 
+const NO_MENTION_TAGS: string[][] = [];
+
 function NostrMention({ pubkey, noAtPrefix = false }: { pubkey: string; noAtPrefix?: boolean }) {
   const author = useAuthor(pubkey);
   const scopedName = useScopedDisplayName(pubkey, author.data?.metadata);
@@ -2217,7 +2219,8 @@ function NostrMention({ pubkey, noAtPrefix = false }: { pubkey: string; noAtPref
         onClick={(e) => e.stopPropagation()}
       >
         {noAtPrefix ? "" : "@"}
-        <DisplayName pubkey={pubkey} name={displayName} />
+        {/* A mention is part of the sentence, so it reads as a link, not a byline. */}
+        <DisplayName pubkey={pubkey} name={displayName} tags={author.data?.event?.tags ?? NO_MENTION_TAGS} ultra={false} />
       </button>
     </ProfilePreviewCard>
   );

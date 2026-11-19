@@ -1,8 +1,8 @@
 import { Globe, List, Plus, RotateCcw, Users, X } from "lucide-react";
 import { useState } from "react";
 
-import { AvatarInitial } from "@/components/AvatarInitial";
 import { DisplayName } from "@/components/DisplayName";
+import { UserAvatar } from "@/components/UserAvatar";
 import { InfoTip, SettingsRow } from "@/components/settings/SettingsSection";
 import {
   AlertDialog,
@@ -14,7 +14,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppContext } from "@/hooks/useAppContext";
@@ -22,7 +21,6 @@ import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useDiscoverEveryoneAllowed } from "@/hooks/useDiscover";
 import { common, FormattedMessage, useIntl } from "@/i18n";
-import { getAvatarShape } from "@/lib/avatarShape";
 import {
   ARMADA_DEVELOPERS,
   ARMADA_DEVELOPERS_ENTRY,
@@ -35,7 +33,6 @@ import {
   parseDiscoverCurations,
   storeCurationEntries,
 } from "@/lib/discoverSource";
-import { getDisplayName } from "@/lib/getDisplayName";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { cn } from "@/lib/utils";
 
@@ -46,7 +43,7 @@ export function OwnerName({ pubkey }: { pubkey: string }) {
   if (name) {
     return (
       <span className="font-medium text-foreground">
-        <DisplayName pubkey={pubkey} name={name} tags={data?.event?.tags ?? []} />
+        <DisplayName pubkey={pubkey} name={name} tags={data?.event?.tags ?? []} metadata={data?.metadata} />
       </span>
     );
   }
@@ -54,18 +51,8 @@ export function OwnerName({ pubkey }: { pubkey: string }) {
   return <span className="font-mono">{npub ? `${npub.slice(0, 12)}…` : pubkey.slice(0, 8)}</span>;
 }
 
-export function OwnerAvatar({ pubkey, className }: { pubkey: string; className?: string }) {
-  const author = useAuthor(pubkey);
-  const metadata = author.data?.metadata;
-  const name = getDisplayName(metadata, pubkey);
-  return (
-    <Avatar shape={getAvatarShape(metadata)} className={cn("size-8 shrink-0", className)}>
-      <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="bg-primary/20 text-primary text-3xs">
-        <AvatarInitial name={name} pubkey={pubkey} />
-      </AvatarFallback>
-    </Avatar>
-  );
+export function OwnerAvatar({ pubkey, className, frame }: { pubkey: string; className?: string; frame?: boolean }) {
+  return <UserAvatar pubkey={pubkey} className={cn("size-8 shrink-0", className)} fallbackClassName="text-3xs" frame={frame} />;
 }
 
 /** The curators in effect, as stored entries: the override, else the build's. */
@@ -90,7 +77,7 @@ function CuratorRow({ entry, onRemove }: { entry: string; onRemove: () => void }
   if (isDevelopersEntry(entry)) {
     art = (
       <span className="flex shrink-0 -space-x-3">
-        {ARMADA_DEVELOPERS.map((pk) => <OwnerAvatar key={pk} pubkey={pk} className="ring-2 ring-card" />)}
+        {ARMADA_DEVELOPERS.map((pk) => <OwnerAvatar key={pk} pubkey={pk} className="ring-2 ring-card" frame={false} />)}
       </span>
     );
     body = (

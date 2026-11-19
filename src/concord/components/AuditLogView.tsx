@@ -2,7 +2,7 @@ import { Braces, CheckCircle2, Clock3, ScrollText, XCircle } from "lucide-react"
 import { useMemo, useState } from "react";
 
 import { EventJsonDialog } from "@/components/EventJsonDialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
 import {
   ContextMenu,
@@ -40,7 +40,6 @@ import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { FormattedMessage, useIntl, type IntlShape } from "@/i18n";
 import { shortTimeAgo } from "@/lib/formatTime";
 import type { NostrRumor } from "@/lib/nostrRumor";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * CORD-04 control-plane audit log: raw editions with signer, detail, and
@@ -129,12 +128,7 @@ function AuditRowItem({ row, community }: { row: AuditRow; community: Community 
       className="flex items-start gap-2.5 rounded-md bg-foreground/5 px-3 py-2 text-sm"
       {...(isTouch ? longPress : {})}
     >
-      <Avatar className="mt-0.5 size-6 shrink-0">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={actorName} />
-        <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          <AvatarInitial name={actorName} pubkey={row.author} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={row.author} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={actorName} className="mt-0.5 size-6 shrink-0" fallbackClassName="text-3xs" />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
           <span className="truncate font-medium">

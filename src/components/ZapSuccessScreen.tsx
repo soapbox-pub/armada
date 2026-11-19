@@ -1,15 +1,13 @@
 import { useMemo } from 'react';
 import { Check, ExternalLink } from 'lucide-react';
 import { DisplayName } from '@/components/DisplayName';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { UserAvatar } from '@/components/UserAvatar';
 import { Button } from '@/components/ui/button';
-import { getAvatarShape } from '@/lib/avatarShape';
 import { useAppContext } from '@/hooks/useAppContext';
 import { useAuthor } from '@/hooks/useAuthor';
 import { formatMoneyAmount } from '@/lib/bitcoinMoney';
 import { useEsploraApis } from '@/hooks/useEsploraApis';
 import { common, FormattedMessage, useIntl } from '@/i18n';
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface ZapSuccessScreenProps {
   /** Recipient pubkey (hex), used when `recipientLabel` is omitted. */
@@ -39,7 +37,6 @@ export function ZapSuccessScreen({
   const metadata = author?.metadata;
   const fallbackName = metadata?.name || metadata?.display_name || intl.formatMessage({ id: 'zapSuccessScreen.anonymous', defaultMessage: 'Anonymous' });
   const displayName = recipientLabel ?? fallbackName;
-  const avatarShape = getAvatarShape(metadata);
 
   // Falls back to sats when USD is preferred but no price is available.
   const amountDisplay = useMemo(
@@ -71,12 +68,14 @@ export function ZapSuccessScreen({
       </div>
 
       <div className="mx-auto flex items-center gap-3 rounded-full border border-border/70 bg-muted/40 pl-2 pr-4 py-2 max-w-full">
-        <Avatar shape={avatarShape} className="size-8 shrink-0">
-          <AvatarImage src={metadata?.picture} imeta={author?.imeta?.picture} alt={displayName} />
-          <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            <AvatarInitial name={displayName} pubkey={recipientPubkey} />
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          pubkey={recipientPubkey}
+          metadata={metadata}
+          imeta={author?.imeta?.picture}
+          name={displayName}
+          className="size-8 shrink-0"
+          fallbackClassName="text-xs"
+        />
         <div className="min-w-0 text-left">
           <div className="text-2xs text-muted-foreground leading-tight">
             <FormattedMessage id="zapSuccessScreen.to" defaultMessage="To" />

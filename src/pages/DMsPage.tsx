@@ -33,7 +33,6 @@ import { NoteToSelfAvatar, NoteToSelfIcon, NOTE_TO_SELF_NAME } from "@/component
 import { ReportDialog } from "@/components/ReportDialog";
 import { ModerationMenuSection } from "@/components/chat/ModerationMenuSection";
 import { SearchField } from "@/components/ui/search-field";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { DmInboxNotice } from "@/components/DmInboxNotice";
 import { Input } from "@/components/ui/input";
@@ -118,7 +117,6 @@ import { useStableNavigate } from "@/hooks/useStableNavigate";
 import { useToast } from "@/hooks/useToast";
 import { ComposerBoundsProvider } from "@/contexts/ComposerBoundsContext";
 import { dmRouteParam, parseDmRouteParam } from "@/lib/dmConversation";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { writeClipboardText } from "@/lib/clipboard";
 import { forwardableTags } from "@/lib/forwardMessage";
 import { chatRoute, parseChatRoute, type ChatRoute } from "@/lib/routes";
@@ -136,15 +134,13 @@ import { pickEmojiTags, readDmListSnapshot, writeDmListSnapshot } from "@/lib/dm
 import { resolvePubkey } from "@/lib/resolvePubkey";
 import { buildEmojiMap } from "@/lib/customEmoji";
 import { emojify } from "@/components/chat/emojify";
-import { sanitizeUrl } from "@/lib/sanitizeUrl";
-import { nameStyleCss, useUltra, ULTRA_LIST_NAME_CLASS, ULTRA_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
 import type { DmConversationLatest } from "@/lib/dmConversationIndex";
 import { parseProfileImeta, type ProfileImeta } from "@/lib/profileImeta";
-import { AvatarInitial } from "@/components/AvatarInitial";
+import { UserAvatar } from "@/components/UserAvatar";
 
 /**
  * Highlight case-insensitive `query` matches in `text`, rendering NIP-30 emoji
@@ -241,7 +237,6 @@ const ConversationRow = memo(function ConversationRow({
   const { name, metadata, emojiTags } = useDmConversationName(peers, selfPubkey);
   // Note to Self uses Signal's name/mark: your own face would read as a message FROM you.
   const noteToSelf = !group && peers[0] === selfPubkey;
-  const ultra = useUltra(!group && !noteToSelf ? metadata : undefined);
 
   // Per-person options are 1:1 only.
   const openProfile = useOpenProfile();
@@ -280,11 +275,7 @@ const ConversationRow = memo(function ConversationRow({
           />
           <div className="min-w-0 flex-1 space-y-0.5">
             <div className="flex items-center gap-1.5 min-w-0">
-              <div
-                // The search highlight paints its own marks, which a clipped gradient would hide.
-                className={cn("text-chat truncate", unread ? "font-semibold text-foreground" : "font-medium", !q && ultra?.name && ULTRA_LIST_NAME_CLASS)}
-                style={q ? undefined : nameStyleCss(ultra?.name)}
-              >
+              <div className={cn("text-chat truncate", unread ? "font-semibold text-foreground" : "font-medium")}>
                 {q ? (
                   <Highlight text={name} query={query} emojiTags={emojiTags} />
                 ) : noteToSelf ? (
@@ -689,7 +680,6 @@ const Conversation = memo(function Conversation({
   // Note to Self throughout (see ConversationRow).
   const noteToSelf = !group && peer === user?.pubkey;
   const { name, metadata: peerMetadata } = useDmConversationName(peers, user?.pubkey);
-  const peerUltra = useUltra(!group && !noteToSelf ? peerMetadata : undefined);
   const dittoProfileHref = group ? undefined : dittoProfileUrl(peer);
   const composerBoundsRef = useRef<HTMLElement | null>(null);
   const focusedRumorId = useMemo(() => {
@@ -1011,8 +1001,8 @@ const Conversation = memo(function Conversation({
           <SyncStatusIndicator className="absolute -bottom-1 -right-1 z-10" />
         </div>
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <h1 className={cn("font-semibold truncate min-w-0", peerUltra?.name && ULTRA_NAME_CLASS)} style={nameStyleCss(peerUltra?.name)}>
-            {noteToSelf ? name : group ? <GroupName peers={peers} name={name} /> : <DisplayName pubkey={peer} name={name} />}
+          <h1 className="font-semibold truncate min-w-0">
+            {noteToSelf ? name : group ? <GroupName peers={peers} name={name} /> : <DisplayName pubkey={peer} name={name} ultra="hero" />}
           </h1>
           {!noteToSelf && !group && <BotPill metadata={peerMetadata} />}
           {!noteToSelf && !group && <UltraPill metadata={peerMetadata} />}
@@ -1617,7 +1607,6 @@ function RecipientSuggestion({
   // Picking yourself opens Note to Self, so label it that way.
   const noteToSelf = pubkey === user?.pubkey;
   const name = noteToSelf ? intl.formatMessage(NOTE_TO_SELF_NAME) : getDisplayName(metadata, pubkey);
-  const picture = sanitizeUrl(metadata?.picture);
   const npub = nip19.npubEncode(pubkey);
   const handle = metadata?.nip05 ?? `${npub.slice(0, 12)}…${npub.slice(-6)}`;
 
@@ -1634,12 +1623,7 @@ function RecipientSuggestion({
       {noteToSelf ? (
         <NoteToSelfAvatar sizePx={36} className="size-9" />
       ) : (
-        <Avatar shape={getAvatarShape(metadata)} className="size-9 shrink-0">
-          <AvatarImage src={picture} imeta={imeta?.picture} alt={name} />
-          <AvatarFallback className="bg-primary/20 text-primary text-xs">
-            <AvatarInitial name={name} pubkey={pubkey} />
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar pubkey={pubkey} metadata={metadata} imeta={imeta?.picture} name={name} className="size-9 shrink-0" fallbackClassName="text-xs" />
       )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
@@ -1693,12 +1677,16 @@ function RecipientChip({ pubkey, onRemove }: { pubkey: string; onRemove: () => v
   const name = getDisplayName(author.data?.metadata, pubkey);
   return (
     <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-secondary py-0.5 pl-0.5 pr-1.5 text-sm">
-      <Avatar shape={getAvatarShape(author.data?.metadata)} className="size-5 shrink-0">
-        <AvatarImage src={sanitizeUrl(author.data?.metadata?.picture)} imeta={author.data?.imeta?.picture} alt={name} />
-        <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-          <AvatarInitial name={name} pubkey={pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      {/* A token in the To: field: no glow to crowd its neighbours. */}
+      <UserAvatar
+        pubkey={pubkey}
+        metadata={author.data?.metadata}
+        imeta={author.data?.imeta?.picture}
+        name={name}
+        frame={false}
+        className="size-5 shrink-0"
+        fallbackClassName="text-monogram"
+      />
       <span className="truncate">{name}</span>
       <button
         type="button"

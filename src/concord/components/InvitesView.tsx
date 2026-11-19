@@ -1,7 +1,7 @@
 import { Braces, Check, Copy, Globe, Link as LinkIcon, Loader2, Lock, Megaphone, TriangleAlert } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,7 +30,6 @@ import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { toast } from "@/hooks/useToast";
 import { writeClipboardText } from "@/lib/clipboard";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * Invite-link admin panel (CORD-05): Public/Private status (registry, vsk 8),
@@ -556,12 +555,7 @@ function RegistryRow({
   const isOwner = creator === community.owner;
   return (
     <li className="flex items-center gap-2.5 rounded-md bg-foreground/5 px-3 py-2 text-sm">
-      <Avatar className="size-6 shrink-0">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-        <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          <AvatarInitial name={name} pubkey={creator} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={creator} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} className="size-6 shrink-0" fallbackClassName="text-3xs" />
       <span className="min-w-0 flex-1 truncate font-medium">
         <DisplayName pubkey={creator} name={name} />
       </span>
@@ -732,12 +726,7 @@ function ListingRow({
   const intl = useIntl();
   return (
     <li className="flex items-center gap-2.5 rounded-md bg-foreground/5 px-3 py-2 text-sm">
-      <Avatar className="size-6 shrink-0">
-        <AvatarImage src={profile.data?.metadata?.picture} imeta={profile.data?.imeta?.picture} alt={name} />
-        <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          <AvatarInitial name={name} pubkey={author} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={author} metadata={profile.data?.metadata} imeta={profile.data?.imeta?.picture} name={name} className="size-6 shrink-0" fallbackClassName="text-3xs" />
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">
           <DisplayName pubkey={author} name={name} />

@@ -10,7 +10,7 @@ import type { CommunityListEntry } from "@/concord/lib/communityList";
 import { ReplyPreview } from "@/components/chat/ChatMessage";
 import { DisplayName } from "@/components/DisplayName";
 import { ServerRail } from "@/components/layout/ServerRail";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { PillTabs, type PillTab } from "@/components/ui/pill-tabs";
 import { useAuthor } from "@/hooks/useAuthor";
@@ -29,7 +29,6 @@ import { shortTimeAgo } from "@/lib/formatTime";
 import { nip29ThreadRootOf } from "@/lib/nip29Threads";
 import { chatRoute } from "@/lib/routes";
 import { cn } from "@/lib/utils";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 type CenterItem =
   | {
@@ -193,12 +192,7 @@ function NotificationRow({ item, onOpen }: { item: CenterItem; onOpen: (item: Ce
         item.unread ? "bg-primary/[0.07] hover:bg-primary/[0.11]" : "hover:bg-foreground/5",
       )}
     >
-      <Avatar className="size-10 shrink-0">
-        <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={authorName} />
-        <AvatarFallback className="bg-primary/20 text-sm text-primary">
-          <AvatarInitial name={authorName} pubkey={item.author} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={item.author} metadata={metadata} imeta={author.data?.imeta?.picture} name={authorName} className="size-10 shrink-0" fallbackClassName="text-sm" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <Icon className="size-3.5 shrink-0 text-muted-foreground" />

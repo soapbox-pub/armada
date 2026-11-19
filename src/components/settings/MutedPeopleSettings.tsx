@@ -1,17 +1,18 @@
 import { Loader2, UserCheck } from "lucide-react";
 import { useState } from "react";
 
+import { DisplayName } from "@/components/DisplayName";
 import { SettingsRow } from "@/components/settings/SettingsSection";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useMutedPubkeys, useUnmuteUser } from "@/hooks/useMuteList";
 import { toast } from "@/hooks/useToast";
 import { FormattedMessage, t } from "@/i18n";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { tryNpubEncode } from "@/lib/safeNip19";
-import { AvatarInitial } from "@/components/AvatarInitial";
+
+const NO_TAGS: string[][] = [];
 
 function MutedRow({ pubkey }: { pubkey: string }) {
   const author = useAuthor(pubkey);
@@ -43,14 +44,18 @@ function MutedRow({ pubkey }: { pubkey: string }) {
 
   return (
     <SettingsRow className="flex items-center gap-3">
-      <Avatar shape={getAvatarShape(metadata)} className="size-8 shrink-0">
-        <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-        <AvatarFallback className="bg-primary/20 text-primary text-xs">
-          <AvatarInitial name={displayName} pubkey={pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar
+        pubkey={pubkey}
+        metadata={metadata}
+        imeta={author.data?.imeta?.picture}
+        name={displayName}
+        className="size-8 shrink-0"
+        fallbackClassName="text-xs"
+      />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium leading-tight">{displayName}</div>
+        <div className="truncate text-sm font-medium leading-tight">
+          <DisplayName pubkey={pubkey} name={displayName} tags={author.data?.event?.tags ?? NO_TAGS} metadata={metadata} />
+        </div>
         <div className="truncate font-mono text-xs text-muted-foreground">{shortNpub}</div>
       </div>
       <Button

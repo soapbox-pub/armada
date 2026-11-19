@@ -5,7 +5,7 @@ import { nip19 } from "nostr-tools";
 import { useCallback, useMemo, useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { SearchField } from "@/components/ui/search-field";
 import {
   Tooltip,
@@ -46,14 +46,19 @@ function shortNpub(pubkey: string): string {
   }
 }
 
+/** A repository owner's avatar, named by profile or npub, never "Anonymous". */
 export function OwnerAvatar({ pubkey, className }: { pubkey: string; className?: string }) {
   const author = useAuthor(pubkey);
   const name = useOwnerName(pubkey);
   return (
-    <Avatar className={cn("size-8 shrink-0 border border-border/60", className)}>
-      <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="text-3xs font-semibold">{name.slice(0, 2).toUpperCase()}</AvatarFallback>
-    </Avatar>
+    <UserAvatar
+      pubkey={pubkey}
+      metadata={author.data?.metadata}
+      imeta={author.data?.imeta?.picture}
+      name={name}
+      className={cn("size-8 shrink-0 border border-border/60", className)}
+      fallbackClassName="text-3xs font-semibold"
+    />
   );
 }
 
@@ -65,7 +70,7 @@ export function OwnerSlashRepo({ owner, name, className }: { owner: string; name
     <span className={cn("block truncate text-sm", className)}>
       <span className="text-muted-foreground">
         {named
-          ? <DisplayName pubkey={owner} name={named} tags={author.data?.event?.tags ?? []} />
+          ? <DisplayName pubkey={owner} name={named} tags={author.data?.event?.tags ?? []} metadata={author.data?.metadata} />
           : shortNpub(owner)}
       </span>
       <span className="text-muted-foreground/60"> / </span>

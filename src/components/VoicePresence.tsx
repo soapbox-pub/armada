@@ -3,8 +3,8 @@ import type { CSSProperties } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
 import { RecordingFlagIcons } from "@/components/RecordingFlagIcons";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { UserAvatar } from "@/components/UserAvatar";
 import { VoiceUserContextMenu, VoiceUserMenuButton } from "@/components/VoiceUserContextMenu";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCall } from "@/hooks/useCall";
@@ -14,25 +14,7 @@ import { getDisplayName } from "@/lib/getDisplayName";
 import { defineMessage, FormattedMessage, useIntl, type MessageDescriptor } from "@/i18n";
 import type { VoiceRowTransport } from "@/concord/lib/voice";
 import { cn } from "@/lib/utils";
-import { AvatarInitial } from "@/components/AvatarInitial";
 import { HiveIcon, HubIcon } from "@/components/icons/TransportIcons";
-
-function ParticipantAvatar({ pubkey, className }: { pubkey: string; className?: string }) {
-  const author = useAuthor(pubkey);
-  const metadata = author.data?.metadata;
-  const name = getDisplayName(metadata, pubkey);
-  return (
-    <Avatar
-      shape={getAvatarShape(metadata)}
-      className={cn("size-5 ring-2 ring-chrome", className)}
-    >
-      <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="bg-success/20 text-success text-monogram">
-        <AvatarInitial name={name} pubkey={pubkey} />
-      </AvatarFallback>
-    </Avatar>
-  );
-}
 
 function ParticipantName({ pubkey }: { pubkey: string }) {
   return (
@@ -182,12 +164,14 @@ function VoiceParticipantRow({
           )}
           style={wrapperStyle}
         >
-          <Avatar shape={getAvatarShape(metadata)} className="size-6">
-            <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-            <AvatarFallback className="bg-success/20 text-success text-3xs">
-              <AvatarInitial name={name} pubkey={pubkey} />
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            pubkey={pubkey}
+            metadata={metadata}
+            imeta={author.data?.imeta?.picture}
+            name={name}
+            className="size-6"
+            fallbackClassName="bg-success/20 text-success text-3xs"
+          />
         </div>
         <span className={cn("truncate flex-1 min-w-0", isSpeaking && "text-success")}>
           <DisplayName pubkey={pubkey} name={name} />
@@ -336,7 +320,13 @@ export function VoicePresence({
           <Headphones className="size-3.5 mr-1" />
           <span className="flex -space-x-1.5">
             {shown.map((pk) => (
-              <ParticipantAvatar key={pk} pubkey={pk} />
+              <UserAvatar
+                key={pk}
+                pubkey={pk}
+                className="size-5 ring-2 ring-chrome"
+                fallbackClassName="bg-success/20 text-success text-monogram"
+                frame={false}
+              />
             ))}
             {overflow > 0 && (
               <span className="flex items-center justify-center size-5 rounded-full ring-2 ring-chrome bg-success/20 text-success text-monogram font-semibold tabular-nums">

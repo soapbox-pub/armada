@@ -2,13 +2,12 @@ import { Loader2, UserMinus } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { ChromeDialogContent, Dialog } from "@/components/ui/dialog";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 export interface KickResult {
   kicked: string[];
@@ -190,12 +189,7 @@ function TargetRow({ pubkey }: { pubkey: string }) {
   const name = useScopedDisplayName(pubkey, author.data?.metadata);
   return (
     <li className="flex items-center gap-2">
-      <Avatar className="size-5 shrink-0">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-        <AvatarFallback className="bg-primary/20 text-monogram text-primary">
-          <AvatarInitial name={name} pubkey={pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} className="size-5 shrink-0" fallbackClassName="text-monogram" />
       <span className="min-w-0 flex-1 truncate">
         <DisplayName pubkey={pubkey} name={name} />
       </span>

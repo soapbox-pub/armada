@@ -1,7 +1,7 @@
 import { Ban, Loader2, ShieldOff } from "lucide-react";
 import { useState } from "react";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { useModeration } from "@/concord/hooks/useModeration";
 import type { Community } from "@/concord/lib/types";
@@ -10,7 +10,6 @@ import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { toast } from "@/hooks/useToast";
 import { FormattedMessage, t } from "@/i18n";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** CORD-04 §4 banlist; the ONLY unban surface since the roster fold hides banned members. */
 export function BannedView({ community }: { community: Community }) {
@@ -83,12 +82,7 @@ function BannedRow({
   const name = useScopedDisplayName(pubkey, author.data?.metadata);
   return (
     <li className="flex items-center gap-2.5 rounded-md bg-foreground/5 px-3 py-2 text-sm">
-      <Avatar className="size-6 shrink-0">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-        <AvatarFallback className="bg-destructive/20 text-3xs text-destructive">
-          <AvatarInitial name={name} pubkey={pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} className="size-6 shrink-0" fallbackClassName="bg-destructive/20 text-3xs text-destructive" />
       <span className="min-w-0 flex-1 truncate font-medium">
         <DisplayName pubkey={pubkey} name={name} />
       </span>

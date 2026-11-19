@@ -6,7 +6,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { DisplayName } from "@/components/DisplayName";
 import { DeferredRow } from "@/components/DeferredRow";
 import { DmAvatar } from "@/components/DmAvatar";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import {
   CommandDialog,
   CommandEmpty,
@@ -44,7 +44,6 @@ import {
   type SwitcherContext,
   type SwitcherEntries,
 } from "@/lib/switcher";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 const EMPTY_ENTRIES: SwitcherEntries = { spaces: [], channels: [] };
 /** Keep a blank launcher cheap; searching mounts every row so every name can match. */
@@ -82,10 +81,14 @@ function MessageResult({ message, onSelect }: { message: MessageEntry; onSelect:
   const name = useScopedDisplayName(message.authorPubkey, author.data?.metadata);
   return (
     <CommandItem value={`${message.content} ${message.key}`} onSelect={onSelect}>
-      <Avatar className="mr-2 size-7 shrink-0">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-        <AvatarFallback className="text-xs"><AvatarInitial name={name} pubkey={message.authorPubkey} /></AvatarFallback>
-      </Avatar>
+      <UserAvatar
+        pubkey={message.authorPubkey}
+        metadata={author.data?.metadata}
+        imeta={author.data?.imeta?.picture}
+        name={name}
+        className="mr-2 size-7 shrink-0"
+        fallbackClassName="text-xs"
+      />
       <div className="flex min-w-0 flex-col">
         <span className="truncate">{message.content}</span>
         <span className="truncate text-xs text-muted-foreground">

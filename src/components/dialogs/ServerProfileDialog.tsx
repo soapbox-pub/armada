@@ -2,7 +2,7 @@ import { Loader2, RotateCcw, UserCog } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,10 +15,8 @@ import { useCurrentUserProfile } from "@/hooks/useCurrentUser";
 import { useServerProfile, useUpdateServerProfile } from "@/hooks/useServerProfile";
 import { toast } from "@/hooks/useToast";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { isHexColor } from "@/lib/nip29";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface ServerProfileDialogProps {
   relayUrl: string;
@@ -107,20 +105,22 @@ export function ServerProfileDialog({ relayUrl, open, onOpenChange }: ServerProf
           </div>
           <div className="clip-corner-lg bg-background/40 p-3">
             <div className="flex items-start gap-3">
-              <Avatar shape={getAvatarShape(metadata)} className="size-10 shrink-0">
-                <AvatarImage src={metadata?.picture} imeta={imeta?.picture} alt={previewName} />
-                <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                  <AvatarInitial name={previewName} pubkey={user?.pubkey} />
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar
+                pubkey={user?.pubkey}
+                metadata={metadata}
+                imeta={imeta?.picture}
+                name={previewName}
+                className="size-10 shrink-0"
+                fallbackClassName="text-sm"
+              />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span
                     className="text-chat font-semibold text-primary truncate"
                     style={previewColor ? { color: previewColor } : undefined}
                   >
-                    {/* Emojify like a real message row, or shortcode nicknames preview wrong. */}
-                    <DisplayName pubkey={user?.pubkey} name={previewName} />
+                    {/* Emojify like a real message row, or shortcode nicknames preview wrong; a role color owns the name. */}
+                    <DisplayName pubkey={user?.pubkey} name={previewName} ultra={previewColor ? false : "list"} />
                   </span>
                   {label.trim() && (
                     <Badge variant="secondary" className="text-3xs font-medium">

@@ -13,7 +13,6 @@ import { EmojifiedText } from "@/components/chat/CustomEmoji";
 import { UserModerationMenuSection } from "@/components/chat/ModerationMenuSection";
 import { RolePickerItems } from "@/components/chat/RolePickerItems";
 import { ProfileImageLightbox } from "@/components/profile/ProfileImageLightbox";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { FallbackImage } from "@/components/ui/FallbackImage";
 import {
@@ -42,20 +41,19 @@ import { useProfileTheme, usePrefetchProfileTheme } from "@/hooks/useProfileThem
 import { isStatusExpired, useUserStatus } from "@/hooks/useUserStatus";
 import { useUserModeration, type UserModeration } from "@/hooks/useUserModeration";
 import { toast } from "@/hooks/useToast";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { dittoProfileUrl } from "@/lib/dittoUrl";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { useIsUserBanned } from "@/lib/blocklistStore";
 import { getPronouns } from "@/lib/pronouns";
-import { useFrameCss, nameStyleCss, useUltra, ULTRA_NAME_CLASS } from "@/lib/ultra";
+import { useUltra } from "@/lib/ultra";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
 import { cn } from "@/lib/utils";
 import { writeClipboardText } from "@/lib/clipboard";
 import type { ImetaEntry } from "@/lib/imeta";
 import { buildThemeVarStyle } from "@/themes";
 import { FormattedMessage, t, useIntl } from "@/i18n";
-import { AvatarInitial } from "@/components/AvatarInitial";
+import { UserAvatar } from "@/components/UserAvatar";
 
 const NO_TAGS: string[][] = [];
 
@@ -105,9 +103,7 @@ function ProfilePreviewBody({
   const displayName = getDisplayName(metadata, pubkey);
   // A Community Nickname names them here, their profile name beside it (CORD-04 §10).
   const nickname = useCommunityNickname(pubkey);
-  const avatarShape = getAvatarShape(metadata);
   const ultra = useUltra(metadata);
-  const frameStyle = useFrameCss(ultra?.frame);
   const pronouns = getPronouns(metadata);
   const picture = sanitizeImageSrc(metadata?.picture);
   const npub = tryNpubEncode(pubkey);
@@ -210,20 +206,21 @@ function ProfilePreviewBody({
             onClick={() => picture && onViewImage({ src: picture, imeta: author.data?.imeta?.picture })}
             aria-label={intl.formatMessage({ id: "profilePreviewCard.viewPicture", defaultMessage: "View profile picture" })}
             className="block rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring enabled:cursor-zoom-in"
-            style={frameStyle}
           >
-            <Avatar shape={avatarShape} className="size-16 border-[3px] border-background">
-              <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-              <AvatarFallback className="bg-primary/20 text-primary text-lg">
-                <AvatarInitial name={displayName} pubkey={pubkey} />
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar
+              pubkey={pubkey}
+              metadata={metadata}
+              imeta={author.data?.imeta?.picture}
+              name={displayName}
+              className="size-16 border-[3px] border-background"
+              fallbackClassName="text-lg"
+            />
           </button>
         </div>
 
         <div className="flex items-center gap-1.5 min-w-0">
-          <div className={cn("font-bold text-chat truncate", ultra?.name && ULTRA_NAME_CLASS)} style={nameStyleCss(ultra?.name)}>
-            <DisplayName pubkey={pubkey} name={nickname || displayName} tags={nickname ? NO_TAGS : author.data?.event?.tags ?? NO_TAGS} />
+          <div className="font-bold text-chat truncate">
+            <DisplayName pubkey={pubkey} name={nickname || displayName} tags={nickname ? NO_TAGS : author.data?.event?.tags ?? NO_TAGS} metadata={metadata} ultra="hero" />
           </div>
           <BotPill metadata={metadata} />
           {ultra && <UltraPill force />}

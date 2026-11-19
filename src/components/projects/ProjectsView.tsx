@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
 import { SearchField } from "@/components/ui/search-field";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,17 +48,24 @@ function AuthorName({ pubkey }: { pubkey: string }) {
   );
 }
 
-function PersonAvatar({ pubkey, size = "size-7" }: { pubkey: string; size?: string }) {
+/** The avatar with the person's name on hover. */
+function PersonAvatar({ pubkey, size = "size-7", frame }: { pubkey: string; size?: string; frame?: boolean }) {
   const author = useAuthor(pubkey);
   const name = useScopedDisplayName(pubkey, author.data?.metadata);
-  const picture = author.data?.metadata?.picture;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Avatar className={cn(size, "border border-border/60")}>
-          <AvatarImage src={picture} imeta={author.data?.imeta?.picture} alt={name} />
-          <AvatarFallback className="text-3xs">{name.slice(0, 2).toUpperCase()}</AvatarFallback>
-        </Avatar>
+        <span className="inline-flex">
+          <UserAvatar
+            pubkey={pubkey}
+            metadata={author.data?.metadata}
+            imeta={author.data?.imeta?.picture}
+            name={name}
+            className={cn(size, "border border-border/60")}
+            fallbackClassName="text-3xs"
+            frame={frame}
+          />
+        </span>
       </TooltipTrigger>
       <TooltipContent>
         <DisplayName pubkey={pubkey} name={name} />
@@ -75,7 +82,7 @@ function PeopleStack({ pubkeys }: { pubkeys: string[] }) {
     <div className="flex items-center -space-x-1.5">
       {visible.map((pk, i) => (
         <span key={pk} className="relative inline-flex ring-2 ring-card rounded-full" style={{ zIndex: visible.length - i }}>
-          <PersonAvatar pubkey={pk} size="size-6" />
+          <PersonAvatar pubkey={pk} size="size-6" frame={false} />
         </span>
       ))}
       {remaining > 0 && (

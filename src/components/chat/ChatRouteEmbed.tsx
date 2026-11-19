@@ -4,6 +4,7 @@ import { useContext } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { ChatContent } from "@/components/chat/ChatContent";
+import { DisplayName } from "@/components/DisplayName";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { EventStoreContext } from "@/contexts/EventStoreContext";
 import { useCommunity, useCommunityList } from "@/concord/hooks/useCommunityList";
@@ -142,7 +143,7 @@ function SenderRow({ rumor }: { rumor: NostrRumor }) {
   const name = getDisplayName(author.data?.metadata, rumor.pubkey);
   return (
     <div className="flex items-center gap-2 min-w-0">
-      <span className="text-sm font-semibold truncate">{name}</span>
+      <span className="text-sm font-semibold truncate"><DisplayName pubkey={rumor.pubkey} name={name} /></span>
       <span className="text-xs text-muted-foreground shrink-0">
         · {shortTimeAgo(rumor.created_at)}
       </span>

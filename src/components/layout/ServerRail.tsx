@@ -8,7 +8,7 @@ import type React from "react";
 
 import { AddDialog } from "@/components/dialogs/AddDialog";
 import { DmAvatar } from "@/components/DmAvatar";
-import { AvatarInitial } from "@/components/AvatarInitial";
+import { UserAvatar } from "@/components/UserAvatar";
 import { NoteToSelfAvatar, NOTE_TO_SELF_NAME } from "@/components/NoteToSelfAvatar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -55,7 +55,6 @@ import { useUpdateUserGroupList } from "@/hooks/useUserGroupList";
 import { useNip29Servers } from "@/hooks/useNip29Servers";
 import { useDragPointerDown, usePressDrag } from "@/hooks/usePressDrag";
 import { useFlipReorder } from "@/hooks/useFlipReorder";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { relayToRouteParam } from "@/lib/platform";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
@@ -222,12 +221,18 @@ function DmMiniIcon({ pubkey }: { pubkey: string }) {
       {noteToSelf ? (
         <NoteToSelfAvatar sizePx={16} className="size-full" />
       ) : (
-        <Avatar shape={getAvatarShape(metadata)} className="size-full">
-          <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" draggable={false} />
-          <AvatarFallback className="bg-primary/20 text-monogram font-semibold leading-none text-primary">
-            <AvatarInitial name={name} pubkey={pubkey} />
-          </AvatarFallback>
-        </Avatar>
+        // Packed into a folder's tile beside its neighbours: no glow.
+        <UserAvatar
+          pubkey={pubkey}
+          metadata={metadata}
+          imeta={author.data?.imeta?.picture}
+          name={name}
+          alt=""
+          draggable={false}
+          frame={false}
+          className="size-full"
+          fallbackClassName="text-monogram font-semibold leading-none"
+        />
       )}
       {/* A DM has no channels — the message IS the mention, so plain unread dot. */}
       <MiniUnreadDot mention={false} unread={unread} />
@@ -392,12 +397,14 @@ function DmDragGhost({ pubkey }: { pubkey: string }) {
       {noteToSelf ? (
         <NoteToSelfAvatar sizePx={48} className="size-12 ring-2 ring-primary" />
       ) : (
-        <Avatar shape={getAvatarShape(metadata)} className="size-12 ring-2 ring-primary">
-          <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-          <AvatarFallback className="bg-primary/20 font-semibold text-primary">
-            <AvatarInitial name={name} pubkey={pubkey} />
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          pubkey={pubkey}
+          metadata={metadata}
+          imeta={author.data?.imeta?.picture}
+          name={name}
+          className="size-12 ring-2 ring-primary"
+          fallbackClassName="font-semibold"
+        />
       )}
     </span>
   );
@@ -940,15 +947,17 @@ const DmButton = memo(function DmButton({
                       {noteToSelf ? (
                         <NoteToSelfAvatar sizePx={48} className={cn("size-12", dimClass(isActive))} />
                       ) : (
-                        <Avatar
-                          shape={getAvatarShape(metadata)}
-                          className={cn("size-12", dimClass(isActive))}
-                        >
-                          <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-                          <AvatarFallback className="bg-primary/20 font-semibold text-primary">
-                            <AvatarInitial name={name} pubkey={pubkey} />
-                          </AvatarFallback>
-                        </Avatar>
+                        // Dimmed on a wrapper: the Ultra frame's inline filter would replace `saturate-50`.
+                        <span className={cn("block size-12", dimClass(isActive))}>
+                          <UserAvatar
+                            pubkey={pubkey}
+                            metadata={metadata}
+                            imeta={author.data?.imeta?.picture}
+                            name={name}
+                            className="size-12"
+                            fallbackClassName="font-semibold"
+                          />
+                        </span>
                       )}
                       {inCall && (
                         <span className="absolute -bottom-1 -right-1 z-10 flex size-4 items-center justify-center rounded-full bg-success text-success-foreground ring-2 ring-background">
@@ -980,12 +989,15 @@ const DmButton = memo(function DmButton({
           lead: noteToSelf ? (
             <NoteToSelfAvatar sizePx={40} className="size-10 shrink-0" />
           ) : (
-            <Avatar shape={getAvatarShape(metadata)} className="size-10 shrink-0">
-              <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
-              <AvatarFallback className="bg-primary/20 font-semibold text-primary">
-                <AvatarInitial name={name} pubkey={pubkey} />
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar
+              pubkey={pubkey}
+              metadata={metadata}
+              imeta={author.data?.imeta?.picture}
+              name={name}
+              alt=""
+              className="size-10 shrink-0"
+              fallbackClassName="font-semibold"
+            />
           ),
           title: name,
         }}

@@ -69,8 +69,9 @@ import { UltraVisibilitySettings } from "@/components/settings/UltraVisibilitySe
 import { VoiceSettings } from "@/components/settings/VoiceSettings";
 import { WalletSettings } from "@/components/settings/WalletSettings";
 import { ThemeSelector } from "@/components/ThemeSelector";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useAndroidBack } from "@/hooks/useAndroidBack";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useBackOrHome } from "@/hooks/useBackOrHome";
@@ -79,7 +80,6 @@ import { useInstallPrompt } from "@/hooks/useInstallPrompt";
 import { useMyUltra } from "@/hooks/useUltra";
 import { common, useIntl } from "@/i18n";
 import { appVersionLabel } from "@/lib/appVersion";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { isDesktop } from "@/lib/desktop";
 import { isIosApp } from "@/lib/platform";
 import { useUltraShown } from "@/lib/ultra";
@@ -344,12 +344,21 @@ function ProfileCard({ compact, active, onOpen }: { compact?: boolean; active?: 
       )}
     >
       <span className="relative shrink-0">
-        <Avatar shape={getAvatarShape(metadata)} className={compact ? "size-10" : "size-14"}>
-          {user && <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name ?? ""} />}
-          <AvatarFallback className="bg-primary/20 text-primary">
-            {name ? name.charAt(0).toUpperCase() : <UserRound className="size-5" />}
-          </AvatarFallback>
-        </Avatar>
+        {user ? (
+          <UserAvatar
+            pubkey={user.pubkey}
+            metadata={metadata}
+            imeta={author.data?.imeta?.picture}
+            alt={name ?? ""}
+            className={compact ? "size-10" : "size-14"}
+          />
+        ) : (
+          <Avatar className={compact ? "size-10" : "size-14"}>
+            <AvatarFallback className="bg-primary/20 text-primary">
+              <UserRound className="size-5" />
+            </AvatarFallback>
+          </Avatar>
+        )}
         {user && !author.isLoading && !name && (
           <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-primary ring-2 ring-background" aria-hidden />
         )}
@@ -357,7 +366,7 @@ function ProfileCard({ compact, active, onOpen }: { compact?: boolean; active?: 
       <span className="min-w-0 flex-1 space-y-0.5">
         <span className={cn("block truncate font-semibold leading-tight", compact ? "text-sm" : "text-base", !name && "text-muted-foreground")}>
           {user
-            ? (name ? <DisplayName pubkey={user.pubkey} name={name} tags={author.data?.event?.tags ?? []} /> : (author.isLoading
+            ? (name ? <DisplayName pubkey={user.pubkey} name={name} tags={author.data?.event?.tags ?? []} metadata={metadata} /> : (author.isLoading
               ? "\u00a0"
               : intl.formatMessage({ id: "settingsPage.profileCard.setName", defaultMessage: "Set your name" })))
             : intl.formatMessage({ id: "settingsPage.profileCard.logIn", defaultMessage: "Log in or sign up" })}

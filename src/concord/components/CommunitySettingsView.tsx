@@ -29,7 +29,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { DiscordBridgeSection } from "@/components/ImportFromDiscord";
 import { ChromeDialogContent, ChromeDialogHeader, Dialog } from "@/components/ui/dialog";
@@ -103,7 +103,6 @@ import { ChannelGlyph } from "@/concord/components/ChannelGlyph";
 import { channelGitRepositoryAttachments } from "@/concord/lib/types";
 import { fetchGitRepositoryAnnouncement } from "@/lib/gitRepositoryResolver";
 import { parseGitRepositoryAddress } from "@/lib/gitActivity";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 type SettingsTab = "overview" | "channels" | "integrations" | "relays";
 
@@ -875,12 +874,7 @@ function OwnerRow({ pubkey }: { pubkey: string }) {
   const displayName = useScopedDisplayName(pubkey, author.data?.metadata);
   return (
     <div className="flex items-center gap-2.5 text-sm">
-      <Avatar className="size-6 shrink-0">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-        <AvatarFallback className="bg-primary/20 text-primary text-3xs">
-          <AvatarInitial name={displayName} pubkey={pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={displayName} className="size-6 shrink-0" fallbackClassName="text-3xs" />
       <span className="min-w-0 flex-1 truncate">
         <DisplayName pubkey={pubkey} name={displayName} />
       </span>

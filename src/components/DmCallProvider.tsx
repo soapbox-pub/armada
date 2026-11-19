@@ -888,7 +888,7 @@ function IncomingCallOverlay({
         <DmAvatar peers={[signal.author]} selfPubkey={selfPubkey} sizePx={96} className="size-24" />
         <div className="text-center space-y-1 min-w-0 w-full">
           <div className="chrome-dialog-title font-mono font-bold lowercase tracking-tight truncate">
-            <DisplayName pubkey={signal.author} name={name} />
+            <DisplayName pubkey={signal.author} name={name} ultra="hero" />
           </div>
           <div className="text-sm text-muted-foreground animate-pulse">
             <FormattedMessage id="dmCallProvider.incoming" defaultMessage="Incoming call…" />

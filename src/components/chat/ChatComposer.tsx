@@ -40,7 +40,7 @@ import { SlashCommandAutocomplete } from "@/components/chat/SlashCommandAutocomp
 import { StickerPicker } from "@/components/chat/StickerPicker";
 import { WebxdcGamePicker } from "@/components/chat/WebxdcGamePicker";
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PillTabs, type PillTab } from "@/components/ui/pill-tabs";
@@ -69,7 +69,6 @@ import { common, defineMessages, FormattedMessage, t, useIntl } from "@/i18n";
 import { useUploadFile, useUploadPreflight } from "@/hooks/useUploadFile";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import { getImageMeta } from "@/lib/imageProbe";
-import { getAvatarShape } from "@/lib/avatarShape";
 import type { AudioMetadata } from "@/lib/audioMetadata";
 import { readAudioMetadata } from "@/lib/readAudioMetadata";
 import { computeWaveform } from "@/lib/audioWaveform";
@@ -115,7 +114,6 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { WEBXDC_MIME, isWebxdcMime } from "@/lib/webxdcMime";
 import { mintTopicId } from "@/lib/webxdcRealtime";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Lazy: keeps emoji-mart + its data out of the main bundle. */
 const LazyEmojiPicker = lazy(() => import("@/components/chat/EmojiPicker").then((m) => ({ default: m.EmojiPicker })));
@@ -2817,12 +2815,15 @@ function ReplyBanner({ event, onCancel, onJump }: { event: NostrRumor; onCancel?
           <span className="sr-only sm:not-sr-only sm:shrink-0">
             <FormattedMessage id="chatComposer.replyingTo" defaultMessage="Replying to" />
           </span>
-          <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
-            <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
-            <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-              <AvatarInitial name={displayName} pubkey={event.pubkey} />
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            pubkey={event.pubkey}
+            metadata={metadata}
+            imeta={author.data?.imeta?.picture}
+            name={displayName}
+            alt=""
+            className="size-5 shrink-0"
+            fallbackClassName="text-monogram"
+          />
           <span className="font-semibold text-primary shrink-0 truncate max-w-[45%]">
             <DisplayName pubkey={event.pubkey} name={displayName} />
           </span>
@@ -2894,12 +2895,15 @@ function QuoteBannerBody({ event }: { event: NostrRumor }) {
       <span className="shrink-0">
         <FormattedMessage id="chatComposer.quoting" defaultMessage="Quoting" />
       </span>
-      <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
-        <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
-        <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-          <AvatarInitial name={displayName} pubkey={event.pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar
+        pubkey={event.pubkey}
+        metadata={metadata}
+        imeta={author.data?.imeta?.picture}
+        name={displayName}
+        alt=""
+        className="size-5 shrink-0"
+        fallbackClassName="text-monogram"
+      />
       <span className="font-semibold text-primary shrink-0 truncate max-w-[45%]">
         <DisplayName pubkey={event.pubkey} name={displayName} />
       </span>

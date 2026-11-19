@@ -6,7 +6,7 @@ import { EmojiSourceFooter } from "@/components/chat/EmojiSourceFooter";
 import { MediaHoldContext } from "@/components/chat/mediaHold";
 import { usePointerOpened } from "@/components/chat/usePointerOpened";
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { passThroughEscape } from "@/lib/passThroughEscape";
@@ -17,7 +17,6 @@ import { useCustomEmojis } from "@/hooks/useCustomEmojis";
 import { recordReaction } from "@/hooks/useFrequentReactions";
 import { useQuickReactions } from "@/hooks/useQuickReactionList";
 import { useIsTouch } from "@/hooks/useIsMobile";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { isRenderableReactionKey } from "@/lib/customEmoji";
 import { QUICK_SLOTS_POINTER, toggleInput } from "@/lib/reactionToggle";
@@ -25,7 +24,6 @@ import { cn } from "@/lib/utils";
 import { FormattedMessage, useIntl } from "@/i18n";
 
 import type { ReactInput, ReactionTally } from "@/hooks/useReactions";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Lazy: keeps emoji-mart + its data out of the main bundle. */
 const LazyEmojiPicker = lazy(() =>
@@ -118,12 +116,14 @@ function ReactorRow({ pubkey }: { pubkey: string }) {
   const displayName = useScopedDisplayName(pubkey, metadata);
   return (
     <div className="flex items-center gap-2 px-2 py-1">
-      <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
-        <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-        <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-          <AvatarInitial name={displayName} pubkey={pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar
+        pubkey={pubkey}
+        metadata={metadata}
+        imeta={author.data?.imeta?.picture}
+        name={displayName}
+        className="size-5 shrink-0"
+        fallbackClassName="text-monogram"
+      />
       <span className="text-xs truncate">
         <DisplayName pubkey={pubkey} name={displayName} />
       </span>

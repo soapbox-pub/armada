@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
 import { SearchField } from "@/components/ui/search-field";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -48,7 +48,6 @@ import { shortTimeAgoPhrase } from "@/lib/formatTime";
 import { toast } from "@/hooks/useToast";
 import { useEventStore } from "@/hooks/useEventStore";
 import { defineMessages, FormattedMessage, t, useIntl } from "@/i18n";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Render cap before "Show all" (slicing, not virtualization). */
 const RENDER_CAP = 150;
@@ -788,12 +787,7 @@ function MemberRow({
           aria-label={intl.formatMessage({ id: "membersView.selectMember", defaultMessage: "Select {name}" }, { name })}
         />
       )}
-      <Avatar className="size-6 shrink-0">
-        <AvatarImage src={author.data?.metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-        <AvatarFallback className="bg-primary/20 text-3xs text-primary">
-          <AvatarInitial name={name} pubkey={row.pubkey} />
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar pubkey={row.pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} className="size-6 shrink-0" fallbackClassName="text-3xs" />
       {/* flex-auto, not flex-1: with basis 0% the chips would crush the name. */}
       <span className="min-w-0 flex-auto truncate font-medium">
         <DisplayName pubkey={row.pubkey} name={name} />

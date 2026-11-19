@@ -1,7 +1,7 @@
 import { Flag, Loader2 } from "lucide-react";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useConcordReports, type ReportEntry } from "@/concord/hooks/useConcordReports";
 import { reportSubject } from "@/concord/lib/report";
 import type { Community } from "@/concord/lib/types";
@@ -10,7 +10,6 @@ import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { shortTimeAgo } from "@/lib/formatTime";
 import { REPORT_REASONS } from "@/lib/report";
 import { FormattedMessage, useIntl, type IntlShape } from "@/i18n";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 function reasonLabel(intl: IntlShape, reason: string | undefined): string {
   if (!reason) return intl.formatMessage({ id: "reportsView.reported", defaultMessage: "Reported" });
@@ -65,12 +64,7 @@ function ReportRow({ report }: { report: ReportEntry }) {
   return (
     <li className="space-y-2 rounded-md bg-foreground/5 px-3 py-2.5 text-sm">
       <div className="flex items-center gap-2.5">
-        <Avatar className="size-6 shrink-0">
-          <AvatarImage src={accusedAuthor.data?.metadata?.picture} imeta={accusedAuthor.data?.imeta?.picture} alt={accusedName} />
-          <AvatarFallback className="bg-destructive/20 text-3xs text-destructive">
-            <AvatarInitial name={accusedName} pubkey={accused} />
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar pubkey={accused} metadata={accusedAuthor.data?.metadata} imeta={accusedAuthor.data?.imeta?.picture} name={accusedName} className="size-6 shrink-0" fallbackClassName="bg-destructive/20 text-3xs text-destructive" />
         <span className="min-w-0 flex-1 truncate font-medium">
           <DisplayName pubkey={accused} name={accusedName} />
         </span>

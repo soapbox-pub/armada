@@ -19,6 +19,7 @@ import { ReportDialog } from "@/components/ReportDialog";
 import { ZapDialog } from "@/components/chat/ZapDialog";
 import { ZapPill } from "@/components/chat/ZapPill";
 import { DisplayName } from "@/components/DisplayName";
+import { UserAvatar } from "@/components/UserAvatar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,7 +30,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { MessageMenuItems } from "@/components/chat/MessageMenuItems";
 import { MenuReactionPicker, MenuReactionRow } from "@/components/chat/MenuReactions";
@@ -48,7 +48,6 @@ import { useIsTouch } from "@/hooks/useIsMobile";
 import { useUserModeration } from "@/hooks/useUserModeration";
 import { useMediaWithFallback } from "@/hooks/useMediaWithFallback";
 import { useOpenProfile } from "@/hooks/useOpenProfile";
-import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { useToast } from "@/hooks/useToast";
 import { common, defineMessage, FormattedMessage, t, useIntl } from "@/i18n";
 import { AppContext } from "@/contexts/AppContext";
@@ -56,7 +55,6 @@ import { isIosApp } from "@/lib/platform";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
 import { getComposerCollisionPadding, useComposerBoundsRef } from "@/contexts/ComposerBoundsContext";
 import { ChatImageMenuContext, contextActionsAt, keepSelectionOnRightPress, withImageActions, type ChatImageMenu } from "@/contexts/ChatImageMenuContext";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { buildEmojiMap } from "@/lib/customEmoji";
 import { writeClipboardText } from "@/lib/clipboard";
 import { chatUrl, type ChatRoute } from "@/lib/routes";
@@ -82,7 +80,6 @@ import type { ReactNode } from "react";
 
 import { KIND_CALENDAR_DATE, KIND_CALENDAR_TIME } from "@/lib/calendar";
 import { KIND_POLL } from "@/lib/polls";
-import { AvatarInitial } from "@/components/AvatarInitial";
 import { MotionImg } from "@/components/ui/MotionImg";
 
 /** A `nostr:`/bare-bech32 mention or event reference inside preview text. */
@@ -92,7 +89,7 @@ const REPLY_NOSTR_RE =
 const quotedPost = defineMessage({ id: "chatMessage.quotedPost", defaultMessage: "Quoted post" });
 
 function ReplyMentionName({ pubkey }: { pubkey: string }) {
-  return <span className="text-primary">@<DisplayName pubkey={pubkey} /></span>;
+  return <span className="text-primary">@<DisplayName pubkey={pubkey} ultra={false} /></span>;
 }
 
 function ReplyQuoteLabel({ kind }: { kind?: number }) {
@@ -140,7 +137,7 @@ function ReplyQuotedNote({ eventId, relays, author, kind, fallbackAuthor }: {
 }
 
 function InvokedBotName({ pubkey }: { pubkey: string }) {
-  return <span className="font-semibold not-italic text-primary"><DisplayName pubkey={pubkey} /></span>;
+  return <span className="font-semibold not-italic text-primary"><DisplayName pubkey={pubkey} ultra={false} /></span>;
 }
 
 /**
@@ -242,7 +239,6 @@ export function ReplyContextLine({
   onClick?: () => void;
 }) {
   const author = useAuthor(pubkey);
-  const metadata = author.data?.metadata;
   const banned = useIsUserBanned()(pubkey);
   if (!name) return null;
   if (banned) preview = <BannedTombstone className="text-xs" />;
@@ -250,12 +246,15 @@ export function ReplyContextLine({
     <>
       <span aria-hidden className="chat-reply-connector" />
       {pubkey && (
-        <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
-          <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt="" />
-          <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-            <AvatarInitial name={name} pubkey={pubkey} />
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          pubkey={pubkey}
+          metadata={author.data?.metadata}
+          imeta={author.data?.imeta?.picture}
+          name={name}
+          alt=""
+          className="size-4 shrink-0"
+          fallbackClassName="text-monogram"
+        />
       )}
       <span className="font-semibold shrink-0 text-primary group-hover/reply:underline">
         {pubkey ? <DisplayName pubkey={pubkey} name={name} /> : name}
@@ -303,20 +302,6 @@ export function ReplyContextUnavailable({ onClick }: { onClick: () => void }) {
   );
 }
 
-function ThreadParticipantAvatar({ pubkey }: { pubkey: string }) {
-  const author = useAuthor(pubkey);
-  const metadata = author.data?.metadata;
-  const name = useScopedDisplayName(pubkey, metadata);
-  return (
-    <Avatar shape={getAvatarShape(metadata)} className="size-5 ring-2 ring-background">
-      <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="bg-primary/25 text-primary text-monogram font-semibold">
-        <AvatarInitial name={name} pubkey={pubkey} />
-      </AvatarFallback>
-    </Avatar>
-  );
-}
-
 /** Slack-style thread affordance: replier avatars, count, last-reply recency. */
 function ThreadBadge({
   count,
@@ -339,7 +324,13 @@ function ThreadBadge({
     >
       <span className="flex shrink-0 -space-x-1.5">
         {shown.map((pk) => (
-          <ThreadParticipantAvatar key={pk} pubkey={pk} />
+          <UserAvatar
+            key={pk}
+            pubkey={pk}
+            className="size-5 ring-2 ring-background"
+            fallbackClassName="bg-primary/25 text-monogram font-semibold"
+            frame={false}
+          />
         ))}
         {overflow > 0 && (
           <span className="flex size-5 items-center justify-center rounded-full ring-2 ring-background bg-primary/25 text-primary text-monogram font-semibold tabular-nums">

@@ -3,9 +3,9 @@ import { lazy, Suspense, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { DisplayName } from "@/components/DisplayName";
+import { UserAvatar } from "@/components/UserAvatar";
 import { CustomEmojiImg } from "@/components/chat/CustomEmoji";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { FallbackImage } from "@/components/ui/FallbackImage";
 import {
@@ -21,14 +21,12 @@ import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useNaddrLink } from "@/hooks/useNaddrLink";
 import { toast } from "@/hooks/useToast";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { naddrPath } from "@/lib/naddrLink";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, common, t, useIntl } from "@/i18n";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 const EmojiPackDialog = lazy(() =>
   import("@/components/discover/EmojiPackDialog").then((m) => ({ default: m.EmojiPackDialog })),
@@ -168,12 +166,14 @@ export function EmojiPackCard({ event, expanded = false, className }: EmojiPackC
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground min-w-0"
             onClick={(e) => e.stopPropagation()}
           >
-            <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
-              <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-              <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-                <AvatarInitial name={displayName} pubkey={event.pubkey} />
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar
+              pubkey={event.pubkey}
+              metadata={metadata}
+              imeta={author.data?.imeta?.picture}
+              name={displayName}
+              className="size-4 shrink-0"
+              fallbackClassName="text-monogram"
+            />
             <span className="truncate">
               <FormattedMessage
                 id="emojiPackCard.byAuthor"

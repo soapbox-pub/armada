@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "r
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { AvatarInitial } from "@/components/AvatarInitial";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Confetti } from "@/components/Confetti";
 import { ImageCropDialog } from "@/components/ImageCropDialog";
 import { JoinButton } from "@/components/auth/JoinButton";
@@ -34,10 +35,8 @@ import {
   NAME_STYLES,
   nameStyleCss,
   PROFILE_EFFECTS,
-  readUltra,
   ULTRA_DEFAULTS,
   ULTRA_NAME_CLASS,
-  useFrameCss,
   type AvatarFrameId,
   type NameStyleId,
   type ProfileEffectId,
@@ -107,7 +106,6 @@ function GiftBody({ gifter }: { gifter: string }) {
   const author = useAuthor(gifter);
   const gifterMeta = author.data?.metadata;
   const gifterName = getDisplayName(gifterMeta, gifter);
-  const gifterFrame = useFrameCss(readUltra(gifterMeta)?.frame);
   const mine = useMyUltra();
   const { publish } = usePublishUltra();
   const { upload } = useUploadProfileImage();
@@ -186,14 +184,7 @@ function GiftBody({ gifter }: { gifter: string }) {
       {burst > 0 && <Confetti key={burst} />}
 
       <div className="flex items-center gap-2.5 rounded-full bg-background/60 py-1.5 pl-1.5 pr-4 shadow-lg backdrop-blur-md">
-        <span className="rounded-full" style={gifterFrame}>
-          <Avatar shape={getAvatarShape(gifterMeta)} className="size-8">
-            <AvatarImage src={gifterMeta?.picture} imeta={author.data?.imeta?.picture} alt={gifterName} />
-            <AvatarFallback className="bg-primary/20 text-primary text-xs">
-              <AvatarInitial name={gifterName} pubkey={gifter} />
-            </AvatarFallback>
-          </Avatar>
-        </span>
+        <UserAvatar pubkey={gifter} metadata={gifterMeta} imeta={author.data?.imeta?.picture} name={gifterName} className="size-8" fallbackClassName="text-xs" />
         <span className="text-sm font-medium">
           {ownGift
             ? <FormattedMessage id="giftPage.ownChip" defaultMessage="Your gift" />

@@ -5,10 +5,10 @@ import { Fragment, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { DisplayName } from "@/components/DisplayName";
+import { UserAvatar } from "@/components/UserAvatar";
 import { BoostedBy } from "@/components/discover/BoostedBy";
 import { DiscoverBoostsContext } from "@/components/discover/discoverBoosts";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -44,14 +44,12 @@ import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { toast } from "@/hooks/useToast";
 import { defineMessage, FormattedMessage, t, useIntl } from "@/i18n";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { useIsBlocked } from "@/lib/blocklistStore";
 import { writeClipboardText } from "@/lib/clipboard";
 import { boostsFor, vouchingBoosts, type Boost } from "@/lib/discoverBoost";
 import { shortTimeAgoPhrase } from "@/lib/formatTime";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { cn } from "@/lib/utils";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface CommunityListingCardProps {
   invite: DiscoveredInvite;
@@ -495,12 +493,14 @@ export function CommunityListingCard({
             type="button"
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground min-w-0"
           >
-            <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
-              <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-              <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-                <AvatarInitial name={displayName} pubkey={attributedPubkey} />
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar
+              pubkey={attributedPubkey}
+              metadata={metadata}
+              imeta={author.data?.imeta?.picture}
+              name={displayName}
+              className="size-4 shrink-0"
+              fallbackClassName="text-monogram"
+            />
             <span className="truncate">
               <FormattedMessage
                 id="communityListingCard.attribution"

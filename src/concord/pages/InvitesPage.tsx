@@ -19,7 +19,7 @@ import { DisplayName } from "@/components/DisplayName";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
 import { ServerRail } from "@/components/layout/ServerRail";
 import { SwipeReveal } from "@/components/layout/SwipeReveal";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { BannedFromCommunityError, DissolvedCommunityError, bundleToEntry } from "@/concord/hooks/useCommunityActions";
@@ -42,12 +42,10 @@ import { useFollowList } from "@/hooks/useFollowList";
 import { concordInviteReadKey, useReadState } from "@/hooks/useReadState";
 import { toast } from "@/hooks/useToast";
 import { FormattedMessage, t, useIntl } from "@/i18n";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { relativeTime, shortTimeAgo } from "@/lib/formatTime";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { cn } from "@/lib/utils";
 import { usePageCovered } from "@/lib/settingsOverlay";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** The seal-verified sender as a short npub, shown beside the (self-chosen) profile. */
 function senderLabel(pubkeyHex: string): string {
@@ -225,16 +223,17 @@ function FriendFace({ pubkey, className }: { pubkey: string; className?: string 
   const name = getDisplayName(metadata, pubkey);
 
   return (
-    <Avatar
-      shape={getAvatarShape(metadata)}
-      title={name}
-      className={cn("size-6 ring-2 ring-background", className)}
-    >
-      <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="bg-primary/20 text-monogram font-semibold text-primary">
-        <AvatarInitial name={name} pubkey={pubkey} />
-      </AvatarFallback>
-    </Avatar>
+    <span className={cn("flex shrink-0 rounded-full", className)} title={name}>
+      <UserAvatar
+        pubkey={pubkey}
+        metadata={metadata}
+        imeta={author.data?.imeta?.picture}
+        name={name}
+        className="size-6 ring-2 ring-background"
+        fallbackClassName="text-monogram font-semibold"
+        frame={false}
+      />
+    </span>
   );
 }
 
@@ -641,12 +640,14 @@ export function InviteDetail({
                   className="mt-2 flex w-full min-w-0 items-center gap-3 text-left"
                 >
                   <div className="relative shrink-0">
-                    <Avatar shape={getAvatarShape(senderMeta)} className="size-11">
-                      <AvatarImage src={senderMeta?.picture} imeta={senderAuthor.data?.imeta?.picture} alt={senderName} />
-                      <AvatarFallback className="bg-primary/20 font-semibold text-primary">
-                        <AvatarInitial name={senderName} pubkey={sender} />
-                      </AvatarFallback>
-                    </Avatar>
+                    <UserAvatar
+                      pubkey={sender}
+                      metadata={senderMeta}
+                      imeta={senderAuthor.data?.imeta?.picture}
+                      name={senderName}
+                      className="size-11"
+                      fallbackClassName="font-semibold"
+                    />
                     {followsSender && (
                       <span
                         title={intl.formatMessage({ id: "invitesPage.detail.following", defaultMessage: "Following" })}

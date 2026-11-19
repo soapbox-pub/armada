@@ -3,9 +3,9 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { DisplayName } from "@/components/DisplayName";
+import { UserAvatar } from "@/components/UserAvatar";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
 import { ThemeCreatorDialog } from "@/components/discover/ThemeCreatorDialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -16,7 +16,6 @@ import { useThemeLibrary } from "@/hooks/useThemeLibrary";
 import { useUserThemes } from "@/hooks/useUserThemes";
 import { toast } from "@/hooks/useToast";
 import { FormattedMessage, t, useIntl } from "@/i18n";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { naddrPath } from "@/lib/naddrLink";
 import { parseDittoTheme, themeEventToConfig } from "@/lib/themeEvent";
@@ -25,7 +24,6 @@ import { cn } from "@/lib/utils";
 import { coreToTokens } from "@/themes";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 interface ThemeDiscoverCardProps {
   event: NostrRumor;
@@ -159,12 +157,14 @@ export function ThemeDiscoverCard({ event, className }: ThemeDiscoverCardProps) 
             type="button"
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground min-w-0"
           >
-            <Avatar shape={getAvatarShape(metadata)} className="size-4 shrink-0">
-              <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={displayName} />
-              <AvatarFallback className="bg-primary/20 text-primary text-monogram">
-                <AvatarInitial name={displayName} pubkey={creator} />
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar
+              pubkey={creator}
+              metadata={metadata}
+              imeta={author.data?.imeta?.picture}
+              name={displayName}
+              className="size-4 shrink-0"
+              fallbackClassName="text-monogram"
+            />
             <span className="truncate">
               <FormattedMessage
                 id="themeDiscoverCard.byAuthor"

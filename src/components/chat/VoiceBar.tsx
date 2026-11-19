@@ -21,7 +21,7 @@ import {
 import "@livekit/components-styles";
 
 import { DisplayName } from "@/components/DisplayName";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useCallback, useContext, useEffect, useState } from "react";
 import {
   DropdownMenu,
@@ -54,7 +54,6 @@ import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { useScreenShareVolume, useUserVolume } from "@/hooks/useUserVolume";
 import { useVoiceIdentity } from "@/contexts/VoiceIdentityContext";
 import { VoiceRejoiningContext } from "@/contexts/VoiceRejoiningContext";
-import { getAvatarShape } from "@/lib/avatarShape";
 import {
   audioDeviceLabel,
   getAudioProcessing,
@@ -69,7 +68,6 @@ import { syncRnnoise } from "@/lib/voiceProcessor";
 import { rnnoiseSupported } from "@/lib/rnnoiseSupport";
 import { cn } from "@/lib/utils";
 import { FormattedMessage, t, useIntl } from "@/i18n";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /**
  * Whether `kind` is audio with unnamed devices, so a capture is worth opening to
@@ -365,12 +363,14 @@ function ParticipantVolumeRow({ participant }: { participant: Participant }) {
     // No drawer drag here, or the sheet would swallow a slider drag.
     <div data-vaul-no-drag className={inSheet ? "px-3 py-2" : "px-2 py-1.5"} onPointerDown={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-2 mb-1.5">
-        <Avatar shape={getAvatarShape(metadata)} className="size-5 shrink-0">
-          <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-          <AvatarFallback className="bg-success/20 text-success text-monogram">
-            <AvatarInitial name={name} pubkey={verified ? pubkey : undefined} />
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          pubkey={verified ? pubkey : undefined}
+          metadata={metadata}
+          imeta={author.data?.imeta?.picture}
+          name={name}
+          className="size-5 shrink-0"
+          fallbackClassName="bg-success/20 text-success text-monogram"
+        />
         <span className="truncate text-sm flex-1">
           <DisplayName pubkey={verified ? pubkey : undefined} name={name} />
         </span>

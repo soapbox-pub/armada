@@ -5,7 +5,6 @@ import { BlurhashCanvas } from "@/components/BlurhashCanvas";
 import { DisplayName } from "@/components/DisplayName";
 import { HeldMedia } from "@/components/chat/HeldMedia";
 import { revealMessageMedia, useAuthorBlocked, useMediaHeld, useMediaUrlHold, useMessageRevealed } from "@/components/chat/mediaHold";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,19 +19,16 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PillTabs, type PillTab } from "@/components/ui/pill-tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAuthor } from "@/hooks/useAuthor";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useMediaWithFallback } from "@/hooks/useMediaWithFallback";
-import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { forumImages, type ForumImage, type ForumPost, type ForumSort } from "@/concord/lib/forum";
 import { common, defineMessages, FormattedMessage, useIntl } from "@/i18n";
-import { getAvatarShape } from "@/lib/avatarShape";
 import { fullDateTime, shortTimeAgo, shortTimeAgoPhrase } from "@/lib/formatTime";
 import { mediaHost } from "@/lib/mediaPolicy";
 import { cn } from "@/lib/utils";
 
 import type { ChatMsg } from "@/components/chat/transport";
 import type { ReactNode } from "react";
-import { AvatarInitial } from "@/components/AvatarInitial";
 
 /** Pages the sentinel auto-loads before handing over to its button. */
 const MAX_AUTO_PAGES = 8;
@@ -42,25 +38,13 @@ const sortLabels = defineMessages({
   newest: { id: "forumFeed.sort.newest", defaultMessage: "Newest" },
 });
 
-function AuthorAvatar({ pubkey, className }: { pubkey: string; className?: string }) {
-  const author = useAuthor(pubkey);
-  const metadata = author.data?.metadata;
-  const name = useScopedDisplayName(pubkey, metadata);
-  return (
-    <Avatar shape={getAvatarShape(metadata)} className={cn("size-8", className)}>
-      <AvatarImage src={metadata?.picture} imeta={author.data?.imeta?.picture} alt={name} />
-      <AvatarFallback className="bg-primary/20 text-primary text-xs"><AvatarInitial name={name} pubkey={pubkey} /></AvatarFallback>
-    </Avatar>
-  );
-}
-
 function ParticipantStack({ pubkeys }: { pubkeys: readonly string[] }) {
   const shown = pubkeys.slice(0, 3);
   if (shown.length === 0) return null;
   return (
     <span className="hidden sm:flex -space-x-1.5" aria-hidden>
       {shown.map((pk) => (
-        <AuthorAvatar key={pk} pubkey={pk} className="size-5 ring-2 ring-card" />
+        <UserAvatar key={pk} pubkey={pk} className="size-5 ring-2 ring-card" fallbackClassName="text-xs" frame={false} />
       ))}
     </span>
   );
@@ -105,7 +89,7 @@ const ForumPostRow = memo(function ForumPostRow({
         )}
       >
         <span className="flex w-full items-center gap-3">
-          <AuthorAvatar pubkey={post.root.pubkey} className="shrink-0" />
+          <UserAvatar pubkey={post.root.pubkey} className="size-8 shrink-0" fallbackClassName="text-xs" />
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
               {isNew && <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label={intl.formatMessage({ id: "forumFeed.newActivity", defaultMessage: "New activity" })} />}
