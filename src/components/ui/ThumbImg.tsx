@@ -35,15 +35,18 @@ export function ThumbImg({
     stopWatching.current?.();
     stopWatching.current = null;
     if (!el) return;
-    const size = () => Math.max(el.offsetWidth, el.offsetHeight) || 64;
-    if (!lazy || typeof IntersectionObserver === "undefined") {
-      setBox(size());
+    if (typeof IntersectionObserver === "undefined") {
+      setBox(Math.max(el.offsetWidth, el.offsetHeight) || 64);
       return;
     }
+    // Sized from the observer's report, not `offsetWidth`: read in this ref callback,
+    // mid-commit, that forced a layout of the whole page being mounted. The first
+    // report comes a frame later for every element, so an eager image takes it as is.
     const stop = observeIntersection(el, (entry) => {
-      if (!entry.isIntersecting) return;
+      if (lazy && !entry.isIntersecting) return;
       stop();
-      setBox(size());
+      const { width, height } = entry.boundingClientRect;
+      setBox(Math.round(Math.max(width, height)) || 64);
     }, LAZY_MARGIN);
     stopWatching.current = stop;
   }, [lazy]);
