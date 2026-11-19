@@ -6,6 +6,7 @@ import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { ServerRail } from "@/components/layout/ServerRail";
 import { SwipeReveal } from "@/components/layout/SwipeReveal";
 import { ServerScopeProvider } from "@/components/ServerScopeProvider";
+import { ReplyPreview } from "@/components/chat/ChatMessage";
 import { ThreadPanel } from "@/components/chat/ThreadPanel";
 import { DisplayName } from "@/components/DisplayName";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -50,7 +51,6 @@ function InboxRow({
   const author = useAuthor(event.pubkey);
   const metadata = author.data?.metadata;
   const displayName = useScopedDisplayName(event.pubkey, metadata);
-  const preview = event.content.replace(/https?:\/\/\S+/g, "📎").trim() || "📎";
 
   return (
     <button
@@ -87,7 +87,7 @@ function InboxRow({
             unread ? "text-foreground" : "text-muted-foreground",
           )}
         >
-          {preview}
+          <ReplyPreview content={event.content} />
         </p>
       </div>
       {unread && <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" aria-label={intl.formatMessage({ id: "inboxPage.unread", defaultMessage: "Unread" })} />}

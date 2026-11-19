@@ -7,6 +7,7 @@ import { useCommunity, useLiveCommunities } from "@/concord/hooks/useCommunityLi
 import { useConcordMentions } from "@/concord/hooks/useConcordMentions";
 import { useInviteInbox } from "@/concord/hooks/useDirectInvites";
 import type { CommunityListEntry } from "@/concord/lib/communityList";
+import { ReplyPreview } from "@/components/chat/ChatMessage";
 import { DisplayName } from "@/components/DisplayName";
 import { ServerRail } from "@/components/layout/ServerRail";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -26,7 +27,6 @@ import { useRelayInbox } from "@/hooks/useRelayInbox";
 import { useRelayInfo } from "@/hooks/useRelayInfo";
 import { shortTimeAgo } from "@/lib/formatTime";
 import { nip29ThreadRootOf } from "@/lib/nip29Threads";
-import { cleanContent, truncate } from "@/lib/notificationPreview";
 import { chatRoute } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { AvatarInitial } from "@/components/AvatarInitial";
@@ -40,7 +40,8 @@ type CenterItem =
       readKey: string;
       route: string;
       author: string;
-      body: string;
+      /** The message text, rendered like a reply preview (mentions as `@name`). */
+      content: string;
       source: string;
     }
   | {
@@ -71,11 +72,6 @@ function relayName(url: string): string {
   }
 }
 
-function messagePreview(content: string | undefined, fallback: string): string {
-  const clean = truncate(cleanContent(content ?? ""));
-  return clean || fallback;
-}
-
 function focusedRoute(
   base: { kind: "nip29"; relayUrl: string; groupId: string } |
     { kind: "concord"; communityId: string; channelId: string },
@@ -98,7 +94,6 @@ function RelayNotificationSource({ relayUrl, report }: { relayUrl: string; repor
   );
   const { items } = useRelayInbox(relayUrl, groupIds);
   const sourceName = info?.name || relayName(relayUrl);
-  const intl = useIntl();
 
   const reported = useMemo<CenterItem[]>(
     () => items.map(({ event, groupId, unread }) => ({
@@ -109,10 +104,10 @@ function RelayNotificationSource({ relayUrl, report }: { relayUrl: string; repor
       readKey: channelReadKey(relayUrl, groupId),
       route: focusedRoute({ kind: "nip29", relayUrl, groupId }, event),
       author: event.pubkey,
-      body: messagePreview(event.content, intl.formatMessage(messages.mentionedYou)),
+      content: event.content,
       source: `${sourceName} · #${nameById.get(groupId) ?? groupId}`,
     })),
-    [items, relayUrl, sourceName, nameById, intl],
+    [items, relayUrl, sourceName, nameById],
   );
 
   useEffect(() => {
@@ -161,7 +156,7 @@ function ConcordNotificationSource({
           message,
         ),
         author: message.pubkey,
-        body: messagePreview(message.content, intl.formatMessage(messages.mentionedYou)),
+        content: message.content,
         source: `${communityName} · #${nameById.get(channelId) ?? intl.formatMessage({
           id: "notificationsPage.unknownChannel",
           defaultMessage: "unknown channel",
@@ -218,7 +213,11 @@ function NotificationRow({ item, onOpen }: { item: CenterItem; onOpen: (item: Ce
         </div>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.source}</p>
         <p className={cn("mt-1 line-clamp-2 break-words text-sm", !item.unread && "text-muted-foreground")}>
-          {item.body}
+          {item.kind === "invite"
+            ? item.body
+            : item.content.trim()
+              ? <ReplyPreview content={item.content} />
+              : intl.formatMessage(messages.mentionedYou)}
         </p>
       </div>
       {item.unread && (
