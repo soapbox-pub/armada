@@ -37,6 +37,7 @@ import type { Community, PrivateChannelKey } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { clockNowMs } from "@/lib/relayClock";
 import type { NostrRumor } from "@/lib/nostrRumor";
+import { getArmadaDB } from "@/lib/db/armadaDB";
 import { logSync } from "@/lib/syncLog";
 
 /** How often a holder that can rotate reads the Control Plane again for a change it missed. */
@@ -61,6 +62,37 @@ const rerun = new Set<string>();
 /** Members delivered to this session, by `community:channel:epoch:member` (Vector `AccessLedger`). */
 const delivered = new Set<string>();
 
+/**
+ * This account's own deliveries, kept across launches as one KV key per
+ * `community:channel:epoch:member` (a key per fact). A plane flooded past the paged
+ * read hides the delivery it already holds, and the session ledger alone sent the key
+ * and every past epoch again on each launch, flooding the plane further.
+ */
+const LEDGER_PREFIX = "c2accessled:";
+const ledgerLoads = new Map<string, Promise<void>>();
+
+function loadDeliveredLedger(me: string, communityIdHex: string): Promise<void> {
+  const scope = `${LEDGER_PREFIX}${me}:${communityIdHex}:`;
+  let load = ledgerLoads.get(scope);
+  if (!load) {
+    load = getArmadaDB()
+      .kv.list<number>({ prefix: scope })
+      .then((entries) => {
+        for (const { key } of entries) delivered.add(`${communityIdHex}:${key.slice(scope.length)}`);
+      })
+      .catch(() => {
+        ledgerLoads.delete(scope);
+      });
+    ledgerLoads.set(scope, load);
+  }
+  return load;
+}
+
+function recordDelivered(me: string, key: string): void {
+  delivered.add(key);
+  void getArmadaDB().kv.set(`${LEDGER_PREFIX}${me}:${key}`, 1).catch(() => undefined);
+}
+
 /** Members this device rotated out, by `community:channel:epoch it minted:member`. */
 const cutBySelf = new Set<string>();
 
@@ -83,6 +115,7 @@ export async function historyDeliveriesSettled(): Promise<void> {
 /** Forget whom this session delivered to, so the next account starts afresh. */
 export function clearAccessDutyMemory(): void {
   delivered.clear();
+  ledgerLoads.clear();
   historyDelivered.clear();
   historyGeneration++;
   minted.clear();
@@ -361,7 +394,7 @@ export async function deliverKeysOnPlane(nostr: NPool, community: Community, ch:
   // The current key is what lets them in, so it lands before any history does.
   const access = await buildAccessDeliveries(user.pubkey, encrypt, { scopeIdHex: idHex, epoch: ch.epoch, key: ch.key, recipients: [...recipients], atSecs });
   await Promise.all(access.map((r) => publish(r, "delivery")));
-  for (const pk of recipients) delivered.add(`${community.idHex}:${idHex}:${ch.epoch}:${pk}`);
+  for (const pk of recipients) recordDelivered(user.pubkey, `${community.idHex}:${idHex}:${ch.epoch}:${pk}`);
 
   // Past epochs read-only, one event each, behind the key rather than ahead of it.
   const historyKey = (epoch: bigint, pk: string) => `${community.idHex}:${idHex}:${epoch}:${pk}`;
@@ -435,6 +468,7 @@ async function runAccessDuty(
   // Judged on a whole read: a stale entitlement would hand a new epoch's key to someone its rotation just cut.
   if (folded.incomplete.length > 0) return false;
   if (!user.signer.nip44) return false;
+  await loadDeliveredLedger(user.pubkey, community.idHex);
   // Before's too: someone only a removed overwrite named still holds what it let them read.
   const candidates = [...new Set([...accessCandidates(folded, members), ...(settledFrom ? accessCandidates(settledFrom, members) : [])])].sort();
   const doneFor = (idHex: string, epoch: bigint) => new Set(candidates.filter((pk) => delivered.has(`${community.idHex}:${idHex}:${epoch}:${pk}`)));
