@@ -345,13 +345,27 @@ export function certEventId(certifier: string, digest: Uint8Array): string {
   return getEventHash({ pubkey: certifier, created_at: 0, kind: 3320, tags: [["digest", bytesToHex(digest)]], content: "" });
 }
 
+/**
+ * Verdicts by `certifier:digest:cert`. A verdict is a pure function of those three, and
+ * render paths (`useWriterAccess`) check every restricted Channel's certificate per render.
+ */
+const certVerdicts = new Map<string, boolean>();
+const CERT_VERDICTS_MAX = 1024;
+
 export function verifyWriterCert(certifier: string, digest: Uint8Array, certHex: string): boolean {
   if (!/^[0-9a-fA-F]{128}$/.test(certHex)) return false;
+  const key = `${certifier}:${bytesToHex(digest)}:${certHex.toLowerCase()}`;
+  const known = certVerdicts.get(key);
+  if (known !== undefined) return known;
+  let ok: boolean;
   try {
-    return schnorr.verify(hex32Sig(certHex), hex32(certEventId(certifier, digest)), hex32(certifier));
+    ok = schnorr.verify(hex32Sig(certHex), hex32(certEventId(certifier, digest)), hex32(certifier));
   } catch {
-    return false;
+    ok = false;
   }
+  if (certVerdicts.size >= CERT_VERDICTS_MAX) certVerdicts.delete(certVerdicts.keys().next().value!);
+  certVerdicts.set(key, ok);
+  return ok;
 }
 
 export function signWriterCert(certifierSecret: Uint8Array, digest: Uint8Array): string {
