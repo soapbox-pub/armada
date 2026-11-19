@@ -107,10 +107,19 @@ describe("RichTextarea painting", () => {
     expect(drawn.find((p) => p.text === "it")!.cls).not.toContain("muted");
   });
 
-  it("splits a run at each line it wraps across", async () => {
-    const { container } = render(<Field initial="abcdefghijklmnopqrst" onValue={() => {}} />);
+  it("leaves unstyled text to the textarea, drawing nothing over it", async () => {
+    const { container } = render(<Field initial="just words" onValue={() => {}} />);
     await painted();
-    expect(pieces(container)).toEqual([
+    expect(pieces(container)).toEqual([]);
+    expect(screen.getByLabelText("field").className).not.toContain("rt-input");
+  });
+
+  it("splits a run at each line it wraps across", async () => {
+    // The styled line after it puts the overlay in charge of drawing the text.
+    const { container } = render(<Field initial={"abcdefghijklmnopqrst\n**b**"} onValue={() => {}} />);
+    await painted();
+    expect(screen.getByLabelText("field").className).toContain("rt-input");
+    expect(pieces(container).slice(0, 3)).toEqual([
       { text: "abcdefgh", cls: "", at: "0px,0px" },
       { text: "ijklmnop", cls: "", at: "0px,20px" },
       { text: "qrst", cls: "", at: "0px,40px" },
@@ -126,8 +135,8 @@ describe("RichTextarea painting", () => {
       if (!piece && i > 0 && i % 8 === 0) rects.unshift(new DOMRect(80, (i / 8 - 1) * 20, 0, 20));
       return rects as unknown as DOMRectList;
     });
-    const { container } = render(<Field initial="abcdefghijklmnopqrst" onValue={() => {}} />);
+    const { container } = render(<Field initial={"abcdefghijklmnopqrst\n**b**"} onValue={() => {}} />);
     await painted();
-    expect(pieces(container).map((p) => p.at)).toEqual(["0px,0px", "0px,20px", "0px,40px"]);
+    expect(pieces(container).slice(0, 3).map((p) => p.at)).toEqual(["0px,0px", "0px,20px", "0px,40px"]);
   });
 });

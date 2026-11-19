@@ -251,6 +251,8 @@ function alignPieces(base: Text, layer: HTMLElement) {
   }
 }
 
+const NO_PAINT: Paint[] = [];
+
 const PaintLayer = memo(function PaintLayer({ paint }: { paint: Paint[] }) {
   // An emoji is keyed by which occurrence of its shortcode it is, not its offset:
   // typing before it would otherwise remount (and reload) its image every keystroke.
@@ -298,12 +300,15 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
   const [ready, setReady] = useState(false);
   /** The first sync has run; before it the overlay isn't laid out, so there is nothing to measure. */
   const started = useRef(false);
-  const [paint, setPaint] = useState<Paint[]>([]);
+  const [paint, setPaint] = useState<Paint[]>(NO_PAINT);
   const fontScale = useFontScale();
   const { textareaRef } = rich;
   const runs = useMemo(() => highlightRuns(rich.display, rich.model.atoms), [rich.display, rich.model.atoms]);
-  const paintInput = useRef({ runs, atoms: rich.model.atoms });
-  paintInput.current = { runs, atoms: rich.model.atoms };
+  // Unstyled text is drawn by the textarea itself: measuring and redrawing every glyph
+  // of it on each keystroke forced several layouts a key, most of typing's cost on a phone.
+  const plain = runs.every((run) => run.flags === 0);
+  const paintInput = useRef({ runs, atoms: rich.model.atoms, plain });
+  paintInput.current = { runs, atoms: rich.model.atoms, plain };
 
   const setRefs = useCallback((el: HTMLTextAreaElement | null) => {
     textareaRef.current = el;
@@ -324,6 +329,10 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
    * every piece at the previous frame's wrap.
    */
   const syncText = useCallback((now = false) => {
+    if (paintInput.current.plain) {
+      setPaint(NO_PAINT);
+      return;
+    }
     const el = textareaRef.current;
     const inner = innerRef.current;
     const layer = paintRef.current;
@@ -452,7 +461,7 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
           className="rt-inner relative box-border whitespace-pre-wrap break-words border-solid border-transparent"
         >
           {/* A trailing newline only takes up a line when something follows it. */}
-          {`${rich.display}\u200b`}
+          {plain ? null : `${rich.display}\u200b`}
           <div ref={paintRef} className="absolute left-0 top-0">
             <PaintLayer paint={paint} />
           </div>
@@ -478,7 +487,7 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
           }
           onCut?.(e);
         }}
-        className={cn(className, ready && "rt-input")}
+        className={cn(className, ready && !plain && "rt-input")}
       />
       {formatToolbar && <FormatToolbar rich={rich} />}
     </>
