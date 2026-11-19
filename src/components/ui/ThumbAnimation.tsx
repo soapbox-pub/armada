@@ -1,6 +1,7 @@
 import { useEffect, useRef, type CSSProperties } from "react";
 
 import type { AnimatedThumb } from "@/lib/imageThumb";
+import { observeIntersection } from "@/lib/sharedIntersection";
 import { isTrayResting, onTrayRest } from "@/lib/trayRest";
 
 /**
@@ -29,14 +30,13 @@ export function ThumbAnimation({ anim, className, style, alt, title, loops }: { 
         off = undefined;
       }
     };
-    const io = new IntersectionObserver(([entry]) => {
+    const stopWatching = observeIntersection(canvas, (entry) => {
       visible = entry.isIntersecting;
       sync();
     });
-    io.observe(canvas);
     const offRest = onTrayRest(sync);
     return () => {
-      io.disconnect();
+      stopWatching();
       offRest();
       off?.();
     };

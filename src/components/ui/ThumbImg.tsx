@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ImgHTMLAttributes } from
 import { MotionImg } from "@/components/ui/MotionImg";
 import { ThumbAnimation } from "@/components/ui/ThumbAnimation";
 import { useImageThumb } from "@/hooks/useImageThumb";
+import { observeIntersection } from "@/lib/sharedIntersection";
 
 /** How far outside the viewport a `loading="lazy"` thumbnail starts loading. */
 const LAZY_MARGIN = "400px";
@@ -29,25 +30,24 @@ export function ThumbImg({
 }: ImgHTMLAttributes<HTMLImageElement> & { originalWhilePending?: boolean; loops?: number }) {
   const lazy = props.loading === "lazy";
   const [box, setBox] = useState(0);
-  const observer = useRef<IntersectionObserver | null>(null);
+  const stopWatching = useRef<(() => void) | null>(null);
   const measure = useCallback((el: HTMLElement | null) => {
-    observer.current?.disconnect();
-    observer.current = null;
+    stopWatching.current?.();
+    stopWatching.current = null;
     if (!el) return;
     const size = () => Math.max(el.offsetWidth, el.offsetHeight) || 64;
     if (!lazy || typeof IntersectionObserver === "undefined") {
       setBox(size());
       return;
     }
-    const io = new IntersectionObserver(([entry]) => {
+    const stop = observeIntersection(el, (entry) => {
       if (!entry.isIntersecting) return;
-      io.disconnect();
+      stop();
       setBox(size());
-    }, { rootMargin: LAZY_MARGIN });
-    io.observe(el);
-    observer.current = io;
+    }, LAZY_MARGIN);
+    stopWatching.current = stop;
   }, [lazy]);
-  useEffect(() => () => observer.current?.disconnect(), []);
+  useEffect(() => () => stopWatching.current?.(), []);
   const thumb = useImageThumb(src, box);
   if (thumb.pending) {
     return (
