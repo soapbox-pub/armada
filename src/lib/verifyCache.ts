@@ -85,6 +85,8 @@ type Hashed = Pick<NostrEvent, "pubkey" | "created_at" | "kind" | "tags" | "cont
  * in for the sha256 — each wrap arrives once per relay.
  */
 const HASHED_MAX = 2048;
+/** Max unbroken hashing in {@link verifyEventsOnce} before yielding. */
+const HASH_SLICE_MS = 8;
 const hashed = new Map<string, Hashed>();
 
 function tagsEqual(a: string[][], b: string[][]): boolean {
@@ -203,7 +205,16 @@ export async function verifyEventsOnce(
   const residueSlots: number[][] = [];
   const residueByTriple = new Map<string, number>();
 
+  // The hashes are the main thread's to compute, ~0.3ms each on a phone: a plane
+  // read first seen hands over thousands, which in one task froze the UI for a second.
+  let sliceStart = start;
+  let blocked = 0;
   for (let i = 0; i < events.length; i++) {
+    if (performance.now() - sliceStart >= HASH_SLICE_MS) {
+      blocked += performance.now() - sliceStart;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      sliceStart = performance.now();
+    }
     const gate = hashGate(events[i]);
     if (gate.state === "decided") {
       result[i] = gate.result;
@@ -221,7 +232,7 @@ export async function verifyEventsOnce(
   }
 
   // Main-thread cost only; the EC verify may be off-thread.
-  perfCount("crypto.verifyEvents", performance.now() - start, events.length, "events");
+  perfCount("crypto.verifyEvents", blocked + performance.now() - sliceStart, events.length, "events");
 
   if (residue.length > 0) {
     perfCount("crypto.ec.verify (batched)", 0, residue.length, "verifies");
