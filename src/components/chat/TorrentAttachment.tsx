@@ -1,13 +1,15 @@
-import { ChevronDown, Download, Loader2, Magnet } from "lucide-react";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { ChevronDown, Download, ExternalLink, Loader2, Magnet } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 
 import { useRoutedCandidates } from "@/hooks/useBlossomCandidates";
 import { toast } from "@/hooks/useToast";
 import { FormattedMessage, common, t, useIntl } from "@/i18n";
 import { writeClipboardText } from "@/lib/clipboard";
+import { downloadBinaryFile, savedDescription } from "@/lib/downloadFile";
 import { decryptBuffer, fetchCapped, verifyPlaintextHash } from "@/lib/encryptedMedia";
+import { safeFilename } from "@/lib/fileBytes";
 import type { ImetaEncryption } from "@/lib/imeta";
-import { parseTorrent, type TorrentMetainfo } from "@/lib/torrent";
+import { parseMagnet, parseTorrent, torrentMatchesMagnet, type TorrentMetainfo } from "@/lib/torrent";
 import { cn } from "@/lib/utils";
 
 const MAX_METAINFO_BYTES = 4 * 1024 * 1024;
@@ -27,8 +29,30 @@ interface Props {
   className?: string;
 }
 
+function useFormatSize() {
+  const intl = useIntl();
+  return useCallback((bytes: number): string => {
+    let unit = 0;
+    while (bytes >= 1024 && unit < UNITS.length - 1) {
+      bytes /= 1024;
+      unit++;
+    }
+    return `${intl.formatNumber(bytes, { maximumFractionDigits: unit ? 1 : 0 })} ${UNITS[unit]}`;
+  }, [intl]);
+}
+
+async function copy(text: string) {
+  try {
+    await writeClipboardText(text);
+    toast({ title: t(common.copied) });
+  } catch {
+    toast({ title: t({ id: "torrentAttachment.copyFailed", defaultMessage: "Could not copy to clipboard" }), variant: "destructive" });
+  }
+}
+
 export function TorrentAttachment({ url, name, encryption, fallbacks, held, downloadRow, downloadStatus, onDownload, className }: Props) {
   const intl = useIntl();
+  const formatSize = useFormatSize();
   const detailsId = useId();
   const { sources } = useRoutedCandidates(url, fallbacks);
   const [allowed, setAllowed] = useState(false);
@@ -58,32 +82,14 @@ export function TorrentAttachment({ url, name, encryption, fallbacks, held, down
 
   if (!sources.length || result === null) { return downloadRow; }
 
-  function formatSize(bytes: number): string {
-    let unit = 0;
-    while (bytes >= 1024 && unit < UNITS.length - 1) {
-      bytes /= 1024;
-      unit++;
-    }
-    return `${intl.formatNumber(bytes, { maximumFractionDigits: unit ? 1 : 0 })} ${UNITS[unit]}`;
-  }
-
-  async function copy(text: string) {
-    try {
-      await writeClipboardText(text);
-      toast({ title: t(common.copied) });
-    } catch {
-      toast({ title: t({ id: "torrentAttachment.copyFailed", defaultMessage: "Could not copy to clipboard" }), variant: "destructive" });
-    }
-  }
-
   const open = expanded && !!result;
   return (
-    <div className={cn("my-1.5 w-full max-w-xl rounded-xl bg-secondary/55 p-2", className)} onClick={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        disabled={shouldLoad && !result}
-        aria-expanded={open}
-        aria-controls={detailsId}
+    <CardFrame className={className}>
+      <CardHeader
+        name={result?.name ?? name}
+        detailsId={detailsId}
+        open={open}
+        loading={shouldLoad && !result}
         onClick={() => {
           if (!shouldLoad) {
             setAllowed(true);
@@ -92,29 +98,17 @@ export function TorrentAttachment({ url, name, encryption, fallbacks, held, down
             setExpanded(!expanded);
           }
         }}
-        className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 py-2 text-start hover:bg-background/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:hover:bg-transparent"
       >
-        <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-background/50 text-primary">
-          <Magnet className="size-5 rotate-[135deg]" aria-hidden />
-        </span>
-        <span className="min-w-0 flex-1">
-          <MiddleName value={result?.name ?? name} className="text-sm font-semibold" />
-          <span className="block text-xs text-muted-foreground">
-            <FormattedMessage id="torrentAttachment.type" defaultMessage="Torrent" />
-            {result ? (
-              <>
-                {result.fileCount > 1 && <> · <FormattedMessage id="torrentAttachment.fileCount" defaultMessage="{count, plural, one {# file} other {# files}}" values={{ count: result.fileCount }} /></>}
-                {` · ${formatSize(result.size)}`}
-              </>
-            ) : (
-              <> · {shouldLoad ? <FormattedMessage {...common.loading} /> : <FormattedMessage id="torrentAttachment.load" defaultMessage="Load torrent details" />}</>
-            )}
-          </span>
-        </span>
-        {shouldLoad && !result ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden /> : (
-          <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground", open && "rotate-180")} aria-hidden />
+        <FormattedMessage id="torrentAttachment.type" defaultMessage="Torrent" />
+        {result ? (
+          <>
+            {result.fileCount > 1 && <> · <FormattedMessage id="torrentAttachment.fileCount" defaultMessage="{count, plural, one {# file} other {# files}}" values={{ count: result.fileCount }} /></>}
+            {` · ${formatSize(result.size)}`}
+          </>
+        ) : (
+          <> · {shouldLoad ? <FormattedMessage {...common.loading} /> : <FormattedMessage id="torrentAttachment.load" defaultMessage="Load torrent details" />}</>
         )}
-      </button>
+      </CardHeader>
 
       <div id={detailsId} hidden={!open}>
         {open && result && (
@@ -139,20 +133,14 @@ export function TorrentAttachment({ url, name, encryption, fallbacks, held, down
             <section>
               <h4 className={sectionClass}><FormattedMessage id="torrentAttachment.details" defaultMessage="Details" /></h4>
               <dl className="grid grid-cols-[minmax(5rem,24%)_minmax(0,1fr)] gap-x-3 gap-y-1.5 [overflow-wrap:anywhere]">
-                <Detail label={<FormattedMessage id="torrentAttachment.hash" defaultMessage="Info hash" />}>
-                  <button className="rounded text-start font-mono text-xs hover:underline focus-visible:ring-2 focus-visible:ring-ring [overflow-wrap:anywhere]" type="button" title={intl.formatMessage({ id: "torrentAttachment.copyHash", defaultMessage: "Copy info hash" })} onClick={() => void copy(result.hash)}>{result.hash}</button>
-                </Detail>
+                <HashDetail hash={result.hash} />
                 <Detail label={<FormattedMessage id="torrentAttachment.pieces" defaultMessage="Pieces" />}>
                   {formatSize(result.pieceSize)} × {intl.formatNumber(result.pieceCount)}
                 </Detail>
                 {result.created && <Detail label={<FormattedMessage id="torrentAttachment.created" defaultMessage="Created" />}>{intl.formatDate(result.created * 1000, { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "UTC" })}</Detail>}
                 {result.createdBy && <Detail label={<FormattedMessage id="torrentAttachment.createdBy" defaultMessage="Created by" />}>{result.createdBy}</Detail>}
                 {result.private && <Detail label={<FormattedMessage id="torrentAttachment.private" defaultMessage="Private" />}><FormattedMessage id="torrentAttachment.trackersOnly" defaultMessage="Trackers only" /></Detail>}
-                {result.trackers.length > 0 && (
-                  <Detail label={<FormattedMessage id="torrentAttachment.trackers" defaultMessage="Trackers" />}>
-                    <ul className="space-y-1.5">{result.trackers.map((host, i) => <li key={i}>{host}</li>)}</ul>
-                  </Detail>
-                )}
+                <TrackersDetail hosts={result.trackers} />
                 {result.comment && <Detail label={<FormattedMessage id="torrentAttachment.comment" defaultMessage="Comment" />}>{result.comment}</Detail>}
               </dl>
             </section>
@@ -161,20 +149,162 @@ export function TorrentAttachment({ url, name, encryption, fallbacks, held, down
       </div>
 
       {result && (
-        <div className="mt-1 space-y-1">
-          {open && (
-            <button type="button" className={actionClass} onClick={() => void onDownload()} disabled={downloadStatus === "loading"}>
-              {downloadStatus === "loading" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" aria-hidden />}
-              <FormattedMessage id="torrentAttachment.download" defaultMessage="Download .torrent file" />
-            </button>
-          )}
-          <button type="button" className={actionClass} onClick={() => void copy(result.magnet)}>
-            <Magnet className="size-4 rotate-[135deg] text-primary" aria-hidden />
-            <FormattedMessage id="torrentAttachment.copyMagnet" defaultMessage="Copy magnet link" />
-          </button>
-        </div>
+        <CardActions
+          magnet={result.magnet}
+          download={open ? { onClick: () => void onDownload(), busy: downloadStatus === "loading" } : undefined}
+        />
       )}
+    </CardFrame>
+  );
+}
+
+/**
+ * A magnet link alone on its line, in the torrent card. Nothing is fetched to
+ * draw it; the .torrent comes only from the magnet's own `xs`, on a tap, and is
+ * saved only if it hashes to the magnet.
+ */
+export function MagnetAttachment({ uri, className }: { uri: string; className?: string }) {
+  const intl = useIntl();
+  const formatSize = useFormatSize();
+  const detailsId = useId();
+  const magnet = useMemo(() => parseMagnet(uri), [uri]);
+  const [expanded, setExpanded] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const download = useCallback(async () => {
+    if (!magnet?.exactSource || downloading) { return; }
+    setDownloading(true);
+    try {
+      const bytes = new Uint8Array(await fetchCapped([magnet.exactSource], { maxBytes: MAX_METAINFO_BYTES }));
+      let torrent: TorrentMetainfo | undefined;
+      try {
+        torrent = parseTorrent(bytes);
+      } catch { /* Reported below as a mismatch. */ }
+      if (!torrent || !torrentMatchesMagnet(torrent, magnet)) {
+        toast({ title: t({ id: "torrentAttachment.mismatch", defaultMessage: "That .torrent file doesn't match this magnet link" }), variant: "destructive" });
+        return;
+      }
+      const base = safeFilename(magnet.name || torrent.name).slice(0, 192);
+      const location = await downloadBinaryFile(/\.torrent$/i.test(base) ? base : `${base}.torrent`, bytes);
+      if (location) { toast({ title: t({ id: "torrentAttachment.saved", defaultMessage: "Saved" }), description: savedDescription(location) }); }
+    } catch {
+      toast({ title: t({ id: "torrentAttachment.downloadFailed", defaultMessage: "Couldn't download the .torrent file" }), variant: "destructive" });
+    } finally {
+      setDownloading(false);
+    }
+  }, [magnet, downloading]);
+
+  if (!magnet) { return null; }
+  return (
+    <CardFrame className={className}>
+      <CardHeader
+        name={magnet.name || intl.formatMessage({ id: "torrentAttachment.magnet", defaultMessage: "Magnet link" })}
+        detailsId={detailsId}
+        open={expanded}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <FormattedMessage id="torrentAttachment.magnet" defaultMessage="Magnet link" />
+        {magnet.size !== undefined && ` · ${formatSize(magnet.size)}`}
+      </CardHeader>
+
+      <div id={detailsId} hidden={!expanded}>
+        {expanded && (
+          <div className="px-2 py-3 text-sm">
+            <h4 className={sectionClass}><FormattedMessage id="torrentAttachment.details" defaultMessage="Details" /></h4>
+            <dl className="grid grid-cols-[minmax(5rem,24%)_minmax(0,1fr)] gap-x-3 gap-y-1.5 [overflow-wrap:anywhere]">
+              <HashDetail hash={magnet.hash} />
+              <TrackersDetail hosts={magnet.trackers} />
+            </dl>
+          </div>
+        )}
+      </div>
+
+      <CardActions
+        magnet={magnet.magnet}
+        download={expanded && magnet.exactSource ? { onClick: () => void download(), busy: downloading } : undefined}
+      />
+    </CardFrame>
+  );
+}
+
+function CardFrame({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <div className={cn("my-1.5 w-full max-w-xl rounded-xl bg-secondary/55 p-2", className)} onClick={(e) => e.stopPropagation()}>
+      {children}
     </div>
+  );
+}
+
+function CardHeader({ name, detailsId, open, loading, onClick, children }: {
+  name: string;
+  detailsId: string;
+  open: boolean;
+  loading?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={loading}
+      aria-expanded={open}
+      aria-controls={detailsId}
+      onClick={onClick}
+      className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 py-2 text-start hover:bg-background/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:hover:bg-transparent"
+    >
+      <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-background/50 text-primary">
+        <Magnet className="size-5 rotate-[135deg]" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <MiddleName value={name} className="text-sm font-semibold" />
+        <span className="block text-xs text-muted-foreground">{children}</span>
+      </span>
+      {loading ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden /> : (
+        <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground", open && "rotate-180")} aria-hidden />
+      )}
+    </button>
+  );
+}
+
+/** Open hands the magnet to the OS's torrent client: Electron passes top-frame magnet clicks on. */
+function CardActions({ magnet, download }: { magnet: string; download?: { onClick: () => void; busy: boolean } }) {
+  return (
+    <div className="mt-1 space-y-1">
+      {download && (
+        <button type="button" className={actionClass} onClick={download.onClick} disabled={download.busy}>
+          {download.busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" aria-hidden />}
+          <FormattedMessage id="torrentAttachment.download" defaultMessage="Download .torrent file" />
+        </button>
+      )}
+      <div className="grid grid-cols-2 gap-1">
+        <a href={magnet} rel="noopener noreferrer" className={actionClass}>
+          <ExternalLink className="size-4 text-primary" aria-hidden />
+          <FormattedMessage id="torrentAttachment.open" defaultMessage="Open" />
+        </a>
+        <button type="button" className={actionClass} onClick={() => void copy(magnet)}>
+          <Magnet className="size-4 rotate-[135deg] text-primary" aria-hidden />
+          <FormattedMessage id="torrentAttachment.copyMagnet" defaultMessage="Copy magnet link" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function HashDetail({ hash }: { hash: string }) {
+  const intl = useIntl();
+  return (
+    <Detail label={<FormattedMessage id="torrentAttachment.hash" defaultMessage="Info hash" />}>
+      <button className="rounded text-start font-mono text-xs hover:underline focus-visible:ring-2 focus-visible:ring-ring [overflow-wrap:anywhere]" type="button" title={intl.formatMessage({ id: "torrentAttachment.copyHash", defaultMessage: "Copy info hash" })} onClick={() => void copy(hash)}>{hash}</button>
+    </Detail>
+  );
+}
+
+function TrackersDetail({ hosts }: { hosts: string[] }) {
+  if (!hosts.length) { return null; }
+  return (
+    <Detail label={<FormattedMessage id="torrentAttachment.trackers" defaultMessage="Trackers" />}>
+      <ul className="space-y-1.5">{hosts.map((host, i) => <li key={i}>{host}</li>)}</ul>
+    </Detail>
   );
 }
 

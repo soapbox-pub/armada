@@ -11,6 +11,7 @@ import { rememberImageDim, seenImageDim } from "@/components/chat/imageDims";
 import { emojify } from "@/components/chat/emojify";
 import { EmbeddedNaddr, EmbeddedNote } from "@/components/chat/EmbeddedNote";
 import { FileAttachment } from "@/components/chat/FileAttachment";
+import { MagnetAttachment } from "@/components/chat/TorrentAttachment";
 import { HeldMedia, HeldPreviews } from "@/components/chat/HeldMedia";
 import { revealMessageMedia, useAuthorBlocked, useMediaHeld, useMediaUrlHold, useMessageRevealed } from "@/components/chat/mediaHold";
 import { mediaHost } from "@/lib/mediaPolicy";
@@ -186,6 +187,8 @@ export type ContentToken =
   | { type: "inline-link"; url: string }
   /** A BitTorrent `magnet:` URI, handed to the OS's torrent client on click. */
   | { type: "magnet-link"; url: string }
+  /** A magnet alone on its line — the torrent card. */
+  | { type: "magnet-embed"; url: string }
   /** An `nsite://` URL, handed to the OS's nsite handler (Din, Tenna) on click. */
   | { type: "nsite-link"; url: string }
   /** A `bitcoin:` or `lightning:` address, handed to the OS's wallet app on click. */
@@ -232,6 +235,7 @@ function collapseAroundBlocks(tokens: ContentToken[]): ContentToken[] {
     const token = tokens[i];
     const isBlock = token.type === "image-embed" || token.type === "media-embed"
       || token.type === "file-embed"
+      || token.type === "magnet-embed"
       || token.type === "nevent-embed"
       || (token.type === "naddr-embed" && (!token.url || token.addr.kind === 30030))
       || token.type === "lightning-invoice"
@@ -577,7 +581,12 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
           out.push({ type: "lightning-invoice", invoice: bolt11.toLowerCase() });
         } else if (magnet) {
           const trimmed = magnet.replace(/[.,;:!?)\]"']+$/, "");
-          out.push(isMagnetUri(trimmed) ? { type: "magnet-link", url: trimmed } : { type: "text", value: trimmed });
+          const lineRest = segment.substring(index + trimmed.length).split("\n", 1)[0];
+          out.push(
+            !isMagnetUri(trimmed) ? { type: "text", value: trimmed }
+              : lineRest.trim() === "" ? { type: "magnet-embed", url: trimmed }
+              : { type: "magnet-link", url: trimmed },
+          );
           lastIndex = index + trimmed.length;
           continue;
         } else if (nsite) {
@@ -664,7 +673,9 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
           // Images by extension or imeta MIME (extension-less/encrypted Blossom URLs).
           const inlineImeta = imetaByUrl.get(url);
           const inlineImetaMime = inlineImeta ? imageMimeFor(inlineImeta) : undefined;
-          const torrent = !forceImage && isTorrentAttachment(url, inlineImetaMime, inlineImeta?.name);
+          // A pasted .torrent link is a card only alone on its line, like any preview.
+          const torrent = !forceImage && isTorrentAttachment(url, inlineImetaMime, inlineImeta?.name)
+            && (Boolean(inlineImeta) || segment.substring(index + fullMatch.length).split("\n", 1)[0].trim() === "");
           const isImetaImage = inlineImetaMime?.startsWith("image/") ?? false;
           if (!torrent && (forceImage || IMAGE_URL_REGEX.test(url) || isImetaImage)) {
             if (out.length > 0) {
@@ -1401,6 +1412,15 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         return selfLink(key, token.url, token.path);
       case "inline-link":
         return inlineLink(key, token.url);
+      case "magnet-embed":
+        if (disableNoteEmbeds || inQuote) {
+          return (
+            <a key={key} href={token.url} rel="noopener noreferrer" className="text-primary hover:underline break-all" onClick={(e) => e.stopPropagation()}>
+              {token.url}
+            </a>
+          );
+        }
+        return <MagnetAttachment key={key} uri={token.url} />;
       case "magnet-link":
       case "nsite-link":
       case "payment-link":

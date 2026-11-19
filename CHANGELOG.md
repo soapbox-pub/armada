@@ -7,7 +7,7 @@ All notable changes to Armada are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- Torrent attachments show their files and details in chat, with a button to copy the magnet link.
+- Torrent attachments and magnet links show their files and details in chat, with buttons to open or copy the magnet link.
 
 ## [0.69.9] - 2026-11-19
 

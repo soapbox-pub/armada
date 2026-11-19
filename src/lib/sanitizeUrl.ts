@@ -15,7 +15,7 @@ export function sanitizeUrl(raw: string | undefined | null): string | undefined 
 }
 
 /** Longest magnet URI rendered as a link; tracker lists make real ones a few KB. */
-const MAGNET_MAX_LENGTH = 8192;
+export const MAGNET_MAX_LENGTH = 8192;
 
 /**
  * Whether `raw` is a BitTorrent magnet URI naming its content by hash

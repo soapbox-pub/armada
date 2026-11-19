@@ -162,6 +162,20 @@ describe("ChatContent magnet links", () => {
     expect(container.textContent).toContain(`"${MAGNET}"`);
   });
 
+  it("draws a magnet alone on its line as the torrent card", () => {
+    const { container } = renderContent(`here you go:\n${MAGNET}\nenjoy`);
+    expect(container.textContent).toContain("Ubuntu MATE 16.04.2");
+    expect(container.textContent).toContain("Copy magnet link");
+    expect(hrefs(container)).toEqual([MAGNET]);
+  });
+
+  it("keeps a .torrent link mid-sentence a plain link", () => {
+    const url = "https://releases.test/ubuntu.iso.torrent";
+    const { container } = renderContent(`grab ${url} tonight`);
+    expect(hrefs(container)).toEqual([url]);
+    expect(container.textContent).not.toContain("Torrent");
+  });
+
   it("leaves a magnet: that names no content hash as text", () => {
     const { container } = renderContent("magnet:?dn=nothing-here");
     expect(hrefs(container)).toEqual([]);
