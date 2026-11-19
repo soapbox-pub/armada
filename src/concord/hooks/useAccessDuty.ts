@@ -10,13 +10,14 @@ import { useNostr } from "@nostrify/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 
-import { readAccessPlanes } from "@/concord/hooks/useChannelAccess";
+import { ACCESS_QUORUM_GRACE_MS, queryRelayStrict, readAccessPlanes } from "@/concord/hooks/useChannelAccess";
 import { citationFor, foldStoredControl, publishEdition, useControlFold, useDissolved, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { guestbookWalked, useGuestbook } from "@/concord/hooks/useGuestbook";
 import { runWriterDuty } from "@/concord/hooks/writerDutyRun";
 import { useChannelRekey } from "@/concord/hooks/useRekey";
 import { onDutyNow } from "@/concord/lib/dutyNow";
-import { sweepControl, sweepGuestbook } from "@/concord/lib/planeSync";
+import { sweepControl, sweepGuestbook, whenAuthSettled } from "@/concord/lib/planeSync";
+import { registerStreamKeys } from "@/concord/lib/streamAuth";
 import { accessCandidates, authoritySig, dutyMayAct, mintingRotations, planChannelDuty, rotationRecipients, stillShutOut, type MintingRotation } from "@/concord/lib/accessDuty";
 import { cachedCommunity } from "@/concord/hooks/useCommunityList";
 import { isEntitled } from "@/concord/lib/channelAccess";
@@ -102,8 +103,8 @@ async function pageRekeyWraps(nostr: NPool, url: string, authors: string[], sign
   let until: number | undefined;
   for (let page = 0; page < REKEY_MAX_PAGES && !signal.aborted; page++) {
     const filter = { kinds: [KIND_WRAP], authors, limit: REKEY_PAGE, ...(until !== undefined ? { until } : {}) };
-    const got = await nostr.relay(url).query([filter], { signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) }).catch(() => undefined);
-    if (!got) break;
+    // A page the relay didn't answer throws: a rotation it hides would read as none.
+    const got = await queryRelayStrict(nostr, url, filter, signal);
     let fresh = 0;
     for (const e of got) {
       if (seen.has(e.id)) continue;
@@ -129,7 +130,22 @@ export async function readMintingRotations(nostr: NPool, community: Community, c
     const a = channelRekeyGroupKey(r.key, channelId, epoch);
     return [a.pk, a] as const;
   }));
-  const events = (await quorum(community.relays.map((url) => pageRekeyWraps(nostr, url, [...addresses.keys()], signal)))).flatMap((r) => r ?? []);
+  // On an auth-gating relay a rekey plane is read AS its key.
+  registerStreamKeys([...addresses.values()], community.relays);
+  const reads = await quorum(
+    community.relays.map(async (url) => {
+      await whenAuthSettled(url, () => [...addresses.values()]);
+      return pageRekeyWraps(nostr, url, [...addresses.keys()], signal);
+    }),
+    ACCESS_QUORUM_GRACE_MS,
+  );
+  // No rotation found is only evidence once a majority read the rekey planes: read as
+  // "none", an unanswered read had the duty mint a fresh epoch on every pass.
+  const answered = reads.filter((r) => r !== undefined).length;
+  if (answered < majorityOf(community.relays.length)) {
+    throw new Error(`rekey planes read on ${answered} of ${community.relays.length} relay(s)`);
+  }
+  const events = reads.flatMap((r) => r ?? []);
   const seen = new Set<string>();
   const parsed = events.flatMap((e) => {
     const a = addresses.get(e.pubkey);

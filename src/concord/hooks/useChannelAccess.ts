@@ -7,7 +7,7 @@
  */
 
 import { noteRefused, refusedBefore } from "@/concord/lib/blobOnce";
-import type { NostrEvent, NPool } from "@nostrify/nostrify";
+import type { NostrEvent, NostrFilter, NPool } from "@nostrify/nostrify";
 import { useNostr } from "@nostrify/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
@@ -20,13 +20,15 @@ import { KIND_WRAP } from "@/concord/lib/kinds";
 import { base64ToBytes, decodeWrappedKey, myLocator } from "@/concord/lib/rekey";
 import { channelPermissions, Permissions } from "@/concord/lib/roles";
 import { adoptHistoryDeliveries, heldHistoryViews, historyViewsGeneration, historyViewsReady, parseHistoryDelivery, subscribeHistoryViews } from "@/concord/lib/history";
-import { sweepControl } from "@/concord/lib/planeSync";
+import { sweepControl, whenAuthSettled } from "@/concord/lib/planeSync";
+import { registerStreamKeys } from "@/concord/lib/streamAuth";
 import { peekPendingWraps } from "@/concord/lib/rumorStore";
 import { openWrap } from "@/concord/lib/stream";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { nowSecs } from "@/lib/relayClock";
 import { logSync } from "@/lib/syncLog";
-import { quorum, rereadOnBackoff } from "@/concord/lib/quorum";
+import { majorityOf, quorum, rereadOnBackoff } from "@/concord/lib/quorum";
 import { useWireScopes } from "@/wire/useWireScopes";
 import { setWatched } from "@/wire/watched";
 import { authoritySig } from "@/concord/lib/accessDuty";
@@ -36,13 +38,130 @@ import { useNewlyOwed, useOwedReread } from "@/concord/hooks/useOwedReread";
 /** The least time between two Control Plane reads a stray delivery asks for. */
 const FRESHEN_GAP_MS = 3_000;
 
-/** Pages of the access plane read per relay, and their size (Vector reads 6×200). */
+/** Pages of one access plane read per relay, and their size (Vector `plane_wraps_paged`: 6×200). */
 const ACCESS_PAGES = 6;
 const ACCESS_PAGE = 200;
+/** Limit for the one wide ask that drains a same-second wall (as the plane sweeps' `wallPage`). */
+const ACCESS_WALL = 10_000;
+/**
+ * Per-page deadline, as generous as the plane sweeps' (Tor, a busy phone: the page's
+ * EOSE queues behind every event the socket delivered before it).
+ */
+const PLANE_PAGE_TIMEOUT_MS = 25_000;
+/** How long a read waits for a majority once one relay has answered: past a page's timeout. */
+export const ACCESS_QUORUM_GRACE_MS = PLANE_PAGE_TIMEOUT_MS + 5_000;
 
 /**
- * Every delivery wrap on the access planes of `channelIds`, opened, paged per relay
- * since any root holder can write a plane and bury one page (Vector `fetch_plane_deliveries`).
+ * A relay's plane wraps already read this session. Planes are re-read on a minute's
+ * timer by several hooks and a wrap never changes, so a plane read whole in the last
+ * {@link ACCESS_FULL_READ_MS} is read again only from {@link ACCESS_OVERLAP_SECS}
+ * before the last read began (publisher clock skew; CORD-01 forbids backdating).
+ */
+const ACCESS_FULL_READ_MS = 6 * 60 * 60_000;
+const ACCESS_OVERLAP_SECS = 3600;
+const planeReads = new Map<string, { fullAt: number; readAt: number; wraps: Map<string, NostrEvent> }>();
+
+/** Forget the access-plane wraps read this session. Logout. */
+export function clearAccessPlaneMemory(): void {
+  planeReads.clear();
+  planeReadsInFlight.clear();
+}
+
+/**
+ * One page off one relay that THROWS on a CLOSED (auth-required, rate-limited) or a
+ * timeout, where `query` would answer an empty page.
+ */
+export function queryRelayStrict(nostr: NPool, url: string, filter: NostrFilter, signal: AbortSignal): Promise<NostrEvent[]> {
+  const relay = nostr.relay(url) as ReturnType<NPool["relay"]> & {
+    queryStrict?: (filters: NostrFilter[], opts?: { signal?: AbortSignal }) => Promise<NostrEvent[]>;
+  };
+  const opts = { signal: AbortSignal.any([signal, AbortSignal.timeout(PLANE_PAGE_TIMEOUT_MS)]) };
+  return relay.queryStrict ? relay.queryStrict([filter], opts) : relay.query([filter], opts);
+}
+
+/** Plane reads in flight, by `url|pk`: every hook re-reading a plane shares one. */
+const planeReadsInFlight = new Map<string, Promise<NostrEvent[]>>();
+/** Planes read at once off one relay. */
+const PLANES_AT_ONCE = 4;
+
+function readPlaneFrom(nostr: NPool, url: string, pk: string): Promise<NostrEvent[]> {
+  const key = `${url}|${pk}`;
+  let read = planeReadsInFlight.get(key);
+  if (!read) {
+    // No caller's signal: one caller leaving must not fail the read for the rest.
+    read = readPlaneNow(nostr, url, pk).finally(() => planeReadsInFlight.delete(key));
+    planeReadsInFlight.set(key, read);
+  }
+  return read;
+}
+
+/**
+ * One access plane off one relay, newest first (Vector `plane_wraps_paged`), each plane
+ * on its own so one plane's flood can't hide another's deliveries. `until` is inclusive
+ * and a page with nothing new is a same-second wall, drained in one wide ask, so a burst
+ * sharing a second (a delivery and its history do) can't push the rest of that second
+ * past the next page. A page the relay didn't answer (an error, a CLOSED) throws: it
+ * must not read as the plane's end.
+ */
+async function readPlaneNow(nostr: NPool, url: string, pk: string): Promise<NostrEvent[]> {
+  const key = `${url}|${pk}`;
+  const held = planeReads.get(key);
+  const now = Date.now();
+  const delta = held && now - held.fullAt < ACCESS_FULL_READ_MS ? held : undefined;
+  const since = delta ? delta.readAt - ACCESS_OVERLAP_SECS : undefined;
+  const readAt = nowSecs();
+  const never = new AbortController().signal;
+  const ask = (bounds: { limit: number; until?: number; since?: number }) =>
+    queryRelayStrict(nostr, url, { kinds: [KIND_WRAP], authors: [pk], ...(since !== undefined ? { since } : {}), ...bounds }, never);
+  const fresh = new Map<string, NostrEvent>();
+  const take = (got: NostrEvent[]) => {
+    let added = 0;
+    for (const e of got) {
+      if (fresh.has(e.id)) continue;
+      fresh.set(e.id, e);
+      added++;
+    }
+    return added;
+  };
+
+  let until: number | undefined;
+  for (let page = 0; page < ACCESS_PAGES; page++) {
+    const got = await ask({ limit: ACCESS_PAGE, ...(until !== undefined ? { until } : {}) });
+    const added = take(got);
+    if (got.length < ACCESS_PAGE) break;
+    if (added === 0 && until !== undefined) {
+      take(await ask({ limit: ACCESS_WALL, since: Math.max(until, since ?? 0), until }));
+      until -= 1;
+      continue;
+    }
+    until = Math.min(...got.map((e) => e.created_at));
+  }
+
+  const wraps = delta?.wraps ?? new Map<string, NostrEvent>();
+  for (const [id, e] of fresh) wraps.set(id, e);
+  planeReads.set(key, { fullAt: delta?.fullAt ?? now, readAt, wraps });
+  return [...wraps.values()];
+}
+
+/** `pks` off one relay, a few at a time; throws if any plane went unread. */
+async function readPlanesFrom(nostr: NPool, url: string, pks: string[], signal: AbortSignal): Promise<NostrEvent[]> {
+  const out: NostrEvent[] = [];
+  const queue = [...pks];
+  const worker = async () => {
+    for (let pk = queue.shift(); pk !== undefined; pk = queue.shift()) {
+      if (signal.aborted) throw signal.reason;
+      out.push(...(await readPlaneFrom(nostr, url, pk)));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PLANES_AT_ONCE, queue.length) }, worker));
+  return out;
+}
+
+/**
+ * Every delivery wrap on the access planes of `channelIds`, opened, each plane paged per
+ * relay since any root holder can write a plane and bury one page (Vector
+ * `fetch_plane_deliveries`). Throws when no relay read the planes: an unread plane is
+ * not an empty one, and the duties deliver to whoever a read finds unserved.
  */
 export async function readAccessPlanes(
   nostr: NPool,
@@ -51,25 +170,22 @@ export async function readAccessPlanes(
   signal: AbortSignal,
 ): Promise<Array<{ channelIdHex: string; opened: ReturnType<typeof openWrap> }>> {
   const planes = new Map(channelIds.map((id) => [accessPlane(community, hex32(id)).pk, { id, plane: accessPlane(community, hex32(id)) }]));
+  const groups = [...planes.values()].map((p) => p.plane);
+  // On an auth-gating relay a plane is read AS the plane key (Vector `fetch_plane`).
+  registerStreamKeys(groups, community.relays);
   const results = await quorum(
     community.relays.map(async (url) => {
-      const out: NostrEvent[] = [];
-      let until: number | undefined;
-      for (let page = 0; page < ACCESS_PAGES; page++) {
-        const filter = { kinds: [KIND_WRAP], authors: [...planes.keys()], limit: ACCESS_PAGE, ...(until !== undefined ? { until } : {}) };
-        const got = await nostr
-          .relay(url)
-          .query([filter], { signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) })
-          .catch(() => [] as NostrEvent[]);
-        out.push(...got);
-        if (got.length < ACCESS_PAGE) break;
-        const oldest = Math.min(...got.map((e) => e.created_at));
-        if (until !== undefined && oldest >= until) break;
-        until = oldest - 1;
-      }
-      return out;
+      await whenAuthSettled(url, () => groups);
+      return readPlanesFrom(nostr, url, [...planes.keys()], signal);
     }),
+    ACCESS_QUORUM_GRACE_MS,
   );
+  // The relay that answers first is often the one holding nothing: absence is only
+  // evidence once a majority has read the planes to their end.
+  const answered = results.filter((r) => r !== undefined).length;
+  if (planes.size > 0 && answered < majorityOf(community.relays.length)) {
+    throw new Error(`access planes read on ${answered} of ${community.relays.length} relay(s)`);
+  }
   const out: Array<{ channelIdHex: string; opened: ReturnType<typeof openWrap> }> = [];
   const seen = new Set<string>();
   for (const wrap of results.flatMap((r) => r ?? [])) {

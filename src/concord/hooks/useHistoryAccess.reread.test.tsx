@@ -3,11 +3,20 @@ import { act, renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+/** The planes each read named: one REQ per plane, issued together, so a read is a microtask's batch. */
 const reads: string[][] = [];
+let batch: string[] | undefined;
 const nostr = {
   relay: () => ({
     query: async (filters: Array<{ authors: string[] }>) => {
-      reads.push([...filters[0].authors].sort());
+      if (!batch) {
+        const open: string[] = (batch = []);
+        queueMicrotask(() => {
+          reads.push(open.sort());
+          batch = undefined;
+        });
+      }
+      batch.push(...filters[0].authors);
       return [];
     },
   }),
