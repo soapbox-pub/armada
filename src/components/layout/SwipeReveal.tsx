@@ -8,6 +8,7 @@ import { useIsTouch } from "@/hooks/useIsMobile";
 import { onAppStateChange } from "@/lib/appStateEvents";
 import { isRecentDeepLinkNavigation } from "@/lib/deepLinkNav";
 import { cn } from "@/lib/utils";
+import { viewportWidth } from "@/lib/viewportWidth";
 
 const SETTLE_MS = 200;
 /** Bounds of a gesture's settle animation, scaled by the distance left. */
@@ -298,7 +299,7 @@ export function SwipeReveal({ underlay, children, open, onReveal, onClose, canCl
     return () => window.clearTimeout(id);
   }, [moving, openSwipe.dragging, closeSwipe.dragging]);
 
-  const width = typeof window !== "undefined" ? window.innerWidth : 1;
+  const width = viewportWidth();
   // Only a drag away from the current rest position counts, so a drag left over
   // from before an `open` flip is inert rather than pinning the pane mid-slide.
   const openDragging = openSwipe.dragging && !effectiveOpen;

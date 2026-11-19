@@ -776,7 +776,8 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
     };
     // No viewport height in the key: an empty field sits far below the 240px
     // floor of `max`, so it can't change the result — and would grow the map.
-    const emptyKey = `${layout}:${window.innerWidth >= MD_BREAKPOINT_PX}`;
+    // The query, not `innerWidth`: that forces the layout this cache exists to skip.
+    const emptyKey = `${layout}:${window.matchMedia(`(min-width: ${MD_BREAKPOINT_PX}px)`).matches}`;
     const set = parseFloat(el.style.height);
     if (shown === "") {
       const known = emptyHeights.get(emptyKey);
