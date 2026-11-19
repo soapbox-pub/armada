@@ -5,7 +5,6 @@ import { memo, useCallback, useContext, useMemo, useRef, useState } from "react"
 import { BoostersContext } from "@/components/chat/boostersContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BotPill } from "@/components/BotPill";
-import { UltraPill } from "@/components/UltraPill";
 import { DeferredRow } from "@/components/DeferredRow";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
 import { StatusDialog } from "@/components/dialogs/StatusDialog";
@@ -395,7 +394,6 @@ const MemberRow = memo(function MemberRow({
         </span>
       ) : null}
       <BotPill metadata={metadata} labelClassName="member-pill-label" />
-      {ultra && <UltraPill force labelClassName="member-pill-label" />}
       <MemberMenuButton
         label={intl.formatMessage({ id: "memberList.manage", defaultMessage: "Manage {name}" }, { name: displayName })}
         renderItems={() => renderMenuItems({

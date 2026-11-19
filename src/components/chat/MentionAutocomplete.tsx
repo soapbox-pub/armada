@@ -3,7 +3,6 @@ import { AtSign, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BotPill } from "@/components/BotPill";
-import { UltraPill } from "@/components/UltraPill";
 import { DisplayName } from "@/components/DisplayName";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { usePortalDropdown } from "@/hooks/usePortalDropdown";
@@ -375,7 +374,6 @@ function MentionItem({
             <DisplayName pubkey={pubkey} name={displayName} tags={profile.event.tags} />
           </div>
           <BotPill metadata={metadata} />
-          <UltraPill metadata={metadata} interactive={false} />
         </div>
         <div className="text-xs text-muted-foreground truncate font-mono text-2xs">
           {identifier}

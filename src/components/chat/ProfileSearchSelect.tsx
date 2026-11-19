@@ -3,7 +3,6 @@ import { nip19 } from "nostr-tools";
 import { useState } from "react";
 
 import { BotPill } from "@/components/BotPill";
-import { UltraPill } from "@/components/UltraPill";
 import { DisplayName } from "@/components/DisplayName";
 import { SearchField } from "@/components/ui/search-field";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -181,7 +180,6 @@ function ProfileRow({
             <DisplayName pubkey={pubkey} name={displayName} tags={profile.event.tags} />
           </div>
           <BotPill metadata={metadata} />
-          <UltraPill metadata={metadata} interactive={false} />
         </div>
         <div className="truncate font-mono text-2xs text-muted-foreground">{identifier}</div>
       </div>
