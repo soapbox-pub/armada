@@ -5,6 +5,9 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const native = vi.hoisted(() => ({ can: false, fetch: vi.fn(async (_url: string): Promise<Blob | null> => null) }));
+vi.mock("@/lib/nativeImageFetch", () => ({ canFetchNativeImages: () => native.can, fetchNativeImage: native.fetch }));
+
 import { acquireThumb, AnimatedThumb, clearThumbs, releaseThumb, sniffImageType, thumbBucket, thumbsSupported } from "./imageThumb";
 
 describe("imageThumb", () => {
@@ -40,6 +43,25 @@ describe("imageThumb", () => {
     expect(await acquireThumb("https://nocors.test/a.jpg", 64, false).promise).toBeNull();
     expect(await acquireThumb("https://nocors.test/b.jpg", 64, false).promise).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads a host that refuses CORS through the Android app, where there is one", async () => {
+    vi.stubGlobal("createImageBitmap", vi.fn());
+    vi.stubGlobal("OffscreenCanvas", class {});
+    const fetch = vi.fn(async (url: string) => {
+      if (url.startsWith("https://nocors.test/")) throw new TypeError("Failed to fetch");
+      return new Response(new Blob([new Uint8Array(16)], { type: "image/png" }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    native.can = true;
+    native.fetch.mockClear();
+    try {
+      await acquireThumb("https://nocors.test/a.gif", 64, false).promise;
+      await acquireThumb("https://cors.test/b.png", 64, false).promise;
+      expect(native.fetch.mock.calls.map(([url]) => url)).toEqual(["https://nocors.test/a.gif"]);
+    } finally {
+      native.can = false;
+    }
   });
 
   it("leaves an animated image alone unless media is held still", async () => {

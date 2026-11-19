@@ -1,6 +1,7 @@
 import { canvasReadbackIntact } from "@/lib/canvasProbe";
 import { canFetchDesktopImages, fetchDesktopImage } from "@/lib/desktop";
 import { isAnimatedImage } from "@/lib/imageMetadata";
+import { canFetchNativeImages, fetchNativeImage } from "@/lib/nativeImageFetch";
 
 /**
  * Small copies of images shown far below their natural size (avatars, emoji).
@@ -15,8 +16,8 @@ import { isAnimatedImage } from "@/lib/imageMetadata";
  * measured ~28 MB of decoded image memory in a busy room.
  *
  * `null` means "show the original": the host refused CORS (on the web; the
- * desktop shell reads it), the image is already small, or the browser can't
- * resize (or decode the animation).
+ * desktop shell and the Android app read it), the image is already small, or
+ * the browser can't resize (or decode the animation).
  */
 
 /** Short-edge lengths a thumbnail is made at; a box's longer side rounds up to the next one. */
@@ -197,8 +198,8 @@ async function makeAnimated(blob: Blob, type: string, bucket: number): Promise<A
 
 /**
  * The image's bytes. A host that sends no CORS headers is read through the
- * desktop shell where there is one (electron/imageFetch.js); on the web it
- * keeps its original.
+ * desktop shell (electron/imageFetch.js) or the Android app (ImageFetch.java)
+ * where there is one; on the web it keeps its original.
  */
 async function fetchBlob(src: string): Promise<Blob | null> {
   const host = hostOf(src);
@@ -211,7 +212,8 @@ async function fetchBlob(src: string): Promise<Blob | null> {
       unreadableHosts.add(host);
     }
   }
-  return canFetchDesktopImages() ? fetchDesktopImage(src) : null;
+  if (canFetchDesktopImages()) return fetchDesktopImage(src);
+  return canFetchNativeImages() ? fetchNativeImage(src) : null;
 }
 
 async function make(src: string, bucket: number, still: boolean): Promise<Thumb | null> {

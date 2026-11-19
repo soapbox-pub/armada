@@ -79,6 +79,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(MediaGalleryPlugin.class);
         registerPlugin(ArmadaSignerPlugin.class);
         registerPlugin(ArmadaStoragePlugin.class);
+        registerPlugin(ImageFetchPlugin.class);
 
         // Install the androidx splash screen. This dismisses the launch
         // (Theme.SplashScreen) window and hands off to postSplashScreenTheme
