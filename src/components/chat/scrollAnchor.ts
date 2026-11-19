@@ -13,12 +13,14 @@ const FALLBACK_ROWS = 4;
 interface ScrollAnchorRow {
   element: HTMLElement;
   key: string;
-  /** Row top relative to the scroller's visible top edge. */
+  /** Row top relative to the content's top edge: moves with layout, not with scrolling. */
   offset: number;
 }
 
 export interface ScrollAnchor {
   rows: ScrollAnchorRow[];
+  /** The scroller's scrollTop when captured. */
+  scrollTop: number;
 }
 
 /** Safari rubber-band scrolling can expose offsets outside the real range. */
@@ -48,8 +50,8 @@ function previousAnchorRow(element: Element | null): HTMLElement | null {
   return previous;
 }
 
-function rowOffset(scroller: HTMLElement, row: HTMLElement): number {
-  return row.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+function rowOffset(content: HTMLElement, row: HTMLElement): number {
+  return row.getBoundingClientRect().top - content.getBoundingClientRect().top;
 }
 
 /**
@@ -89,16 +91,18 @@ export function captureScrollAnchor(
     rows.push({
       element: row,
       key: row.getAttribute(SCROLL_ANCHOR_ATTR) ?? "",
-      offset: rowOffset(scroller, row),
+      offset: rowOffset(content, row),
     });
     row = nextAnchorRow(row);
   }
-  return { rows };
+  return { rows, scrollTop: clampedScrollTop(scroller) };
 }
 
 /**
- * Restore the first surviving captured row to the same pixel; false only when
- * all are gone. Sub-pixel moves are skipped (writes cancel iOS momentum).
+ * Shift the scroll by however far the first surviving captured row moved within
+ * the content; false only when all are gone. Scrolling done since the capture
+ * whose `scroll` event hasn't been handled yet is kept, not undone. Sub-pixel
+ * moves are skipped (writes cancel iOS momentum).
  */
 export function restoreScrollAnchor(
   scroller: HTMLElement,
@@ -108,8 +112,14 @@ export function restoreScrollAnchor(
   for (const captured of anchor.rows) {
     const { element, key, offset } = captured;
     if (!content.contains(element) || element.getAttribute(SCROLL_ANCHOR_ATTR) !== key) continue;
-    const delta = rowOffset(scroller, element) - offset;
-    if (Math.abs(delta) >= 0.5) scroller.scrollTop = clampedScrollTop(scroller) + delta;
+    const shift = rowOffset(content, element) - offset;
+    const top = clampedScrollTop(scroller);
+    const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    // Content shrinking under the reader makes the browser clamp scrollTop down:
+    // measure from where they were, since that move wasn't theirs.
+    const from = top >= max - 0.5 && top < anchor.scrollTop ? anchor.scrollTop : top;
+    const target = from + shift;
+    if (Math.abs(target - top) >= 0.5) scroller.scrollTop = target;
     return true;
   }
   return false;

@@ -35,6 +35,7 @@ describe("scrollAnchor", () => {
 
     let anchorTop = 100;
     scroller.getBoundingClientRect = () => rect(0, 200);
+    content.getBoundingClientRect = () => rect(-scroller.scrollTop, anchorTop + 500);
     first.getBoundingClientRect = () => rect(-scroller.scrollTop, 100);
     anchorRow.getBoundingClientRect = () => rect(anchorTop - scroller.scrollTop, 100);
     Object.defineProperties(scroller, {
@@ -44,7 +45,7 @@ describe("scrollAnchor", () => {
     scroller.scrollTop = 150;
 
     const anchor = captureScrollAnchor(scroller, content);
-    expect(anchor?.rows[0]).toMatchObject({ key: "anchor", offset: -50 });
+    expect(anchor?.rows[0]).toMatchObject({ key: "anchor", offset: 100 });
 
     anchorTop += 240;
     expect(restoreScrollAnchor(scroller, content, anchor!)).toBe(true);
@@ -66,6 +67,7 @@ describe("scrollAnchor", () => {
     });
     scroller.scrollTop = 50;
     scroller.getBoundingClientRect = () => rect(0, 200);
+    content.getBoundingClientRect = () => rect(-scroller.scrollTop, 1_000);
     first.getBoundingClientRect = () => rect(-scroller.scrollTop, 100);
     second.getBoundingClientRect = () => rect(100 - scroller.scrollTop, 100);
 
@@ -89,6 +91,62 @@ describe("scrollAnchor", () => {
     expect(restoreScrollAnchor(scroller, content, anchor)).toBe(true);
     expect(writes).toBe(0);
     if (ownScrollTop) Object.defineProperty(scroller, "scrollTop", ownScrollTop);
+  });
+
+  it("keeps a scroll made after the capture while compensating growth above", () => {
+    const scroller = document.createElement("div");
+    const content = document.createElement("div");
+    const anchorRow = document.createElement("div");
+    anchorRow.dataset.scrollAnchor = "anchor";
+    content.append(anchorRow);
+    scroller.append(content);
+
+    let anchorTop = 300;
+    scroller.getBoundingClientRect = () => rect(0, 200);
+    content.getBoundingClientRect = () => rect(-scroller.scrollTop, anchorTop + 1_000);
+    anchorRow.getBoundingClientRect = () => rect(anchorTop - scroller.scrollTop, 100);
+    Object.defineProperties(scroller, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, get: () => anchorTop + 1_000 },
+    });
+    scroller.scrollTop = 250;
+    const anchor = captureScrollAnchor(scroller, content)!;
+
+    // The reader scrolls up 30px, then rows are revealed above before that
+    // scroll's event is handled.
+    scroller.scrollTop = 220;
+    anchorTop += 400;
+    expect(restoreScrollAnchor(scroller, content, anchor)).toBe(true);
+    expect(scroller.scrollTop).toBe(620);
+  });
+
+  it("undoes the browser clamping scrollTop when content shrinks under the reader", () => {
+    const scroller = document.createElement("div");
+    const content = document.createElement("div");
+    const anchorRow = document.createElement("div");
+    anchorRow.dataset.scrollAnchor = "anchor";
+    content.append(anchorRow);
+    scroller.append(content);
+
+    let anchorTop = 500;
+    let tail = 300;
+    scroller.getBoundingClientRect = () => rect(0, 200);
+    content.getBoundingClientRect = () => rect(-scroller.scrollTop, anchorTop + tail);
+    anchorRow.getBoundingClientRect = () => rect(anchorTop - scroller.scrollTop, 100);
+    Object.defineProperties(scroller, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, get: () => anchorTop + tail },
+    });
+    scroller.scrollTop = 550;
+    const anchor = captureScrollAnchor(scroller, content)!;
+
+    // Rows trimmed above (-300) while rows grow below (+100): max is now 400,
+    // and the browser has clamped 550 down to it.
+    anchorTop -= 300;
+    tail += 100;
+    scroller.scrollTop = 400;
+    expect(restoreScrollAnchor(scroller, content, anchor)).toBe(true);
+    expect(scroller.scrollTop).toBe(250);
   });
 
   it("normalizes Safari rubber-band offsets", () => {
