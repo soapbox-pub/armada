@@ -23,10 +23,13 @@ export function useVoiceActionsFor(
   const intl = useIntl();
   const { data: folded } = useControlFold(community, false);
   const { may, send } = useVoiceModeration(community, channel);
-  const voiceChannels = useMemo(
-    () => (community && channel ? channelsView(community, folded).filter((c) => c.view === "voice" && c.idHex !== channel.idHex) : []),
-    [community, folded, channel],
-  );
+  // Built when a menu asks, not per render: every sidebar row calls this hook, and
+  // a whole channel view per row was most of a community switch's row cost.
+  const voiceChannels = useMemo(() => {
+    let built: Channel[] | undefined;
+    return () =>
+      (built ??= community && channel ? channelsView(community, folded).filter((c) => c.view === "voice" && c.idHex !== channel.idHex) : []);
+  }, [community, folded, channel]);
   return useCallback(
     (pk: string): MemberActionItem[] => {
       const p = present.find((x) => x.author === pk);
@@ -48,7 +51,7 @@ export function useVoiceActionsFor(
           : { id: "voice-deafen", label: intl.formatMessage({ id: "persistentVoiceRoom.directive.deafen", defaultMessage: "Server deafen" }), icon: HeadphoneOff, onSelect: act("deafen") });
       }
       if (may(pk, "move")) {
-        for (const c of voiceChannels) {
+        for (const c of voiceChannels()) {
           out.push({ id: `voice-move-${c.idHex}`, label: intl.formatMessage({ id: "persistentVoiceRoom.directive.moveTo", defaultMessage: "Move to #{channel}" }, { channel: c.name }), icon: ArrowRightLeft, onSelect: act("move", c.idHex) });
         }
         out.push({ id: "voice-disconnect", label: intl.formatMessage({ id: "persistentVoiceRoom.directive.disconnect", defaultMessage: "Disconnect from call" }), icon: PhoneOff, destructive: true, onSelect: act("disconnect") });
