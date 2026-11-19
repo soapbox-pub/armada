@@ -128,7 +128,14 @@ interface Entry {
   promise: Promise<Thumb | null>;
   url?: Thumb | null;
   refs: number;
+  /** When the download failed: a later mount tries again rather than keep the original for the session. */
+  fetchFailedAt?: number;
 }
+
+/** A download that failed (offline, a busy server's 429), as against an image that can't be made smaller. */
+const FETCH_FAILED = Symbol("fetch failed");
+/** How long a failed download is left before a mount asks again. */
+const FETCH_RETRY_MS = 30_000;
 
 const entries = new Map<string, Entry>();
 /** Hosts whose images can't be read (no CORS); asked once per session. */
@@ -228,11 +235,11 @@ async function fetchBlob(src: string): Promise<Blob | null> {
   return canFetchNativeImages() ? fetchNativeImage(src) : null;
 }
 
-async function make(src: string, bucket: number, still: boolean): Promise<Thumb | null> {
+async function make(src: string, bucket: number, still: boolean): Promise<Thumb | null | typeof FETCH_FAILED> {
   // A blocked canvas would draw noise; the original shows instead.
   if (!canvasReadbackIntact()) return null;
   const blob = await fetchSlot(() => fetchBlob(src));
-  if (!blob) return null;
+  if (!blob) return FETCH_FAILED;
   const head = new Uint8Array(await blob.slice(0, 4096).arrayBuffer());
   const type = sniffImageType(head, blob.type);
   if (!still && isAnimatedImage(type, head)) return slot(() => makeAnimated(blob, type, bucket));
@@ -289,10 +296,19 @@ function trim(): void {
 export function acquireThumb(src: string, bucket: number, still: boolean): { key: string; promise: Promise<Thumb | null> } {
   const key = `${still ? "s" : "a"}${bucket}|${src}`;
   let e = entries.get(key);
+  if (e?.fetchFailedAt !== undefined && Date.now() - e.fetchFailedAt >= FETCH_RETRY_MS) {
+    entries.delete(key);
+    e = undefined;
+  }
   if (!e) {
-    const entry: Entry = { refs: 0, promise: thumbsSupported() ? make(src, bucket, still) : Promise.resolve(null) };
-    entry.promise.then(
+    const made = thumbsSupported() ? make(src, bucket, still) : Promise.resolve(null);
+    const entry: Entry = { refs: 0, promise: made.then((url) => (url === FETCH_FAILED ? null : url)) };
+    made.then(
       (url) => {
+        if (url === FETCH_FAILED) {
+          entry.fetchFailedAt = Date.now();
+          url = null;
+        }
         // Cleared (logout) or trimmed while being made: nothing will revoke it later.
         if (entries.get(key) !== entry) disposeThumb(url);
         else entry.url = url;

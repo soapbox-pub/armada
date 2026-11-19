@@ -45,6 +45,28 @@ describe("imageThumb", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("asks again for an image whose download failed, once a while has passed", async () => {
+    vi.stubGlobal("createImageBitmap", vi.fn());
+    vi.stubGlobal("OffscreenCanvas", class {});
+    const fetch = vi.fn(async () => new Response("busy", { status: 429 }));
+    vi.stubGlobal("fetch", fetch);
+    const first = acquireThumb("https://busy.test/a.jpg", 64, false);
+    expect(await first.promise).toBeNull();
+    releaseThumb(first.key);
+    await Promise.resolve();
+    // Within the retry interval the failure stands.
+    releaseThumb(acquireThumb("https://busy.test/a.jpg", 64, false).key);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 31_000);
+    try {
+      await acquireThumb("https://busy.test/a.jpg", 64, false).promise;
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("reads a host that refuses CORS through the Android app, where there is one", async () => {
     vi.stubGlobal("createImageBitmap", vi.fn());
     vi.stubGlobal("OffscreenCanvas", class {});
