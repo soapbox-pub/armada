@@ -341,6 +341,62 @@ export function openWrap(wrap: NostrRumor, stream: StreamKeyView): OpenedWireEve
   return { ...opened };
 }
 
+/**
+ * {@link openWrap} over many wraps, in order, with the seals' Schnorr checks in one
+ * `verifySeals` batch (the worker pool) rather than one at a time on this thread:
+ * ~9ms each on a phone, and a plane read is hundreds of them. Decrypting and
+ * finishing yield every `sliceMs`. A wrap that doesn't open is `undefined`.
+ */
+export async function openWrapsBatched(
+  items: ReadonlyArray<{ wrap: NostrRumor; stream: StreamKeyView }>,
+  verifySeals: (seals: NostrEvent[]) => Promise<boolean[]>,
+  sliceMs = 5,
+): Promise<Array<OpenedWireEvent | undefined>> {
+  const out = new Array<OpenedWireEvent | undefined>(items.length);
+  const pending: Array<{ slot: number; step: WrapToSeal }> = [];
+  let sliceStart = performance.now();
+  for (let i = 0; i < items.length; i++) {
+    const { wrap, stream } = items[i];
+    const memo = openedWraps.get(wrap.id);
+    if (memo && memo.streamPk === stream.pk && idIsHash(wrap as NostrEvent)) {
+      out[i] = { ...memo.opened };
+    } else {
+      try {
+        pending.push({ slot: i, step: openWrapToSeal(wrap, stream) });
+      } catch {
+        // not ours / malformed
+      }
+    }
+    if (i + 1 < items.length && performance.now() - sliceStart >= sliceMs) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      sliceStart = performance.now();
+    }
+  }
+  if (pending.length === 0) return out;
+  const oks = await verifySeals(pending.map((p) => p.step.seal));
+  sliceStart = performance.now();
+  for (let j = 0; j < pending.length; j++) {
+    if (j > 0 && performance.now() - sliceStart >= sliceMs) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      sliceStart = performance.now();
+    }
+    if (oks[j] !== true) continue;
+    const { slot, step } = pending[j];
+    const { wrap, stream } = items[slot];
+    try {
+      const opened = step.finish();
+      if (idIsHash(wrap as NostrEvent)) {
+        if (openedWraps.size >= OPENED_WRAPS_MAX) openedWraps.delete(openedWraps.keys().next().value!);
+        openedWraps.set(wrap.id, { streamPk: stream.pk, opened });
+      }
+      out[slot] = { ...opened };
+    } catch {
+      // a bad rumor under a good seal
+    }
+  }
+  return out;
+}
+
 /** Wraps already opened this session, by wrap id. Holds plaintext: cleared on logout. */
 const OPENED_WRAPS_MAX = 4096;
 const openedWraps = new Map<string, { streamPk: string; opened: OpenedWireEvent }>();

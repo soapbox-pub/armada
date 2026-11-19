@@ -6,7 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const opens = vi.hoisted(() => ({ count: 0 }));
 vi.mock("@/concord/lib/stream", async (orig) => {
   const real = await orig<typeof import("@/concord/lib/stream")>();
-  return { ...real, openWrap: (...args: Parameters<typeof real.openWrap>) => (opens.count++, real.openWrap(...args)) };
+  return {
+    ...real,
+    openWrapsBatched: (...args: Parameters<typeof real.openWrapsBatched>) => ((opens.count += args[0].length), real.openWrapsBatched(...args)),
+  };
 });
 
 import { clearAccessPlaneMemory, readAccessPlanes } from "@/concord/hooks/useChannelAccess";

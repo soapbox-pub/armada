@@ -23,7 +23,9 @@ import { adoptHistoryDeliveries, heldHistoryViews, historyViewsGeneration, histo
 import { sweepControl, whenAuthSettled } from "@/concord/lib/planeSync";
 import { registerStreamKeys } from "@/concord/lib/streamAuth";
 import { peekPendingWraps } from "@/concord/lib/rumorStore";
-import { openWrap } from "@/concord/lib/stream";
+import { openWrap, openWrapsBatched } from "@/concord/lib/stream";
+import { verifyEventsOnce } from "@/lib/verifyCache";
+import { ecVerifyBatch } from "@/lib/verifyPool";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { nowSecs } from "@/lib/relayClock";
@@ -197,27 +199,20 @@ export async function readAccessPlanes(
   }
   const out: Array<{ channelIdHex: string; opened: ReturnType<typeof openWrap> }> = [];
   const seen = new Set<string>();
-  let sliceStart = performance.now();
+  const listed: Array<{ wrap: NostrEvent; at: { id: string; plane: ReturnType<typeof accessPlane> } }> = [];
   for (const wrap of results.flatMap((r) => r ?? [])) {
     if (seen.has(wrap.id)) continue;
     seen.add(wrap.id);
     const at = planes.get(wrap.pubkey);
-    if (!at) continue;
-    let opened = openedPlaneWraps.get(wrap);
-    if (opened === undefined) {
-      try {
-        opened = openWrap(wrap, at.plane);
-      } catch {
-        opened = null; // not ours / malformed
-      }
-      openedPlaneWraps.set(wrap, opened);
-      // A flooded plane is thousands of wraps: decrypting them in one task froze the UI.
-      if (performance.now() - sliceStart >= OPEN_SLICE_MS) {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        sliceStart = performance.now();
-      }
-    }
-    if (opened) out.push({ channelIdHex: at.id, opened: { ...opened } });
+    if (at) listed.push({ wrap, at });
+  }
+  // Only wraps not opened before; a flooded plane is thousands, and their seals verify in one batch.
+  const fresh = listed.filter(({ wrap }) => !openedPlaneWraps.has(wrap));
+  const opened = await openWrapsBatched(fresh.map(({ wrap, at }) => ({ wrap, stream: at.plane })), (seals) => verifyEventsOnce(seals, ecVerifyBatch), OPEN_SLICE_MS);
+  fresh.forEach(({ wrap }, i) => openedPlaneWraps.set(wrap, opened[i] ?? null));
+  for (const { wrap, at } of listed) {
+    const o = openedPlaneWraps.get(wrap);
+    if (o) out.push({ channelIdHex: at.id, opened: { ...o } });
   }
   return out;
 }

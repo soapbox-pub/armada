@@ -32,7 +32,9 @@ import { KIND_WRAP, type Plane } from "@/concord/lib/kinds";
 import { afterRead, planRead, readWorthSaving, type ReadPlan, type RelayRead } from "@/concord/lib/planeRead";
 import { readControlSnapshot, writeOpened } from "@/concord/lib/rumorStore";
 import { isStreamPubkey, streamAuthsSettled } from "@/concord/lib/streamAuth";
-import { openWrap, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib/stream";
+import { openWrap, openWrapsBatched, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib/stream";
+import { verifyEventsOnce } from "@/lib/verifyCache";
+import { ecVerifyBatch } from "@/lib/verifyPool";
 import type { StreamKeyView } from "@/concord/lib/derive";
 import type { Community } from "@/concord/lib/types";
 import { getArmadaDB } from "@/lib/db/armadaDB";
@@ -217,28 +219,18 @@ export function openPlaneWraps(wraps: NostrRumor[], groups: StreamKeyView[]): Op
 const PLANE_DECODE_SLICE_MS = 5;
 
 /**
- * Time-sliced {@link openPlaneWraps}: yields every {@link PLANE_DECODE_SLICE_MS},
- * since synchronous NIP-44 + Schnorr over a whole plane freezes a phone's UI.
+ * {@link openPlaneWraps}, time-sliced, with the seals verified in one batch off
+ * this thread: synchronous NIP-44 + Schnorr over a whole plane froze a phone's UI.
  */
 export async function openPlaneWrapsChunked(wraps: NostrRumor[], groups: StreamKeyView[]): Promise<OpenedWireEvent[]> {
   const byPk = new Map(groups.map((g) => [g.pk, g]));
-  const out: OpenedWireEvent[] = [];
-  let sliceStart = performance.now();
-  for (let i = 0; i < wraps.length; i++) {
-    const group = byPk.get(wraps[i].pubkey);
-    if (group) {
-      try {
-        out.push(openWrap(wraps[i], group));
-      } catch {
-        // not ours / malformed
-      }
-    }
-    if (i + 1 < wraps.length && performance.now() - sliceStart >= PLANE_DECODE_SLICE_MS) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      sliceStart = performance.now();
-    }
+  const items: Array<{ wrap: NostrRumor; stream: StreamKeyView }> = [];
+  for (const wrap of wraps) {
+    const stream = byPk.get(wrap.pubkey);
+    if (stream) items.push({ wrap, stream });
   }
-  return out;
+  const opened = await openWrapsBatched(items, (seals) => verifyEventsOnce(seals, ecVerifyBatch), PLANE_DECODE_SLICE_MS);
+  return opened.filter((o): o is OpenedWireEvent => o !== undefined);
 }
 
 /** Paging knobs (test seam via {@link _configureSweepPagingForTests}). */

@@ -2,6 +2,9 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure
 import type { EventTemplate } from "nostr-tools/pure";
 import { describe, expect, it } from "vitest";
 
+import { verifyEventsOnce } from "@/lib/verifyCache";
+import { ecVerifyBatch } from "@/lib/verifyPool";
+
 import { channelGroupKey, guestbookGroupKey } from "@/concord/lib/derive";
 import { KIND_MESSAGE, KIND_SEAL_ENCRYPTED, KIND_SEAL_PLAINTEXT, KIND_WRAP, KIND_WRAP_EPHEMERAL } from "@/concord/lib/kinds";
 import {
@@ -9,6 +12,7 @@ import {
   channelBindingTags,
   checkChannelBinding,
   openWrap,
+  openWrapsBatched,
   resolveMs,
   rewrapSeal,
   sealRumor,
@@ -232,5 +236,27 @@ describe("openWrap memo", () => {
     expect(() => openWrap({ ...other, id: wrap.id, content: "garbage" }, stream)).toThrow();
     // Under another stream it isn't the remembered opening either.
     expect(() => openWrap(wrap, channelGroupKey(secret, channelId, 1))).toThrow();
+  });
+});
+
+describe("openWrapsBatched", () => {
+  it("opens in order, verifying the seals in one batch, and drops a forged seal", async () => {
+    const alice = testSigner();
+    const stream = channelGroupKey(secret, channelId, 0);
+    const wrapOf = async (content: string) =>
+      wrapSeal(await sealRumor(buildRumor({ kind: KIND_MESSAGE, content, tags: channelBindingTags(channelIdHex, 0n), pubkey: alice.pubkey }), KIND_SEAL_ENCRYPTED, stream, alice), stream);
+    const good = [await wrapOf("one"), await wrapOf("two")];
+    // A seal whose signature doesn't verify, wrapped like any other.
+    const seal = await sealRumor(buildRumor({ kind: KIND_MESSAGE, content: "forged", tags: channelBindingTags(channelIdHex, 0n), pubkey: alice.pubkey }), KIND_SEAL_ENCRYPTED, stream, alice);
+    const forged = await wrapSeal({ ...seal, sig: "00".repeat(64) }, stream);
+    let batches = 0;
+    const verify = (seals: Parameters<typeof verifyEventsOnce>[0]) => (batches++, verifyEventsOnce(seals, ecVerifyBatch));
+    const out = await openWrapsBatched([good[0], forged, good[1]].map((wrap) => ({ wrap, stream })), verify);
+    expect(out.map((o) => o?.content)).toEqual(["one", undefined, "two"]);
+    expect(batches).toBe(1);
+    // Opened before: served from the memo, nothing left to verify.
+    const again = await openWrapsBatched(good.map((wrap) => ({ wrap, stream })), verify);
+    expect(again.map((o) => o?.content)).toEqual(["one", "two"]);
+    expect(batches).toBe(1);
   });
 });
