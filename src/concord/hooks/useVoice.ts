@@ -12,10 +12,14 @@ import {
   buildRumor,
   channelBindingTags,
   checkChannelBinding,
-  openWrap,
+  openWrapsBatched,
   sealRumor,
   wrapSeal,
+  type OpenedWireEvent,
 } from "@/concord/lib/stream";
+import type { StreamKeyView } from "@/concord/lib/derive";
+import { verifyEventsOnce } from "@/lib/verifyCache";
+import { ecVerifyBatch } from "@/lib/verifyPool";
 import { citationFor, useControlFold } from "@/concord/hooks/useControlPlane";
 import { mayConnect } from "@/concord/lib/callGate";
 import { citationToTag } from "@/concord/lib/edition";
@@ -77,6 +81,40 @@ function sameClaims(left: Map<string, string[]>, right: Map<string, string[]>): 
 const sharedLatest = new Map<string, Map<string, VoicePresenceEntry>>();
 
 /** Drop the decrypted presence this session learned, and the directives this account stood behind. */
+/**
+ * Opens a channel's live voice wraps a task at a time, so their seals verify in one
+ * batch in the worker pool: opening a community replays every channel's recent
+ * presence at once, and a synchronous verify each (~9ms on a phone) blocked the UI.
+ * Arrival order is kept.
+ */
+function batchedOpener(group: StreamKeyView, handle: (opened: OpenedWireEvent) => void): { push: (event: NostrEvent) => void; stop: () => void } {
+  let queue: NostrEvent[] = [];
+  let scheduled = false;
+  let stopped = false;
+  const flush = async () => {
+    scheduled = false;
+    const batch = queue;
+    queue = [];
+    const opened = await openWrapsBatched(batch.map((wrap) => ({ wrap, stream: group })), (seals) => verifyEventsOnce(seals, ecVerifyBatch));
+    if (stopped) return;
+    for (const o of opened) if (o) handle(o);
+  };
+  return {
+    push: (event) => {
+      if (stopped) return;
+      queue.push(event);
+      if (!scheduled) {
+        scheduled = true;
+        setTimeout(() => void flush(), 0);
+      }
+    },
+    stop: () => {
+      stopped = true;
+      queue = [];
+    },
+  };
+}
+
 export function clearVoicePresenceMemory(): void {
   sharedLatest.clear();
   standingDirectives.clear();
@@ -201,9 +239,8 @@ export function useVoicePresence(
       });
     };
 
-    const apply = (event: NostrEvent) => {
+    const handle = (opened: OpenedWireEvent) => {
       try {
-        const opened = openWrap(event, group);
         if (opened.sealKind !== KIND_SEAL_ENCRYPTED) return;
         if (opened.kind === KIND_VOICE_DIRECTIVE) {
           checkChannelBinding(opened, channelIdHex, epoch);
@@ -238,13 +275,16 @@ export function useVoicePresence(
     // Publish the seeded view immediately.
     recompute();
 
+    const opener = batchedOpener(group, handle);
+
     // One shared 21059 REQ per relay across channels (see `ephemeralSub.ts`).
-    const unsubs = community.relays.map((url) => subscribeEphemeral(nostr, url, currentPk, apply));
+    const unsubs = community.relays.map((url) => subscribeEphemeral(nostr, url, currentPk, opener.push));
 
     // Staleness decay: three missed heartbeats age a participant out.
     const decay = setInterval(recompute, VOICE_STALE_MS / 6);
     return () => {
       for (const unsub of unsubs) unsub();
+      opener.stop();
       clearInterval(decay);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -561,9 +601,8 @@ export function useVoiceReactions(
       });
     };
 
-    const apply = (event: NostrEvent) => {
+    const handle = (opened: OpenedWireEvent) => {
       try {
-        const opened = openWrap(event, group);
         if (opened.kind !== KIND_VOICE_PRESENCE) return;
         checkChannelBinding(opened, channelIdHex, epoch);
         const entry = parseReaction(opened);
@@ -582,12 +621,15 @@ export function useVoiceReactions(
       }
     };
 
+    const opener = batchedOpener(group, handle);
+
     // Shares the presence hook's per-relay 21059 REQ (see `ephemeralSub.ts`).
-    const unsubs = community.relays.map((url) => subscribeEphemeral(nostr, url, currentPk, apply));
+    const unsubs = community.relays.map((url) => subscribeEphemeral(nostr, url, currentPk, opener.push));
 
     const timer = setInterval(decay, REACTION_TTL_MS / 2);
     return () => {
       for (const unsub of unsubs) unsub();
+      opener.stop();
       clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

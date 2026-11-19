@@ -63,14 +63,16 @@ function setup(bits: bigint, opts: { banned?: boolean } = {}) {
     streams: [{ epoch: 0n, group }],
   } as unknown as Channel;
   const community = { id: c.id, idHex: c.idHex, relays: ["wss://relay.test"] } as unknown as Community;
+  // Live wraps are opened a task later, in a batch (`batchedOpener`): wait for it.
   const deliver = (wrap: NostrEvent) =>
-    act(() => {
+    act(async () => {
       for (const apply of h.deliver) apply(wrap);
+      await new Promise((resolve) => setTimeout(resolve, 20));
     });
   const send = async (who: ReturnType<typeof signer>, kind: number, tags: string[][], content = "", ms = Date.now()) => {
     const rumor = buildRumor({ kind, content, tags: [...channelBindingTags(channel.idHex, 0n), ...tags], pubkey: who.pubkey, ms });
     const wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, group, who), group, { ephemeral: true });
-    deliver(wrap);
+    await deliver(wrap);
     return wrap;
   };
   const joined = () => send(target, KIND_VOICE_PRESENCE, presenceTags("joined", "id-target", "https://av.test", {}), "joined");
@@ -134,7 +136,7 @@ describe("a moderator's voice directive on arrival (CORD-07 §7)", () => {
       vi.advanceTimersByTime(1000);
       await s.left();
       act(() => void vi.advanceTimersByTime(120_000));
-      s.deliver(old);
+      await s.deliver(old);
       expect(result.current.present.map((p) => p.author)).toEqual([]);
     } finally {
       vi.useRealTimers();
@@ -169,7 +171,7 @@ describe("a moderator's standing directives (CORD-07 §7, Vector `reassert_voice
     });
     expect(s.sentVerbs()).toEqual(["mute"]);
     // The relays hand this device its own directive back.
-    s.deliver(h.sent[h.sent.length - 1]);
+    await s.deliver(h.sent[h.sent.length - 1]);
 
     await s.left();
     await s.joined();
@@ -177,7 +179,7 @@ describe("a moderator's standing directives (CORD-07 §7, Vector `reassert_voice
       await new Promise((r) => setTimeout(r, 50));
     });
     expect(s.sentVerbs()).toEqual(["mute", "mute"]);
-    s.deliver(h.sent[h.sent.length - 1]);
+    await s.deliver(h.sent[h.sent.length - 1]);
 
     // A newer unmute is heard; this device no longer stands behind its mute.
     await s.directive("unmute");
@@ -218,7 +220,7 @@ describe("a moderator's standing directives (CORD-07 §7, Vector `reassert_voice
     await act(async () => {
       expect(await result.current.send(s.target.pubkey, "mute")).toBe(true);
     });
-    s.deliver(h.sent[h.sent.length - 1]);
+    await s.deliver(h.sent[h.sent.length - 1]);
     // An unmute this device's mute already outdates, sent a moment before it.
     await s.directive("unmute", s.mod, Date.now() - 2000);
     await s.left();
