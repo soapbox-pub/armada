@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle, Play } from "lucide-react";
 
+import { BravePushServiceNotice } from "@/components/BravePushNotice";
 import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useForegroundNotificationSettings } from "@/hooks/useForegroundNotificationSettings";
@@ -18,6 +19,7 @@ import {
   type NotificationSoundId,
   type NotificationSoundSettings as NotificationSoundSettingsValue,
 } from "@/lib/notificationSounds";
+import { isBrave } from "@/lib/bravePush";
 import { hasIosPush } from "@/lib/nativePush";
 import { hasNappPush } from "@/lib/nappPush";
 import { type DmRequestLevel, type PushPrefs } from "@/lib/pushPrefs";
@@ -430,6 +432,8 @@ function WebPushSettings() {
     unavailableReason,
     ready,
     error,
+    pushServiceOff,
+    permissionExpired,
     permission,
     enabled,
     busy,
@@ -441,12 +445,32 @@ function WebPushSettings() {
   } = useWebPushNotifications();
   const intl = useIntl();
 
-  // Without Web Push (Brave with Google push off, no gateway), offer foreground notifications.
+  // Without Web Push (no gateway, no push service), offer foreground notifications.
   if (!supported) {
     // Every iOS browser is WKWebView, so the foreground fallback's advice doesn't apply.
     if (isIOS()) return <IosNotificationHint reason={unavailableReason} />;
     return <ForegroundOnlySettings />;
   }
+
+  if (pushServiceOff) {
+    return (
+      <>
+        <SettingsGroup>
+          <SettingsRow>
+            <BravePushServiceNotice onRetry={() => void enable()} retrying={busy} />
+          </SettingsRow>
+        </SettingsGroup>
+        <ForegroundOnlySettings />
+      </>
+    );
+  }
+
+  // Brave's permission prompt defaults to "until I close this site".
+  const braveHint = permissionExpired
+    ? intl.formatMessage({ id: "notificationSettings.braveExpired", defaultMessage: "Brave dropped the permission when you closed Armada. Turn this on and pick “forever” when Brave asks." })
+    : isBrave() && !enabled && permission === "default"
+      ? intl.formatMessage({ id: "notificationSettings.braveForever", defaultMessage: "When Brave asks, pick “forever”, or it stops when you close Armada." })
+      : undefined;
 
   if (error) {
     return (
@@ -484,6 +508,7 @@ function WebPushSettings() {
       blockedMessage={isIOS()
         ? intl.formatMessage({ id: "notificationSettings.blockedIos", defaultMessage: "Notifications are blocked. Allow Armada in iPhone Settings → Notifications." })
         : intl.formatMessage({ id: "notificationSettings.blockedBrowser", defaultMessage: "Notifications are blocked in your browser settings." })}
+      hint={ready ? braveHint : undefined}
       prefs={prefs}
       onToggle={(v) => (v ? enable() : disable())}
       onSetPrefs={(p) => setPrefs(p).catch(() => {})}

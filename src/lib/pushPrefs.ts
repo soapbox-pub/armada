@@ -66,6 +66,10 @@ export interface UsePushNotificationsReturn {
   /** Whether the service worker and VAPID key are ready for a gesture-bound subscribe. */
   ready: boolean;
   error?: string;
+  /** Brave's push service is switched off, so subscribing cannot succeed (see `bravePush.ts`). */
+  pushServiceOff?: boolean;
+  /** Push was enabled, but the browser forgot a session-only permission (Brave's default). */
+  permissionExpired?: boolean;
   permission: NotificationPermission;
   enabled: boolean;
   busy: boolean;

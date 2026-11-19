@@ -2,6 +2,7 @@ import { Capacitor } from "@capacitor/core";
 import { BatteryCharging, Bell, Lock, Waypoints } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
+import { BravePushHelpButton } from "@/components/BravePushNotice";
 import { WizardShell, WizardStepBody } from "@/components/onboarding/WizardShell";
 import { useSyncGateActive } from "@/components/syncGateState";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,8 @@ import {
   enableNativeNotifications,
   nativeNotificationIntent,
 } from "@/hooks/useNativeNotifications";
+import { enableForegroundNotifications } from "@/hooks/useForegroundNotificationSettings";
+import { bravePushServiceOff, isBrave } from "@/lib/bravePush";
 import { hasNativeNotificationService } from "@/lib/platform";
 import {
   registerConsentPromptOpener,
@@ -363,6 +366,7 @@ function NotificationsStep({ onDone }: { onDone: (granted: boolean) => void }) {
 function WebPushStep({ onDone }: { onDone: () => void }) {
   const intl = useIntl();
   const [busy, setBusy] = useState(false);
+  const [pushServiceOff, setPushServiceOff] = useState(false);
   // Foreground mode must not promise closed-app delivery.
   const foreground = webPushOptInMode() === "foreground";
 
@@ -373,11 +377,61 @@ function WebPushStep({ onDone }: { onDone: () => void }) {
       await runWebPushEnable();
     } catch {
       // Denied or subscribe failed; the Settings toggle remains.
+    }
+    setBusy(false);
+    // Closing silently would leave the user believing it worked.
+    if (!foreground && bravePushServiceOff()) setPushServiceOff(true);
+    else onDone();
+  };
+
+  const enableWhileOpen = async () => {
+    setBusy(true);
+    try {
+      await enableForegroundNotifications();
     } finally {
       setBusy(false);
       onDone();
     }
   };
+
+  if (pushServiceOff) {
+    return (
+      <WizardStepBody
+        glyph={
+          <StepGlyph>
+            <Bell className="size-9" />
+          </StepGlyph>
+        }
+        title={intl.formatMessage({ id: "loginSetup.notifications.title", defaultMessage: "stay in the loop" })}
+        description={
+          <FormattedMessage
+            id="loginSetup.webpush.braveOff"
+            defaultMessage="Brave has background notifications turned off, so Armada can only notify you while it's open."
+          />
+        }
+      >
+        <div className="w-full space-y-3">
+          <Button
+            size="lg"
+            className="h-12 w-full clip-corner-lg text-base font-medium"
+            onClick={enableWhileOpen}
+            disabled={busy}
+          >
+            <FormattedMessage id="loginSetup.webpush.notifyWhileOpen" defaultMessage="Notify me while Armada is open" />
+          </Button>
+          <BravePushHelpButton className="h-12 w-full clip-corner-lg" />
+          <Button
+            variant="ghost"
+            className="w-full text-muted-foreground"
+            onClick={() => onDone()}
+            disabled={busy}
+          >
+            <FormattedMessage id="loginSetup.notNow" defaultMessage="Not now" />
+          </Button>
+        </div>
+      </WizardStepBody>
+    );
+  }
 
   return (
     <WizardStepBody
@@ -417,6 +471,15 @@ function WebPushStep({ onDone }: { onDone: () => void }) {
         >
           <FormattedMessage id="loginSetup.notNow" defaultMessage="Not now" />
         </Button>
+        {/* Brave's prompt defaults to "until I close this site". */}
+        {!foreground && isBrave() && (
+          <p className="text-xs text-muted-foreground">
+            <FormattedMessage
+              id="loginSetup.webpush.braveForever"
+              defaultMessage="When Brave asks, pick “forever”, or it stops when you close Armada."
+            />
+          </p>
+        )}
       </div>
     </WizardStepBody>
   );

@@ -7,6 +7,12 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useMediaPolicyConfig } from "@/hooks/useMediaPolicy";
 import { usePushWatchSet } from "@/hooks/usePushWatchSet";
 import { registerBeforeAccountExit } from "@/lib/beforeAccountExit";
+import {
+  bravePushServiceOff,
+  isBrave,
+  isPushServiceUnavailable,
+  setBravePushServiceOff,
+} from "@/lib/bravePush";
 import { installCrossTabAccountExit } from "@/lib/crossTabAccountExit";
 import { isDesktop } from "@/lib/desktop";
 import {
@@ -308,6 +314,7 @@ export function useNostrPush(): UsePushNotificationsReturn {
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string>();
+  const [pushServiceOff, setPushServiceOff] = useState(bravePushServiceOff);
   const [prepareNonce, setPrepareNonce] = useState(0);
   const prefs = config.pushPrefs;
   const preparedRef = useRef<PreparedWeb | undefined>(undefined);
@@ -746,10 +753,19 @@ export function useNostrPush(): UsePushNotificationsReturn {
         lastSynced.current = syncSig;
         retry.current = 0;
         setError(undefined);
+        setBravePushServiceOff(false);
+        setPushServiceOff(false);
         setEnabled(true);
       } catch (err) {
         if (cancelled) return;
         console.warn("[push] sync failed:", err);
+        if (isPushServiceUnavailable(err)) {
+          // Retrying cannot help until the user changes a browser setting.
+          setBravePushServiceOff(true);
+          setPushServiceOff(true);
+          setEnabled(false);
+          return;
+        }
         if (retry.current < 3) {
           const delay = 10_000 * 2 ** retry.current;
           retry.current += 1;
@@ -850,6 +866,10 @@ export function useNostrPush(): UsePushNotificationsReturn {
       : undefined;
     try {
       const subscription = await subscriptionPromise;
+      if (subscription) {
+        setBravePushServiceOff(false);
+        setPushServiceOff(false);
+      }
       savePushIntent(true);
       lastSynced.current = null;
       const outcome = await sync(subscription);
@@ -872,6 +892,12 @@ export function useNostrPush(): UsePushNotificationsReturn {
         // every load; the toggle is still there.
         savePushIntent(false);
         setPermission(typeof Notification !== "undefined" ? Notification.permission : "default");
+        return;
+      }
+      if (isPushServiceUnavailable(err)) {
+        setBravePushServiceOff(true);
+        setPushServiceOff(true);
+        setPermission(typeof Notification !== "undefined" ? Notification.permission : permission);
         return;
       }
       const nextPermission = prepared
@@ -933,6 +959,9 @@ export function useNostrPush(): UsePushNotificationsReturn {
     unavailableReason,
     ready,
     error,
+    pushServiceOff: supported && !napp && pushServiceOff,
+    // Brave's prompt defaults to "until I close this site": intent outlives the grant.
+    permissionExpired: supported && !napp && isBrave() && permission === "default" && loadPushIntent(),
     permission,
     enabled,
     busy: busy || (supported && !ready && !error),
