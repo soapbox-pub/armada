@@ -162,7 +162,7 @@ function MiniUnreadDot({ mention, unread }: { mention: boolean; unread: boolean 
   );
 }
 
-function ServerMiniIcon({ url }: { url: string }) {
+const ServerMiniIcon = memo(function ServerMiniIcon({ url }: { url: string }) {
   const { data: info } = useRelayInfo(url);
   const { user } = useCurrentUser();
   const { data: groups } = useRelayGroups(user ? url : undefined);
@@ -181,10 +181,10 @@ function ServerMiniIcon({ url }: { url: string }) {
       )}
       <MiniUnreadDot mention={anyMention} unread={anyUnread} />
     </span>
-  );
-}
+  );});
 
-function Concord2MiniIcon({ communityId, name }: { communityId: string; name: string }) {
+
+const Concord2MiniIcon = memo(function Concord2MiniIcon({ communityId, name }: { communityId: string; name: string }) {
   const community = useCommunity(communityId);
   const { data: folded } = useControlFold(community, false);
   const iconUrl = useCommunityIcon(communityId, folded ? (folded.metadata?.icon ?? null) : undefined);
@@ -205,10 +205,10 @@ function Concord2MiniIcon({ communityId, name }: { communityId: string; name: st
         unread={Object.keys(byChannel).some((id) => !isConcordChannelMuted("c2", communityId, id))}
       />
     </span>
-  );
-}
+  );});
 
-function DmMiniIcon({ pubkey }: { pubkey: string }) {
+
+const DmMiniIcon = memo(function DmMiniIcon({ pubkey }: { pubkey: string }) {
   const intl = useIntl();
   const { user } = useCurrentUser();
   const author = useAuthor(pubkey);
@@ -237,8 +237,8 @@ function DmMiniIcon({ pubkey }: { pubkey: string }) {
       {/* A DM has no channels — the message IS the mention, so plain unread dot. */}
       <MiniUnreadDot mention={false} unread={unread} />
     </span>
-  );
-}
+  );});
+
 
 function RailMiniIcon({ item }: { item: RailItem }) {
   if (item.kind === "server") return <ServerMiniIcon url={item.url} />;
@@ -246,10 +246,15 @@ function RailMiniIcon({ item }: { item: RailItem }) {
   return <Concord2MiniIcon communityId={item.communityId} name={item.name} />;
 }
 
+/** What a rail item renders by: rebuilt items with the same identity skip their probe and icon. */
+function railItemSig(item: RailItem): string {
+  return item.kind === "server" ? `s|${item.url}` : item.kind === "dm" ? `d|${item.pubkey}` : `c|${item.communityId}|${item.name}`;
+}
+
 // A collapsed folder must light for ANY member, not just the four shown.
 // Hooks can't loop, so each member mounts an invisible probe that reports up.
 
-function ServerUnreadProbe({
+const ServerUnreadProbe = memo(function ServerUnreadProbe({
   url,
   onChange,
 }: {
@@ -261,10 +266,10 @@ function ServerUnreadProbe({
   const groupIds = useMemo(() => (groups ?? []).map((g) => g.id), [groups]);
   const { anyUnread, anyMention } = useRelayUnread(user ? url : undefined, groupIds);
   useEffect(() => onChange(anyUnread, anyMention), [anyUnread, anyMention, onChange]);
-  return null;
-}
+  return null;});
 
-function Concord2UnreadProbe({
+
+const Concord2UnreadProbe = memo(function Concord2UnreadProbe({
   communityId,
   onChange,
 }: {
@@ -280,10 +285,10 @@ function Concord2UnreadProbe({
   );
   const mention = Object.values(byChannel).some((u) => u.mention);
   useEffect(() => onChange(unread, mention), [unread, mention, onChange]);
-  return null;
-}
+  return null;});
 
-function DmUnreadProbe({
+
+const DmUnreadProbe = memo(function DmUnreadProbe({
   pubkey,
   onChange,
 }: {
@@ -292,22 +297,25 @@ function DmUnreadProbe({
 }) {
   const unread = useDmPeerUnread(pubkey);
   useEffect(() => onChange(unread, false), [unread, onChange]);
-  return null;
-}
+  return null;});
 
-function RailItemUnreadProbe({
+
+/** Memoized on the item's identity and a stable `report`, so a rail render doesn't re-run every member's hooks. */
+const RailItemUnreadProbe = memo(function RailItemUnreadProbe({
   item,
-  onChange,
+  report,
 }: {
   item: RailItem;
-  onChange: (unread: boolean, mention: boolean) => void;
+  report: (key: string, unread: boolean, mention: boolean) => void;
 }) {
+  const { key } = item;
+  const onChange = useCallback((unread: boolean, mention: boolean) => report(key, unread, mention), [report, key]);
   if (item.kind === "server") return <ServerUnreadProbe url={item.url} onChange={onChange} />;
   if (item.kind === "dm") return <DmUnreadProbe pubkey={item.pubkey} onChange={onChange} />;
   return <Concord2UnreadProbe communityId={item.communityId} onChange={onChange} />;
-}
+}, (a, b) => a.report === b.report && a.item.key === b.item.key && railItemSig(a.item) === railItemSig(b.item));
 
-function ServerMentionProbe({
+const ServerMentionProbe = memo(function ServerMentionProbe({
   url,
   onChange,
 }: {
@@ -320,10 +328,10 @@ function ServerMentionProbe({
   const { anyMention } = useRelayUnread(user ? url : undefined, groupIds);
   useEffect(() => onChange(url, anyMention), [url, anyMention, onChange]);
   useEffect(() => () => onChange(url, false), [url, onChange]);
-  return null;
-}
+  return null;});
 
-function ConcordMentionProbe({
+
+const ConcordMentionProbe = memo(function ConcordMentionProbe({
   communityId,
   onChange,
 }: {
@@ -338,8 +346,8 @@ function ConcordMentionProbe({
   const key = concordKey(communityId);
   useEffect(() => onChange(key, mention), [key, mention, onChange]);
   useEffect(() => () => onChange(key, false), [key, onChange]);
-  return null;
-}
+  return null;});
+
 
 function FolderMiniGrid({ items }: { items: RailItem[] }) {
   return (
@@ -1166,11 +1174,7 @@ function RailFolder({
   const anyMention = !open && items.some((it) => memberUnread[it.key]?.mention);
   const probes = !open
     ? items.map((it) => (
-        <RailItemUnreadProbe
-          key={it.key}
-          item={it}
-          onChange={(unread, mention) => reportUnread(it.key, unread, mention)}
-        />
+        <RailItemUnreadProbe key={it.key} item={it} report={reportUnread} />
       ))
     : null;
 
