@@ -198,6 +198,17 @@ export interface WireSpec {
 }
 
 /**
+ * Each root's parse, by event object: the spec is rebuilt whenever any input moves
+ * (several times per community switch) and the roots rarely do.
+ */
+const parsedTickets = new WeakMap<object, ReturnType<typeof parseGitTicket> | null>();
+function parsedTicket(root: Parameters<typeof parseGitTicket>[0]): ReturnType<typeof parseGitTicket> {
+  let ticket = parsedTickets.get(root);
+  if (ticket === undefined) parsedTickets.set(root, (ticket = parseGitTicket(root) ?? null));
+  return ticket ?? undefined;
+}
+
+/**
  * Build the per-relay subscription spec. NIP-29 gets one `#h` filter per host
  * (NIP-42 AUTH handled by the pool; Concord stream keys via stream-auth).
  * Muted channels are deliberately INCLUDED: muting is a notification concern,
@@ -373,14 +384,16 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
   const gitRootById = new Map<string, string>();
   const gitRootAuthorById = new Map<string, string>();
   const rootIdsByRelay = new Map<string, Set<string>>();
+  const repositoryByAddress = new Map((inputs.gitRepositories ?? []).map((entry) => [entry.address, entry]));
+  const rootCreatedAt = new Map((inputs.gitTicketRoots ?? []).map((root) => [root.id, root.created_at]));
   for (const root of inputs.gitTicketRoots ?? []) {
-    const ticket = parseGitTicket(root);
+    const ticket = parsedTicket(root);
     const matched = ticket ? matchGitTicketRepository(ticket, gitByRepository) : undefined;
     if (!ticket || !matched) continue;
     const address = matched.coordinate;
     gitRootById.set(root.id, address);
     gitRootAuthorById.set(root.id, ticket.author);
-    const repository = (inputs.gitRepositories ?? []).find((entry) => entry.address === address);
+    const repository = repositoryByAddress.get(address);
     if (!repository?.attachments.some(({ attachment }) => attachment.detachedAt === undefined)) continue;
     for (const url of repository.relays) {
       if (isGitAnnouncementDiscoveryRelay(url)) continue;
@@ -396,7 +409,7 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
     for (let offset = 0; offset < ids.length; offset += GIT_ROOT_FILTER_CHUNK_SIZE) {
       const chunk = ids.slice(offset, offset + GIT_ROOT_FILTER_CHUNK_SIZE);
       // Root-based `since` for the first round (the shared relay cursor could skip existing comments).
-      const childSince = Math.min(...chunk.map((id) => inputs.gitTicketRoots?.find((root) => root.id === id)?.created_at ?? 0));
+      const childSince = Math.min(...chunk.map((id) => rootCreatedAt.get(id) ?? 0));
       add(relay, { kinds: [NIP22_COMMENT_KIND], "#E": chunk, since: childSince, limit: 4_000 });
       add(relay, { kinds: [...GIT_STATUS_KINDS], "#e": chunk, since: childSince, limit: 4_000 });
     }
