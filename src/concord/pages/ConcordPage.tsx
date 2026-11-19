@@ -1194,6 +1194,46 @@ const lastAllPaneCommunities = new Set<string>();
  * A Concord community rehydrated from the Community List and rendered through
  * the same chat components as NIP-29/DMs.
  */
+/**
+ * The open community's watchers: effects whose results the page never reads. Apart
+ * from the page so a channel switch, which re-renders the page several times,
+ * doesn't re-run them. Each is mounted ONCE, here.
+ */
+const CommunityWatchers = memo(function CommunityWatchers({
+  baseCommunity,
+  community,
+  onSelfRemoved,
+}: {
+  baseCommunity: Community | undefined;
+  /** With the folded name. */
+  community: Community | undefined;
+  onSelfRemoved: () => void;
+}) {
+  // Per-private-channel rotations (CORD-06 §2).
+  useChannelRekeyWatch(baseCommunity);
+  // Adopt a staff write key delivered in my Grant (CORD-04 §3).
+  useStaffKeyWatch(baseCommunity);
+  // Keep our live invite links vending the current epoch (CORD-05 §2).
+  useLinkRefreshWatch(baseCommunity);
+  // Follow the fold's relay list (CORD-02 §6).
+  useRelayFollow(baseCommunity);
+  // Stripped CREATE_INVITE → tombstone my own live links (only my signer_sk can).
+  useLinkAuthorityWatch(baseCommunity);
+  // Keep my live links' bundles vending current metadata + epoch.
+  useLinkFreshnessWatch(baseCommunity);
+  // Durable read-cut: finish a rotating ban dropped by a relay outage.
+  useReadCutRetry(baseCommunity);
+  // An interrupted Refounding of mine: finished at its own epoch.
+  useRefoundResume(baseCommunity);
+  // A Join lost in transit, or a Refounding that omitted this member, is restored once (CORD-02 §5).
+  useRestoreJoin(community);
+  // Compliant self-removal (CORD-04 §4/§6): tear down locally and route home.
+  useSelfRemove(baseCommunity, onSelfRemoved);
+  // Each member carries their own Nickname across a Refounding (CORD-04 §10).
+  useCarryMyNickname(community);
+  return null;
+});
+
 function ConcordCommunityPage() {
   // Parsed via `parseChatRoute` (panes are static segments with no params), the
   // same parse the builder and notifications use.
@@ -1393,23 +1433,8 @@ function ConcordCommunityPage() {
 
   // Base-rekey rotations. `stranded`: a stale invite left us on a superseded epoch.
   const { stranded } = useRekeyWatch(baseCommunity);
-  // Per-private-channel rotations (CORD-06 §2).
-  useChannelRekeyWatch(baseCommunity);
-  // Key, history and writer collection and the duties run in the background (`CommunityDuties`).
-  // Adopt a staff write key delivered in my Grant (CORD-04 §3).
-  useStaffKeyWatch(baseCommunity);
-  // Keep our live invite links vending the current epoch (CORD-05 §2).
-  useLinkRefreshWatch(baseCommunity);
-  // Follow the fold's relay list (CORD-02 §6).
-  useRelayFollow(baseCommunity);
-  // Stripped CREATE_INVITE → tombstone my own live links (only my signer_sk can).
-  useLinkAuthorityWatch(baseCommunity);
-  // Keep my live links' bundles vending current metadata + epoch.
-  useLinkFreshnessWatch(baseCommunity);
-  // Durable read-cut: finish a rotating ban dropped by a relay outage. Mounted ONCE here.
-  useReadCutRetry(baseCommunity);
-  // An interrupted Refounding of mine: finished at its own epoch. Mounted ONCE here.
-  useRefoundResume(baseCommunity);
+  // The open community's background watchers are `CommunityWatchers`; key, history and
+  // writer collection and the duties run app-wide (`CommunityDuties`).
   // Stranded self-heal: re-resolve our invite link until its bundle is refreshed.
   const { canRecover, checking: recoveryChecking, checkNow: recoveryCheckNow } = useStrandedRecovery(baseCommunity, stranded);
 
@@ -1692,8 +1717,6 @@ function ConcordCommunityPage() {
   const { data: dissolved } = useDissolved(community);
   // A running Timeout stops composition, edits and reactions (CORD-04 §8).
   const { timeouts: guestbookTimeouts } = useGuestbook(community);
-  // A Join lost in transit, or a Refounding that omitted this member, is restored once (CORD-02 §5).
-  useRestoreJoin(community);
   const timedOut = Boolean(user && timeoutRunning(guestbookTimeouts.get(user.pubkey), clockNowMs()));
   const canWrite = Boolean(user && channel && !dissolved && !excluded && !stranded && !timedOut);
   // A restricted Channel takes posts from its writers alone (CORD-03 §1); reactions still go.
@@ -2099,8 +2122,7 @@ function ConcordCommunityPage() {
   joinVoiceRef.current = handleJoinVoice;
   const onRowJoinVoice = useCallback((ch: Channel, broker: string | null) => joinVoiceRef.current(ch, broker), []);
 
-  // Compliant self-removal (CORD-04 §4/§6): tear down locally and route home.
-  useSelfRemove(baseCommunity, useCallback(() => navigateTo("/"), [navigateTo]));
+  const onSelfRemoved = useCallback(() => navigateTo("/"), [navigateTo]);
   const [creatingChannel, setCreatingChannel] = useState(false);
 
   // Close the create-channel wizard on community switch (permissions differ).
@@ -2315,8 +2337,6 @@ function ConcordCommunityPage() {
   const observed = useMemo(() => observedAuthors(communityRumors, allMessages), [communityRumors, allMessages]);
   // The owner writes the departures of Bans lifted before un-bans wrote their own (Vector).
   useHealBanDepartures(community, observed);
-  // Each member carries their own Nickname across a Refounding (CORD-04 §10).
-  useCarryMyNickname(community);
   // `observed` changes with every message in any channel while the set almost never
   // does: the previous array is kept while its members are the same, so the member
   // panel, composers and everything else handed it don't re-render per message.
@@ -3472,6 +3492,7 @@ function ConcordCommunityPage() {
     <ChannelNavContext.Provider value={channelNav}>
       {/* Member kind-0s often live only on the community's own relays. */}
       <ProfileRelayHints relays={community?.relays} />
+      <CommunityWatchers baseCommunity={baseCommunity} community={community} onSelfRemoved={onSelfRemoved} />
       <MemberRolesContext.Provider value={memberRolesValue}>
       <CommunityNicknamesContext.Provider value={nicknames}>
       <MemberActionsContext.Provider value={memberActionsValue}>
