@@ -4,6 +4,11 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [Unreleased]
+
+### Added
+- Torrent attachments show their files and details in chat, with a button to copy the magnet link.
+
 ## [0.69.9] - 2026-11-19
 
 Messages show which app they were sent from, and a new setting hides Armada

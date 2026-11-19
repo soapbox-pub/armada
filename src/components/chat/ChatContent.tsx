@@ -50,7 +50,7 @@ import { parseFileMessageTags, parseImetaMap } from "@/lib/imeta";
 import { KIND_DM_FILE } from "@/lib/nip17/protocol";
 import { isIcannHost, parseInlineRun, splitInlineCode, splitMarkdownBlocks, splitMarkdownLinks } from "@/lib/markdown";
 import { filenameFromUrl } from "@/lib/fileBytes";
-import { AUDIO_EXTS, EMBED_MEDIA_URL_REGEX, IMAGE_URL_REGEX, isGifLikeUrl, isUnplayableVideo, mimeFromExt } from "@/lib/mediaUrls";
+import { AUDIO_EXTS, EMBED_MEDIA_URL_REGEX, IMAGE_URL_REGEX, isGifLikeUrl, isTorrentAttachment, isUnplayableVideo, mimeFromExt } from "@/lib/mediaUrls";
 import { KIND_GROUP_METADATA, nip29GroupPath, parseGroupAddress, type GroupAddress } from "@/lib/nip29";
 import { normalizeRelayUrl, relayToRouteParam } from "@/lib/platform";
 import { displayHost, isMagnetUri, sanitizeUrl } from "@/lib/sanitizeUrl";
@@ -664,8 +664,9 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
           // Images by extension or imeta MIME (extension-less/encrypted Blossom URLs).
           const inlineImeta = imetaByUrl.get(url);
           const inlineImetaMime = inlineImeta ? imageMimeFor(inlineImeta) : undefined;
+          const torrent = !forceImage && isTorrentAttachment(url, inlineImetaMime, inlineImeta?.name);
           const isImetaImage = inlineImetaMime?.startsWith("image/") ?? false;
-          if (forceImage || IMAGE_URL_REGEX.test(url) || isImetaImage) {
+          if (!torrent && (forceImage || IMAGE_URL_REGEX.test(url) || isImetaImage)) {
             if (out.length > 0) {
               const prev = out[out.length - 1];
               if (prev.type === "text") {
@@ -696,7 +697,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
           // Armada's webxdc URLs end `.xdc`; Vector's are extension-less, known only by
           // imeta MIME or `webxdc` uuid.
           const isInlineWebxdc = isWebxdcMime(imetaMime) || Boolean(inlineImeta?.webxdc);
-          if (EMBED_MEDIA_URL_REGEX.test(url) || isImetaMedia || isInlineWebxdc) {
+          if (!torrent && (EMBED_MEDIA_URL_REGEX.test(url) || isImetaMedia || isInlineWebxdc)) {
             if (out.length > 0) {
               const prev = out[out.length - 1];
               if (prev.type === "text") {
@@ -716,8 +717,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
             continue;
           }
 
-          // imeta but not image/audio/video: a download card. Plain pasted links stay link cards.
-          if (inlineImeta && !inlineImeta.webxdc && !isWebxdcMime(imetaMime)) {
+          if (torrent || (inlineImeta && !inlineImeta.webxdc && !isWebxdcMime(imetaMime))) {
             if (out.length > 0) {
               const prev = out[out.length - 1];
               if (prev.type === "text") {
@@ -727,12 +727,12 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
             out.push({
               type: "file-embed",
               url,
-              encryption: inlineImeta.encryption,
-              mime: imetaMime ?? inlineImeta.mime,
-              name: inlineImeta.name,
-              size: inlineImeta.size ? Number(inlineImeta.size) : undefined,
-              thumbnail: inlineImeta.thumbnail,
-              fallbacks: inlineImeta.fallbacks,
+              encryption: inlineImeta?.encryption,
+              mime: imetaMime ?? inlineImeta?.mime,
+              name: inlineImeta?.name ?? (torrent ? filenameFromUrl(url, imetaMime) : undefined),
+              size: inlineImeta?.size ? Number(inlineImeta.size) : undefined,
+              thumbnail: inlineImeta?.thumbnail,
+              fallbacks: inlineImeta?.fallbacks,
             });
             lastIndex = index + fullMatch.length;
             const leadingWs = segment.substring(lastIndex).match(/^\s+/);
@@ -944,13 +944,14 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         const url = sanitizeUrl(rawUrl);
         if (!url || renderedUrls.has(url)) continue;
         const mime = imageMimeFor(entry);
-        if (mime?.startsWith("image/")) {
+        const torrent = isTorrentAttachment(url, mime, entry.name);
+        if (!torrent && mime?.startsWith("image/")) {
           result.push({ type: "image-embed", url, encryption: entry.encryption, mime, dim: entry.dim, blurhash: entry.blurhash, fallbacks: entry.fallbacks, alt: entry.alt, spoiler: entry.spoiler, thumb: previewOf(url, entry.thumbnail) });
           renderedUrls.add(url);
-        } else if (mime?.startsWith("audio/") || mime?.startsWith("video/")) {
+        } else if (!torrent && (mime?.startsWith("audio/") || mime?.startsWith("video/"))) {
           result.push({ type: "media-embed", url, encryption: entry.encryption, mime, fallbacks: entry.fallbacks });
           renderedUrls.add(url);
-        } else if (isWebxdcMime(mime) || entry.webxdc) {
+        } else if (!torrent && (isWebxdcMime(mime) || entry.webxdc)) {
           // imeta-only webxdc (Vector): becomes an XdcAttachment card via isXdc; MIME
           // normalized for the uuid-only case.
           result.push({
@@ -1493,6 +1494,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
             size={token.size}
             encryption={token.encryption}
             fallbacks={token.fallbacks}
+            torrentHeld={isTorrentAttachment(token.url, token.mime, token.name) && heldReason(token.url) !== undefined}
             thumbnail={thumbnail && heldReason(thumbnail) === undefined ? thumbnail : undefined}
           />
         );
