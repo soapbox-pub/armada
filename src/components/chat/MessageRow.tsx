@@ -5,7 +5,6 @@ import { ExpirationTimerIcon } from "@/components/chat/ExpirationTimerIcon";
 import { MeshProfilePreviewCard } from "@/components/chat/MeshProfilePreviewCard";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
 import { BotPill } from "@/components/BotPill";
-import { UltraPill } from "@/components/UltraPill";
 import { DisplayName } from "@/components/DisplayName";
 import { ProxyPill } from "@/components/ProxyPill";
 import { StaffPill } from "@/components/StaffPill";
@@ -344,7 +343,6 @@ export const MessageRow = memo(function MessageRow({
             )}
             {!identityOverride && <StaffPill pubkey={pubkey} />}
             <BotPill metadata={metadata} />
-            {ultra && <UltraPill force />}
             <ProxyPill proxy={proxy} />
             {nameBadge}
             {label && (

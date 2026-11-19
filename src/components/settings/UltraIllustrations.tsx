@@ -1,5 +1,4 @@
 import { UltraEffect } from "@/components/UltraEffect";
-import { UltraPill } from "@/components/UltraPill";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { FormattedMessage } from "@/i18n";
 import { getAvatarShape } from "@/lib/avatarShape";
@@ -56,7 +55,6 @@ export function UltraMessage({ self, name, frame, children }: { self: UltraSelf;
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <UltraName name={self.name} style={name} className="text-sm" />
-          <UltraPill force interactive={false} />
         </div>
         <p className="text-sm text-foreground/90">
           {children ?? <FormattedMessage id="ultraIllustrations.message" defaultMessage="gm everyone, I'm Ultra now ✨" />}
