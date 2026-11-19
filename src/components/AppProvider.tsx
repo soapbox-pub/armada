@@ -12,6 +12,7 @@ import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { appThemeFont } from "@/lib/fontLoader";
 import { parseProxyList } from "@/lib/mediaPolicy";
 import { useMediaSrc } from "@/hooks/useMediaPolicy";
+import { setClientTagEnabled } from "@/lib/clientTag";
 import { setPowDifficulty } from "@/lib/pow";
 import { useThemePreview } from "@/lib/themePreview";
 import { hslStringToHex, isDarkTheme } from "@/lib/colorUtils";
@@ -138,6 +139,10 @@ export function AppProvider({ storageKey, children }: AppProviderProps) {
   useLayoutEffect(() => {
     setPowDifficulty(config.powDifficulty);
   }, [config.powDifficulty]);
+
+  useLayoutEffect(() => {
+    setClientTagEnabled(config.clientTag);
+  }, [config.clientTag]);
 
   // public/theme.js handles the very first paint.
   useEffect(() => {

@@ -45,6 +45,8 @@ export const CONFIG_NAMES = [
   "BLOCKLIST_AUTHORS",
   // NIP-13 proof-of-work bits on published events until the user picks their own. Unset = 0 (off).
   "POW_DIFFICULTY",
+  // NIP-89 `client` tag on signed events and chat rumors, as a JSON array. Unset = ["client", APP_NAME]; empty = none.
+  "CLIENT_TAG",
 ] as const;
 
 export type ConfigName = (typeof CONFIG_NAMES)[number];

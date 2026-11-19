@@ -1,7 +1,7 @@
 import { useNostr } from "@nostrify/react";
 import { useMutation, type UseMutationResult } from "@tanstack/react-query";
 
-import { APP_NAME } from "@/lib/platform";
+import { withClientTag } from "@/lib/clientTag";
 import { t } from "@/i18n";
 import { publishSignedEventToRelays, uniqueRelayUrls } from "@/lib/nip65";
 import {
@@ -68,11 +68,8 @@ export function useNostrPublish(): UseMutationResult<NostrEvent, Error, EventTem
       if (relays && exactRelays?.length === 0) {
         throw new Error(t({ id: "useNostrPublish.noRelays", defaultMessage: "Add at least one relay before publishing this account state" }));
       }
-      // NIP-89: always stamp this build; replaceable RMW often copies another app's `client` tag.
-      const tags = [
-        ...(template.tags ?? []).filter(([name]) => name !== "client"),
-        ["client", APP_NAME],
-      ];
+      // NIP-89: replaceable RMW often copies another app's `client` tag.
+      const tags = withClientTag(template.tags ?? []);
 
       const created_at = template.created_at ?? nowSecs();
 

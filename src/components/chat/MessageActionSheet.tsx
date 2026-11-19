@@ -34,6 +34,8 @@ interface MessageActionSheetProps {
     tallies: ReactionTally[];
     react: (input: ReactInput) => void;
   };
+  /** Muted line under the actions: when it was sent, and with which client. */
+  details?: string;
 }
 
 /**
@@ -45,6 +47,7 @@ export function MessageActionSheet({
   onOpenChange,
   actions,
   reactions,
+  details,
 }: MessageActionSheetProps) {
   // The picker takes over the sheet rather than nesting an overlay (like Discord).
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -194,6 +197,11 @@ export function MessageActionSheet({
                 </>
               )}
             </div>
+            {details && (
+              <p className="px-5 pt-1 pb-1 text-center text-2xs text-muted-foreground/70 tabular-nums select-text">
+                {details}
+              </p>
+            )}
           </div>
         )}
       </DrawerContent>

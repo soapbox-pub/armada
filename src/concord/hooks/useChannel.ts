@@ -28,6 +28,7 @@ import {
 } from "@/concord/lib/chat";
 import { backfillStore, historyRelays, LOAD_OLDER_MAX_PAGES, setChannelSyncContext } from "@/concord/lib/channelSync";
 import { KIND_COMMENT, KIND_DELETE, KIND_EDIT, KIND_MESSAGE, KIND_POLL, KIND_REACTION, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
+import { clientTag } from "@/lib/clientTag";
 import {
   clearStreamExhausted,
   CHAT_ROW_KINDS,
@@ -1311,7 +1312,10 @@ export function useSendMessage(community: Community | undefined, channel: Channe
       if (kind === KIND_REACTION && targetPubkey) tags.push(["p", targetPubkey]);
       // NIP-09/NIP-25 `k`: the target's kind (CORD-03), `1111` for a thread reply.
       if ((kind === KIND_DELETE || kind === KIND_REACTION) && target) tags.push(["k", String(targetKind ?? KIND_MESSAGE)]);
-      if (extraTags) tags.push(...extraTags);
+      if (extraTags) tags.push(...extraTags.filter(([name]) => name !== "client"));
+      // NIP-89, inside the encryption; recorded with the rest so a retry rebuilds the same rumor.
+      const client = clientTag();
+      if (client) tags.push([...client]);
       // CORD-08 §2: durable chat rumors (not deletes/notices) sign a NIP-40
       // deadline; the wrap repeats it so relays purge ciphertext. Override wins.
       const expiresAt =

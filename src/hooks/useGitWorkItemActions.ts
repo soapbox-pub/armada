@@ -17,7 +17,7 @@ import {
   type GitStatusKind,
   type GitTicket,
 } from "@/lib/gitActivity";
-import { APP_NAME } from "@/lib/platform";
+import { withClientTag } from "@/lib/clientTag";
 import { queueSignedEvent, removeQueuedPublish } from "@/lib/publishOutbox";
 import { publishTimeoutMs } from "@/lib/publishTimeout";
 import { emitWireScopes } from "@/wire/bus";
@@ -48,10 +48,7 @@ export function useGitWorkItemActions() {
     if (!relays.length) throw new Error(t({ id: "useGitWorkItemActions.noRelays", defaultMessage: "This repository has no reachable activity relays." }));
 
     // As in useNostrPublish: our version, not a carried-forward `client` tag.
-    const tags = [
-      ...template.tags.filter(([name]) => name !== "client"),
-      ["client", APP_NAME],
-    ];
+    const tags = withClientTag(template.tags);
     const event = await user.signer.signEvent({
       kind: template.kind,
       content: template.content,

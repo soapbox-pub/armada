@@ -246,6 +246,17 @@ keeps the desktop updater's trusted `RELEASE_AUTHORS` out of a host's reach.
 A new setting goes into `CONFIG_NAMES`. `VITE_PROFILE` is not a setting — it
 gates code out of the build, so it stays `import.meta.env`.
 
+### The NIP-89 `client` tag
+
+What Armada signs names it through `withClientTag()` (`src/lib/clientTag.ts`):
+outer events in `useNostrPublish`, and inside the encryption the chat rumors a
+user sends (Concord `send`, NIP-17 messages, reactions, edits, deletes, Mini
+App state). Not typing, presence, call signalling or protocol machinery
+(control, guestbook, rekey). The tag is `CLIENT_TAG` (a JSON array; empty =
+none), else `["client", APP_NAME]`, and the synced `AppConfig.clientTag`
+switch turns it off. Rows show the sender's in the timestamp's title and the
+touch action sheet only.
+
 ### Proof of work (NIP-13) on every published event
 
 Every event Armada hands a relay as an EVENT can carry a NIP-13 `nonce`

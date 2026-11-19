@@ -10,6 +10,7 @@ import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useIntl } from "@/i18n";
+import { configuredClientTag } from "@/lib/clientTag";
 
 /** Settings › Privacy & safety: who and what is hidden, what loads without asking, and links. */
 export function PrivacySettings() {
@@ -19,6 +20,8 @@ export function PrivacySettings() {
   const { user } = useCurrentUser();
   const nav = useContext(SettingsNavContext);
   const { mutedPubkeys, ready } = useMutedPubkeys();
+  // A deployment that sets no tag has nothing to switch off.
+  const clientName = configuredClientTag()?.[1];
 
   return (
     <>
@@ -63,6 +66,24 @@ export function PrivacySettings() {
           />
         </SettingsRow>
       </SettingsGroup>
+
+      {clientName && (
+        <SettingsGroup id="client" title={intl.formatMessage({ id: "privacySettings.yourApp", defaultMessage: "Your app" })}>
+          <SettingsRow
+            label={intl.formatMessage({ id: "privacySettings.clientTag", defaultMessage: "Show which app you use" })}
+            description={intl.formatMessage(
+              { id: "privacySettings.clientTagDescription", defaultMessage: "Label your messages and posts as sent with {client}. Others see it with the time a message was sent." },
+              { client: clientName },
+            )}
+          >
+            <Switch
+              checked={config.clientTag}
+              onCheckedChange={(clientTag) =>
+                updateConfig((current) => ({ ...current, clientTag }))}
+            />
+          </SettingsRow>
+        </SettingsGroup>
+      )}
 
       <SettingsGroup id="discover" title={intl.formatMessage({ id: "privacySettings.discover", defaultMessage: "Discover" })}>
         <SettingsRow

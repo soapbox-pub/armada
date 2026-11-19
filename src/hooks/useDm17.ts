@@ -99,6 +99,7 @@ import { shareByRumorId } from "@/lib/shareRows";
 import type { NostrEvent, NostrFilter, NostrSigner } from "@nostrify/nostrify";
 import { t } from "@/i18n";
 import { nowSecs } from "@/lib/relayClock";
+import { withClientTag } from "@/lib/clientTag";
 
 const SYNC_MIN_INTERVAL_MS = 30_000;
 /** Wraps are backdated ≤ 2 days; a FULL scan re-reads this far behind the cursor. */
@@ -1431,7 +1432,7 @@ export function useDm17Thread(
       const rumor = buildDmRumor({
         kind: KIND_DM_CHAT,
         content: trimmed,
-        tags: dmChatTags(peers, { extraTags, expiresAt }),
+        tags: withClientTag(dmChatTags(peers, { extraTags, expiresAt })),
         pubkey: self,
       });
       // First contact: add the outer `k` hint so a k-aware receiver can index its cold inbox.
@@ -1460,7 +1461,8 @@ export function useDm17Thread(
         id: original.rumorId,
         kind: original.kind,
         content: original.content,
-        tags: original.tags,
+        // The edit is this client's, not the original's.
+        tags: withClientTag(original.tags),
         created_at: original.createdAt,
         pubkey: original.author,
       };
@@ -1484,13 +1486,13 @@ export function useDm17Thread(
         const rumor = buildDmRumor({
           kind: KIND_DM_REACTION,
           content,
-          tags: dmReactionTags(
+          tags: withClientTag(dmReactionTags(
             peers,
             targetId,
             targetKind,
             customEmojiReactionTags(content, emojiUrl),
             expiresAt,
-          ),
+          )),
           pubkey: self,
         });
         dispatchRumor(rumor, openedOf(rumor));
@@ -1534,7 +1536,7 @@ export function useDm17Thread(
       const rumor = buildDmRumor({
         kind: KIND_DM_DELETE,
         content: "",
-        tags: dmDeleteTags(peers, targetId, targetKind),
+        tags: withClientTag(dmDeleteTags(peers, targetId, targetKind)),
         pubkey: self,
       });
       // Drop an optimistic target immediately (it may not be in the store yet).
@@ -1594,7 +1596,7 @@ export function useDm17Thread(
       const rumor = buildDmRumor({
         kind: KIND_DM_WEBXDC,
         content: payload,
-        tags: dmWebxdcTags(peers, uuid, { ...meta, expiresAt }),
+        tags: withClientTag(dmWebxdcTags(peers, uuid, { ...meta, expiresAt })),
         pubkey: self,
       });
       dispatchRumor(rumor, openedOf(rumor), { firstContact: messages.length === 0 });

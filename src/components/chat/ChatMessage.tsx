@@ -10,6 +10,7 @@ import { MessageEditBox } from "@/components/chat/MessageEditBox";
 import { MessageActionToolbar } from "@/components/chat/MessageActionToolbar";
 import { BannedTombstone } from "@/components/chat/BannedTombstone";
 import { MessageRow, type MessageIdentity } from "@/components/chat/MessageRow";
+import { sentLabel } from "@/components/chat/sentLabel";
 import { CalendarEventMessageCard } from "@/components/chat/CalendarEventCard";
 import { PollCard } from "@/components/chat/PollCard";
 import { PollView } from "@/components/chat/PollView";
@@ -62,6 +63,7 @@ import { chatUrl, type ChatRoute } from "@/lib/routes";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { KIND_GROUP_CHAT } from "@/lib/nip29";
 import { expirationOf, KIND_DM_CHAT } from "@/lib/nip17/protocol";
+import { clientNameOf } from "@/lib/clientTag";
 import { parseProxyTag } from "@/lib/nip48";
 import { reportDestination, type ReportTarget } from "@/lib/report";
 import { getActivePubkey } from "@/lib/activeAccount";
@@ -510,6 +512,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
   // Its presence is the authoritative "this is a reply".
   const hasReplyContext = Boolean(replyContext);
   const isPending = sendStatus === "pending";
+  const client = clientNameOf(event.tags);
   const isFailed = sendStatus === "failed";
   const isOwn = user?.pubkey === event.pubkey;
   // Mentions, replies to you, or authorized @everyone; never your own. Off in DMs.
@@ -961,6 +964,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
           pubkey={event.pubkey}
           identityOverride={identityOverride}
           createdAt={event.created_at}
+          client={client}
           pending={isPending}
           edited={wasEdited && !isEditing}
           // NIP-40 `expiration` alone entitles a row to the disappearing clock.
@@ -1049,6 +1053,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
         onOpenChange={handleSheetOpenChange}
         actions={withImageActions(imageActions, menuActions)}
         reactions={canWrite && !isEditing && reactions ? reactions : undefined}
+        details={sentLabel(intl, event.created_at, client)}
       />
     )}
     {/* Mounted only while open: a Radix dialog root per row is pure weight. */}

@@ -15,10 +15,11 @@ import { AppContext } from "@/contexts/AppContext";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedIdentity } from "@/hooks/useScopedDisplayName";
 import { getAvatarShape } from "@/lib/avatarShape";
-import { fullDateTime, isoDateTime, shortClockTime, shortTimeAgo } from "@/lib/formatTime";
+import { isoDateTime, shortClockTime, shortTimeAgo } from "@/lib/formatTime";
 import { formatTimeLeft } from "@/lib/nip17/disappearing";
 import { useFrameCss, nameStyleCss, readUltra, ULTRA_LIST_NAME_CLASS } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
+import { sentLabel } from "@/components/chat/sentLabel";
 import { FormattedMessage, useIntl } from "@/i18n";
 import { useDoubleTap } from "@/hooks/useDoubleTap";
 import { useLongPress } from "@/hooks/useLongPress";
@@ -99,6 +100,8 @@ interface MessageRowProps {
     onMention?: (peerID: string) => void;
   };
   createdAt: number;
+  /** NIP-89 client the message names; shown only in the timestamp's title. */
+  client?: string;
   children: ReactNode;
   pending?: boolean;
   edited?: boolean;
@@ -136,6 +139,7 @@ export const MessageRow = memo(function MessageRow({
   identityOverride,
   meshActions,
   createdAt,
+  client,
   children,
   pending,
   edited,
@@ -155,6 +159,8 @@ export const MessageRow = memo(function MessageRow({
   const longPress = useLongPress(onLongPress);
   const doubleTap = useDoubleTap(onDoubleTapReply);
   const absoluteTime = useContext(AppContext)?.config.absoluteTimestamps ?? false;
+  const intl = useIntl();
+  const timeTitle = sentLabel(intl, createdAt, client);
   // The toolbar is built only once hovered/focused (it's heavy per row), then latched.
   const [actionsArmed, setActionsArmed] = useState(false);
   const armActions = actions ? () => setActionsArmed(true) : undefined;
@@ -254,7 +260,7 @@ export const MessageRow = memo(function MessageRow({
       {continuation ? (
         <time
           dateTime={isoDateTime(createdAt)}
-          title={fullDateTime(createdAt)}
+          title={timeTitle}
           className="shrink-0 w-10 self-stretch flex items-start justify-end pr-0.5 pt-0.5 text-3xs leading-none text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity tabular-nums select-none"
         >
           {shortClockTime(createdAt)}
@@ -348,7 +354,7 @@ export const MessageRow = memo(function MessageRow({
             )}
             <time
               dateTime={isoDateTime(createdAt)}
-              title={fullDateTime(createdAt)}
+              title={timeTitle}
               className="text-2xs text-muted-foreground/70 shrink-0 tabular-nums"
             >
               {/* The day dividers carry the date, so the clock time is exact. */}

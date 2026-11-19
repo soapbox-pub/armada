@@ -314,6 +314,8 @@ export interface AppConfig {
    * the deployment's `POW_DIFFICULTY`. Per-device: what a phone can mine is not what a desktop can.
    */
   powDifficulty?: number;
+  /** Whether what this account signs carries the NIP-89 `client` tag (`lib/clientTag.ts`, default on). Synced. */
+  clientTag: boolean;
 }
 
 /** Cap on message-less DM rows in {@link AppConfig.startedDms} (they ride in synced settings). */
@@ -371,6 +373,7 @@ export const METADATA_CONFIG_KEYS = [
   "defaultZapMethod",
   "zapsEnabled",
   "accountStandingSeen",
+  "clientTag",
 ] as const satisfies ReadonlyArray<keyof AppConfig>;
 
 /** `${APP_ID}/rail` — grows with every community; rewritten on every drag. */
@@ -479,6 +482,7 @@ export const defaultConfig: AppConfig = {
   defaultZapMethod: "bitcoin",
   zapsEnabled: true,
   accountStandingSeen: false,
+  clientTag: true,
 };
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
