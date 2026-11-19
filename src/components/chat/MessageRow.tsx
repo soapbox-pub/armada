@@ -100,7 +100,7 @@ interface MessageRowProps {
     onMention?: (peerID: string) => void;
   };
   createdAt: number;
-  /** NIP-89 client the message names; shown only in the timestamp's title. */
+  /** NIP-89 client the message names; shown beside the header's timestamp. */
   client?: string;
   children: ReactNode;
   pending?: boolean;
@@ -360,6 +360,12 @@ export const MessageRow = memo(function MessageRow({
               {/* The day dividers carry the date, so the clock time is exact. */}
               {absoluteTime ? shortClockTime(createdAt) : shortTimeAgo(createdAt)}
             </time>
+            {client && (
+              // Sender-controlled text: it shrinks and truncates before the name does.
+              <span className="-ml-1 text-2xs text-muted-foreground/70 truncate min-w-0 max-w-40 shrink-[2]">
+                <span aria-hidden>·</span> {client}
+              </span>
+            )}
             {edited && (
               <EditedMark />
             )}

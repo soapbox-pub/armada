@@ -254,8 +254,9 @@ user sends (Concord `send`, NIP-17 messages, reactions, edits, deletes, Mini
 App state). Not typing, presence, call signalling or protocol machinery
 (control, guestbook, rekey). The tag is `CLIENT_TAG` (a JSON array; empty =
 none), else `["client", APP_NAME]`, and the synced `AppConfig.clientTag`
-switch turns it off. Rows show the sender's in the timestamp's title and the
-touch action sheet only.
+switch turns it off. Rows show the sender's as a muted "· name" beside the
+header's timestamp (not on continuation rows), in the timestamp's title, and
+in the touch action sheet.
 
 ### Proof of work (NIP-13) on every published event
 
