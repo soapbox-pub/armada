@@ -13,7 +13,7 @@ import { EmbeddedNaddr, EmbeddedNote } from "@/components/chat/EmbeddedNote";
 import { FileAttachment } from "@/components/chat/FileAttachment";
 import { MagnetAttachment } from "@/components/chat/TorrentAttachment";
 import { HeldMedia, HeldPreviews } from "@/components/chat/HeldMedia";
-import { revealMessageMedia, useAuthorBlocked, useMediaHeld, useMediaUrlHold, useMessageRevealed } from "@/components/chat/mediaHold";
+import { hideMessageMedia, revealMessageMedia, useAuthorBlocked, useMediaHeld, useMediaUrlHold, useMessageRevealed } from "@/components/chat/mediaHold";
 import { mediaHost } from "@/lib/mediaPolicy";
 import { BuzzInviteEmbed } from "@/components/chat/BuzzInviteEmbed";
 import { Nip29GroupInviteEmbed } from "@/components/chat/Nip29GroupInviteEmbed";
@@ -84,7 +84,7 @@ import type { ImetaEncryption, ImetaEntry } from "@/lib/imeta";
 import type { MdAlign, MdBlock, MdList } from "@/lib/markdown";
 import { cacheTokens, TOKEN_CACHE } from "@/components/chat/tokenCache";
 import type { EncryptedRef } from "@/hooks/useResolvedMediaSrc";
-import type { ReactNode } from "react";
+import type { Key, ReactNode } from "react";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { MotionImg } from "@/components/ui/MotionImg";
 
@@ -1044,6 +1044,19 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
     if (!urlHold(url)) return undefined;
     return mediaHeld ? "" : mediaHost(url) ?? url;
   };
+  // A loaded URL that was held stays in its opened card, which can collapse it again.
+  const hideMedia = useCallback(() => hideMessageMedia(event.id), [event.id]);
+  const wasHeld = useMediaUrlHold(event.pubkey, undefined);
+  const openedReason = (url: string): string | undefined => {
+    if (!mediaLoaded || !wasHeld(url)) return undefined;
+    return mediaHeld ? "" : mediaHost(url) ?? url;
+  };
+  const framed = (key: Key, kind: "image" | "video" | "audio", reason: string | undefined, media: ReactNode, count?: number) =>
+    reason === undefined ? media : (
+      <HeldMedia key={key} kind={kind} count={count} host={reason || undefined} blocked={authorBlocked} onLoad={loadMedia} onCollapse={hideMedia}>
+        {media}
+      </HeldMedia>
+    );
 
   const emojiMap = useMemo(() => {
     const map = holdMedia ? new Map<string, string>() : buildEmojiMap(event.tags);
@@ -1345,25 +1358,26 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         if (inQuote) return inlineLink(key, token.url);
         const held = heldReason(token.url) ?? (token.thumb ? heldReason(token.thumb) : undefined);
         if (held !== undefined) return <HeldMedia key={key} kind="image" host={held || undefined} blocked={authorBlocked} onLoad={loadMedia} />;
+        const opened = openedReason(token.url) ?? (token.thumb ? openedReason(token.thumb) : undefined);
         const imgIndex = topIndex !== null ? tokenImageIndex.get(topIndex) ?? 0 : 0;
         const image = imageRefOf(token);
         // A spoilered PNG keeps its cover: the card preview would reveal its art.
         if (!image.spoiler && isCharacterCardCandidate(image.url, image.mime)) {
-          return (
+          return framed(key, "image", opened, (
             <ImageOrCharacterCard
               key={key}
               image={image}
               onOpen={() => setLightboxIndex(imgIndex)}
             />
-          );
+          ));
         }
-        return (
+        return framed(key, "image", opened, (
           <InlineImage
             key={key}
             image={image}
             onOpen={() => setLightboxIndex(imgIndex)}
           />
-        );
+        ));
       }
       case "image-gallery": {
         const held = token.urls
@@ -1372,14 +1386,17 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         if (held !== undefined) {
           return <HeldMedia key={key} kind="image" count={token.urls.length} host={held || undefined} blocked={authorBlocked} onLoad={loadMedia} />;
         }
+        const opened = token.urls
+          .flatMap((u) => [openedReason(u.url), u.thumb ? openedReason(u.thumb) : undefined])
+          .find((r) => r !== undefined);
         const galleryStartIndex = topIndex !== null ? tokenImageIndex.get(topIndex) ?? 0 : 0;
-        return (
+        return framed(key, "image", opened, (
           <ImageGrid
             key={key}
             images={token.urls}
             onOpen={(idx) => setLightboxIndex(galleryStartIndex + idx)}
           />
-        );
+        ), token.urls.length);
       }
       case "link-embed":
         if (inQuote || holdMedia) return inlineLink(key, token.url);
@@ -1457,7 +1474,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
           if (held !== undefined) return <HeldMedia key={key} kind="audio" host={held || undefined} blocked={authorBlocked} onLoad={loadMedia} />;
           const waveform = imeta ? getImetaField(event.tags, token.url, "waveform") : undefined;
           const duration = imeta ? getImetaField(event.tags, token.url, "duration") : undefined;
-          return (
+          return framed(key, "audio", openedReason(token.url), (
             <AudioMessage
               key={key}
               src={token.url}
@@ -1467,7 +1484,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
               waveform={waveform}
               duration={duration}
             />
-          );
+          ));
         }
         // Undecodable containers (AVI, FLV, WMV) render as download cards.
         if (isUnplayableVideo(token.url, mime)) {
@@ -1485,7 +1502,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
         }
         const heldVideo = heldReason(token.url);
         if (heldVideo !== undefined) return <HeldMedia key={key} kind="video" host={heldVideo || undefined} blocked={authorBlocked} onLoad={loadMedia} />;
-        return (
+        return framed(key, "video", openedReason(token.url), (
           <VideoPlayer
             key={key}
             src={token.url}
@@ -1500,7 +1517,7 @@ function ChatContentInner({ event, className, disableNoteEmbeds = false, highlig
             spoiler={imeta?.spoiler}
             alt={imeta?.alt}
           />
-        );
+        ));
       }
       case "file-embed": {
         if (inQuote) return inlineLink(key, token.url);

@@ -9,6 +9,9 @@ All notable changes to Armada are documented here. The format follows
 ### Added
 - Torrent attachments and magnet links show their files and details in chat, with buttons to open or copy the magnet link.
 
+### Changed
+- Media that isn't loaded automatically sits in a card that loads it when opened, with an option inside to always load from that site.
+
 ## [0.69.9] - 2026-11-19
 
 Messages show which app they were sent from, and a new setting hides Armada

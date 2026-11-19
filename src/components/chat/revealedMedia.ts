@@ -28,6 +28,10 @@ export function revealMessageMedia(id: string): void {
   notify();
 }
 
+export function hideMessageMedia(id: string): void {
+  if (messages.delete(id)) notify();
+}
+
 export function clearRevealedMedia(): void {
   messages.clear();
   notify();

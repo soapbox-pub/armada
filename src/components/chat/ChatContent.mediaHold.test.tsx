@@ -7,7 +7,7 @@ import type { NostrEvent } from "@nostrify/nostrify";
 
 /**
  * A held author's media is not in the DOM at all — no <img>, no <video>, no
- * blurhash, no sender emoji — until the reader presses Load.
+ * blurhash, no sender emoji — until the reader opens its card.
  */
 
 vi.mock("@/hooks/useAuthor", () => ({ useAuthor: () => ({ data: undefined }) }));
@@ -30,12 +30,16 @@ vi.mock("@/hooks/useCustomEmojis", () => ({
 import { ChatContent } from "@/components/chat/ChatContent";
 import { MediaHoldContext } from "@/components/chat/mediaHold";
 import { clearRevealedMedia } from "@/components/chat/revealedMedia";
+import { AppContext, type AppContextType } from "@/contexts/AppContext";
 import { MutedPubkeysContext } from "@/contexts/MutedPubkeysContext";
 
 afterEach(() => {
   cleanup();
   clearRevealedMedia();
 });
+
+const updateConfig = vi.fn();
+const card = (name: string) => screen.getByRole("button", { name });
 
 const STRANGER = "f".repeat(64);
 const IMAGE = "https://blossom.example.com/x.jpg";
@@ -65,33 +69,40 @@ function renderWith(
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter>
-        <MediaHoldContext.Provider value={hold}>
-          <ChatContent event={event} />
-        </MediaHoldContext.Provider>
+        <AppContext.Provider value={{ config: {}, updateConfig } as unknown as AppContextType}>
+          <MediaHoldContext.Provider value={hold}>
+            <ChatContent event={event} />
+          </MediaHoldContext.Provider>
+        </AppContext.Provider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
 describe("ChatContent media hold", () => {
-  it("renders nothing fetchable for a held author until Load", () => {
+  it("renders nothing fetchable for a held author until the card is opened", () => {
     const { container } = renderWith((pk) => pk === STRANGER);
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("canvas")).toBeNull();
     expect(screen.getByText("Image from a new member")).toBeInTheDocument();
     expect(container.textContent).toContain(":wave:");
 
-    fireEvent.click(screen.getByRole("button", { name: "Load" }));
-    expect(screen.queryByText("Image from a new member")).toBeNull();
+    fireEvent.click(card("Image from a new member"));
+    expect(card("Image from a new member")).toHaveAttribute("aria-expanded", "true");
     expect(container.querySelector(`img[src="${EMOJI}"]`)).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /Always load from/ })).toBeNull();
+
+    fireEvent.click(card("Image from a new member"));
+    expect(card("Image from a new member")).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelector(`img[src="${EMOJI}"]`)).toBeNull();
   });
 
   it("keeps a loaded message loaded when it mounts again", () => {
     const first = renderWith((pk) => pk === STRANGER);
-    fireEvent.click(screen.getByRole("button", { name: "Load" }));
+    fireEvent.click(card("Image from a new member"));
     first.unmount();
     renderWith((pk) => pk === STRANGER);
-    expect(screen.queryByText("Image from a new member")).toBeNull();
+    expect(card("Image from a new member")).toHaveAttribute("aria-expanded", "true");
   });
 
   it("is a no-op without a provider", () => {
@@ -112,11 +123,11 @@ describe("ChatContent media hold", () => {
     expect(container.querySelector("img")).toBeNull();
     expect(screen.getByText("Image from someone you blocked")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Load" }));
+    fireEvent.click(card("Image from someone you blocked"));
     expect(container.querySelector(`img[src="${EMOJI}"]`)).not.toBeNull();
   });
 
-  it("holds audio behind Load", () => {
+  it("holds audio behind its card", () => {
     const audio = "https://blossom.example.com/v.ogg";
     const { container } = renderWith((pk) => pk === STRANGER, message(audio, [["imeta", `url ${audio}`, "m audio/ogg"]]));
     expect(screen.getByText("Audio from a new member")).toBeInTheDocument();
@@ -140,5 +151,10 @@ describe("ChatContent media hold", () => {
     expect(screen.getByText("Image on blossom.example.com")).toBeInTheDocument();
     // The sender isn't held, so their emoji still render.
     expect(container.querySelector(`img[src="${EMOJI}"]`)).not.toBeNull();
+
+    fireEvent.click(card("Image on blossom.example.com"));
+    expect(card("Image on blossom.example.com")).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Always load from blossom.example.com" }));
+    expect(updateConfig).toHaveBeenCalledTimes(1);
   });
 });

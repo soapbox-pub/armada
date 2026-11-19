@@ -20,7 +20,7 @@ export interface MediaHold {
 
 export const MediaHoldContext = createContext<MediaHold | null>(null);
 
-export { revealMessageMedia } from "@/components/chat/revealedMedia";
+export { hideMessageMedia, revealMessageMedia } from "@/components/chat/revealedMedia";
 
 export function useMessageRevealed(id: string | undefined): boolean {
   return useSyncExternalStore(subscribeRevealed, () => isMessageRevealed(id));
@@ -40,7 +40,8 @@ export function useMediaHeld(pubkey: string | undefined): boolean {
 
 /**
  * Per-URL hold for one message: nothing once the reader loaded it, else the author's
- * block or own hold, else the URL's host.
+ * block or own hold, else the URL's host. Without `messageId` the reader's load is
+ * ignored, which answers whether a loaded URL WAS held.
  */
 export function useMediaUrlHold(pubkey: string | undefined, messageId: string | undefined): (url: string) => boolean {
   const hold = useContext(MediaHoldContext);
