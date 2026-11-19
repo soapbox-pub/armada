@@ -29,7 +29,7 @@ import {
   KIND_WRAP_EPHEMERAL,
 } from "@/concord/lib/kinds";
 import { finalizePowEvent } from "@/lib/pow";
-import { verifyEventOnce } from "@/lib/verifyCache";
+import { idIsHash, verifyEventOnce } from "@/lib/verifyCache";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { nowSecs } from "@/lib/relayClock";
 
@@ -320,13 +320,33 @@ export function openWrapToSeal(wrap: NostrRumor, stream: StreamKeyView): WrapToS
  * Schnorr check, in that order (so error codes stay stable).
  */
 export function openWrap(wrap: NostrRumor, stream: StreamKeyView): OpenedWireEvent {
+  // Planes are re-read whole on a timer and every relay serves each wrap, so the
+  // same wrap is opened over and over. A copy whose id is its hash is the wrap
+  // already opened under that id; anything else takes the full path.
+  const memo = openedWraps.get(wrap.id);
+  if (memo && memo.streamPk === stream.pk && idIsHash(wrap as NostrEvent)) {
+    return { ...memo.opened };
+  }
   const { seal, finish } = openWrapToSeal(wrap, stream);
   // Memoized by seal id (recomputed from this copy): the same wrap arrives from
   // every relay as a fresh object, defeating nostr-tools' per-object memo.
   if (!verifyEventOnce(seal)) {
     throw new StreamError("bad-seal-signature", "seal signature invalid");
   }
-  return finish();
+  const opened = finish();
+  if (idIsHash(wrap as NostrEvent)) {
+    if (openedWraps.size >= OPENED_WRAPS_MAX) openedWraps.delete(openedWraps.keys().next().value!);
+    openedWraps.set(wrap.id, { streamPk: stream.pk, opened });
+  }
+  return { ...opened };
+}
+
+/** Wraps already opened this session, by wrap id. Holds plaintext: cleared on logout. */
+const OPENED_WRAPS_MAX = 4096;
+const openedWraps = new Map<string, { streamPk: string; opened: OpenedWireEvent }>();
+
+export function clearOpenedWrapMemory(): void {
+  openedWraps.clear();
 }
 
 /**

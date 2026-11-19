@@ -77,6 +77,58 @@ function startPersistence(): void {
   });
 }
 
+type Hashed = Pick<NostrEvent, "pubkey" | "created_at" | "kind" | "tags" | "content">;
+
+/**
+ * Recent copies whose id was proven to be their hash. A relay copy whose hashed
+ * fields all EQUAL a remembered copy has the same hash, so the comparison stands
+ * in for the sha256 — each wrap arrives once per relay.
+ */
+const HASHED_MAX = 2048;
+const hashed = new Map<string, Hashed>();
+
+function tagsEqual(a: string[][], b: string[][]): boolean {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i], y = b[i];
+    if (!Array.isArray(x) || !Array.isArray(y) || x.length !== y.length) return false;
+    for (let j = 0; j < x.length; j++) if (x[j] !== y[j]) return false;
+  }
+  return true;
+}
+
+/** Whether `event.id` is the NIP-01 hash of `event`; false for a malformed event. */
+export function idIsHash(event: NostrEvent): boolean {
+  const seen = hashed.get(event.id);
+  if (
+    seen &&
+    seen.content === event.content &&
+    seen.pubkey === event.pubkey &&
+    seen.created_at === event.created_at &&
+    seen.kind === event.kind &&
+    tagsEqual(seen.tags, event.tags)
+  ) {
+    perfCount("crypto.idHash (copy hit)", 0, 1, "events");
+    return true;
+  }
+  let ok: boolean;
+  try {
+    // Malformed events make getEventHash THROW; they must read as unverified
+    // (e.g. `openWrap` seals parsed from decrypted payloads).
+    ok = getEventHash(event) === event.id;
+  } catch {
+    return false;
+  }
+  if (ok && !seen) {
+    if (hashed.size >= HASHED_MAX) hashed.delete(hashed.keys().next().value!);
+    // A snapshot: a caller may go on to mutate the object it passed.
+    const { pubkey, created_at, kind, content } = event;
+    hashed.set(event.id, { pubkey, created_at, kind, content, tags: event.tags.map((t) => [...t]) });
+  }
+  return ok;
+}
+
 /**
  * Main-thread hash binding shared by both verify paths: `"decided"` (final
  * `result`) or `"needs-ec"` (hash-bound, not memoized — Schnorr must run).
@@ -84,15 +136,7 @@ function startPersistence(): void {
  */
 function hashGate(event: NostrEvent): { state: "decided"; result: boolean } | { state: "needs-ec" } {
   startPersistence();
-  let hash: string;
-  try {
-    // Malformed events make getEventHash THROW; they must read as unverified
-    // (e.g. `openWrap` seals parsed from decrypted payloads).
-    hash = getEventHash(event);
-  } catch {
-    return { state: "decided", result: false };
-  }
-  if (hash !== event.id) return { state: "decided", result: false };
+  if (!idIsHash(event)) return { state: "decided", result: false };
   if (verified.has(memoKey(event.id))) return { state: "decided", result: true };
   return { state: "needs-ec" };
 }
@@ -200,5 +244,6 @@ export async function verifyEventsOnce(
 /** Test seam: forget every verified id, and stop persisting. */
 export function _resetVerifyCacheForTests(): void {
   verified.clear();
+  hashed.clear();
   persistence = undefined;
 }

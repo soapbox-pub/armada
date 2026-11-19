@@ -215,3 +215,22 @@ describe("wrap expiration (CORD-08 §2)", () => {
     expect(wrap.tags.some((t) => t[0] === "expiration")).toBe(false);
   });
 });
+
+describe("openWrap memo", () => {
+  it("opens a wrap seen before by id, but only a copy that is the same wrap", async () => {
+    const alice = testSigner();
+    const stream = channelGroupKey(secret, channelId, 0);
+    const rumor = buildRumor({ kind: KIND_MESSAGE, content: "once", tags: channelBindingTags(channelIdHex, 0n), pubkey: alice.pubkey });
+    const wrap = await wrapSeal(await sealRumor(rumor, KIND_SEAL_ENCRYPTED, stream, alice), stream);
+
+    const first = openWrap(wrap, stream);
+    first.content = "mutated by a caller";
+    expect(openWrap({ ...wrap }, stream).content).toBe("once");
+
+    // Same id over other ciphertext: not the remembered wrap, so it is opened in full (and fails).
+    const other = await wrapSeal(await sealRumor({ ...rumor, content: "x" }, KIND_SEAL_ENCRYPTED, stream, alice), stream);
+    expect(() => openWrap({ ...other, id: wrap.id, content: "garbage" }, stream)).toThrow();
+    // Under another stream it isn't the remembered opening either.
+    expect(() => openWrap(wrap, channelGroupKey(secret, channelId, 1))).toThrow();
+  });
+});

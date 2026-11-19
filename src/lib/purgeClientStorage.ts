@@ -1,5 +1,6 @@
 import { clearImageDims } from "@/components/chat/imageDims";
 import { clearAccessDutyMemory } from "@/concord/hooks/useAccessDuty";
+import { clearOpenedWrapMemory } from "@/concord/lib/stream";
 import { clearPurgedChannelsMemory } from "@/wire/WireSync";
 import { clearWriterDutyMemory } from "@/concord/hooks/writerDutyRun";
 import { clearRefusedBlobs } from "@/concord/lib/blobOnce";
@@ -163,6 +164,7 @@ function clearSessionMemos(): void {
   clearChatDecodeMemo();
   clearControlMemos();
   clearControlPlaneMemory();
+  clearOpenedWrapMemory();
   clearGuestbookSessionMemory();
   clearVoicePresenceMemory();
   clearRefusedBlobs();

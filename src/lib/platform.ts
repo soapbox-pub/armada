@@ -48,8 +48,20 @@ export function termsNeeded(): boolean {
   }
 }
 
+/** Pure and called per event on hot paths, so memoized; bounded since inputs can be remote. */
+const normalizedRelayUrls = new Map<string, string | undefined>();
+const NORMALIZED_RELAY_URLS_MAX = 1024;
+
 /** Normalize a relay URL: require ws/wss scheme, strip trailing slash. */
 export function normalizeRelayUrl(url: string): string | undefined {
+  if (normalizedRelayUrls.has(url)) return normalizedRelayUrls.get(url);
+  const result = normalizeRelayUrlUncached(url);
+  if (normalizedRelayUrls.size >= NORMALIZED_RELAY_URLS_MAX) normalizedRelayUrls.clear();
+  normalizedRelayUrls.set(url, result);
+  return result;
+}
+
+function normalizeRelayUrlUncached(url: string): string | undefined {
   let value = url.trim();
   if (!value) return undefined;
   // A non-ws URL is invalid, not a hostname (else `https://x` → `wss://https//x`).

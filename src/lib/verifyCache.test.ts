@@ -12,7 +12,8 @@
 import { finalizeEvent, generateSecretKey } from "nostr-tools/pure";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { _resetVerifyCacheForTests, persistVerifiedIds, verifyEventOnce, verifyEventsOnce } from "./verifyCache";
+import { _resetVerifyCacheForTests, idIsHash, persistVerifiedIds, verifyEventOnce, verifyEventsOnce } from "./verifyCache";
+import { perfReport, perfReset } from "./perf";
 import { ecVerifyBatch as inlineEcVerify } from "./verifyPool";
 
 import type { NostrEvent } from "@nostrify/nostrify";
@@ -208,5 +209,26 @@ describe("persistVerifiedIds", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("idIsHash", () => {
+  it("takes an identical copy without hashing, and never a changed one", () => {
+    const event = signed("original");
+    expect(idIsHash(event)).toBe(true);
+    perfReset();
+    expect(idIsHash({ ...event, tags: [] })).toBe(true);
+    expect(perfReport().aggregates.find((a) => a.label === "crypto.idHash (copy hit)")?.count).toBe(1);
+    expect(idIsHash({ ...event, content: "forged" })).toBe(false);
+    expect(idIsHash({ ...event, tags: [["p", "x"]] })).toBe(false);
+    expect(idIsHash({ ...event, created_at: event.created_at + 1 })).toBe(false);
+  });
+
+  it("isn't fooled by the remembered copy being mutated after", () => {
+    const event = signed("original");
+    expect(idIsHash(event)).toBe(true);
+    event.tags.push(["p", "x"]);
+    expect(idIsHash({ ...event, tags: [] })).toBe(true);
+    expect(idIsHash(event)).toBe(false);
   });
 });
