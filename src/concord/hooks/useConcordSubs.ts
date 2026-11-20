@@ -11,10 +11,11 @@ import { useIsBlocked } from "@/lib/blocklistStore";
 import { readLivePause } from "@/concord/hooks/useControlPlane";
 import { canonicalJson, rehydrateCommunity, liveEntries, removedCommunityIds } from "@/concord/lib/communityList";
 import { buildConcordSubs, type ConcordSub } from "@/concord/lib/concordNotifications";
-import { readControlFold } from "@/concord/lib/control";
+import { readControlFold, type FoldedControl } from "@/concord/lib/control";
+import type { Community } from "@/concord/lib/types";
 import { registerStreamKeys } from "@/concord/lib/streamAuth";
 import { onWireScopes } from "@/wire/bus";
-import { nowSecs } from "@/lib/relayClock";
+import { clockOffsetMs, nowSecs } from "@/lib/relayClock";
 
 /**
  * Concord native-notification subscriptions for EVERY live community: per
@@ -118,7 +119,8 @@ export function useConcordSubsState(): ConcordSubsState {
     queryFn: async () => {
       // Every community at once: each is its own storage reads, and none waits on another's.
       const built = await Promise.all(entries.map(async (entry) => {
-        const community = rehydrateCommunity(entry);
+        let community = rehydrated.get(entry);
+        if (community === undefined) rehydrated.set(entry, (community = rehydrateCommunity(entry) ?? null));
         if (!community) return { foldReady: false };
         const folded = await readControlFold(community.idHex);
         // A cache miss is not an empty fold: public channels exist only in the
@@ -130,7 +132,12 @@ export function useConcordSubsState(): ConcordSubsState {
         // the missed window is caught up via the same IOU WireSync uses.
         if (await readLivePause(community, nowSecs())) return { foldReady };
         const { timeouts, nicknames } = await storedGuestbookExtras(community, folded);
-        const out = buildConcordSubs(community, folded, entry.added_at, viewer, timeouts, nicknames);
+        const inputs = JSON.stringify([viewer, entry.added_at, timeouts, nicknames, clockOffsetMs()]);
+        const hit = builtSubs.get(community);
+        const out = hit && hit.folded === folded && hit.inputs === inputs
+          ? hit.out
+          : buildConcordSubs(community, folded, entry.added_at, viewer, timeouts, nicknames);
+        builtSubs.set(community, { folded, inputs, out });
         // NIP-42, scoped per relay: the native service bridges AUTH challenges to the
         // WebView, which signs a kind-22242 per stream key (see useNativeNotifications).
         registerStreamKeys(out.streamKeys, community.relays);
@@ -156,6 +163,15 @@ export function useConcordSubsState(): ConcordSubsState {
     ...(error ? { error } : {}),
   };
 }
+
+/**
+ * The rebuild runs every minute and on control changes anywhere, over every community:
+ * each community's rehydration (by list entry, which a refetch that changes nothing
+ * keeps) and subscriptions (by fold, which is shared and never mutated, and the rest of
+ * their inputs) are reused while those hold. Weakly held: they go with the list entries.
+ */
+const rehydrated = new WeakMap<object, Community | null>();
+const builtSubs = new WeakMap<Community, { folded: FoldedControl | undefined; inputs: string; out: ReturnType<typeof buildConcordSubs> }>();
 
 /** For consumers that don't persist or prune; background controllers use {@link useConcordSubsState}. */
 export function useConcordSubs(): ConcordSub[] {
