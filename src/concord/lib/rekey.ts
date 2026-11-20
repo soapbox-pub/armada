@@ -532,8 +532,26 @@ export function decodeControlWrap(plain: Uint8Array): { epoch: bigint; controlRo
   };
 }
 
+/**
+ * Locators by their inputs: a pure derivation over public values, which the writer
+ * duty asks for per member, delivery and blob on every pass.
+ */
+const locators = new Map<string, string>();
+const LOCATORS_MAX = 8192;
+
 /** Compute my locator for a rotation (public inputs only — bunker-friendly). */
 export function myLocator(rotatorHex: string, myHex: string, scopeIdHex: string, newEpoch: bigint): string {
+  const key = `${rotatorHex}|${myHex}|${scopeIdHex}|${newEpoch}`;
+  let locator = locators.get(key);
+  if (locator === undefined) {
+    locator = deriveLocator(rotatorHex, myHex, scopeIdHex, newEpoch);
+    if (locators.size >= LOCATORS_MAX) locators.delete(locators.keys().next().value!);
+    locators.set(key, locator);
+  }
+  return locator;
+}
+
+function deriveLocator(rotatorHex: string, myHex: string, scopeIdHex: string, newEpoch: bigint): string {
   const hexToBytes32 = (h: string) => {
     const out = new Uint8Array(32);
     for (let i = 0; i < 32; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);

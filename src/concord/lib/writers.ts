@@ -350,7 +350,8 @@ export function certEventId(certifier: string, digest: Uint8Array): string {
  * render paths (`useWriterAccess`) check every restricted Channel's certificate per render.
  */
 const certVerdicts = new Map<string, boolean>();
-const CERT_VERDICTS_MAX = 1024;
+// Every duty pass re-checks each restricted Channel's certificates across every community.
+const CERT_VERDICTS_MAX = 8192;
 
 export function verifyWriterCert(certifier: string, digest: Uint8Array, certHex: string): boolean {
   if (!/^[0-9a-fA-F]{128}$/.test(certHex)) return false;

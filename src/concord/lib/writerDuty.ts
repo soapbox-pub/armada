@@ -122,7 +122,8 @@ function certifies(communityId: Uint8Array, ledger: Ledger, epoch: number, write
 }
 
 function blobFor(d: ParsedDelivery, member: string, scopeHex: string, epoch: number): boolean {
-  return d.blobs.some((b) => b.locator.toLowerCase() === myLocator(d.deliverer, member, scopeHex, BigInt(epoch)));
+  const locator = myLocator(d.deliverer, member, scopeHex, BigInt(epoch));
+  return d.blobs.some((b) => b.locator.toLowerCase() === locator);
 }
 
 /** Who epoch `e` vouches for: its minter, and each writer a vouching delivery certified (Vector `vouched_at`). */
