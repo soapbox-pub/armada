@@ -4,6 +4,27 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.11] - 2026-11-20
+
+The sticker picker gets a pack bar for jumping between packs and a grid that
+fits its panel. Switching back to a recent channel and opening dialogs are
+faster, and animated emoji settle after two loops on a visible frame.
+
+### Added
+- A pack bar in the sticker picker to jump between sticker packs, with each pack's heading pinned while its stickers scroll
+
+### Changed
+- The sticker grid fits the panel width instead of a fixed four columns
+- Emoji and sticker section headers stay readable over what scrolls under them, including with Reduce blur on
+- Custom emoji and small animations play twice and then hold still
+- Switching back to one of your last few channels shows it instantly, where you left it
+- Opening dialogs and menus, and moving around communities, are faster
+
+### Fixed
+- An animation that fades in no longer stops on a blank frame
+- The app no longer flashes briefly before the sync screen after a fresh login
+- Uploads that move to another file server after a failure are more reliable
+
 ## [0.69.10] - 2026-11-19
 
 Torrents and magnet links now show up as cards in chat, and media that isn't
