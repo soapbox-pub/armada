@@ -52,6 +52,16 @@ describe("KeptTimelines", () => {
     expect(unmounts).toEqual([]);
   });
 
+  it("lets input through a hidden channel's box laid over the shown one", () => {
+    const { rerender, getByTestId } = render(<Page channel="b" />);
+    rerender(<Page channel="a" />);
+    const shown = getByTestId("tl-a").parentElement!;
+    const hidden = getByTestId("tl-b").parentElement!;
+    expect(shown.compareDocumentPosition(hidden) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(hidden.className).toContain("pointer-events-none");
+    expect(shown.className).not.toContain("pointer-events-none");
+  });
+
   it("unmounts the least recently shown channel past three", () => {
     const { rerender, queryByTestId } = render(<Page channel="a" />);
     for (const c of ["b", "c", "a", "d"]) rerender(<Page channel={c} />);

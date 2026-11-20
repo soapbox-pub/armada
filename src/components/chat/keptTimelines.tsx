@@ -95,8 +95,9 @@ export function KeptTimelines({
           </div>
         ) : (
           // No `inert`: it is inherited, so toggling it restyles every row; skipped
-          // contents are already out of focus, find-in-page and the a11y tree.
-          <div key={id} ref={ref(id)} className="absolute inset-0 flex flex-col [content-visibility:hidden]">
+          // contents are already out of focus, find-in-page and the a11y tree. Its own box
+          // still hit-tests, and one later in the order would take the shown one's input.
+          <div key={id} ref={ref(id)} className="absolute inset-0 flex flex-col pointer-events-none [content-visibility:hidden]">
             {kept.get(id)}
           </div>
         ),
