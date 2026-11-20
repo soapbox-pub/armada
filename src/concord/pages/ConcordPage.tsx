@@ -4056,7 +4056,7 @@ function ConcordCommunityPage() {
                       }
                     />
                   ) : (
-                  <KeptTimelines active={channel?.idHex} kept={keptTimelines}>{liveTimeline}</KeptTimelines>
+                  <KeptTimelines active={channel?.idHex} timelines={keptTimelines}>{liveTimeline}</KeptTimelines>
                   )}
 
                   {presentation !== "feed" && typingPubkeys.length > 0 && <TypingIndicator pubkeys={typingPubkeys} />}
