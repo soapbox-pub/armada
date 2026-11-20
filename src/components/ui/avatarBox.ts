@@ -16,3 +16,21 @@ export function boxFromClasses(className: string | undefined): number | undefine
   }
   return px
 }
+
+/** Box decorations (`ring-2`, `border-4`, `shadow-xl`, `bg-…`), with any variants. */
+const DECOR_CLASS = /^!?-?(?:shadow|ring|border|outline|bg)(?:-|$)/;
+
+/**
+ * A framed shaped avatar's classes, split into the wrapper's layout and the masked
+ * avatar's decorations: on the unmasked wrapper a ring or shadow draws a square,
+ * and the frame's drop-shadow outlines it.
+ */
+export function splitDecor(className: string | undefined): [string, string] {
+  const layout: string[] = [];
+  const decor: string[] = [];
+  for (const token of (className ?? "").split(/\s+/)) {
+    if (!token) continue;
+    (DECOR_CLASS.test(token.slice(token.lastIndexOf(":") + 1)) ? decor : layout).push(token);
+  }
+  return [layout.join(" "), decor.join(" ")];
+}

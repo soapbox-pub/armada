@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { AvatarInitial } from "@/components/AvatarInitial";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { splitDecor } from "@/components/ui/avatarBox";
 import { useAuthor } from "@/hooks/useAuthor";
 import { getAvatarShape, isEmoji, isValidAvatarShape, type AvatarShape } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
@@ -84,12 +85,13 @@ function UserAvatarView({
   // A drop-shadow on a masked (emoji-shaped) avatar is cut away by its own mask,
   // so those wear the frame on a wrapper that takes over the layout classes.
   const wrapped = masked && !!frameStyle;
+  const [layout, decor] = wrapped ? splitDecor(className) : [className, undefined];
   const avatar = (
     <Avatar
       shape={avatarShape}
       aria-hidden={ariaHidden}
-      className={wrapped ? "size-full" : className}
-      sizeClassName={wrapped ? cn("h-10 w-10", className) : undefined}
+      className={wrapped ? cn("size-full", decor) : className}
+      sizeClassName={wrapped ? cn("h-10 w-10", layout) : undefined}
       style={wrapped ? undefined : frameStyle}
     >
       {!anonymous && <AvatarImage src={metadata?.picture} imeta={imeta} alt={alt ?? label} draggable={draggable} loops={loops} />}
@@ -100,5 +102,5 @@ function UserAvatarView({
     </Avatar>
   );
   if (!wrapped) return avatar;
-  return <span className={cn("flex h-10 w-10 shrink-0", className)} style={frameStyle}>{avatar}</span>;
+  return <span className={cn("flex h-10 w-10 shrink-0", layout)} style={frameStyle}>{avatar}</span>;
 }
