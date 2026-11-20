@@ -189,7 +189,7 @@ function StickerSection({ section, onSelect }: { section: CustomEmojiSection; on
   const name = sectionName(section, intl);
   return (
     <div role="group" aria-labelledby={headingId}>
-      <div id={headingId} className="sticky top-0 z-10 -mx-3 px-3 py-1.5 text-2xs font-medium text-muted-foreground uppercase tracking-wider truncate bg-background/70 backdrop-blur-md">
+      <div id={headingId} className="sticky top-0 z-10 -mx-3 px-3 py-1.5 text-2xs font-medium text-muted-foreground uppercase tracking-wider truncate bg-background/70 backdrop-blur-md [html[data-reduce-blur]_&]:bg-background/95">
         {name}
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-1.5">

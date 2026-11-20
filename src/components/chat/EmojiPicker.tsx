@@ -9,6 +9,7 @@ import { useStableNavigate } from "@/hooks/useStableNavigate";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { recordReaction } from "@/hooks/useFrequentReactions";
 import { customCategoryId, pruneFrequentlyUsed, syncEmojiMartCategories } from "@/lib/emojiMartCategories";
+import { onReducedMotionChange, reducedBlur } from "@/lib/reducedMotion";
 import { FormattedMessage, useIntl } from "@/i18n";
 
 import { customEmojiPickerId, paletteSections, shortcodeOfPickerId } from "@/lib/customEmoji";
@@ -165,16 +166,28 @@ export function EmojiPicker({ onSelect, customEmojis, onBrowsePacks, packsLinkIn
     const picker = new Picker(pickerOptions);
     pickerRef.current = picker;
 
+    let offBlur: (() => void) | undefined;
+    let disposed = false;
     // Shadow-DOM style overrides for sizing and theme.
     requestAnimationFrame(() => {
+      if (disposed) return;
       const shadowRoot = (container.firstChild as HTMLElement)?.shadowRoot;
       if (shadowRoot) {
+        // index.css's `data-reduce-blur` rule can't reach into the shadow root, so the header follows it here.
+        const headerStyle = document.createElement("style");
+        const applyBlur = () => {
+          headerStyle.textContent = reducedBlur()
+            ? ".sticky { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background-color: hsl(var(--background) / 0.95) !important; }"
+            : ".sticky { backdrop-filter: blur(8px) !important; -webkit-backdrop-filter: blur(8px) !important; background-color: hsl(var(--background) / 0.7) !important; }";
+        };
+        applyBlur();
+        offBlur = onReducedMotionChange(applyBlur);
+        shadowRoot.appendChild(headerStyle);
         const style = document.createElement("style");
         style.textContent = [
           ":host { width: 100% !important; height: 100% !important; min-height: 0 !important; border-radius: 0 !important; box-shadow: none !important; }",
           "#root { width: 100% !important; background-color: transparent !important; --sidebar-width: 0px !important; }",
           ".scroll { padding-right: var(--padding) !important; }",
-          ".sticky { backdrop-filter: blur(8px) !important; -webkit-backdrop-filter: blur(8px) !important; background-color: hsl(var(--background) / 0.7) !important; }",
           // Mirrors SearchField: a `clip-corner-lg` chrome well with no focus ring.
           ".search input[type='search'] { background-color: hsl(var(--chrome)) !important; border: 0 !important; border-radius: 0.55rem !important; clip-path: polygon(0.7rem 0, 100% 0, 100% calc(100% - 0.7rem), calc(100% - 0.7rem) 100%, 0 100%, 0 0.7rem) !important; padding: 0.5rem 46px 0.5rem 34px !important; height: 36px !important; }",
           "@media (pointer: coarse) { .search input[type='search'] { height: 44px !important; } }",
@@ -218,6 +231,8 @@ export function EmojiPicker({ onSelect, customEmojis, onBrowsePacks, packsLinkIn
     });
 
     return () => {
+      disposed = true;
+      offBlur?.();
       pickerRef.current = null;
       while (container.firstChild) {
         container.removeChild(container.firstChild);

@@ -1,9 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { act } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EmojiPicker } from "./EmojiPicker";
+
+import { setReduceEffects } from "@/lib/reducedMotion";
 
 import type { CustomEmoji } from "@/hooks/useCustomEmojis";
 
@@ -14,7 +16,10 @@ vi.mock("emoji-mart", () => ({
   Picker: class {
     constructor(options: Record<string, unknown>) {
       picker.options = options;
-      return document.createElement("div");
+      const el = document.createElement("div");
+      el.attachShadow({ mode: "open" });
+      (options.parent as HTMLElement | undefined)?.appendChild(el);
+      return el;
     }
   },
   Data: undefined,
@@ -83,5 +88,32 @@ describe("EmojiPicker custom emoji", () => {
     const ids = customCategories().map((c) => c.id);
     expect(new Set(ids).size).toBe(2);
     expect(customCategories().map((c) => c.name)).toEqual(["Dots", "Dashes"]);
+  });
+});
+
+describe("EmojiPicker section headers", () => {
+  const headerRule = async (container: HTMLElement) => {
+    await act(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    const root = container.querySelector(".emoji-mart-wrapper")!.firstElementChild!.shadowRoot!;
+    return [...root.querySelectorAll("style")].map((s) => s.textContent).find((text) => text?.startsWith(".sticky {"));
+  };
+
+  afterEach(() => setReduceEffects(false));
+
+  it("blurs what scrolls under the header", async () => {
+    const { container } = renderPicker({});
+    expect(await headerRule(container)).toContain("backdrop-filter: blur(8px)");
+  });
+
+  it("follows Reduce blur into the shadow root, with a near-opaque header in its place", async () => {
+    const { container } = renderPicker({});
+    const before = await headerRule(container);
+
+    act(() => setReduceEffects(true));
+    const reduced = await headerRule(container);
+
+    expect(before).toContain("blur(8px)");
+    expect(reduced).toContain("backdrop-filter: none");
+    expect(reduced).toContain("hsl(var(--background) / 0.95)");
   });
 });

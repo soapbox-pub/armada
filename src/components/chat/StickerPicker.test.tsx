@@ -63,6 +63,14 @@ describe("StickerPicker", () => {
     }
   });
 
+  it("makes the pinned heading near-opaque under Reduce blur, which strips its backdrop blur", () => {
+    render(<StickerPicker customEmojis={palette} onSelect={vi.fn()} autoFocus={false} />);
+
+    const heading = within(screen.getByRole("group", { name: "Cats" })).getByText("Cats");
+    expect(heading.className).toContain("backdrop-blur-md");
+    expect(heading.className).toContain("[html[data-reduce-blur]_&]:bg-background/95");
+  });
+
   it("sends the sticker that was clicked", () => {
     const onSelect = vi.fn();
     render(<StickerPicker customEmojis={palette} onSelect={onSelect} autoFocus={false} />);
