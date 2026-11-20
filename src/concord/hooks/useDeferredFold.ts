@@ -45,8 +45,19 @@ export function clearDeferredFoldMemory(): void {
   memCache.clear();
 }
 
+/** A fold's in-memory copy, persisted like {@link useDeferredFold}'s; for stores folding outside React. */
+export function rememberFold(key: string, value: unknown): void {
+  memCache.set(key, value);
+  schedulePersist(key, value);
+}
+
+/** The in-memory copy of a fold, if this process has one. */
+export function recalledFold<T>(key: string): T | undefined {
+  return memCache.get(key) as T | undefined;
+}
+
 /** Write `key`'s pending value now — on its timer, or when any instance unmounts/leaves it. */
-function flushPersist(key: string): void {
+export function flushPersist(key: string): void {
   const timer = persistTimers.get(key);
   if (timer !== undefined) clearTimeout(timer);
   persistTimers.delete(key);

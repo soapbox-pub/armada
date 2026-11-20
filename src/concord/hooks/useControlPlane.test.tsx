@@ -58,18 +58,10 @@ beforeAll(() => {
 
 const h = vi.hoisted(() => ({
   pool: undefined as unknown,
-  /** The latest fold thunk handed to useDeferredFold, so a test can run it. */
-  compute: undefined as (() => unknown) | undefined,
 }));
 
 vi.mock("@nostrify/react", () => ({
   useNostr: () => ({ nostr: h.pool }),
-}));
-vi.mock("@/concord/hooks/useDeferredFold", () => ({
-  useDeferredFold: (_key: string | null, compute: () => unknown) => {
-    h.compute = compute;
-    return undefined;
-  },
 }));
 
 // ── Fake relay ───────────────────────────────────────────────────────────────
@@ -232,13 +224,11 @@ describe("useControlFold — a short sweep still folds", () => {
    * re-render trigger.
    */
   async function renderFold(community: Community, relay: FakeRelay) {
-    h.compute = undefined;
     h.pool = { relay: () => relay };
     const { wrapper } = makeWrapper();
-    const { rerender } = renderHook(() => useControlFold(community), { wrapper });
+    const { result } = renderHook(() => useControlFold(community), { wrapper });
     await waitFor(() => expect(relay.queries.length).toBeGreaterThan(0), { timeout: 10_000 });
-    await waitFor(() => expect(h.compute).toBeDefined(), { timeout: 10_000 });
-    return rerender;
+    return result;
   }
 
   it("folds normally when the sweep read the plane comfortably", { timeout: 30_000 }, async () => {
@@ -251,14 +241,8 @@ describe("useControlFold — a short sweep still folds", () => {
     const relay = new FakeRelay();
     relay.events = [(await editionWrapAt(control, owner, "ab".repeat(32), now - 100)).wrap];
 
-    const rerender = await renderFold(community, relay);
-    await waitFor(
-      () => {
-        rerender();
-        expect(h.compute!()).toBeDefined();
-      },
-      { timeout: 10_000 },
-    );
+    const result = await renderFold(community, relay);
+    await waitFor(() => expect(result.current.data).toBeDefined(), { timeout: 10_000 });
   });
 
   it("still folds when the sweep hit its budget", { timeout: 30_000 }, async () => {
@@ -280,10 +264,9 @@ describe("useControlFold — a short sweep still folds", () => {
       ),
     );
 
-    const rerender = await renderFold(community, relay);
+    const result = await renderFold(community, relay);
     await waitFor(() => expect(controlSweepTruncated(community)).toBe(true), { timeout: 10_000 });
-    rerender();
-    expect(h.compute!(), "a member must still see the community").toBeDefined();
+    await waitFor(() => expect(result.current.data, "a member must still see the community").toBeDefined(), { timeout: 10_000 });
 
     _configureSweepPagingForTests({ pageLimit: 500, maxEvents: 15_000 });
   });

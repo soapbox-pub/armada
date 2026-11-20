@@ -2,10 +2,10 @@ import { majorityOf, publishDurable } from "@/concord/lib/quorum";
 import { withSignerDeadline } from "@/concord/lib/signerDeadline";
 import { useNostr } from "@nostrify/react";
 import { KvPrefixCache } from "@/lib/db/kvCache";
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { QueryObserver, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { useDeferredFold } from "@/concord/hooks/useDeferredFold";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { flushPersist, recalledFold, rememberFold } from "@/concord/hooks/useDeferredFold";
 import {
   activePauseOf,
   controlFoldKey,
@@ -34,7 +34,7 @@ import { markEdition, type AuthorityCitation } from "@/concord/lib/edition";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { markControlPlaneStale, openPlaneWraps, mergeOpened, sweepControl } from "@/concord/lib/planeSync";
 import { queryPlane, readControlSnapshot, writeOpened } from "@/concord/lib/rumorStore";
-import { readFolded, writeFolded } from "@/lib/foldedCache";
+import { readFolded, readFoldedShared, writeFolded } from "@/lib/foldedCache";
 import { STORE_READ } from "@/lib/storeQuery";
 import { AUTHORITY_VSKS, rosterActivated } from "@/concord/lib/roster";
 import { openWrap, type OpenedEvent, type StreamSigner } from "@/concord/lib/stream";
@@ -174,40 +174,6 @@ export function useControlEvents(community: Community | undefined, active = true
 }
 
 /**
- * The rumor ids that arrived under the community's CURRENT control stream.
- * Compaction re-wraps editions verbatim under the new epoch (CORD-06 §3), so
- * only the wrap knows; `writeOpened` records it at ingest. Refounded
- * communities only; refetched on the `c2ctl:<id>` bus.
- */
-function useControlSnapshot(community: Community | undefined, active: boolean) {
-  const queryClient = useQueryClient();
-  const cidHex = community?.idHex ?? null;
-  const curPk = community ? currentControlGroup(community).pk : "";
-  const refounded = Boolean(community && community.rootEpoch > 0n);
-  const queryKey = useMemo(
-    () => ["concord", "control-snapshot", cidHex, curPk] as const,
-    [cidHex, curPk],
-  );
-
-  useEffect(() => {
-    if (!cidHex || !refounded) return;
-    const scope = `c2ctl:${cidHex}`;
-    return onWireScopes((scopes) => {
-      if (scopes.has(scope)) void queryClient.invalidateQueries({ queryKey });
-    });
-  }, [cidHex, refounded, queryClient, queryKey]);
-
-  return useQuery<string[]>({
-    queryKey,
-    // Gates the fold for a Refounded community.
-    ...STORE_READ,
-    enabled: refounded && active && Boolean(cidHex),
-    staleTime: Infinity,
-    queryFn: async () => [...((await readControlSnapshot(cidHex!, curPk)) ?? [])],
-  });
-}
-
-/**
  * Per-entity high-water floors (CORD-04 §1), one map per (community, epoch).
  * Shared across all fold instances so they agree on floors and hence on one
  * memoized fold. Keyed by epoch so a rekey re-baselines against the new
@@ -295,66 +261,315 @@ const foldByInputs = new WeakMap<
   { idHex: string; rootEpoch: bigint; snapIds: string[] | undefined; folded: FoldedControl }
 >();
 
+/** What {@link useControlFold} hands its callers. */
+export interface ControlFoldState {
+  data: FoldedControl | undefined;
+  isLoading: boolean;
+  isFetching: boolean;
+  refetch: () => Promise<unknown>;
+}
+
+const FOLD_DEADLINE_MS = 250;
+
+/**
+ * One Control fold per community, shared by every caller. Each `useControlFold`
+ * used to mount its own two queries, seed, sweep and deferred fold, and a community
+ * page holds dozens: their bookkeeping, not the fold, was most of a render. Holders
+ * subscribe; the entry runs while any holds it and stops with the last.
+ */
+class ControlFoldEntry {
+  private holders = 0;
+  private active = 0;
+  private running = false;
+  private stopSeed?: () => void;
+  private stopSnapshotBus?: () => void;
+  private stopEvents?: () => void;
+  private stopSnap?: () => void;
+  private readonly events: QueryObserver<OpenedEvent[]>;
+  private readonly snapshot: QueryObserver<string[]>;
+  private live: FoldedControl | undefined;
+  private restored: FoldedControl | undefined;
+  private deadline: number | undefined;
+  private pending: (() => void) | undefined;
+  private readonly listeners = new Set<() => void>();
+  private state: ControlFoldState;
+  private teardownTimer: ReturnType<typeof setTimeout> | undefined;
+  readonly foldKey: string;
+  private readonly refounded: boolean;
+
+  constructor(
+    private readonly queryClient: QueryClient,
+    private community: Community,
+    readonly epochSig: string,
+    private readonly onEmpty: () => void,
+  ) {
+    this.foldKey = controlFoldKey(community.idHex);
+    this.refounded = community.rootEpoch > 0n;
+    const eventsKey = ["concord", "control", community.idHex, epochSig] as const;
+    this.events = new QueryObserver<OpenedEvent[]>(queryClient, {
+      queryKey: eventsKey,
+      ...STORE_READ,
+      enabled: false,
+      staleTime: Infinity,
+      queryFn: async () => {
+        const stored = await queryPlane(this.community.idHex, "control");
+        const prev = queryClient.getQueryData<OpenedEvent[]>(eventsKey) ?? [];
+        return mergeOpened(prev, stored);
+      },
+    });
+    const curPk = currentControlGroup(community).pk;
+    const snapKey = ["concord", "control-snapshot", community.idHex, curPk] as const;
+    this.snapshot = new QueryObserver<string[]>(queryClient, {
+      queryKey: snapKey,
+      ...STORE_READ,
+      enabled: false,
+      staleTime: Infinity,
+      queryFn: async () => [...((await readControlSnapshot(community.idHex, curPk)) ?? [])],
+    });
+    this.restored = recalledFold<FoldedControl>(this.foldKey);
+    this.state = this.snapshotState();
+  }
+
+  /** Hold this entry; `active` as `useControlEvents` takes it (catch-up sweep, store read). */
+  acquire(active: boolean, nostr: Parameters<typeof sweepControl>[0]): () => void {
+    clearTimeout(this.teardownTimer);
+    // A holder re-acquiring before the teardown ran finds it still running.
+    if (this.holders++ === 0 && !this.running) this.start();
+    if (active && this.active++ === 0) this.setActive(true);
+    if (active) {
+      void sweepControl(nostr, this.community, {
+        onFresh: (fresh) => {
+          if (fresh.length === 0 || this.holders === 0) return;
+          this.queryClient.setQueryData<OpenedEvent[]>(this.events.options.queryKey, (old) => mergeOpened(old ?? [], fresh));
+        },
+      }).catch(() => undefined);
+    }
+    return () => {
+      if (active && --this.active === 0) this.setActive(false);
+      if (--this.holders === 0) {
+        // A remount in the same tick (a route change, StrictMode) keeps it running.
+        this.teardownTimer = setTimeout(() => {
+          if (this.holders === 0) this.stop();
+        }, 0);
+      }
+    };
+  }
+
+  /** A holder's view of the community; a change in what the fold reads re-folds. */
+  update(community: Community): void {
+    const prev = this.community;
+    if (prev === community) return;
+    this.community = community;
+    if (prev.privateChannels !== community.privateChannels || prev.owner !== community.owner || prev.heldRoots !== community.heldRoots) {
+      this.schedule();
+    }
+  }
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  get = (): ControlFoldState => this.state;
+
+  /** Stable, as React Query's is: callers list it in effect dependencies. */
+  refetch = (): Promise<unknown> => this.events.refetch();
+
+  private start(): void {
+    this.running = true;
+    this.stopSeed = acquireControlSeed(this.queryClient, this.community, this.epochSig, this.events.options.queryKey);
+    this.stopEvents = this.events.subscribe(() => this.schedule());
+    this.stopSnap = this.snapshot.subscribe(() => this.schedule());
+    if (this.refounded) {
+      const scope = `c2ctl:${this.community.idHex}`;
+      const snapKey = this.snapshot.options.queryKey;
+      this.stopSnapshotBus = onWireScopes((scopes) => {
+        if (scopes.has(scope)) void this.queryClient.invalidateQueries({ queryKey: snapKey });
+      });
+    }
+    if (this.restored === undefined) {
+      void readFoldedShared<FoldedControl>(this.foldKey).then((v) => {
+        if (this.holders === 0 || v === undefined || !isCurrentFoldedControl(v) || this.restored !== undefined) return;
+        this.restored = v;
+        this.publish();
+      });
+    }
+    this.schedule();
+  }
+
+  private stop(): void {
+    this.running = false;
+    this.stopSeed?.();
+    this.stopEvents?.();
+    this.stopSnap?.();
+    this.stopSnapshotBus?.();
+    this.stopSeed = this.stopEvents = this.stopSnap = this.stopSnapshotBus = undefined;
+    this.cancelPending();
+    flushPersist(this.foldKey);
+    this.onEmpty();
+  }
+
+  private setActive(on: boolean): void {
+    this.events.setOptions({ ...this.events.options, enabled: on });
+    this.snapshot.setOptions({ ...this.snapshot.options, enabled: on && this.refounded });
+    this.publish();
+  }
+
+  private cancelPending(): void {
+    this.pending?.();
+    this.pending = undefined;
+  }
+
+  /** Fold after paint, never later than a deadline a burst can't move, at once when nothing is shown. */
+  private schedule(): void {
+    this.publish();
+    if (this.pending) return;
+    const run = () => {
+      this.pending = undefined;
+      this.deadline = undefined;
+      const folded = this.fold();
+      if (folded !== undefined && folded !== this.live) {
+        this.live = folded;
+        rememberFold(this.foldKey, folded);
+      }
+      this.publish();
+    };
+    if (this.live === undefined && this.restored === undefined) {
+      const t = setTimeout(run, 0);
+      this.pending = () => clearTimeout(t);
+      return;
+    }
+    const now = Date.now();
+    this.deadline ??= now + FOLD_DEADLINE_MS;
+    if (typeof requestIdleCallback === "function") {
+      const handle = requestIdleCallback(run, { timeout: Math.max(0, this.deadline - now) });
+      this.pending = () => cancelIdleCallback(handle);
+    } else {
+      const t = setTimeout(run, 0);
+      this.pending = () => clearTimeout(t);
+    }
+  }
+
+  private fold(): FoldedControl | undefined {
+    const community = this.community;
+    const events = this.events.getCurrentResult().data;
+    const snapIds = this.snapshot.getCurrentResult().data;
+    if (!events) return undefined;
+    // A Refounded community anchors on its snapshot; wait for it rather than
+    // folding twice with disagreeing outranking.
+    if (this.refounded && !snapIds) return undefined;
+    // Fold whatever has arrived: the plane is procedural, and waiting for "proven
+    // complete" would be a lockup switch anyone could trigger by inflating it. The
+    // defenses are monotonic per-entity floors and `incomplete` (which the
+    // Refounding path aborts on).
+    const shared = foldByInputs.get(events);
+    if (shared && shared.idHex === community.idHex && shared.rootEpoch === community.rootEpoch && shared.snapIds === snapIds) {
+      return shared.folded;
+    }
+    const floorHeads = floorsFor(community);
+    const editions = openControlEditions(events);
+    const snapshotIds = this.refounded && snapIds ? new Set(snapIds) : undefined;
+    const folded = foldControlState(editions, community.id, community.owner, floorHeads, snapshotIds, {
+      ...storedFor(community.idHex),
+      heldChannels: community.privateChannels,
+    });
+    advanceFloors(community, floorHeads, folded);
+    foldByInputs.set(events, { idHex: community.idHex, rootEpoch: community.rootEpoch, snapIds, folded });
+    // A floored entity the served editions can't account for means an edition below
+    // the delta floor never arrived; drop floors so the next sweep re-asks in full.
+    if (folded.incomplete.length > 0) markControlPlaneStale(community);
+    logSync(
+      "fold",
+      `${community.idHex.slice(0, 8)}: ${events.length} opened → ${editions.length} edition(s); name=${folded.metadata?.name ?? "∅"} icon=${folded.metadata?.icon ? "yes" : "no"} channels=${folded.channels.size} banned=${folded.banned.size} heads=${folded.heads.size}`,
+    );
+    return folded;
+  }
+
+  private snapshotState(): ControlFoldState {
+    const r = this.events.getCurrentResult();
+    return {
+      data: this.live ?? this.restored,
+      isLoading: r.isLoading,
+      isFetching: r.isFetching,
+      refetch: this.refetch,
+    };
+  }
+
+  private publish(): void {
+    const next = this.snapshotState();
+    const prev = this.state;
+    if (prev.data === next.data && prev.isLoading === next.isLoading && prev.isFetching === next.isFetching) return;
+    this.state = next;
+    for (const l of [...this.listeners]) l();
+  }
+}
+
+/** Live entries per query client (tests each have their own), by community and held epochs. */
+const controlFoldEntries = new WeakMap<QueryClient, Map<string, ControlFoldEntry>>();
+
+function controlFoldEntry(queryClient: QueryClient, community: Community): ControlFoldEntry {
+  let entries = controlFoldEntries.get(queryClient);
+  if (!entries) controlFoldEntries.set(queryClient, (entries = new Map()));
+  const epochSig = community.heldRoots.map((r) => r.epoch.toString()).join(",");
+  const key = `${community.idHex}|${community.rootEpoch}|${epochSig}`;
+  let entry = entries.get(key);
+  if (!entry) {
+    const map = entries;
+    const created: ControlFoldEntry = new ControlFoldEntry(queryClient, community, epochSig, () => {
+      if (map.get(key) === created) map.delete(key);
+    });
+    entry = created;
+    entries.set(key, entry);
+  }
+  return entry;
+}
+
+const NO_FOLD: ControlFoldState = Object.freeze({
+  data: undefined,
+  isLoading: false,
+  isFetching: false,
+  refetch: () => Promise.resolve(undefined),
+});
+const noSubscribe = () => () => undefined;
+const noFold = () => NO_FOLD;
+
 /**
  * The Control Plane replayed into current state (roster, metadata, channels,
- * banlist, registries). Folded off the render path with a persisted snapshot.
+ * banlist, registries). Folded off the render path with a persisted snapshot,
+ * once per community however many callers hold it (see {@link ControlFoldEntry}).
  */
-export function useControlFold(community: Community | undefined, active = true) {
-  const control = useControlEvents(community, active);
-  const events = control.data;
-  const refounded = Boolean(community && community.rootEpoch > 0n);
-  const snapIds = useControlSnapshot(community, active).data;
-
-  const data = useDeferredFold<FoldedControl>(
-    community ? controlFoldKey(community.idHex) : null,
-    () => {
-      if (!community || !events) return undefined;
-      // A Refounded community anchors on its snapshot; wait for it rather than
-      // folding twice with disagreeing outranking.
-      if (refounded && !snapIds) return undefined;
-      // Fold whatever has arrived: the plane is procedural, and waiting for "proven
-      // complete" would be a lockup switch anyone could trigger by inflating it. The
-      // defenses are monotonic per-entity floors and `incomplete` (which the
-      // Refounding path aborts on).
-      // Share another instance's fold of this exact events array.
-      const shared = foldByInputs.get(events);
-      if (
-        shared &&
-        shared.idHex === community.idHex &&
-        shared.rootEpoch === community.rootEpoch &&
-        shared.snapIds === snapIds
-      ) {
-        return shared.folded;
-      }
-      const floorHeads = floorsFor(community);
-      const editions = openControlEditions(events);
-      // After a Refounding, current-epoch editions fold by version-anchored bootstrap
-      // (see headCandidates); never-rotated communities keep chain contiguity.
-      const snapshotIds = refounded && snapIds ? new Set(snapIds) : undefined;
-      const folded = foldControlState(editions, community.id, community.owner, floorHeads, snapshotIds, {
-        ...storedFor(community.idHex),
-        heldChannels: community.privateChannels,
-      });
-      advanceFloors(community, floorHeads, folded);
-      foldByInputs.set(events, { idHex: community.idHex, rootEpoch: community.rootEpoch, snapIds, folded });
-      // A floored entity the served editions can't account for means an edition below
-      // the delta floor never arrived; drop floors so the next sweep re-asks in full.
-      if (folded.incomplete.length > 0) markControlPlaneStale(community);
-      logSync(
-        "fold",
-        `${community.idHex.slice(0, 8)}: ${events.length} opened → ${editions.length} edition(s); name=${folded.metadata?.name ?? "∅"} icon=${folded.metadata?.icon ? "yes" : "no"} channels=${folded.channels.size} banned=${folded.banned.size} heads=${folded.heads.size}`,
-      );
-      return folded;
+export function useControlFold(community: Community | undefined, active = true): ControlFoldState {
+  const { nostr } = useNostr();
+  const queryClient = useQueryClient();
+  const entry = community ? controlFoldEntry(queryClient, community) : undefined;
+  useEffect(() => {
+    if (community) entry?.update(community);
+  });
+  useEffect(() => entry?.acquire(active, nostr), [entry, active, nostr]);
+  const subscribe = entry?.subscribe ?? noSubscribe;
+  const get = entry?.get ?? noFold;
+  const data = useSyncExternalStore(subscribe, () => get().data, () => get().data);
+  // Fetch state re-renders only a caller that reads it, as React Query's tracked
+  // results did: most callers read `data` alone, and a sweep flips it twice.
+  // Per field: a caller reading `isLoading` alone mustn't re-render on every refetch.
+  const tracks = useRef({ loading: false, fetching: false });
+  const statusOf = () => {
+    const { loading, fetching } = tracks.current;
+    return `${loading && get().isLoading ? 1 : 0}${fetching && get().isFetching ? 1 : 0}`;
+  };
+  useSyncExternalStore(subscribe, statusOf, statusOf);
+  return {
+    data,
+    get isLoading() {
+      tracks.current.loading = true;
+      return get().isLoading;
     },
-    [community, events, refounded, snapIds],
-    isCurrentFoldedControl,
-  );
-
-  // Forwarded, not spread: a spread reads every tracked field, subscribing each of the
-  // dozens of callers to every fetch-state change of the control query.
-  return new Proxy(control, {
-    get: (target, key, receiver) => (key === "data" ? data : Reflect.get(target, key, receiver)),
-  }) as typeof control & { data: FoldedControl | undefined };
+    get isFetching() {
+      tracks.current.fetching = true;
+      return get().isFetching;
+    },
+    refetch: get().refetch,
+  };
 }
 
 /**
