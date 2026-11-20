@@ -1,5 +1,4 @@
 import { Hand, Headphones, MicOff, ScreenShare } from "lucide-react";
-import type { CSSProperties } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
 import { RecordingFlagIcons } from "@/components/RecordingFlagIcons";
@@ -9,7 +8,8 @@ import { VoiceUserContextMenu, VoiceUserMenuButton } from "@/components/VoiceUse
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCall } from "@/hooks/useCall";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { getAvatarShape, shapedAvatarSpeakingStyle } from "@/lib/avatarShape";
+import { getAvatarShape } from "@/lib/avatarShape";
+import { useWearsFrame } from "@/lib/ultra";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { defineMessage, FormattedMessage, useIntl, type MessageDescriptor } from "@/i18n";
 import type { VoiceRowTransport } from "@/concord/lib/voice";
@@ -148,11 +148,8 @@ function VoiceParticipantRow({
   const metadata = author.data?.metadata;
   const name = getDisplayName(metadata, pubkey);
   const hasCustomShape = !!getAvatarShape(metadata);
+  const wearsFrame = useWearsFrame(metadata);
   const isSelf = user?.pubkey === pubkey;
-
-  // Emoji-shaped avatars have a mask that clips rings, so use a drop-shadow filter.
-  const wrapperStyle: CSSProperties | undefined =
-    hasCustomShape && isSpeaking ? { filter: shapedAvatarSpeakingStyle.filter } : undefined;
 
   return (
     <VoiceUserContextMenu pubkey={pubkey} displayName={name} showVolume={!isSelf}>
@@ -160,15 +157,15 @@ function VoiceParticipantRow({
         <div
           className={cn(
             "rounded-full shrink-0 transition-shadow",
-            !hasCustomShape && isSpeaking && "ring-2 ring-success",
+            !hasCustomShape && !wearsFrame && isSpeaking && "ring-2 ring-success",
           )}
-          style={wrapperStyle}
         >
           <UserAvatar
             pubkey={pubkey}
             metadata={metadata}
             imeta={author.data?.imeta?.picture}
             name={name}
+            speaking={isSpeaking}
             className="size-6"
             fallbackClassName="bg-success/20 text-success text-3xs"
           />

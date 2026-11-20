@@ -5,7 +5,7 @@ import { AvatarInitial } from "@/components/AvatarInitial";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { splitDecor } from "@/components/ui/avatarBox";
 import { useAuthor } from "@/hooks/useAuthor";
-import { getAvatarShape, isEmoji, isValidAvatarShape, type AvatarShape } from "@/lib/avatarShape";
+import { getAvatarShape, isEmoji, isValidAvatarShape, shapedAvatarSpeakingStyle, type AvatarShape } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
 import type { ImetaEntry } from "@/lib/imeta";
 import { useFrameCss, useUltra } from "@/lib/ultra";
@@ -32,6 +32,8 @@ export interface UserAvatarProps {
   shape?: AvatarShape;
   /** The Ultra avatar frame; off where neighbours would clip or overlap its glow. */
   frame?: boolean;
+  /** While false, a frame shows only a thin rim. Pass false too, so a toggle doesn't remount the picture. */
+  speaking?: boolean;
   /** Decorative when the name sits beside it. */
   "aria-hidden"?: boolean;
   alt?: string;
@@ -70,6 +72,7 @@ function UserAvatarView({
   anonymous,
   shape,
   frame = true,
+  speaking,
   alt,
   draggable,
   fallback,
@@ -79,12 +82,12 @@ function UserAvatarView({
 }: UserAvatarProps) {
   const label = name ?? getDisplayName(metadata, pubkey ?? "");
   const avatarShape = shape ?? getAvatarShape(metadata);
-  const frameStyle = useFrameCss(useUltra(frame ? metadata : undefined)?.frame);
+  const frameStyle = useFrameCss(useUltra(frame ? metadata : undefined)?.frame, speaking === false);
   const masked = !!avatarShape && isValidAvatarShape(avatarShape) && isEmoji(avatarShape);
 
   // A drop-shadow on a masked (emoji-shaped) avatar is cut away by its own mask,
-  // so those wear the frame on a wrapper that takes over the layout classes.
-  const wrapped = masked && !!frameStyle;
+  // so those wear the frame and the speaking outline on a wrapper that takes over the layout classes.
+  const wrapped = masked && (!!frameStyle || speaking !== undefined);
   const [layout, decor] = wrapped ? splitDecor(className) : [className, undefined];
   const avatar = (
     <Avatar
@@ -102,5 +105,6 @@ function UserAvatarView({
     </Avatar>
   );
   if (!wrapped) return avatar;
-  return <span className={cn("flex h-10 w-10 shrink-0", layout)} style={frameStyle}>{avatar}</span>;
+  const filter = frameStyle?.filter ?? (speaking ? shapedAvatarSpeakingStyle.filter : undefined);
+  return <span className={cn("flex h-10 w-10 shrink-0", layout)} style={filter ? { filter } : undefined}>{avatar}</span>;
 }
