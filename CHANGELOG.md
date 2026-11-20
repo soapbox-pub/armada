@@ -4,13 +4,29 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
-## [Unreleased]
+## [0.69.10] - 2026-11-19
+
+Torrents and magnet links now show up as cards in chat, and media that isn't
+loaded automatically opens from a card. Animated avatars stop after two loops,
+Discover loads lighter images, and communities, typing and scrolling are
+faster and smoother across the app.
 
 ### Added
-- Torrent attachments and magnet links show their files and details in chat, with buttons to open or copy the magnet link.
+- Torrent attachments and magnet links show their files and details in chat, with buttons to open or copy the magnet link
 
 ### Changed
-- Media that isn't loaded automatically sits in a card that loads it when opened, with an option inside to always load from that site.
+- Media that isn't loaded automatically sits in a card that loads it when opened, with an option inside to always load from that site
+- Animated avatars play twice and then hold still, except on a profile's own page
+- Discover shows banners and icons as smaller images that load as you scroll
+- Highlights show where they came from more often, including books and other non-web sources
+- The sync indicator appears only when a community is actually catching up
+- Opening communities, typing in the composer and scrolling long lists are faster
+
+### Fixed
+- Images from some sites now load in the Android app
+- A thumbnail that failed to download is retried instead of falling back to the full image for the rest of the session
+- Chat keeps your place more reliably when older messages load above it
+- Community access and key changes are read more reliably when relays are slow or flooded
 
 ## [0.69.9] - 2026-11-19
 
