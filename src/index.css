@@ -309,7 +309,9 @@
    * over the one below for an avatar's Ultra halo; those reaches pass pointers
    * through. The parent is a flex column, so the two negative margins add
    * rather than collapse. The rows stay inert while a modal layer has set
-   * `pointer-events: none` on body, so an outside press only dismisses it.
+   * `pointer-events: none` on body, so an outside press only dismisses it: body
+   * sets a variable the children read. Matching body's attribute from each child
+   * instead made every row's restyle ~25x dearer (a revisited timeline's showing).
    */
   .timeline-row {
     contain-intrinsic-size: auto 4rem;
@@ -322,8 +324,11 @@
   .timeline-row[data-settled] {
     content-visibility: auto;
   }
-  :where(body:not([style*="pointer-events: none"])) .timeline-row > * {
-    pointer-events: auto;
+  .timeline-row > * {
+    pointer-events: var(--timeline-row-pointer-events, auto);
+  }
+  body[style*="pointer-events: none"] {
+    --timeline-row-pointer-events: none;
   }
 
   /*
