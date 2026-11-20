@@ -15,6 +15,14 @@ export function suppressNextSyncGate(pubkey: string): void {
 }
 
 /**
+ * Whether `pubkey`, active now, is a fresh login that raises the sync gate. Read
+ * outside the lazy chunk too (`App.tsx`), so the app stays covered until the gate mounts.
+ */
+export function isFreshLogin(pubkey: string): boolean {
+  return pubkey !== getBootPubkey() && suppressedFreshPubkey !== pubkey;
+}
+
+/**
  * Detects a *fresh* login (vs. a session restored on reload), which needs the blocking
  * post-login sync gate. The baseline is the pubkey active at BOOT (`activeAccount`), not the
  * mount-time login list: this hook mounts late in a lazy per-account chunk, when the fresh login
@@ -35,7 +43,11 @@ export function useFreshLogin(): {
     seenRef.current = new Set(boot ? [boot] : []);
   }
 
-  const [freshPubkey, setFreshPubkey] = useState<string | undefined>(undefined);
+  // Decided on the first render: the gate mounts after the route has painted the app,
+  // so waiting for the effect would leave a frame of it uncovered.
+  const [freshPubkey, setFreshPubkey] = useState<string | undefined>(() =>
+    activePubkey && isFreshLogin(activePubkey) ? activePubkey : undefined,
+  );
 
   useEffect(() => {
     if (!activePubkey) {

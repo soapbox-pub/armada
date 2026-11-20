@@ -65,6 +65,33 @@ describe("useFreshLogin", () => {
     expect(result.current.freshPubkey).toBe(FRESH);
   });
 
+  it("flags a fresh login on its first render", () => {
+    // The gate mounts after the route has painted the app, so it has to be up
+    // in the same commit, not one effect later.
+    bootAs(null);
+    h.logins = [{ pubkey: FRESH }];
+    const renders: Array<string | undefined> = [];
+    renderHook(() => {
+      const result = useFreshLogin();
+      renders.push(result.freshPubkey);
+      return result;
+    });
+    expect(renders[0]).toBe(FRESH);
+  });
+
+  it("does not flag a wizard signup on any render", () => {
+    bootAs(null);
+    suppressNextSyncGate(FRESH);
+    h.logins = [{ pubkey: FRESH }];
+    const renders: Array<string | undefined> = [];
+    renderHook(() => {
+      const result = useFreshLogin();
+      renders.push(result.freshPubkey);
+      return result;
+    });
+    expect(renders.every((pubkey) => pubkey === undefined)).toBe(true);
+  });
+
   it("flags an in-session switch to an account not signed in at boot", () => {
     bootAs(BOOT);
     const { result, rerender } = renderHook(() => useFreshLogin());

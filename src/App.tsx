@@ -9,10 +9,12 @@ import { lazy, Suspense } from "react";
 
 import { ensureAndroidBackListener } from "@/hooks/useAndroidBack";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
+import { isFreshLogin } from "@/hooks/useFreshLogin";
 import { AccountExitGate } from "@/components/AccountExitGate";
 import { ActiveAccountSync } from "@/components/ActiveAccountSync";
 import { AppProvider } from "@/components/AppProvider";
 import { ArmadaDBProvider } from "@/components/ArmadaDBProvider";
+import { BootSplash } from "@/components/brand/BootSplash";
 import { DeepLinkWarmup } from "@/components/DeepLinkWarmup";
 import { MeshProvider } from "@/components/MeshProvider";
 import { MutedPubkeysProvider } from "@/components/MutedPubkeysProvider";
@@ -47,12 +49,15 @@ if (likelySignedIn()) {
  * The `user` gate lives outside the lazy boundary so signed-out visitors never
  * fetch the chunk.
  */
-function SignedInServicesGate({ variant }: { variant: "core" | "push" }) {
+export function SignedInServicesGate({ variant }: { variant: "core" | "push" }) {
   const { user } = useCurrentUser();
   if (!user) return null;
   const Services = variant === "core" ? LazySignedInServices : LazySignedInPushServices;
+  // After a fresh login the route paints the app while this chunk loads, and React holds
+  // a suspended reveal back ~300 ms; the splash covers it until SyncGate (in the chunk) can.
+  const fallback = variant === "core" && isFreshLogin(user.pubkey) ? <BootSplash /> : null;
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={fallback}>
       <Services />
     </Suspense>
   );
