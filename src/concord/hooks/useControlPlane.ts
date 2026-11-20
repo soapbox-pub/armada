@@ -249,6 +249,7 @@ function floorsFor(community: Community): Map<string, EntityHead> {
 
 /** Forget every floor map and cached live pause (decrypted control state). Logout. */
 export function clearControlPlaneMemory(): void {
+  for (const entry of [...liveFoldEntries]) entry.purge();
   foldFloors.clear();
   foldStored.clear();
   livePauseCache.clear();
@@ -260,6 +261,15 @@ const foldByInputs = new WeakMap<
   OpenedEvent[],
   { idHex: string; rootEpoch: bigint; snapIds: string[] | undefined; folded: FoldedControl }
 >();
+
+/** Entries not yet stopped, so a logout can drop the decrypted folds they hold. */
+const liveFoldEntries = new Set<ControlFoldEntry>();
+/**
+ * Clients a logout purged. A holder still mounted would otherwise re-fold from the
+ * query cache's decrypted events and persist into the purged store; the page
+ * reloads after a final logout, so nothing folds for these again.
+ */
+const purgedClients = new WeakSet<QueryClient>();
 
 /** What {@link useControlFold} hands its callers. */
 export interface ControlFoldState {
@@ -281,6 +291,8 @@ class ControlFoldEntry {
   private holders = 0;
   private active = 0;
   private running = false;
+  /** Logged out: holds nothing, folds nothing, persists nothing. */
+  private purged = false;
   private stopSeed?: () => void;
   private stopSnapshotBus?: () => void;
   private stopEvents?: () => void;
@@ -328,10 +340,12 @@ class ControlFoldEntry {
     });
     this.restored = recalledFold<FoldedControl>(this.foldKey);
     this.state = this.snapshotState();
+    liveFoldEntries.add(this);
   }
 
   /** Hold this entry; `active` as `useControlEvents` takes it (catch-up sweep, store read). */
   acquire(active: boolean, nostr: Parameters<typeof sweepControl>[0]): () => void {
+    if (this.purged) return () => undefined;
     clearTimeout(this.teardownTimer);
     // A holder re-acquiring before the teardown ran finds it still running.
     if (this.holders++ === 0 && !this.running) this.start();
@@ -375,6 +389,16 @@ class ControlFoldEntry {
   /** Stable, as React Query's is: callers list it in effect dependencies. */
   refetch = (): Promise<unknown> => this.events.refetch();
 
+  /** Drop the fold and stop, for a logout; holders see no data from then on. */
+  purge(): void {
+    this.purged = true;
+    purgedClients.add(this.queryClient);
+    clearTimeout(this.teardownTimer);
+    this.live = this.restored = undefined;
+    this.stop();
+    this.publish();
+  }
+
   private start(): void {
     this.running = true;
     this.stopSeed = acquireControlSeed(this.queryClient, this.community, this.epochSig, this.events.options.queryKey);
@@ -389,7 +413,7 @@ class ControlFoldEntry {
     }
     if (this.restored === undefined) {
       void readFoldedShared<FoldedControl>(this.foldKey).then((v) => {
-        if (this.holders === 0 || v === undefined || !isCurrentFoldedControl(v) || this.restored !== undefined) return;
+        if (this.purged || this.holders === 0 || v === undefined || !isCurrentFoldedControl(v) || this.restored !== undefined) return;
         this.restored = v;
         this.publish();
       });
@@ -399,13 +423,14 @@ class ControlFoldEntry {
 
   private stop(): void {
     this.running = false;
+    liveFoldEntries.delete(this);
     this.stopSeed?.();
     this.stopEvents?.();
     this.stopSnap?.();
     this.stopSnapshotBus?.();
     this.stopSeed = this.stopEvents = this.stopSnap = this.stopSnapshotBus = undefined;
     this.cancelPending();
-    flushPersist(this.foldKey);
+    if (!this.purged) flushPersist(this.foldKey);
     this.onEmpty();
   }
 
@@ -423,7 +448,7 @@ class ControlFoldEntry {
   /** Fold after paint, never later than a deadline a burst can't move, at once when nothing is shown. */
   private schedule(): void {
     this.publish();
-    if (this.pending) return;
+    if (this.pending || this.purged) return;
     const run = () => {
       this.pending = undefined;
       this.deadline = undefined;
@@ -541,7 +566,7 @@ const noFold = () => NO_FOLD;
 export function useControlFold(community: Community | undefined, active = true): ControlFoldState {
   const { nostr } = useNostr();
   const queryClient = useQueryClient();
-  const entry = community ? controlFoldEntry(queryClient, community) : undefined;
+  const entry = community && !purgedClients.has(queryClient) ? controlFoldEntry(queryClient, community) : undefined;
   useEffect(() => {
     if (community) entry?.update(community);
   });

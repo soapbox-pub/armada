@@ -5,7 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ReactNode } from "react";
 
-const h = vi.hoisted(() => ({ folds: 0, plane: new Map<string, Array<{ rumorId: string }>>() }));
+const h = vi.hoisted(() => ({ folds: 0, plane: new Map<string, Array<{ rumorId: string }>>(), written: [] as unknown[] }));
+vi.mock("@/lib/foldedCache", async (orig) => ({
+  ...(await orig<typeof import("@/lib/foldedCache")>()),
+  writeFolded: async (_key: string, value: unknown) => void h.written.push(value),
+}));
 vi.mock("@nostrify/react", () => ({ useNostr: () => ({ nostr: { relay: () => ({ query: async () => [] }) } }) }));
 vi.mock("@/concord/lib/planeSync", async (orig) => ({
   ...(await orig<typeof import("@/concord/lib/planeSync")>()),
@@ -23,7 +27,8 @@ vi.mock("@/concord/lib/control", async (orig) => {
   };
 });
 
-import { useControlFold } from "@/concord/hooks/useControlPlane";
+import { clearControlPlaneMemory, useControlFold } from "@/concord/hooks/useControlPlane";
+import { clearDeferredFoldMemory } from "@/concord/hooks/useDeferredFold";
 import { bytesToHex } from "@/concord/lib/derive";
 
 import type { Community } from "@/concord/lib/types";
@@ -82,5 +87,52 @@ describe("useControlFold's shared store", () => {
     unmount();
     await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
     expect(queryClient.getQueryCache().find({ queryKey: ["concord", "control", community.idHex], exact: false })?.getObserversCount() ?? 0).toBe(0);
+  });
+
+  it("drops a held fold at logout, and neither re-folds nor persists for a holder still mounted", async () => {
+    const community = communityOf(51);
+    h.plane.set(community.idHex, [{ rumorId: "b".repeat(64) }]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result, unmount } = renderHook(() => useControlFold(community), { wrapper: wrapperFor(queryClient) });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    h.written.length = 0;
+
+    act(() => {
+      clearControlPlaneMemory();
+      clearDeferredFoldMemory();
+    });
+    expect(result.current.data, "no decrypted fold survives the purge").toBeUndefined();
+
+    await act(() => new Promise((resolve) => setTimeout(resolve, 2_100)));
+    expect(result.current.data, "a mounted holder doesn't re-fold the cached events").toBeUndefined();
+    unmount();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(h.written, "nothing is persisted into the purged store").toEqual([]);
+  });
+
+  it("hands a rekeyed community's holders over to a new entry without a blank frame, and stops the old one", async () => {
+    const before = communityOf(61);
+    h.plane.set(before.idHex, [{ rumorId: "c".repeat(64) }]);
+    const rekeyed = { ...before, heldRoots: [...before.heldRoots, { epoch: 1n, key: new Uint8Array(32).fill(99) }] } as Community;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const seen: Array<unknown> = [];
+    const { result, rerender } = renderHook(
+      ({ c }) => {
+        const fold = useControlFold(c);
+        seen.push(fold.data);
+        return fold;
+      },
+      { initialProps: { c: before }, wrapper: wrapperFor(queryClient) },
+    );
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const shown = seen.length;
+    rerender({ c: rekeyed });
+    await waitFor(() =>
+      expect(queryClient.getQueryCache().find({ queryKey: ["concord", "control", before.idHex, "0,1"] })?.getObserversCount()).toBe(1),
+    );
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(seen.slice(shown), "no blank frame while the new entry folds").not.toContain(undefined);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(queryClient.getQueryCache().find({ queryKey: ["concord", "control", before.idHex, "0"] })?.getObserversCount() ?? 0).toBe(0);
   });
 });
