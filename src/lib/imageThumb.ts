@@ -191,8 +191,9 @@ async function makeAnimated(blob: Blob, type: string, bucket: number): Promise<A
       const { image } = await decoder.decode({ frameIndex: i });
       try {
         if (i === 0) {
-          const scale = bucket / Math.min(image.displayWidth, image.displayHeight);
-          if (scale * SMALL_ENOUGH >= 1) return null;
+          // Never upscaled, but made even when already small: as frames its loops can
+          // be capped, and an <img> of the original animates forever.
+          const scale = Math.min(1, bucket / Math.min(image.displayWidth, image.displayHeight));
           w = Math.max(1, Math.round(image.displayWidth * scale));
           h = Math.max(1, Math.round(image.displayHeight * scale));
           if (w * h * 4 * count > MAX_ANIMATION_BYTES) return null;

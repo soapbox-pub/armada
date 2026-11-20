@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { emojify } from "@/components/chat/emojify";
+import { AVATAR_LOOPS } from "@/components/ui/avatarLoops";
 import { useImageFallback } from "@/hooks/useBlossomCandidates";
 import { buildEmojiMap } from "@/lib/customEmoji";
 import { isLocalNetworkUrl } from "@/lib/sanitizeUrl";
@@ -50,6 +51,7 @@ export function CustomEmojiImg({
       onLoad={handleLoad}
       onError={onError}
       originalWhilePending
+      loops={AVATAR_LOOPS}
     />
   );
 }
