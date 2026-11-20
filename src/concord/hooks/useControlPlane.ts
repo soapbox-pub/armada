@@ -3,6 +3,7 @@ import { withSignerDeadline } from "@/concord/lib/signerDeadline";
 import { useNostr } from "@nostrify/react";
 import { KvPrefixCache } from "@/lib/db/kvCache";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { useDeferredFold } from "@/concord/hooks/useDeferredFold";
 import {
@@ -285,6 +286,7 @@ export function clearControlPlaneMemory(): void {
   foldFloors.clear();
   foldStored.clear();
   livePauseCache.clear();
+  livePauseFolds.clear();
 }
 
 /** The last fold per shared opened-events array, so instances 2..N reuse it. */
@@ -405,6 +407,14 @@ export async function readLivePause(community: Community, nowSec: number): Promi
   const stored = await queryPlane(community.idHex, "control");
 
   const floorHeads = floorsFor(community);
+  // The revision moves on every Control ring, a sweep's included, and at boot that
+  // re-folded each community's whole plane several times over. Nothing the fold reads
+  // having changed, its head can't have either.
+  const prior = livePauseFolds.get(community.idHex);
+  if (prior && prior.sig === (await pauseFoldSig(community, stored, floorHeads, snapIds))) {
+    livePauseCache.set(community.idHex, { rev, epoch: community.rootEpoch, head: prior.head });
+    return activePauseOf(prior.head, nowSec);
+  }
   const folded = foldControlState(
     openControlEditions(stored),
     community.id,
@@ -417,7 +427,35 @@ export async function readLivePause(community: Community, nowSec: number): Promi
 
   const head = pauseHeadOf(folded);
   livePauseCache.set(community.idHex, { rev, epoch: community.rootEpoch, head });
+  // Signed after the fold moved the floors and stored state, so an unchanged next read matches.
+  livePauseFolds.set(community.idHex, { sig: await pauseFoldSig(community, stored, floorHeads, snapIds), head });
   return activePauseOf(head, nowSec);
+}
+
+/** The last live-pause fold per community, by a signature of everything it read. */
+const livePauseFolds = new Map<string, { sig: string; head: FoldedSignal | undefined }>();
+
+/**
+ * Every input {@link readLivePause}'s fold reads, digested. SHA-256, not a checksum:
+ * anyone holding the Control Plane writes editions, and a collision would keep a stale head.
+ */
+async function pauseFoldSig(
+  community: Community,
+  stored: readonly { rumorId: string }[],
+  floorHeads: ReadonlyMap<string, EntityHead>,
+  snapIds: ReadonlySet<string> | undefined,
+): Promise<string> {
+  const parts: string[] = [community.owner, community.rootEpoch.toString(), snapIds ? [...snapIds].join(",") : "-"];
+  for (const r of stored) parts.push(r.rumorId);
+  parts.push("|");
+  for (const [eid, h] of floorHeads) parts.push(`${eid}:${h.version}:${h.rumorId ?? ""}:${h.rebased ? 1 : 0}:${h.vsk ?? ""}`);
+  parts.push("|");
+  for (const c of community.privateChannels) parts.push(`${bytesToHex(c.id)}@${c.epoch}`);
+  const extras = storedFor(community.idHex);
+  parts.push(extras ? encodeStored(extras) : "-");
+  const bytes = new TextEncoder().encode(parts.join(" "));
+  const subtle = typeof crypto !== "undefined" ? crypto.subtle : undefined;
+  return bytesToHex(subtle ? new Uint8Array(await subtle.digest("SHA-256", bytes)) : sha256(bytes));
 }
 
 const controlWrites = new Map<string, Promise<unknown>>();
