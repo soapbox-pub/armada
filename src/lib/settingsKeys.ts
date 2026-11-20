@@ -144,8 +144,17 @@ export interface NativeSelfDoc {
   readStateKey?: string;
 }
 
+/** Per keyring: the read-state documents' keys are an ECDH each, and every native config build asked. */
+const selfDocsByKeyring = new WeakMap<SettingsKeyring, NativeSelfDoc[]>();
+
 export function nativeSelfDocs(keyring: SettingsKeyring | null | undefined): NativeSelfDoc[] {
   if (!keyring) return [];
+  let docs = selfDocsByKeyring.get(keyring);
+  if (!docs) selfDocsByKeyring.set(keyring, (docs = buildSelfDocs(keyring)));
+  return docs;
+}
+
+function buildSelfDocs(keyring: SettingsKeyring): NativeSelfDoc[] {
   return [...keyring.byPubkey.values()].map((doc) => {
     const readState = doc.ref.family === "settings"
       && (doc.ref.name === "read-state" || doc.ref.name === "read-state-recent");
