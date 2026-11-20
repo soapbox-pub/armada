@@ -183,8 +183,40 @@ export async function readSettingsDoc<N extends SettingsDocName>(
   return (await readSettingsDocSources(ctx, name))[0] ?? null;
 }
 
+/**
+ * Decoded copies by event: every refetch decoded every source again, the whole
+ * read-state map included, each time this device's own small update came back.
+ * Holds decrypted settings: cleared on logout.
+ */
+const decodedDocs = new Map<string, { content: string; decoded: StoredSettingsDoc<SettingsDocName> }>();
+const DECODED_DOCS_MAX = 64;
+
+/** Forget the decoded settings documents. Logout. */
+export function clearDecodedSettingsDocs(): void {
+  decodedDocs.clear();
+}
+
 /** Decrypt with the key the document is encrypted to: the derived doc's own, or the account's. */
 export async function decodeSettingsDoc<N extends SettingsDocName>(
+  event: NostrRumor,
+  signer: NostrSigner,
+  pubkey: string,
+  name: N,
+): Promise<StoredSettingsDoc<N> | null> {
+  const key = `${name}|${pubkey}|${event.id}`;
+  // The ciphertext must match too, so the hit never rests on the id alone.
+  const hit = decodedDocs.get(key);
+  if (hit && hit.content === event.content) return { event, doc: hit.decoded.doc as SettingsDocOf<N> };
+  const decoded = await decodeSettingsDocNow(event, signer, pubkey, name);
+  // Only a decode that worked: a failure may be a signer that wasn't ready yet.
+  if (decoded) {
+    if (decodedDocs.size >= DECODED_DOCS_MAX) decodedDocs.delete(decodedDocs.keys().next().value!);
+    decodedDocs.set(key, { content: event.content, decoded: decoded as StoredSettingsDoc<SettingsDocName> });
+  }
+  return decoded;
+}
+
+async function decodeSettingsDocNow<N extends SettingsDocName>(
   event: NostrRumor,
   signer: NostrSigner,
   pubkey: string,
