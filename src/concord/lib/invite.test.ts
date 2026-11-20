@@ -107,6 +107,16 @@ describe("invite bundle (CORD-05 §1–2)", () => {
     expect(() => parseBundleEvent(event, link.pk, token, Date.now())).toThrow(/not a valid/);
   });
 
+  it("refuses a copy whose content isn't what its id commits to, after reading the real one", async () => {
+    const { bundle } = makeBundle();
+    const token = mintToken();
+    const link = mintLinkSigner();
+    const event = await buildBundleEvent(bundle, token, link.sk);
+    parseBundleEvent(event, link.pk, token, Date.now());
+    const other = await buildBundleEvent({ ...bundle, name: "Other" }, token, link.sk);
+    expect(() => parseBundleEvent({ ...other, id: event.id, sig: event.sig }, link.pk, token, Date.now())).toThrow(/not a valid/);
+  });
+
   it("a revocation tombstone reads as revoked", async () => {
     const link = mintLinkSigner();
     const tomb = await buildRevocationEvent(link.sk);

@@ -345,7 +345,11 @@ describe("Concord end to end", () => {
     });
     // The addressable coordinate (33301, link_signer, d=""); the newest event at
     // it wins. A refresh replaces it (CORD-05 §2).
-    const coordinate: NostrEvent[] = [await buildBundleEvent(bundleAtEpoch(e0), token, link.sk)];
+    // Dated before the refresh below, re-signed so the newest-wins coordinate prefers the refresh.
+    const stale = await buildBundleEvent(bundleAtEpoch(e0), token, link.sk);
+    const coordinate: NostrEvent[] = [
+      finalizeEvent({ kind: stale.kind, tags: stale.tags, content: stale.content, created_at: stale.created_at - 10 }, link.sk),
+    ];
     const url = buildInviteUrl("https://armada.example.com", link.pk, token, e0.relays);
 
     // ── 2. The owner Refounds to epoch 1 (ban/convert): newEpoch = rootEpoch+1,
@@ -379,12 +383,9 @@ describe("Concord end to end", () => {
     expect(joinNow().rootEpoch).toBe(0n);
 
     // ── 3b. THE FIX: the Refounding re-posts every live bundle at the current
-    // keys via the production helper. `created_at` must exceed the stale event so
+    // keys via the production helper. Its `created_at` exceeds the stale event's so
     // the newest-wins coordinate serves it.
-    const refreshed = (await buildRefreshedBundleEvents(bundleAtEpoch(rotatedOwner), [inviteEntry])).map((e) => ({
-      ...e,
-      created_at: e.created_at + 10,
-    }));
+    const refreshed = await buildRefreshedBundleEvents(bundleAtEpoch(rotatedOwner), [inviteEntry]);
     coordinate.push(...refreshed);
 
     // ── 4. Now a fresh joiner following the same link lands on epoch 1, and

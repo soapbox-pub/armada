@@ -8,9 +8,9 @@
  * or kill the link.
  */
 
-import { hexToBytes } from "@noble/hashes/utils.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { decrypt as nip44Decrypt, encrypt as nip44Encrypt } from "nostr-tools/nip44";
-import { generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
+import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import type { NostrEvent } from "nostr-tools/pure";
 import * as nip19 from "nostr-tools/nip19";
 
@@ -19,6 +19,7 @@ import { KIND_INVITE_BUNDLE, VSK_INVITE_LIVE, VSK_INVITE_REVOKED } from "@/conco
 import { RELAY_DICTIONARY, STOCK_RELAYS } from "@/concord/lib/stockRelays";
 import { MAX_BUNDLE_CHANNELS, capRelays, type ImagePointer } from "@/concord/lib/types";
 import { finalizePowEvent } from "@/lib/pow";
+import { verifyEventOnce } from "@/lib/verifyCache";
 import { nowSecs } from "@/lib/relayClock";
 
 /** The link's unlock token: 16 random bytes (CORD-05 §2). */
@@ -203,9 +204,36 @@ export function parseBundleEvent(
   token: Uint8Array,
   nowMs: number,
 ): InviteBundle {
-  if (event.kind !== KIND_INVITE_BUNDLE || event.pubkey !== expectedSigner || !verifyEvent(event)) {
+  if (event.kind !== KIND_INVITE_BUNDLE || event.pubkey !== expectedSigner || !verifyEventOnce(event)) {
     throw new InviteError("bad-bundle", "not a valid invite bundle event");
   }
+  // Discover reads every listed link's bundle again each time its card mounts.
+  const key = `${event.id}|${bytesToHex(token)}`;
+  let bundle = parsedBundles.get(key);
+  if (!bundle) {
+    bundle = decryptBundle(event, token);
+    if (parsedBundles.size >= PARSED_BUNDLES_MAX) parsedBundles.delete(parsedBundles.keys().next().value!);
+    parsedBundles.set(key, bundle);
+  }
+  if (typeof bundle.expires_at === "number" && nowMs > bundle.expires_at) {
+    throw new InviteError("expired", "this invite link has expired");
+  }
+  return { ...bundle };
+}
+
+/**
+ * Bundles already decrypted this session, by event id and link token; the id is the
+ * event's hash, checked by {@link verifyEventOnce}. Holds join keys: cleared on logout.
+ */
+const parsedBundles = new Map<string, InviteBundle>();
+const PARSED_BUNDLES_MAX = 512;
+
+/** Forget the decrypted bundles. Logout. */
+export function clearParsedBundleMemory(): void {
+  parsedBundles.clear();
+}
+
+function decryptBundle(event: NostrEvent, token: Uint8Array): InviteBundle {
   const vsk = event.tags.find((t) => t[0] === "vsk")?.[1];
   if (vsk === VSK_INVITE_REVOKED) {
     throw new InviteError("revoked", "this invite link has been revoked");
@@ -222,9 +250,6 @@ export function parseBundleEvent(
   }
 
   validateBundle(bundle);
-  if (typeof bundle.expires_at === "number" && nowMs > bundle.expires_at) {
-    throw new InviteError("expired", "this invite link has expired");
-  }
   return bundle;
 }
 
