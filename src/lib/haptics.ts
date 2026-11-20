@@ -17,6 +17,11 @@ export function setHapticIntensity(value: HapticIntensity): void {
   intensity = value;
 }
 
+/** Whether anything can vibrate: native haptics, or a browser with the Vibration API (not iOS). */
+export function canVibrate(): boolean {
+  return native() || (typeof navigator !== "undefined" && typeof navigator.vibrate === "function");
+}
+
 type Style = "light" | "medium" | "heavy";
 const STYLES: Style[] = ["light", "medium", "heavy"];
 

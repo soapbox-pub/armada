@@ -10,7 +10,7 @@ vi.mock("@capacitor/haptics", () => ({
   NotificationType: { Success: "SUCCESS", Warning: "WARNING", Error: "ERROR" },
 }));
 
-import { impact, notify, selectionChanged, setHapticIntensity } from "./haptics";
+import { canVibrate, impact, notify, selectionChanged, setHapticIntensity } from "./haptics";
 
 describe("haptics intensity", () => {
   const vibrate = vi.fn();
@@ -33,6 +33,14 @@ describe("haptics intensity", () => {
     setHapticIntensity("low");
     selectionChanged();
     expect(vibrate).toHaveBeenLastCalledWith(5);
+  });
+
+  it("can vibrate natively, or where the browser has the Vibration API", () => {
+    expect(canVibrate()).toBe(true);
+    Object.defineProperty(globalThis, "navigator", { value: {}, configurable: true });
+    expect(canVibrate()).toBe(false);
+    nativePlatform = true;
+    expect(canVibrate()).toBe(true);
   });
 
   it("is silent when off", () => {

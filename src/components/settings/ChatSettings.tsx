@@ -10,7 +10,7 @@ import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useIsTouch } from "@/hooks/useIsMobile";
 import { FormattedMessage, useIntl } from "@/i18n";
-import { impact, setHapticIntensity } from "@/lib/haptics";
+import { canVibrate, impact, setHapticIntensity } from "@/lib/haptics";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
 
 /** Settings › Chats: composing, typing status and reactions, everywhere you chat. */
@@ -88,7 +88,7 @@ export function ChatSettings() {
             </Select>
           </SettingsRow>
         )}
-        {isTouch && (
+        {isTouch && canVibrate() && (
           <SettingsRow
             label={intl.formatMessage({ id: "chatSettings.vibration", defaultMessage: "Vibration" })}
             description={intl.formatMessage({ id: "chatSettings.vibrationDescription", defaultMessage: "How strongly this device vibrates when you tap, swipe or drag. Applies to this device only." })}
