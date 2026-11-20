@@ -5,7 +5,7 @@ import { createRef, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffec
 import { Navigate, useLocation, useNavigationType, useSearchParams } from "react-router-dom";
 
 import { AppStageSlot } from "@/components/chat/AppStage";
-import { KeptTimelines, useKeptTimelines } from "@/components/chat/keptTimelines";
+import { KeptTimelines, ScopedTimeline, useKeptTimelines } from "@/components/chat/keptTimelines";
 import { MountWhenOpened } from "@/components/MountWhenOpened";
 import { CallStageSlot } from "@/components/chat/CallStageSlot";
 import { ChatComposer } from "@/components/chat/ChatComposer";
@@ -43,6 +43,7 @@ import { isSameDay } from "@/components/chat/dayLabel";
 import { DateSeparator, MessageTimeline, type MessageTimelineHandle } from "@/components/chat/MessageTimeline";
 import { ThreadPanelSlot } from "@/components/chat/ThreadPanelSlot";
 import { useThreadPanel } from "@/hooks/useThreadPanel";
+import { useKeyedMemo } from "@/hooks/useKeyedMemo";
 import { useTimelineFocus } from "@/hooks/useTimelineFocus";
 import { useStableNavigate } from "@/hooks/useStableNavigate";
 import { CalendarEventsBar } from "@/components/chat/CalendarEventsBar";
@@ -1604,15 +1605,22 @@ function ConcordCommunityPage() {
   );
 
   // Chat scope for in-message app affordances and the app stage (like NIP-29).
-  const appScope = useMemo<AppScope | undefined>(
+  // Per channel, so a kept timeline shown again keeps the scope its rows rendered with.
+  const appScope = useKeyedMemo<AppScope | undefined>(
+    channel?.idHex ?? null,
     () => (community && channel ? { kind: "concord", community, channel } : undefined),
     [community, channel],
+    4,
   );
 
-  // Stable route object, or every message's memo breaks.
-  const permalink = useMemo<ChatRoute | undefined>(
-    () => (communityId && channel ? { kind: "concord", communityId, channelId: channel.idHex } : undefined),
-    [communityId, channel],
+  // Stable route object per channel, or every message's memo breaks (a kept
+  // timeline's rows too, on a revisit).
+  const permalinkChannel = channel?.idHex;
+  const permalink = useKeyedMemo<ChatRoute | undefined>(
+    permalinkChannel ?? null,
+    () => (communityId && permalinkChannel ? { kind: "concord", communityId, channelId: permalinkChannel } : undefined),
+    [communityId, permalinkChannel],
+    4,
   );
 
   // A Mini App captured this scope at launch; rotations swap keys under the same
@@ -2885,6 +2893,7 @@ function ConcordCommunityPage() {
     return handle;
   };
   const liveTimeline = presentation === "feed" ? null : (
+  <ScopedTimeline key={channel?.idHex ?? ""} scope={appScope}>
   <MessageTimeline
     key={channel?.idHex ?? ""}
     transport={transport}
@@ -2950,6 +2959,7 @@ function ConcordCommunityPage() {
       );
     }}
   />
+  </ScopedTimeline>
   );
   const keptTimelines = useKeptTimelines(channel?.idHex, liveTimeline, (id) => timelineHandles.current.delete(id));
   useLayoutEffect(() => {

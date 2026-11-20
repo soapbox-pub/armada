@@ -1,4 +1,9 @@
-import { cloneElement, useRef, type ReactElement, type ReactNode } from "react";
+import { cloneElement, useContext, useRef, type ReactElement, type ReactNode } from "react";
+
+import { MediaHoldContext } from "@/components/chat/mediaHold";
+
+import { ChatScopeContext } from "@/contexts/ChatScopeContext";
+import type { AppScope } from "@/contexts/AppsContext";
 
 /** Channels whose timelines stay mounted, the shown one included. */
 const KEPT_TIMELINES = 3;
@@ -54,5 +59,32 @@ export function KeptTimelines({
         </div>
       ))}
     </>
+  );
+}
+
+/**
+ * A kept timeline with its own chat scope: the shell's sits above every kept one, and
+ * would re-render the hidden ones on each switch, as the wrong channel. `paused` is
+ * handed to the timeline, and freezes the media hold it reads.
+ */
+export function ScopedTimeline({
+  scope,
+  paused,
+  children,
+}: {
+  scope: AppScope | undefined;
+  paused?: boolean;
+  children: ReactElement<{ paused?: boolean }>;
+}) {
+  // The hold follows the shown channel's trust set; a hidden one keeps its own.
+  const hold = useContext(MediaHoldContext);
+  const heldHold = useRef(hold);
+  if (!paused) heldHold.current = hold;
+  return (
+    <ChatScopeContext.Provider value={scope}>
+      <MediaHoldContext.Provider value={heldHold.current}>
+        {paused ? cloneElement(children, { paused: true }) : children}
+      </MediaHoldContext.Provider>
+    </ChatScopeContext.Provider>
   );
 }

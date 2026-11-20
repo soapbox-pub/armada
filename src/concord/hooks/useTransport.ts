@@ -45,6 +45,9 @@ function replyRootOf(m: ChatMsg): string | undefined {
 }
 
 /** Adapt a decrypted Concord chat event to the shared `ChatMsg` shape. */
+/** Channels whose adapted rows are kept: the kept timelines' count, plus one. */
+const ADAPT_CACHE_CHANNELS = 4;
+
 export function openedToChatMsg(m: OpenedChat): ChatMsg {
   return toChatMsg({
     id: m.rumorId,
@@ -114,10 +117,13 @@ export function useTransport(
   const { retry, discard, deleteMessage } = useMessageActions(community, channel);
   const sendStatus = useSendStatus(channel);
 
-  // Unchanged rows keep their reference so React.memo skips them.
-  const adaptCache = useRef(new Map<string, { sig: string; msg: ChatMsg }>());
+  // Unchanged rows keep their reference so React.memo skips them, per channel, so a
+  // revisited (kept) timeline gets back the rows it rendered.
+  const adaptCaches = useRef(new Map<string, Map<string, { sig: string; msg: ChatMsg }>>());
+  const adaptKey = channel?.idHex ?? "";
   const messages = useMemo<ChatMsg[]>(() => {
-    const cache = adaptCache.current;
+    const caches = adaptCaches.current;
+    const cache = caches.get(adaptKey) ?? new Map<string, { sig: string; msg: ChatMsg }>();
     const next = new Map<string, { sig: string; msg: ChatMsg }>();
     const out = folded.messages.map((m) => {
       const sig = `${m.kind}\u0000${m.ms}\u0000${m.content}`;
@@ -126,9 +132,11 @@ export function useTransport(
       next.set(m.rumorId, entry);
       return entry.msg;
     });
-    adaptCache.current = next;
+    caches.delete(adaptKey);
+    caches.set(adaptKey, next);
+    while (caches.size > ADAPT_CACHE_CHANNELS) caches.delete(caches.keys().next().value!);
     return out;
-  }, [folded.messages]);
+  }, [folded.messages, adaptKey]);
 
   // Thread replies (kind-1111 with `E`) are nested under their root, not shown
   // top-level; inline replies (kind-9 `q`) stay in the timeline. Orphan replies
