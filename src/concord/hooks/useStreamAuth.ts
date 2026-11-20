@@ -66,7 +66,10 @@ function channelKeys(channels: Channel[]): GroupKey[] {
  * channels receive live wraps only once registered. Polls for folds landing later.
  */
 /** Each list entry's derived keys and the fold they came from; weakly held, so they go with the entry. */
-const registeredKeys = new WeakMap<object, { folded: FoldedControl | undefined; keys: StreamKeyView[] }>();
+const registeredKeys = new WeakMap<
+  object,
+  { folded: FoldedControl | undefined; batch: { keys: StreamKeyView[]; relays: string[]; idHex: string } }
+>();
 
 export function useRegisterAllStreamKeys(): void {
   const communities = useLiveCommunities();
@@ -79,22 +82,23 @@ export function useRegisterAllStreamKeys(): void {
       // Register in one burst: one AUTH wave per relay.
       const batches: Array<{ keys: StreamKeyView[]; relays: string[]; idHex: string }> = [];
       for (const entry of communities) {
-        const community = rehydrateCommunity(entry);
-        if (!community) continue;
         // Absent on a never-synced community; core keys alone until it folds.
-        const folded = await readControlFold(community.idHex).catch(() => undefined);
+        const folded = await readControlFold(entry.community_id.toLowerCase()).catch(() => undefined);
         // The same entry and fold derive the same keys: reused, as the poll repeats them.
         const known = registeredKeys.get(entry);
         if (known && known.folded === folded) {
-          batches.push({ keys: known.keys, relays: community.relays, idHex: community.idHex });
+          batches.push(known.batch);
           continue;
         }
+        const community = rehydrateCommunity(entry);
+        if (!community) continue;
         const keys: StreamKeyView[] = communityCoreKeys(community);
         for (const channel of channelsView(community, folded)) {
           keys.push(...channel.streams.map((s) => s.group));
         }
-        registeredKeys.set(entry, { folded, keys });
-        batches.push({ keys, relays: community.relays, idHex: community.idHex });
+        const batch = { keys, relays: community.relays, idHex: community.idHex };
+        registeredKeys.set(entry, { folded, batch });
+        batches.push(batch);
       }
       if (cancelled) return;
       for (const batch of batches) {
