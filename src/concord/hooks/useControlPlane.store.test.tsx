@@ -5,7 +5,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ReactNode } from "react";
 
-const h = vi.hoisted(() => ({ folds: 0, plane: new Map<string, Array<{ rumorId: string }>>(), written: [] as unknown[] }));
+const h = vi.hoisted(() => ({
+  folds: 0,
+  plane: new Map<string, Array<{ rumorId: string }>>(),
+  written: [] as unknown[],
+  /** Each fold's snapshot argument, in order. */
+  snapshots: [] as Array<ReadonlySet<string> | undefined>,
+  snapshotReads: 0,
+  readSnapshot: async (_idHex: string): Promise<Set<string> | undefined> => undefined,
+}));
 vi.mock("@/lib/foldedCache", async (orig) => ({
   ...(await orig<typeof import("@/lib/foldedCache")>()),
   writeFolded: async (_key: string, value: unknown) => void h.written.push(value),
@@ -18,18 +26,22 @@ vi.mock("@/concord/lib/planeSync", async (orig) => ({
 vi.mock("@/concord/lib/rumorStore", async (orig) => ({
   ...(await orig<typeof import("@/concord/lib/rumorStore")>()),
   queryPlane: async (idHex: string) => h.plane.get(idHex) ?? [],
+  readControlSnapshot: (idHex: string) => (h.snapshotReads++, h.readSnapshot(idHex)),
 }));
 vi.mock("@/concord/lib/control", async (orig) => {
   const real = await orig<typeof import("@/concord/lib/control")>();
   return {
     ...real,
-    foldControlState: (...args: Parameters<typeof real.foldControlState>) => (h.folds++, real.foldControlState(...args)),
+    foldControlState: (...args: Parameters<typeof real.foldControlState>) => (
+      h.folds++, h.snapshots.push(args[4]), real.foldControlState(...args)
+    ),
   };
 });
 
 import { clearControlPlaneMemory, useControlFold } from "@/concord/hooks/useControlPlane";
 import { clearDeferredFoldMemory } from "@/concord/hooks/useDeferredFold";
 import { bytesToHex } from "@/concord/lib/derive";
+import { emitWireScopes } from "@/wire/bus";
 
 import type { Community } from "@/concord/lib/types";
 
@@ -136,3 +148,91 @@ describe("useControlFold's shared store", () => {
     expect(queryClient.getQueryCache().find({ queryKey: ["concord", "control", before.idHex, "0"] })?.getObserversCount() ?? 0).toBe(0);
   });
 });
+
+/** A community Refounded once (CORD-06): its Control fold anchors on the current stream's snapshot. */
+function refoundedOf(fill: number): Community {
+  const c = communityOf(fill);
+  const root = new Uint8Array(32).fill(fill + 2);
+  return { ...c, root, rootEpoch: 1n, heldRoots: [...c.heldRoots, { epoch: 1n, key: root }] } as Community;
+}
+
+describe("useControlFold's shared store, Refounded", () => {
+  it("doesn't fold until the snapshot is read, then folds against exactly it", async () => {
+    const community = refoundedOf(71);
+    h.plane.set(community.idHex, [{ rumorId: "d".repeat(64) }]);
+    let answer!: (ids: Set<string> | undefined) => void;
+    h.readSnapshot = () => new Promise((resolve) => (answer = resolve));
+    h.folds = 0;
+    h.snapshots.length = 0;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useControlFold(community), { wrapper: wrapperFor(queryClient) });
+    await waitFor(() => expect(answer).toBeDefined());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(h.folds, "no fold with disagreeing outranking before the snapshot").toBe(0);
+    expect(result.current.data).toBeUndefined();
+
+    act(() => answer(new Set(["d".repeat(64)])));
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(h.folds).toBe(1);
+    expect([...(h.snapshots[0] ?? [])]).toEqual(["d".repeat(64)]);
+  });
+
+  it("re-reads the snapshot and re-folds when its control stream is announced on the bus", async () => {
+    const community = refoundedOf(81);
+    h.plane.set(community.idHex, [{ rumorId: "e".repeat(64) }]);
+    let ids = new Set(["e".repeat(64)]);
+    h.readSnapshot = async () => ids;
+    h.snapshots.length = 0;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useControlFold(community), { wrapper: wrapperFor(queryClient) });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const first = result.current.data;
+
+    ids = new Set(["e".repeat(64), "f".repeat(64)]);
+    act(() => emitWireScopes([`c2ctl:${community.idHex}`]));
+    await waitFor(() => expect(result.current.data).not.toBe(first));
+    expect([...(h.snapshots.at(-1) ?? [])].sort()).toEqual(["e".repeat(64), "f".repeat(64)]);
+  });
+
+  it("never reads a snapshot for a community that was never Refounded", async () => {
+    const community = communityOf(91);
+    h.plane.set(community.idHex, [{ rumorId: "1".repeat(64) }]);
+    h.snapshotReads = 0;
+    h.snapshots.length = 0;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useControlFold(community), { wrapper: wrapperFor(queryClient) });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    act(() => emitWireScopes([`c2ctl:${community.idHex}`]));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(h.snapshotReads).toBe(0);
+    expect(h.snapshots.every((ids) => ids === undefined)).toBe(true);
+  });
+
+  it("hands holders over to the Refounded epoch without a blank frame, and stops the old entry", async () => {
+    const before = communityOf(101);
+    const after = { ...refoundedOf(101), id: before.id, idHex: before.idHex } as Community;
+    h.plane.set(before.idHex, [{ rumorId: "2".repeat(64) }]);
+    h.readSnapshot = async () => new Set(["2".repeat(64)]);
+    h.snapshots.length = 0;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const seen: Array<unknown> = [];
+    const { result, rerender } = renderHook(
+      ({ c }) => {
+        const fold = useControlFold(c);
+        seen.push(fold.data);
+        return fold;
+      },
+      { initialProps: { c: before }, wrapper: wrapperFor(queryClient) },
+    );
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const shown = seen.length;
+    const folds = h.snapshots.length;
+    rerender({ c: after });
+    await waitFor(() => expect(h.snapshots.length).toBeGreaterThan(folds));
+    expect([...(h.snapshots.at(-1) ?? [])], "the Refounded fold anchors on the snapshot").toEqual(["2".repeat(64)]);
+    expect(seen.slice(shown), "no blank frame while the new entry folds").not.toContain(undefined);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(queryClient.getQueryCache().find({ queryKey: ["concord", "control", before.idHex, "0"] })?.getObserversCount() ?? 0).toBe(0);
+  });
+});
+
