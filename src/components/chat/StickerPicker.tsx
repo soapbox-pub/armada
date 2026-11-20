@@ -68,9 +68,28 @@ export function StickerPicker({ customEmojis, onSelect, height = 350, autoFocus 
       }
       setActiveKey(sections[index]?.key ?? null);
     };
+    // Input from the user ends a jump's hold, so the scroll they take over is followed.
+    const takeOver = () => {
+      clearTimeout(jumpTimer.current);
+      jumpTimer.current = undefined;
+    };
+    const takeOverEvents = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
     viewport.addEventListener('scroll', update, { passive: true });
-    return () => viewport.removeEventListener('scroll', update);
+    for (const type of takeOverEvents) viewport.addEventListener(type, takeOver, { passive: true });
+    return () => {
+      viewport.removeEventListener('scroll', update);
+      for (const type of takeOverEvents) viewport.removeEventListener(type, takeOver);
+    };
   }, [sections]);
+
+  const changeQuery = (value: string) => {
+    setQuery(value);
+    setActiveKey(null);
+    clearTimeout(jumpTimer.current);
+    jumpTimer.current = undefined;
+    const viewport = viewportOf(scrollRef.current);
+    if (viewport) viewport.scrollTop = 0;
+  };
 
   useEffect(() => () => clearTimeout(jumpTimer.current), []);
 
@@ -89,6 +108,8 @@ export function StickerPicker({ customEmojis, onSelect, height = 350, autoFocus 
     setActiveKey(sections[index].key);
   };
 
+  const activeSectionKey = (sections.find((s) => s.key === activeKey) ?? sections[0])?.key;
+
   if (customEmojis.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center text-muted-foreground gap-2" style={{ height }}>
@@ -106,7 +127,7 @@ export function StickerPicker({ customEmojis, onSelect, height = 350, autoFocus 
   return (
     <div className="flex flex-col" style={{ height }}>
       <div className="px-3 pt-3 pb-2 shrink-0">
-        <SearchField ref={inputRef} value={query} onChange={setQuery} placeholder={intl.formatMessage({ id: "stickerPicker.search", defaultMessage: "Search stickers" })} />
+        <SearchField ref={inputRef} value={query} onChange={changeQuery} placeholder={intl.formatMessage({ id: "stickerPicker.search", defaultMessage: "Search stickers" })} />
       </div>
 
       <ScrollArea ref={scrollRef} className="flex-1 min-h-0">
@@ -129,31 +150,29 @@ export function StickerPicker({ customEmojis, onSelect, height = 350, autoFocus 
       </ScrollArea>
 
       {sections.length > 1 && (
-        <div
-          role="tablist"
+        <nav
           aria-label={intl.formatMessage({ id: 'stickerPicker.packs', defaultMessage: 'Sticker packs' })}
           className="flex shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {sections.map((section, index) => {
             const name = sectionName(section, intl);
-            const selected = section.key === (sections.find((s) => s.key === activeKey) ?? sections[0]).key;
+            const selected = section.key === activeSectionKey;
             return (
               <button
                 key={section.key}
                 type="button"
-                role="tab"
-                aria-selected={selected}
+                aria-current={selected || undefined}
                 aria-label={name}
                 title={name}
                 onClick={() => jumpTo(index)}
-                className="relative flex h-10 touch:h-12 min-w-11 flex-1 items-center justify-center transition-opacity hover:opacity-100 aria-[selected=false]:opacity-60"
+                className="relative flex h-10 touch:h-12 min-w-11 flex-1 items-center justify-center opacity-60 transition-opacity hover:opacity-100 aria-[current=true]:opacity-100"
               >
                 <CustomEmojiImg name={section.emojis[0].shortcode} url={section.emojis[0].url} className="size-6 object-contain" />
                 {selected && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />}
               </button>
             );
           })}
-        </div>
+        </nav>
       )}
     </div>
   );
@@ -173,7 +192,7 @@ function StickerSection({ section, onSelect }: { section: CustomEmojiSection; on
       <div id={headingId} className="sticky top-0 z-10 -mx-3 px-3 py-1.5 text-2xs font-medium text-muted-foreground uppercase tracking-wider truncate bg-background/70 backdrop-blur-md">
         {name}
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(80px,1fr))] gap-1.5">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-1.5">
         {section.emojis.map((emoji) => (
           <button
             key={emoji.shortcode}

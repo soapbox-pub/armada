@@ -49,7 +49,7 @@ describe("StickerPicker", () => {
 
     for (const name of ["Custom", "Cats", "Dogs"]) {
       const grid = within(screen.getByRole("group", { name })).getAllByRole("button")[0].parentElement;
-      expect(grid?.className).toContain("grid-cols-[repeat(auto-fill,minmax(80px,1fr))]");
+      expect(grid?.className).toContain("grid-cols-[repeat(auto-fill,minmax(72px,1fr))]");
       expect(grid?.className).not.toContain("grid-cols-4");
     }
   });
@@ -111,7 +111,9 @@ describe("StickerPicker", () => {
   });
 
   describe("pack bar", () => {
-    const tabs = () => screen.getAllByRole("tab").map((tab) => ({ name: tab.getAttribute("aria-label"), selected: tab.getAttribute("aria-selected") }));
+    const bar = () => screen.getByRole("navigation", { name: "Sticker packs" });
+    const pack = (name: string) => within(bar()).getByRole("button", { name });
+    const tabs = () => within(bar()).getAllByRole("button").map((tab) => ({ name: tab.getAttribute("aria-label"), selected: String(tab.getAttribute("aria-current") === "true") }));
     const viewportOf = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]")!;
     const placeAt = (el: Element, top: number) => {
       el.getBoundingClientRect = () => ({ top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON: () => ({}) });
@@ -125,13 +127,13 @@ describe("StickerPicker", () => {
         { name: "Cats", selected: "false" },
         { name: "Dogs", selected: "false" },
       ]);
-      expect(within(screen.getByRole("tab", { name: "Cats" })).getByText("cat_happy")).toBeInTheDocument();
+      expect(within(pack("Cats")).getByText("cat_happy")).toBeInTheDocument();
     });
 
     it("is hidden when there is only one pack", () => {
       render(<StickerPicker customEmojis={palette.slice(1, 3)} onSelect={vi.fn()} autoFocus={false} />);
 
-      expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
     });
 
     it("follows the search, listing only the packs that match", () => {
@@ -149,7 +151,7 @@ describe("StickerPicker", () => {
       placeAt(viewport, 100);
       placeAt(screen.getByRole("group", { name: "Cats" }), 400);
 
-      fireEvent.click(screen.getByRole("tab", { name: "Cats" }));
+      fireEvent.click(pack("Cats"));
 
       expect(viewport.scrollTo).toHaveBeenCalledWith({ top: 300, behavior: "smooth" });
       expect(tabs().find((tab) => tab.selected === "true")?.name).toBe("Cats");
@@ -180,7 +182,7 @@ describe("StickerPicker", () => {
           scrollHeight: { value: 900, configurable: true },
         });
 
-        fireEvent.click(screen.getByRole("tab", { name: "Cats" }));
+        fireEvent.click(pack("Cats"));
         fireEvent.scroll(viewport);
         expect(tabs().find((tab) => tab.selected === "true")?.name).toBe("Cats");
 
@@ -190,6 +192,40 @@ describe("StickerPicker", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it("follows the user's own scroll again as soon as they take over a jump", () => {
+      vi.useFakeTimers();
+      try {
+        const { container } = render(<StickerPicker customEmojis={palette} onSelect={vi.fn()} autoFocus={false} />);
+        const viewport = viewportOf(container);
+        viewport.scrollTo = vi.fn();
+        placeAt(viewport, 100);
+        placeAt(screen.getByRole("group", { name: "Custom" }), -300);
+        placeAt(screen.getByRole("group", { name: "Cats" }), 102);
+        placeAt(screen.getByRole("group", { name: "Dogs" }), 500);
+
+        fireEvent.click(pack("Dogs"));
+        fireEvent.wheel(viewport);
+        fireEvent.scroll(viewport);
+
+        expect(tabs().find((tab) => tab.selected === "true")?.name).toBe("Cats");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("starts a new search at its first pack", () => {
+      const { container } = render(<StickerPicker customEmojis={palette} onSelect={vi.fn()} autoFocus={false} />);
+      const viewport = viewportOf(container);
+      viewport.scrollTo = vi.fn();
+
+      fireEvent.click(pack("Dogs"));
+      viewport.scrollTop = 400;
+      search("HAPPY");
+
+      expect(viewport.scrollTop).toBe(0);
+      expect(tabs().find((tab) => tab.selected === "true")?.name).toBe("Cats");
     });
 
     it("highlights the last pack once the list is scrolled to its end", () => {
