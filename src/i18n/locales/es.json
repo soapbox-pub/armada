@@ -4565,6 +4565,8 @@
   "timeTravelers.rank.escaped": "Escapó de la línea temporal",
   "timeTravelers.rank.slightlyAhead": "Un poco adelantado",
   "timeTravelers.rank.temporalTourist": "Turista temporal",
+  "timelineFocus.notFound": "No se encontró ese mensaje",
+  "timelineFocus.notFoundDescription": "Puede que se haya eliminado o que sea más antiguo que el historial cargado aquí. Desplázate hacia arriba para cargar más e inténtalo de nuevo.",
   "torrentAttachment.comment": "Comentario",
   "torrentAttachment.copyFailed": "No se pudo copiar al portapapeles",
   "torrentAttachment.copyHash": "Copiar hash de información",

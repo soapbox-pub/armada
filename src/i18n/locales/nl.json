@@ -4565,6 +4565,8 @@
   "timeTravelers.rank.escaped": "Ontsnapt aan de tijdlijn",
   "timeTravelers.rank.slightlyAhead": "Iets voor op schema",
   "timeTravelers.rank.temporalTourist": "Tijdtoerist",
+  "timelineFocus.notFound": "Bericht niet gevonden",
+  "timelineFocus.notFoundDescription": "Het is mogelijk verwijderd, of ouder dan de geschiedenis die hier is geladen. Scrol omhoog om meer te laden en probeer het opnieuw.",
   "torrentAttachment.comment": "Opmerking",
   "torrentAttachment.copyFailed": "Kopiëren naar klembord mislukt",
   "torrentAttachment.copyHash": "Infohash kopiëren",

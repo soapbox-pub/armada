@@ -3,6 +3,8 @@ import { useLocation } from "react-router-dom";
 
 import { useMessagePermalink } from "@/hooks/useMessagePermalink";
 import { useStableNavigate } from "@/hooks/useStableNavigate";
+import { toast } from "@/hooks/useToast";
+import { t } from "@/i18n";
 import { chatRoute, parseChatRoute } from "@/lib/routes";
 
 import type { MessageTimelineHandle } from "@/components/chat/MessageTimeline";
@@ -60,6 +62,17 @@ export function useTimelineFocus(opts: {
     navigate(`${chatRoute({ ...route, messageId: id })}${search}${hash}`, { replace: true });
   }, [navigate]);
 
+  // Without it a failed jump just drops the `/m/` segment and looks like a dead tap.
+  const notifyNotFound = useCallback(() => {
+    toast({
+      title: t({ id: "timelineFocus.notFound", defaultMessage: "Couldn't find that message" }),
+      description: t({
+        id: "timelineFocus.notFoundDescription",
+        defaultMessage: "It may have been deleted, or be older than the history loaded here. Scroll up to load more and try again.",
+      }),
+    });
+  }, []);
+
   const permalinkScroll = useCallback(
     (id: string) => timelineRef.current?.scrollToMessage(id, true) ?? false,
     [],
@@ -71,6 +84,7 @@ export function useTimelineFocus(opts: {
     loadOlder,
     scrollTo: permalinkScroll,
     enabled,
+    onNotFound: notifyNotFound,
   });
 
   // Drop `/m/` focus too, or a remount would snap the reader back to it.

@@ -183,6 +183,7 @@ describe("useMessagePermalink", () => {
   it("hunts older pages for a target below the loaded window, then gives up", async () => {
     const { wrapper, at } = harness("/dm/npub1abc/m/old");
     const loadOlder = vi.fn(() => Promise.resolve(0));
+    const onNotFound = vi.fn();
     const { rerender } = renderHook((props: Opts) => useMessagePermalink(props), {
       initialProps: {
         messages: [{ id: "m1" }],
@@ -190,6 +191,7 @@ describe("useMessagePermalink", () => {
         hasMore: true,
         loadOlder,
         scrollTo: () => false,
+        onNotFound,
       },
       wrapper,
     });
@@ -205,10 +207,12 @@ describe("useMessagePermalink", () => {
         hasMore: true,
         loadOlder,
         scrollTo: () => false,
+        onNotFound,
       });
     }
     expect(loadOlder).toHaveBeenCalledTimes(8);
     expect(at()).toBe("/dm/npub1abc");
+    expect(onNotFound).toHaveBeenCalledTimes(1);
   });
 
   it("returns a callback that drops the focus (what a send calls)", () => {

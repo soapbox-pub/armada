@@ -22,6 +22,8 @@ export function useMessagePermalink(opts: {
   scrollTo: (id: string) => boolean;
   scope?: "timeline" | "thread";
   enabled?: boolean;
+  /** The hunt gave up without finding the target (history ended or the page budget ran out). */
+  onNotFound?: () => void;
 }): () => void {
   const {
     messages,
@@ -32,6 +34,8 @@ export function useMessagePermalink(opts: {
     scope = "timeline",
     enabled = true,
   } = opts;
+  const onNotFoundRef = useRef(opts.onNotFound);
+  onNotFoundRef.current = opts.onNotFound;
   const navigate = useNavigate();
   const location = useLocation();
   const route = useMemo(() => parseChatRoute(location.pathname), [location.pathname]);
@@ -87,6 +91,7 @@ export function useMessagePermalink(opts: {
     if (!hasMore || !loadOlder || pagesRef.current >= MAX_HUNT_PAGES) {
       doneRef.current = true;
       clear();
+      onNotFoundRef.current?.();
       return;
     }
     if (busyRef.current) return;

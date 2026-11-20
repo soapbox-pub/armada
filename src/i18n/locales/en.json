@@ -4565,6 +4565,8 @@
   "timeTravelers.rank.escaped": "Escaped the timeline",
   "timeTravelers.rank.slightlyAhead": "Slightly ahead of schedule",
   "timeTravelers.rank.temporalTourist": "Temporal tourist",
+  "timelineFocus.notFound": "Couldn't find that message",
+  "timelineFocus.notFoundDescription": "It may have been deleted, or be older than the history loaded here. Scroll up to load more and try again.",
   "torrentAttachment.comment": "Comment",
   "torrentAttachment.copyFailed": "Could not copy to clipboard",
   "torrentAttachment.copyHash": "Copy info hash",

@@ -4565,6 +4565,8 @@
   "timeTravelers.rank.escaped": "Der Zeitleiste entkommen",
   "timeTravelers.rank.slightlyAhead": "Dem Zeitplan leicht voraus",
   "timeTravelers.rank.temporalTourist": "Zeittourist",
+  "timelineFocus.notFound": "Nachricht nicht gefunden",
+  "timelineFocus.notFoundDescription": "Sie wurde möglicherweise gelöscht oder ist älter als der hier geladene Verlauf. Scrolle nach oben, um mehr zu laden, und versuche es erneut.",
   "torrentAttachment.comment": "Kommentar",
   "torrentAttachment.copyFailed": "Kopieren in die Zwischenablage fehlgeschlagen",
   "torrentAttachment.copyHash": "Info-Hash kopieren",

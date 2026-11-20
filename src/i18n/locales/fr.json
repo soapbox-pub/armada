@@ -4565,6 +4565,8 @@
   "timeTravelers.rank.escaped": "Échappé de la chronologie",
   "timeTravelers.rank.slightlyAhead": "Légèrement en avance",
   "timeTravelers.rank.temporalTourist": "Touriste temporel",
+  "timelineFocus.notFound": "Message introuvable",
+  "timelineFocus.notFoundDescription": "Il a peut-être été supprimé, ou il est plus ancien que l’historique chargé ici. Faites défiler vers le haut pour en charger davantage, puis réessayez.",
   "torrentAttachment.comment": "Commentaire",
   "torrentAttachment.copyFailed": "Impossible de copier dans le presse-papiers",
   "torrentAttachment.copyHash": "Copier le hash d’info",

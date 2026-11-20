@@ -4565,6 +4565,8 @@
   "timeTravelers.rank.escaped": "Fugiu da linha do tempo",
   "timeTravelers.rank.slightlyAhead": "Um pouco adiantado",
   "timeTravelers.rank.temporalTourist": "Turista temporal",
+  "timelineFocus.notFound": "Não foi possível encontrar a mensagem",
+  "timelineFocus.notFoundDescription": "Ela pode ter sido apagada ou ser mais antiga que o histórico carregado aqui. Role para cima para carregar mais e tente de novo.",
   "torrentAttachment.comment": "Comentário",
   "torrentAttachment.copyFailed": "Não foi possível copiar para a área de transferência",
   "torrentAttachment.copyHash": "Copiar hash de informações",

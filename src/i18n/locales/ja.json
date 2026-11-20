@@ -4565,6 +4565,8 @@
   "timeTravelers.rank.escaped": "タイムラインから脱出",
   "timeTravelers.rank.slightlyAhead": "予定より少し先",
   "timeTravelers.rank.temporalTourist": "時間旅行者",
+  "timelineFocus.notFound": "メッセージが見つかりませんでした",
+  "timelineFocus.notFoundDescription": "削除されたか、ここで読み込まれている履歴より古い可能性があります。上にスクロールして履歴を読み込んでから、もう一度お試しください。",
   "torrentAttachment.comment": "コメント",
   "torrentAttachment.copyFailed": "クリップボードにコピーできませんでした",
   "torrentAttachment.copyHash": "情報ハッシュをコピー",
