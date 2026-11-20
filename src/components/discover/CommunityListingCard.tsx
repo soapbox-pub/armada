@@ -1,13 +1,14 @@
 import { useNostr } from "@nostrify/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Check, Copy, Loader2, MoreHorizontal, ShieldCheck, Skull, Trash2 } from "lucide-react";
-import { Fragment, useContext, useEffect, useMemo, useState } from "react";
+import { Fragment, memo, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { DisplayName } from "@/components/DisplayName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ThumbImg } from "@/components/ui/ThumbImg";
 import { AVATAR_LOOPS } from "@/components/ui/avatarLoops";
+import { observeIntersection } from "@/lib/sharedIntersection";
 import { BoostedBy } from "@/components/discover/BoostedBy";
 import { DiscoverBoostsContext } from "@/components/discover/discoverBoosts";
 import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
@@ -116,17 +117,45 @@ export function CommunityListingCardSkeleton({ className }: { className?: string
  * (decrypted from the invite bundle with the link's secret), sharer and Join.
  * Skeleton until the bundle settles.
  */
-export function CommunityListingCard({
+/**
+ * Reads Discover's boosts here, so the card itself re-renders only when its own boosts
+ * change: the shared map is replaced as each card comes into view, and every mounted
+ * card re-rendered for each.
+ */
+export function CommunityListingCard(props: CommunityListingCardProps) {
+  const { boosts: byListing, vouchers } = useContext(DiscoverBoostsContext);
+  const boosts = useSameBoosts(boostsFor(byListing, props.boostListings ?? listingIdsOf(props.invite)));
+  return <ListingCard {...props} boosts={boosts} vouchers={useSameSet(vouchers)} />;
+}
+
+/** The previous array while it holds the same boosts, in order. */
+function useSameBoosts(next: Boost[]): Boost[] {
+  const ref = useRef(next);
+  const prev = ref.current;
+  if (prev !== next && (prev.length !== next.length || prev.some((b, i) => b.event.id !== next[i].event.id))) ref.current = next;
+  return ref.current;
+}
+
+/** The previous set while it holds the same members. */
+function useSameSet(next: ReadonlySet<string> | null): ReadonlySet<string> | null {
+  const ref = useRef(next);
+  const prev = ref.current;
+  if (prev !== next && (!prev || !next || prev.size !== next.size || [...next].some((m) => !prev.has(m)))) ref.current = next;
+  return ref.current;
+}
+
+const ListingCard = memo(function ListingCard({
   invite,
   className,
   filter,
   needsBoost = false,
   onResolved,
   suppressed = false,
-  boostListings,
   onActivityTarget,
   lastActiveAt,
-}: CommunityListingCardProps) {
+  boosts,
+  vouchers,
+}: CommunityListingCardProps & { boosts: Boost[]; vouchers: ReadonlySet<string> | null }) {
   const intl = useIntl();
   const navigate = useNavigate();
   const { nostr } = useNostr();
@@ -178,11 +207,6 @@ export function CommunityListingCard({
 
   const isBlocked = useIsBlocked();
   const blocked = !!bundle?.community_id && isBlocked(bundle.community_id);
-  const { boosts: boostsByListing, vouchers } = useContext(DiscoverBoostsContext);
-  const boosts = useMemo(
-    () => boostsFor(boostsByListing, boostListings ?? listingIdsOf(invite)),
-    [boostsByListing, boostListings, invite],
-  );
   // An owner boosting their own community vouches for nothing.
   const vouched = useMemo(
     () => (bundle ? vouchingBoosts(boosts, vouchers, bundle.owner) : NO_BOOSTS),
@@ -406,7 +430,9 @@ export function CommunityListingCard({
     <div
       ref={setCardEl}
       className={cn(
-        "flex flex-col w-full p-px clip-hairline-lg [--fill:var(--card)] [--fill-hover:var(--card)] overflow-hidden",
+        // Off-screen cards skip style, layout and paint: Discover keeps every loaded
+        // page mounted, and each new page restyled them all on a phone.
+        "flex flex-col w-full p-px clip-hairline-lg [--fill:var(--card)] [--fill-hover:var(--card)] overflow-hidden [content-visibility:auto] [contain-intrinsic-size:auto_420px]",
         className,
       )}
     >
@@ -576,7 +602,7 @@ export function CommunityListingCard({
       </div>
     </div>
   );
-}
+});
 
 /**
  * Latches true the first time `el` comes within a screenful of the viewport.
@@ -592,17 +618,12 @@ function useSeenOnScreen(el: Element | null): boolean {
       return;
     }
     if (!el) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setSeen(true);
-          io.disconnect();
-        }
-      },
-      { rootMargin: "300px" },
-    );
-    io.observe(el);
-    return () => io.disconnect();
+    const stop = observeIntersection(el, (entry) => {
+      if (!entry.isIntersecting) return;
+      stop();
+      setSeen(true);
+    }, "300px");
+    return stop;
   }, [el, seen]);
 
   return seen;
