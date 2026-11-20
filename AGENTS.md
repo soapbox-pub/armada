@@ -153,14 +153,17 @@ side (`src/lib/perfRuntime.ts`, `npm run build:profile`) and
 buzz.armada.app.profile/buzz.armada.app.NotificationRelayService`). Keep new
 probes behind the same guards. `scripts/perf-profile.mjs` drives the web
 client headless over seeded DM and Concord data; `scripts/android-profile.sh`
-measures the service on a connected device. The profiling APK installs as
+measures the service on a connected device, and `scripts/webview-perf.mjs` the
+app's WebView on one (channel taps and revisits, per-component renders, and the
+restyle costs below). The profiling APK installs as
 `buzz.armada.app.profile`, beside the real app, never over it.
 
 ### Performance rules that have regressed before
 
-Measure before and after with `npm run perf:profile` (web) or
-`scripts/android-profile.sh` (device); the numbers these rules came from are in
-those reports.
+Measure before and after with `npm run perf:profile` (web),
+`scripts/webview-perf.mjs` (the app on a device) or `scripts/android-profile.sh`
+(the notification service); the numbers these rules came from are in those
+reports.
 
 - **Props handed to a memoized row must keep their identity.** No inline
   closures, objects or JSX elements per row (`onRetry={() => …}`, a fresh
@@ -184,6 +187,31 @@ those reports.
   subscriptions. After AUTH it re-sends only the walled subscriptions. NIP-42
   reasons may be prefixed (`ERROR: auth-required:`); use `isAuthRequired`. The
   self-state subscription reads with a `since` after its first EOSE.
+- **Nothing on `<body>` or `<html>` may reach every element.** Modal layers
+  write to `<body>` on each open and close (Radix's `pointer-events: none`,
+  react-remove-scroll-bar's `data-scroll-locked` and variable), and an inherited
+  property or a selector descending from a body attribute
+  (`body[style*=…] .row > *`) restyles the whole document each time: ~0.3 s on
+  a phone, twice per dialog. Set a custom property on body and read it below;
+  register a library's body variable `inherits: false` with `@property`.
+  `src/indexCss.test.ts` checks `index.css`; `webview-perf.mjs restyle` and
+  `modal` measure it.
+- **A kept (hidden) timeline is hidden with `content-visibility: hidden` and
+  nothing inherited.** Toggling `inert` or `display` restyles or re-lays-out
+  every row on the revisit. Hiding pauses its media and unmounts one holding an
+  embed (`keptTimelines.tsx`).
+- **What rows read is cached per channel, not for the current one.** Scope,
+  permalink, adapted messages and the media hold go through `useKeyedMemo` or a
+  per-channel cache; one holding only the current channel rebuilds every row of
+  a revisited timeline.
+- **Work over a whole roster is memoized per input array (a `WeakMap`), not in
+  `useMemo`.** The composer remounts on every channel switch, so a `useMemo`
+  sort-and-hash of thousands of pubkeys reran on each one (`useBotManifests`).
+- **A store standing in for React Query keeps its contracts.** A caller
+  re-renders only for the fields it reads (`isLoading`/`isFetching` tracked per
+  field), `refetch` is stable, and logout drops the store's decrypted state and
+  stops it re-folding or persisting for the purged client
+  (`ControlFoldEntry`, `useControlPlane.store.test.tsx`).
 
 ### The one Rust dependency
 
