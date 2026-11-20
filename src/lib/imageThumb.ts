@@ -53,6 +53,8 @@ export class AnimatedThumb {
     private readonly frames: ImageBitmap[],
     private readonly durations: number[],
     private readonly repetitions: number,
+    /** The frame held after the loops (see {@link posterFrame}). */
+    private readonly poster = 0,
   ) {}
 
   /** The decoded frames' size, for the cache's budget. */
@@ -62,7 +64,7 @@ export class AnimatedThumb {
 
   /**
    * Draw the current frame now and every later one; after `loops` loops' worth of
-   * frames, draw the first frame and stop. Returns an unsubscribe.
+   * frames, draw the poster frame and stop. Returns an unsubscribe.
    */
   subscribe(draw: (frame: ImageBitmap) => void, loops = Infinity): () => void {
     const limit = loops * this.frames.length;
@@ -71,7 +73,8 @@ export class AnimatedThumb {
       draw(frame);
       if (++shown < limit) return;
       off();
-      if (frame !== this.frames[0]) draw(this.frames[0]);
+      const held = this.frames[this.poster];
+      if (frame !== held) draw(held);
     };
     const off = () => {
       this.listeners.delete(listener);
@@ -172,6 +175,84 @@ function hostOf(src: string): string | undefined {
   }
 }
 
+/** Frames compared for a poster, spread over the animation. */
+const POSTER_CANDIDATES = 32;
+/** Fewer where each costs a decode of its own (media held still). */
+const STILL_POSTER_CANDIDATES = 16;
+
+/** How much a frame shows: the spread of its alpha-weighted brightness at 8×8. */
+function frameContrast(frame: CanvasImageSource): number {
+  const ctx = new OffscreenCanvas(8, 8).getContext("2d", { willReadFrequently: true });
+  if (!ctx) return 0;
+  ctx.drawImage(frame, 0, 0, 8, 8);
+  const d = ctx.getImageData(0, 0, 8, 8).data;
+  let sum = 0;
+  let sq = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const l = ((d[i] + d[i + 1] + d[i + 2]) / 3) * (d[i + 3] / 255);
+    sum += l;
+    sq += l * l;
+  }
+  const mean = sum / 64;
+  return sq / 64 - mean * mean;
+}
+
+/** Up to `max` frame indices of `count`, evenly spread from the first. */
+function spreadFrames(count: number, max: number): number[] {
+  const n = Math.min(count, max);
+  return Array.from({ length: n }, (_, i) => Math.floor((i * count) / n));
+}
+
+/**
+ * The frame an animation is held on: of a spread of its frames, the one showing
+ * the most (the earliest on a tie). Many open on a blank frame and fade in, and
+ * holding the first shows an empty box.
+ */
+export function posterFrame<F>(frames: readonly F[], contrast: (frame: F) => number): number {
+  let best = 0;
+  let most = -1;
+  for (const i of spreadFrames(frames.length, POSTER_CANDIDATES)) {
+    const c = contrast(frames[i]);
+    if (c > most) {
+      most = c;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** An animation's poster frame at full size (see {@link posterFrame}), or undefined where it can't be decoded. */
+async function posterStill(blob: Blob, type: string): Promise<ImageBitmap | undefined> {
+  if (typeof ImageDecoder === "undefined" || !(await ImageDecoder.isTypeSupported(type).catch(() => false))) return undefined;
+  const decoder = new ImageDecoder({ data: await blob.arrayBuffer(), type });
+  let best: ImageBitmap | undefined;
+  try {
+    await decoder.tracks.ready;
+    await decoder.completed;
+    let most = -1;
+    for (const i of spreadFrames(decoder.tracks.selectedTrack?.frameCount ?? 1, STILL_POSTER_CANDIDATES)) {
+      const { image } = await decoder.decode({ frameIndex: i });
+      try {
+        const c = frameContrast(image);
+        if (c <= most) continue;
+        most = c;
+        best?.close();
+        best = await createImageBitmap(image);
+      } finally {
+        image.close();
+      }
+    }
+    const found = best;
+    best = undefined;
+    return found;
+  } catch {
+    return undefined;
+  } finally {
+    best?.close();
+    decoder.close();
+  }
+}
+
 /** Every frame of an animation at the bucket's size, or null to show the original. */
 async function makeAnimated(blob: Blob, type: string, bucket: number): Promise<AnimatedThumb | null> {
   if (typeof ImageDecoder === "undefined" || !(await ImageDecoder.isTypeSupported(type).catch(() => false))) return null;
@@ -207,7 +288,8 @@ async function makeAnimated(blob: Blob, type: string, bucket: number): Promise<A
       }
     }
     const reps = track!.repetitionCount;
-    return new AnimatedThumb(w, h, frames.splice(0), durations, Number.isFinite(reps) ? reps : Infinity);
+    const poster = posterFrame(frames, frameContrast);
+    return new AnimatedThumb(w, h, frames.splice(0), durations, Number.isFinite(reps) ? reps : Infinity, poster);
   } catch {
     return null;
   } finally {
@@ -243,11 +325,12 @@ async function make(src: string, bucket: number, still: boolean): Promise<Thumb 
   if (!blob) return FETCH_FAILED;
   const head = new Uint8Array(await blob.slice(0, 4096).arrayBuffer());
   const type = sniffImageType(head, blob.type);
-  if (!still && isAnimatedImage(type, head)) return slot(() => makeAnimated(blob, type, bucket));
+  const animated = isAnimatedImage(type, head);
+  if (!still && animated) return slot(() => makeAnimated(blob, type, bucket));
   return slot(async () => {
     let full: ImageBitmap | undefined;
     try {
-      full = await createImageBitmap(blob);
+      full = (animated ? await posterStill(blob, type) : undefined) ?? (await createImageBitmap(blob));
       // The SHORT edge: these images are cropped to cover their box.
       const scale = bucket / Math.min(full.width, full.height);
       if (scale * SMALL_ENOUGH >= 1 && !still) return null;

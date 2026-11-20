@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const native = vi.hoisted(() => ({ can: false, fetch: vi.fn(async (_url: string): Promise<Blob | null> => null) }));
 vi.mock("@/lib/nativeImageFetch", () => ({ canFetchNativeImages: () => native.can, fetchNativeImage: native.fetch }));
 
-import { acquireThumb, AnimatedThumb, clearThumbs, releaseThumb, sniffImageType, thumbBucket, thumbsSupported } from "./imageThumb";
+import { acquireThumb, AnimatedThumb, clearThumbs, posterFrame, releaseThumb, sniffImageType, thumbBucket, thumbsSupported } from "./imageThumb";
 
 describe("imageThumb", () => {
   afterEach(() => {
@@ -128,6 +128,31 @@ describe("imageThumb", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("holds the poster frame, not a blank lead frame, after a subscriber's loops", () => {
+    vi.useFakeTimers();
+    try {
+      const frames = [0, 1, 2].map((n) => ({ n, close() {} }) as unknown as ImageBitmap);
+      const anim = new AnimatedThumb(8, 8, frames, [100, 100, 100], Infinity, 1);
+      const seen: number[] = [];
+      anim.subscribe((f) => seen.push((f as unknown as { n: number }).n), 1);
+      vi.advanceTimersByTime(1000);
+      expect(seen).toEqual([0, 1, 2, 1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds the frame showing the most, the earliest on a tie", () => {
+    // A fade-in: black, then brighter, then steady.
+    expect(posterFrame([0, 2, 9, 9, 9], (c) => c)).toBe(2);
+    // A fade-out keeps its opening.
+    expect(posterFrame([9, 5, 0], (c) => c)).toBe(0);
+    expect(posterFrame([0, 0], (c) => c)).toBe(0);
+    // A long animation is judged on a spread of frames, not just its opening.
+    const long = Array.from({ length: 400 }, (_, i) => (i >= 300 ? 10 : 1));
+    expect(posterFrame(long, (c) => c)).toBeGreaterThanOrEqual(300);
   });
 
   it("plays an animation on one timer while watched, and stops after its repetitions", () => {
