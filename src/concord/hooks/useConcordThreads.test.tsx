@@ -17,7 +17,8 @@ const h = vi.hoisted(() => ({
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: { pubkey: ME } }) }));
 vi.mock("@/hooks/useMuteList", () => ({ useMutedPubkeys: () => ({ mutedPubkeys: NO_MUTES }) }));
 vi.mock("@/hooks/useReadState", () => ({
-  useReadState: () => ({ readState: {}, markRead: () => undefined }),
+  useReadStateSelect: (select: (map: Record<string, number>) => unknown) => select({}),
+  useReadStateActions: () => ({ getLastRead: () => 0, markRead: () => undefined }),
   concordThreadReadKey: (id: string) => `c2t:${id}`,
 }));
 vi.mock("@/concord/hooks/useChannel", () => ({ useChatModeration: () => h.moderation }));

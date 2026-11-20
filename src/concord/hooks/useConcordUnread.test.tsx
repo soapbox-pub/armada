@@ -61,6 +61,8 @@ vi.mock("@/hooks/useReadState", () => ({
     getLastRead: (k: string) => h.readState[k] ?? 0,
     markRead: vi.fn(),
   }),
+  useReadStateSelect: (select: (map: Record<string, number>) => unknown) => select(h.readState),
+  useReadStateActions: () => ({ getLastRead: (k: string) => h.readState[k] ?? 0, markRead: vi.fn() }),
 }));
 
 const { useConcordUnread } = await import("@/concord/hooks/useConcordUnread");

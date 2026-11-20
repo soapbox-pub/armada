@@ -31,7 +31,7 @@ import { warmupCommunities } from "@/concord/lib/loginWarmup";
 import { openPlaneWrapsChunked } from "@/concord/lib/planeSync";
 import { ackPendingWraps, peekPendingWraps, queryRumorsByChannel, writeOpened, writeRumors } from "@/concord/lib/rumorStore";
 import { registerStreamKeys } from "@/concord/lib/streamAuth";
-import { channelReadKey, concordReadKey, useReadState } from "@/hooks/useReadState";
+import { channelReadKey, concordReadKey, useReadStateGetter } from "@/hooks/useReadState";
 import { NIP29_ACTIVITY_KINDS } from "@/hooks/useRelayUnread";
 import { effectiveDmRelays } from "@/contexts/AppContext";
 import { useAppContext } from "@/hooks/useAppContext";
@@ -242,7 +242,7 @@ function useWireConcordChannels(): WireConcordChannel[] {
   // Read in the query through refs: a deleted Channel is cleared off the fold it reads.
   const purgeRef = useRef({ user, secret, nostr });
   purgeRef.current = { user, secret, nostr };
-  const { readState } = useReadState();
+  const readStateNow = useReadStateGetter();
   const { isConcordChannelMuted } = useMutes();
   const { concordChannelLevel } = useNotifLevels();
   const entries = useJoinedCommunities();
@@ -273,7 +273,9 @@ function useWireConcordChannels(): WireConcordChannel[] {
   const dotCtxRef = useRef<DotContext>({ pubkey: undefined, readState: {}, isMuted: () => false, notifies: () => true });
   dotCtxRef.current = {
     pubkey: user?.pubkey,
-    readState,
+    get readState() {
+      return readStateNow();
+    },
     isMuted: isConcordChannelMuted,
     notifies: (communityIdHex, channelIdHex) =>
       concordChannelLevel("c2", communityIdHex, channelIdHex) !== "nothing",
@@ -536,13 +538,19 @@ function useWireNip29Deferral(
 ): Array<{ id: string; relay: string; buzz?: boolean }> {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
-  const { readState } = useReadState();
+  const readStateNow = useReadStateGetter();
   const { isChannelMuted } = useMutes();
   const eventStore = useEventStore();
 
   // Via a ref so read-state churn doesn't rebuild the spec.
   const dotCtxRef = useRef<Nip29DotContext>({ pubkey: undefined, readState: {}, isMuted: () => false });
-  dotCtxRef.current = { pubkey: user?.pubkey, readState, isMuted: isChannelMuted };
+  dotCtxRef.current = {
+    pubkey: user?.pubkey,
+    get readState() {
+      return readStateNow();
+    },
+    isMuted: isChannelMuted,
+  };
 
   // Activation must re-run the spec NOW.
   const [activationEpoch, setActivationEpoch] = useState(0);

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   ReadStateContext,
+  ReadStateStoreContext,
   type ReadStateMap,
+  type ReadStateStore,
 } from "@/contexts/ReadStateContext";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -211,5 +213,28 @@ export function ReadStateProvider({ children }: { children: React.ReactNode }) {
     [readState, getLastRead, markRead, hydrate],
   );
 
-  return <ReadStateContext.Provider value={value}>{children}</ReadStateContext.Provider>;
+  const current = useRef(readState);
+  const listeners = useRef(new Set<() => void>());
+  const markReadRef = useRef(markRead);
+  markReadRef.current = markRead;
+  useLayoutEffect(() => {
+    if (current.current === readState) return;
+    current.current = readState;
+    for (const listener of [...listeners.current]) listener();
+  }, [readState]);
+  const store = useMemo<ReadStateStore>(() => ({
+    get: () => current.current,
+    subscribe: (listener) => {
+      listeners.current.add(listener);
+      return () => listeners.current.delete(listener);
+    },
+    getLastRead: (key) => current.current[key] ?? 0,
+    markRead: (key, timestamp) => markReadRef.current(key, timestamp),
+  }), []);
+
+  return (
+    <ReadStateStoreContext.Provider value={store}>
+      <ReadStateContext.Provider value={value}>{children}</ReadStateContext.Provider>
+    </ReadStateStoreContext.Provider>
+  );
 }

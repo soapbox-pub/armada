@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
@@ -10,7 +10,8 @@ import { openedToChatMsg } from "@/concord/hooks/useTransport";
 import type { Channel, Community } from "@/concord/lib/types";
 import type { ChatMsg } from "@/components/chat/transport";
 import type { NostrEvent } from "@nostrify/nostrify";
-import { concordThreadReadKey, useReadState } from "@/hooks/useReadState";
+import { concordThreadReadKey, useReadStateActions, useReadStateSelect } from "@/hooks/useReadState";
+import type { ReadStateMap } from "@/contexts/ReadStateContext";
 
 /** Whether the root is a tombstone placeholder for a not-yet-loaded root message. */
 export function isTombstoneRoot(root: ChatMsg): boolean {
@@ -51,7 +52,7 @@ export function useConcordThreads(community: Community | undefined, channels: Ch
   const { user } = useCurrentUser();
   const pubkey = user?.pubkey;
   const { mutedPubkeys } = useMutedPubkeys();
-  const { readState, markRead: sharedMarkRead } = useReadState();
+  const { markRead: sharedMarkRead, getLastRead } = useReadStateActions();
   const communityIdHex = community?.idHex;
   // Required so the fold applies the Banlist and moderator deletes (CORD-04 §4);
   // without it banned authors' replies inflate counts and "new" dots.
@@ -97,12 +98,13 @@ export function useConcordThreads(community: Community | undefined, channels: Ch
   }, [communityIdHex, rumorsByChannel, pubkey, mutedPubkeys, moderation, rulesFor]);
   const scanned = scan && scan.key === communityIdHex ? scan.value : undefined;
 
-  // Depends on these stamps only, not `readState` (a new object on every markRead).
-  const readStateRef = useRef(readState);
-  readStateRef.current = readState;
+  // Subscribed to these stamps only: the read-state changes on every markRead anywhere.
   const scannedList = scanned ?? NO_SCANNED;
-  let threadReadSig = "";
-  for (const t of scannedList) threadReadSig += `${readState[concordThreadReadKey(t.rootId)] ?? 0},`;
+  const threadReadSig = useReadStateSelect(useCallback((map: ReadStateMap) => {
+    let sig = "";
+    for (const t of scannedList) sig += `${map[concordThreadReadKey(t.rootId)] ?? 0},`;
+    return sig;
+  }, [scannedList]));
   const threads = useMemo<ConcordThread[]>(
     () => {
       void threadReadSig;
@@ -114,10 +116,10 @@ export function useConcordThreads(community: Community | undefined, channels: Ch
         participants: t.participants,
         hasNew:
           t.newestReplyAuthor !== pubkey &&
-          t.lastReplyAt > (readStateRef.current[concordThreadReadKey(t.rootId)] ?? 0),
+          t.lastReplyAt > getLastRead(concordThreadReadKey(t.rootId)),
       }));
     },
-    [scannedList, threadReadSig, pubkey],
+    [scannedList, threadReadSig, pubkey, getLastRead],
   );
 
   const markRead = useCallback(

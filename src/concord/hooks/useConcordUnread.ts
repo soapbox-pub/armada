@@ -18,7 +18,8 @@ import { FUTURE_HOLD_MS, FUTURE_HORIZON_MS } from "@/concord/lib/stream";
 import type { OpenedChat } from "@/concord/lib/chat";
 import type { Channel, Community } from "@/concord/lib/types";
 import { useChatModeration } from "@/concord/hooks/useChannel";
-import { concordReadKey, useReadState } from "@/hooks/useReadState";
+import { concordReadKey, useReadStateActions, useReadStateSelect } from "@/hooks/useReadState";
+import type { ReadStateMap } from "@/contexts/ReadStateContext";
 import type { GitTimelineActivity } from "@/lib/gitActivity";
 import { hasEveryoneMention } from "@/concord/lib/everyoneMention";
 import { sentDuringMembership } from "@/concord/lib/membershipFloor";
@@ -63,11 +64,7 @@ export function useConcordUnread(
   // active resolve fans out a control sweep for each. The page opts in explicitly.
   const { banned, canMentionEveryone, pingsByRole, holdsPost } = useChatModeration(community, active);
   const joinedAtMs = useCommunityEntry(communityIdHex)?.added_at;
-  const {
-    readState,
-    getLastRead: sharedGetLastRead,
-    markRead: sharedMarkRead,
-  } = useReadState();
+  const { getLastRead: storedLastRead, markRead: sharedMarkRead } = useReadStateActions();
 
   const channelSig = channels.map((c) => c.idHex).join(",");
   const channelIds = useMemo(() => channels.map((c) => c.idHex), [channelSig]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -95,12 +92,18 @@ export function useConcordUnread(
     }
   }, [communityIdHex, rumorsByChannel, pubkey, floodPolicy]);
 
-  // Depend on this community's stamps only: `readState` changes on every markRead
+  // Subscribed to this community's stamps only: the read-state changes on every markRead
   // anywhere, and the rail mounts one of these per community.
-  const readStateRef = useRef(readState);
-  readStateRef.current = readState;
-  let readSig = "";
-  for (const idHex of rumorsByChannel.keys()) readSig += `${readState[concordReadKey(idHex)] ?? 0},`;
+  const readKeys = useMemo(
+    () => [...new Set([...channelIds, ...rumorsByChannel.keys()])].map(concordReadKey),
+    [channelIds, rumorsByChannel],
+  );
+  const selectReadSig = useCallback((map: ReadStateMap) => {
+    let sig = "";
+    for (const key of readKeys) sig += `${map[key] ?? 0},`;
+    return sig;
+  }, [readKeys]);
+  const readSig = useReadStateSelect(selectReadSig);
 
   // The per-channel scan is the expensive half and ignores read state, so it's
   // cached per channel; a markRead then costs a comparison per channel. A scan
@@ -130,7 +133,7 @@ export function useConcordUnread(
         scan = scanChannel(idHex, rumors, git, scanDeps, feedOnly);
         cache.set(idHex, scan);
       }
-      const lastRead = readStateRef.current[concordReadKey(idHex)] ?? 0;
+      const lastRead = storedLastRead(concordReadKey(idHex));
       if (scan.latest > lastRead) next[idHex] = { latest: scan.latest, mention: scan.latestMention > lastRead };
     }
     for (const idHex of cache.keys()) if (!rumorsByChannel.has(idHex)) cache.delete(idHex);
@@ -144,7 +147,7 @@ export function useConcordUnread(
     const result = same ? previous : next;
     previousRef.current = result;
     return result;
-  }, [rumorsByChannel, readSig, gitByChannel, scanDeps, feedChannels]);
+  }, [rumorsByChannel, readSig, storedLastRead, gitByChannel, scanDeps, feedChannels]);
 
   const markRead = useCallback(
     (channelIdHex: string, timestamp: number) => {
@@ -154,9 +157,10 @@ export function useConcordUnread(
     [sharedMarkRead],
   );
 
+  // A new identity when this community's stamps move, so callers memoizing on it recompute.
   const getLastRead = useCallback(
-    (channelIdHex: string) => sharedGetLastRead(concordReadKey(channelIdHex)),
-    [sharedGetLastRead],
+    (channelIdHex: string) => (void readSig, storedLastRead(concordReadKey(channelIdHex))),
+    [storedLastRead, readSig],
   );
 
   return useMemo(() => ({ byChannel, markRead, getLastRead }), [byChannel, markRead, getLastRead]);

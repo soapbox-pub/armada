@@ -18,7 +18,8 @@ import type { ChatMsg } from "@/components/chat/transport";
 import { useBootGateOpen } from "@/lib/bootGate";
 import { STORE_READ } from "@/lib/storeQuery";
 import { useWireScopes } from "@/wire/useWireScopes";
-import { concordMentionReadKey, useReadState } from "@/hooks/useReadState";
+import { concordMentionReadKey, useReadStateActions, useReadStateSelect } from "@/hooks/useReadState";
+import type { ReadStateMap } from "@/contexts/ReadStateContext";
 import { useControlFold } from "@/concord/hooks/useControlPlane";
 import {
   everyoneMayMention,
@@ -71,7 +72,7 @@ export function useConcordMentions(
   const pubkey = user?.pubkey;
   const queryClient = useQueryClient();
   const bootGateOpen = useBootGateOpen();
-  const { readState, markRead: sharedMarkRead } = useReadState();
+  const { markRead: sharedMarkRead } = useReadStateActions();
   // Passive: ambient callers must never turn this into a per-community control-plane sweep.
   const { data: folded } = useControlFold(community, false);
 
@@ -167,7 +168,8 @@ export function useConcordMentions(
   });
 
   const readKey = communityIdHex ? concordMentionReadKey(communityIdHex) : undefined;
-  const readAt = readKey ? (readState[readKey] ?? 0) : 0;
+  // This one stamp only: the probe is mounted per community, and every read anywhere re-rendered it.
+  const readAt = useReadStateSelect(useCallback((map: ReadStateMap) => (readKey ? (map[readKey] ?? 0) : 0), [readKey]));
 
   // `created_at` is unix SECONDS on the ChatMsg; the newest mention is first.
   const newestMentionAt = mentions[0]?.created_at ?? 0;

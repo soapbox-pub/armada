@@ -58,6 +58,8 @@ vi.mock("@/concord/lib/quarantineMemory", () => ({
 vi.mock("@/hooks/useReadState", () => ({
   concordReadKey: (idHex: string) => `c2:${idHex}`,
   useReadState: () => ({ readState: {}, getLastRead: () => 0, markRead: vi.fn() }),
+  useReadStateSelect: (select: (map: Record<string, number>) => unknown) => select({}),
+  useReadStateActions: () => ({ getLastRead: () => 0, markRead: vi.fn() }),
 }));
 
 const { useConcordUnread } = await import("@/concord/hooks/useConcordUnread");

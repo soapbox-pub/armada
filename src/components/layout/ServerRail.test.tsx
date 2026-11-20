@@ -87,6 +87,8 @@ vi.mock("@/hooks/useReadState", () => ({
     markRead,
     hydrate: vi.fn(),
   }),
+  useReadStateSelect: (select: (map: Record<string, number>) => unknown) => select({}),
+  useReadStateActions: () => ({ getLastRead: () => 0, markRead }),
 }));
 // The kind 10009 write the rail makes to keep relay order in sync. Hoisted so
 // a test can assert what did — and didn't — reach the user's server list.

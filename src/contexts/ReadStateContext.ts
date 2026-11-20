@@ -47,3 +47,17 @@ export function concordInviteReadKey(): string {
 }
 
 export const ReadStateContext = createContext<ReadStateContextType | undefined>(undefined);
+
+/**
+ * The same state as a store whose identity never changes, for readers that select a
+ * slice: the context above is a new value on every read anywhere, which re-rendered
+ * every reader, each rail probe included, whatever it reads.
+ */
+export interface ReadStateStore {
+  get(): ReadStateMap;
+  subscribe(listener: () => void): () => void;
+  getLastRead(key: string): number;
+  markRead(key: string, timestamp: number): void;
+}
+
+export const ReadStateStoreContext = createContext<ReadStateStore | undefined>(undefined);

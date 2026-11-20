@@ -46,6 +46,8 @@ vi.mock("@/concord/lib/quarantineMemory", () => ({
 vi.mock("@/hooks/useReadState", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/useReadState")>()),
   useReadState: () => ({ readState: h.readState, markRead: vi.fn() }),
+  useReadStateSelect: (select: (map: Record<string, number>) => unknown) => select(h.readState),
+  useReadStateActions: () => ({ getLastRead: (k: string) => h.readState[k] ?? 0, markRead: vi.fn() }),
 }));
 vi.mock("@/wire/useWireScopes", () => ({ useWireScopes: () => undefined }));
 vi.mock("@/concord/hooks/useChannelRules", () => ({

@@ -153,7 +153,8 @@ import { useSyncTaskInScope } from "@/hooks/useSyncActivity";
 import { useSyncTopicState } from "@/sync/useSyncTopic";
 import { concordChannelMuteKey, useMutes } from "@/hooks/useMutes";
 import { useNotifLevels, concordChannelScopeKey } from "@/hooks/useNotifLevels";
-import { concordThreadReadKey, useReadState } from "@/hooks/useReadState";
+import { concordThreadReadKey, useReadStateActions, useReadStateSelect } from "@/hooks/useReadState";
+import type { ReadStateMap } from "@/contexts/ReadStateContext";
 import { useIsBlocked } from "@/lib/blocklistStore";
 import { rememberLastChannel, useLastChannels } from "@/lib/lastChannel";
 import { homeSkippedOf, type HomeLandingState } from "@/lib/railLayout";
@@ -2654,12 +2655,19 @@ function ConcordCommunityPage() {
     [presentation, topLevelMessages, threadRepliesFor, forumSort, pins.isPinned],
   );
   // "New" per post uses the Threads tab's stamp (`c2t:<rootId>`), never for own words.
-  const { readState } = useReadState();
+  // Subscribed to these posts' stamps only, not every read anywhere.
+  const { getLastRead: lastReadOf } = useReadStateActions();
+  const postsReadSig = useReadStateSelect(useCallback((map: ReadStateMap) => {
+    let sig = "";
+    for (const post of feedPosts) sig += `${map[concordThreadReadKey(post.root.id)] ?? 0},`;
+    return sig;
+  }, [feedPosts]));
   const isPostNew = useCallback(
     (post: ForumPost) =>
+      (void postsReadSig,
       post.lastActivityBy !== user?.pubkey &&
-      post.lastActivityAt > (readState[concordThreadReadKey(post.root.id)] ?? 0),
-    [readState, user?.pubkey],
+      post.lastActivityAt > lastReadOf(concordThreadReadKey(post.root.id))),
+    [postsReadSig, lastReadOf, user?.pubkey],
   );
   const openPost = useCallback(
     (post: ForumPost) => {
