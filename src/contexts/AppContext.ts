@@ -46,6 +46,8 @@ export interface RelayMetadata {
  */
 export const REPLY_GESTURES = ["off", "swipe", "doubleTap", "both"] as const;
 export type ReplyGestures = (typeof REPLY_GESTURES)[number];
+export const HAPTIC_INTENSITIES = ["off", "low", "medium", "high"] as const;
+export type HapticIntensity = (typeof HAPTIC_INTENSITIES)[number];
 
 export interface AppConfig {
   theme: Theme;
@@ -292,6 +294,11 @@ export interface AppConfig {
    * a root screen. Off walks history back through earlier chats. Per-device.
    */
   androidBackLeavesApp: boolean;
+  /**
+   * Strength of haptic feedback (`lib/haptics.ts`, default medium); off silences
+   * it. Per-device: motors differ between phones.
+   */
+  hapticIntensity: HapticIntensity;
   /** Unit money amounts are shown/entered in. Synced (wallet connections stay local). */
   currencyDisplay: CurrencyDisplay;
   /**
@@ -427,6 +434,7 @@ export const PER_DEVICE_CONFIG_KEYS = [
   "meshIncognito",
   "meshEnabled",
   "androidBackLeavesApp",
+  "hapticIntensity",
   "powDifficulty",
   "discoverUnfiltered",
 ] as const satisfies ReadonlyArray<keyof AppConfig>;
@@ -481,6 +489,7 @@ export const defaultConfig: AppConfig = {
   meshIncognito: true,
   meshEnabled: false,
   androidBackLeavesApp: true,
+  hapticIntensity: "medium",
   currencyDisplay: "usd",
   defaultZapMethod: "bitcoin",
   zapsEnabled: true,

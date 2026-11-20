@@ -16,6 +16,7 @@ import { applyBlocklistSetting } from "@/lib/blocklistStore";
 import { setClientTagEnabled } from "@/lib/clientTag";
 import { setUltraShown } from "@/lib/ultra";
 import { setPowDifficulty } from "@/lib/pow";
+import { setHapticIntensity } from "@/lib/haptics";
 import { useThemePreview } from "@/lib/themePreview";
 import { hslStringToHex, isDarkTheme } from "@/lib/colorUtils";
 import { applyPaneWidth } from "@/lib/paneWidth";
@@ -149,6 +150,10 @@ export function AppProvider({ storageKey, children }: AppProviderProps) {
   useLayoutEffect(() => {
     setUltraShown(config.showUltra);
   }, [config.showUltra]);
+
+  useLayoutEffect(() => {
+    setHapticIntensity(config.hapticIntensity);
+  }, [config.hapticIntensity]);
 
   // Ahead of the initial sync's blocklist read, like the ones above.
   useLayoutEffect(() => {

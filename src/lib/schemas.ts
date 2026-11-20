@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defaultConfig, REPLY_GESTURES } from "@/contexts/AppContext";
+import { defaultConfig, HAPTIC_INTENSITIES, REPLY_GESTURES } from "@/contexts/AppContext";
 import { PAYMENT_METHOD_LIST, type PaymentTargetType } from "@/lib/paymentTargets";
 import { MAX_POW_DIFFICULTY } from "@/lib/pow";
 
@@ -176,6 +176,7 @@ export const AppConfigSchema = z.object({
   meshIncognito: z.boolean().catch(defaultConfig.meshIncognito),
   meshEnabled: z.boolean().catch(defaultConfig.meshEnabled),
   androidBackLeavesApp: z.boolean().catch(defaultConfig.androidBackLeavesApp),
+  hapticIntensity: z.enum(HAPTIC_INTENSITIES).catch(defaultConfig.hapticIntensity),
 });
 
 // Encrypted NIP-78 settings documents: one kind-30078 per domain, NIP-44 to self

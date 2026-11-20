@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
+import { selectionChanged } from "@/lib/haptics";
+
 /**
  * Swipe-to-reply: a LEFTWARD drag past `THRESHOLD` calls `onSwipe`. Left, so it never collides
  * with the rightward pane-reveal swipe (`useEdgeSwipe`) on the same surface. Horizontal must exceed
@@ -102,9 +104,7 @@ export function useSwipeToReply(
 
       if (clamped >= THRESHOLD && !vibrated.current) {
         vibrated.current = true;
-        if (typeof navigator !== "undefined" && navigator.vibrate) {
-          navigator.vibrate(10);
-        }
+        selectionChanged();
       }
     },
     [enabled],

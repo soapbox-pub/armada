@@ -4,12 +4,13 @@ import { QuickReactionsSettings } from "@/components/settings/QuickReactionsSett
 import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import type { ReplyGestures } from "@/contexts/AppContext";
+import type { HapticIntensity, ReplyGestures } from "@/contexts/AppContext";
 import type { FloodSensitivity } from "@/concord/lib/floodPolicy";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useIsTouch } from "@/hooks/useIsMobile";
 import { FormattedMessage, useIntl } from "@/i18n";
+import { impact, setHapticIntensity } from "@/lib/haptics";
 import { sendsOnEnter } from "@/lib/sendOnEnter";
 
 /** Settings › Chats: composing, typing status and reactions, everywhere you chat. */
@@ -83,6 +84,33 @@ export function ChatSettings() {
                 <SelectItem value="doubleTap"><FormattedMessage id="chatSettings.replyGestures.doubleTap" defaultMessage="Double-tap" /></SelectItem>
                 <SelectItem value="both"><FormattedMessage id="chatSettings.replyGestures.both" defaultMessage="Both" /></SelectItem>
                 <SelectItem value="off"><FormattedMessage id="chatSettings.replyGestures.off" defaultMessage="Off" /></SelectItem>
+              </SelectContent>
+            </Select>
+          </SettingsRow>
+        )}
+        {isTouch && (
+          <SettingsRow
+            label={intl.formatMessage({ id: "chatSettings.vibration", defaultMessage: "Vibration" })}
+            description={intl.formatMessage({ id: "chatSettings.vibrationDescription", defaultMessage: "How strongly this device vibrates when you tap, swipe or drag. Applies to this device only." })}
+          >
+            <Select
+              value={config.hapticIntensity}
+              onValueChange={(value) => {
+                const hapticIntensity = value as HapticIntensity;
+                // Apply before the provider's effect runs so the preview buzz is the new strength.
+                setHapticIntensity(hapticIntensity);
+                impact("medium");
+                updateConfig((current) => ({ ...current, hapticIntensity }));
+              }}
+            >
+              <SelectTrigger className="w-40 shrink-0" aria-label={intl.formatMessage({ id: "chatSettings.vibration", defaultMessage: "Vibration" })}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="off"><FormattedMessage id="chatSettings.vibration.off" defaultMessage="Off" /></SelectItem>
+                <SelectItem value="low"><FormattedMessage id="chatSettings.vibration.low" defaultMessage="Low" /></SelectItem>
+                <SelectItem value="medium"><FormattedMessage id="chatSettings.vibration.medium" defaultMessage="Medium" /></SelectItem>
+                <SelectItem value="high"><FormattedMessage id="chatSettings.vibration.high" defaultMessage="High" /></SelectItem>
               </SelectContent>
             </Select>
           </SettingsRow>
