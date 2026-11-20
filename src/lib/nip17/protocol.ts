@@ -375,6 +375,39 @@ export function dmAt(opened: Pick<OpenedDm, "createdAt" | "arrivedAt">): number 
   return opened.arrivedAt ?? opened.createdAt;
 }
 
+type DmOrderRow = Pick<OpenedDm, "rumorId" | "author" | "createdAt" | "arrivedAt">;
+
+/**
+ * Each row's place in a thread: its {@link dmAt}, but never before an earlier-dated
+ * message by the same author. Arrival is taken only past a skew threshold, so one
+ * sender's burst can mix arrival and own dates, and per-message latency would invert it.
+ */
+export function dmOrderTimes(rows: readonly DmOrderRow[]): Map<string, number> {
+  const byAuthor = new Map<string, DmOrderRow[]>();
+  for (const row of rows) {
+    const list = byAuthor.get(row.author);
+    if (list) list.push(row);
+    else byAuthor.set(row.author, [row]);
+  }
+  const out = new Map<string, number>();
+  for (const list of byAuthor.values()) {
+    list.sort((a, b) => a.createdAt - b.createdAt || (a.rumorId < b.rumorId ? -1 : 1));
+    let floor = -Infinity;
+    for (const row of list) {
+      floor = Math.max(floor, dmAt(row));
+      out.set(row.rumorId, floor);
+    }
+  }
+  return out;
+}
+
+/** `rows` in thread order (see {@link dmOrderTimes}), sorted in place. */
+export function sortDmThread<T extends DmOrderRow>(rows: T[]): T[] {
+  const at = dmOrderTimes(rows);
+  return rows.sort((a, b) =>
+    at.get(a.rumorId)! - at.get(b.rumorId)! || a.createdAt - b.createdAt || (a.rumorId < b.rumorId ? -1 : 1));
+}
+
 /** The NIP-40 deadline this opened rumor disappears at, if any. */
 export function dmExpiresAt(opened: Pick<OpenedDm, "tags">): number | undefined {
   return expirationOf(opened.tags);

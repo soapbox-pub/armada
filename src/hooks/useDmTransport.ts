@@ -5,7 +5,7 @@ import { KIND_DM, useDirectMessages } from "@/hooks/useDirectMessages";
 import { useDm17Thread } from "@/hooks/useDm17";
 import { useDmProtocolPref } from "@/hooks/useDmProtocolPref";
 import { reactionContentKey } from "@/hooks/useReactions";
-import { dmTimerSeconds, KIND_DM_CHAT } from "@/lib/nip17/protocol";
+import { dmOrderTimes, dmTimerSeconds, KIND_DM_CHAT } from "@/lib/nip17/protocol";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 import type { ChannelTimelineEntry } from "@/components/chat/channelTimeline";
@@ -61,7 +61,7 @@ export function mergeDmPlanes<M extends { id: string; created_at: number }>(
   if (dm17Paging) floor = Math.max(floor, oldest(dm17));
   return [...kind4, ...dm17]
     .filter((m) => m.created_at >= floor || m.id === keepId)
-    .sort((a, b) => at(a) - at(b) || (a.id < b.id ? -1 : 1));
+    .sort((a, b) => at(a) - at(b) || a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
 }
 
 export class LegacyFallbackRequired extends Error {
@@ -197,12 +197,8 @@ export function useDmTransport(
 
   const dm17Ids = useMemo(() => new Set(dm17Messages.map((m) => m.id)), [dm17Messages]);
   // Each message's time for order and read stamps: a NIP-17 one's arrival where recorded.
-  const arrivedAt = useMemo(() => {
-    const out = new Map<string, number>();
-    for (const m of dm17.messages) if (m.arrivedAt !== undefined) out.set(m.rumorId, m.arrivedAt);
-    return out;
-  }, [dm17.messages]);
-  const atOf = useCallback((m: ChatMsg) => arrivedAt.get(m.id) ?? m.created_at, [arrivedAt]);
+  const orderAt = useMemo(() => dmOrderTimes(dm17.messages), [dm17.messages]);
+  const atOf = useCallback((m: ChatMsg) => orderAt.get(m.id) ?? m.created_at, [orderAt]);
   // Via a ref: `dm17Ids` changes every history page, which would re-render every row.
   const dm17IdsRef = useRef(dm17Ids);
   dm17IdsRef.current = dm17Ids;
@@ -241,7 +237,8 @@ export function useDmTransport(
         seconds,
       });
     }
-    return out.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+    const sentAt = (e: ChannelTimelineEntry) => (e.type === "chat" ? e.message.created_at : e.createdAt);
+    return out.sort((a, b) => a.createdAt - b.createdAt || sentAt(a) - sentAt(b) || a.id.localeCompare(b.id));
   }, [chatMessages, dm17TimerChanges, atOf]);
 
   const encryptedIds = useMemo(

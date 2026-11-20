@@ -35,7 +35,6 @@ import { markOwnWebPushEvent } from "@/lib/webPushState";
 import {
   buildDmEditRumors,
   buildDmRumor,
-  dmAt,
   DM_RUMOR_KINDS,
   dmChatTags,
   dmDeleteTags,
@@ -55,6 +54,7 @@ import {
   MAX_WRAP_BACKDATE_SECS,
   openDmWrap,
   sealDmRumor,
+  sortDmThread,
   wrapDmSeal,
   type Dm17Signer,
   type DmWebxdcMeta,
@@ -1131,7 +1131,7 @@ export function useDm17Thread(
       }
       if (ctx) void syncDm17Inbox(ctx, { interactive: true });
       sweepExpiredSoon(self!);
-      return rows.sort((a, b) => dmAt(a) - dmAt(b) || (a.rumorId < b.rumorId ? -1 : 1));
+      return sortDmThread(rows);
     },
     staleTime: 10_000,
     refetchInterval: 60_000,
@@ -1225,7 +1225,7 @@ export function useDm17Thread(
         timerChanges.push(r);
       }
     }
-    messages.sort((a, b) => dmAt(a) - dmAt(b) || (a.rumorId < b.rumorId ? -1 : 1));
+    sortDmThread(messages);
     timerChanges.sort((a, b) => a.createdAt - b.createdAt || (a.rumorId < b.rumorId ? -1 : 1));
     return { messages, reactionsByTarget, timerChanges, nextExpiry };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1644,9 +1644,7 @@ export function useDm17Thread(
       const added = after.reduce((count, row) => count + (beforeIds.has(row.rumorId) ? 0 : 1), 0);
       // Out of history only when relays are exhausted AND the store had nothing older.
       if (exhausted && added === 0) setHasMore(false);
-      queryClient.setQueryData<OpenedDm[]>(queryKey, after.sort(
-        (a, b) => dmAt(a) - dmAt(b) || (a.rumorId < b.rumorId ? -1 : 1),
-      ));
+      queryClient.setQueryData<OpenedDm[]>(queryKey, sortDmThread(after));
       return added;
     } catch {
       return 0;

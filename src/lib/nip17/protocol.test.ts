@@ -25,6 +25,7 @@ import {
   MAX_WRAP_BACKDATE_SECS,
   openDmWrap,
   sealDmRumor,
+  sortDmThread,
   wrapDmSeal,
   wrapDmSealEphemeral,
   type Dm17Signer,
@@ -567,5 +568,25 @@ describe("group conversations", () => {
     const key = dmConvKey(dmPeersOf(chat, self)!);
     expect(dmConvKey(dmPeersOf(reaction, self)!)).toBe(key);
     expect(dmConvKey(dmPeersOf(del, self)!)).toBe(key);
+  });
+});
+
+describe("thread order (sortDmThread)", () => {
+  const row = (rumorId: string, author: string, createdAt: number, arrivedAt?: number) => ({ rumorId, author, createdAt, arrivedAt });
+
+  it("never puts a sender's later message above their earlier one when only one was timed by arrival", () => {
+    // A took 4 s to arrive (past the skew threshold); B, written after it, arrived quickly.
+    const rows = [row("b", "peer", 102), row("a", "peer", 100, 104)];
+    expect(sortDmThread(rows).map((r) => r.rumorId)).toEqual(["a", "b"]);
+  });
+
+  it("still lifts a slow clock's message above a reply it arrived before", () => {
+    const rows = [row("mine", "self", 200), row("theirs", "peer", 100, 199)];
+    expect(sortDmThread(rows).map((r) => r.rumorId)).toEqual(["theirs", "mine"]);
+  });
+
+  it("places other authors by the raised time", () => {
+    const rows = [row("b", "peer", 102), row("a", "peer", 100, 106), row("mine", "self", 105)];
+    expect(sortDmThread(rows).map((r) => r.rumorId)).toEqual(["mine", "a", "b"]);
   });
 });
