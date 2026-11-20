@@ -1323,10 +1323,10 @@ function ConcordCommunityPage() {
   const { uncategorized: uncategorizedChannels, categories: channelCategories } = useMemo(() => {
     const grouped = groupChannelsByCategory(arrangedChannels, (c) => c.category);
     if (!folded?.rankedRoster) return grouped;
-    // An empty Category shows to who can file into it, and to everyone when it truly holds nothing.
+    // An empty Category shows only to who can file into it: a sealed Private Channel's
+    // category is inside its seal (CORD-03 §2), so "holds nothing" can't be told from "holds what you can't see".
     const manager = Boolean(user && isAuthorized(folded.roster, user.pubkey, folded.ownerHex, Permissions.MANAGE_CHANNELS));
-    const holds = new Set([...folded.channels.values()].filter((c) => !c.deleted && typeof c.metadata.category === "string").map((c) => c.metadata.category as string));
-    return { ...grouped, categories: withRankedCategories(grouped.categories, categoryOrder(folded), (id) => manager || !holds.has(id)) };
+    return { ...grouped, categories: withRankedCategories(grouped.categories, categoryOrder(folded), () => manager) };
   }, [arrangedChannels, folded, user]);
 
   // A vsk-13 Category stands on its own (CORD-03 §4), so an empty one is offered too.
