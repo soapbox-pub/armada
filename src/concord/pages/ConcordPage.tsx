@@ -1,10 +1,11 @@
 import { observedAuthors } from "@/concord/lib/observedAuthors";
 import { useCommunityRumors } from "@/concord/hooks/useCommunityRumors";
 import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Bell, BellOff, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, Gem, MessageSquareText, MessagesSquare, Pause, Pencil, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createRef, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Navigate, useLocation, useNavigationType, useSearchParams } from "react-router-dom";
 
 import { AppStageSlot } from "@/components/chat/AppStage";
+import { KeptTimelines, useKeptTimelines } from "@/components/chat/keptTimelines";
 import { MountWhenOpened } from "@/components/MountWhenOpened";
 import { CallStageSlot } from "@/components/chat/CallStageSlot";
 import { ChatComposer } from "@/components/chat/ChatComposer";
@@ -39,7 +40,7 @@ import {
 } from "@/concord/lib/channelArrangement";
 import { useChannelDrag, type ChannelDrop, type ChannelDropSlot } from "@/concord/hooks/useChannelDrag";
 import { isSameDay } from "@/components/chat/dayLabel";
-import { DateSeparator, MessageTimeline } from "@/components/chat/MessageTimeline";
+import { DateSeparator, MessageTimeline, type MessageTimelineHandle } from "@/components/chat/MessageTimeline";
 import { ThreadPanelSlot } from "@/components/chat/ThreadPanelSlot";
 import { useThreadPanel } from "@/hooks/useThreadPanel";
 import { useTimelineFocus } from "@/hooks/useTimelineFocus";
@@ -2874,6 +2875,87 @@ function ConcordCommunityPage() {
   const publishTyping = useTypingPublisher(community, channel, allMessages);
   const typingPubkeys = useTyping(community, channel, allMessages);
 
+  // Revisits are the common switch: the last few channels' timelines stay mounted,
+  // hidden and frozen, so coming back updates rows in place instead of mounting and
+  // laying out every one again. Each keeps its own handle; `timelineRef` follows the shown one.
+  const timelineHandles = useRef(new Map<string, RefObject<MessageTimelineHandle | null>>());
+  const timelineHandleFor = (id: string) => {
+    let handle = timelineHandles.current.get(id);
+    if (!handle) timelineHandles.current.set(id, (handle = createRef<MessageTimelineHandle | null>() as RefObject<MessageTimelineHandle | null>));
+    return handle;
+  };
+  const liveTimeline = presentation === "feed" ? null : (
+  <MessageTimeline
+    key={channel?.idHex ?? ""}
+    transport={transport}
+    entries={mixedEntries}
+    newDividerId={newDividerId}
+    renderEntry={(entry, relatedEntries) => isGitTimelineEntry(entry) ? <GitTimelineRow entry={entry} onOpen={openChannelTicket} related={relatedEntries} /> : entry.type === "dm-timer" ? <TimerNotice author={entry.author} seconds={entry.seconds} self={user?.pubkey} /> : null}
+    handleRef={timelineHandleFor(channel?.idHex ?? "")}
+    syncing={channelSyncing || gateResolving}
+    syncFailed={channelSyncFailed}
+    className="flex-1 min-h-0"
+    emptyState={
+      // Only once a channel has resolved. A decode dead-end (wraps
+      // pulled, none opened) is distinct from "empty".
+      channel ? (
+        channelDecodeDeadEnd(channel.idHex) ? (
+          <p className="px-2 py-8 text-center text-sm text-muted-foreground">
+            <FormattedMessage id="concordPage.timeline.undecryptable" defaultMessage="There are messages here, but they can't be decrypted with the keys this device holds yet. They should become readable once the next key update from the community reaches you." />
+          </p>
+        ) : (
+          <p className="px-2 py-8 text-center text-sm text-muted-foreground">
+            <FormattedMessage id="concordPage.timeline.empty" defaultMessage="No messages yet. Only members can read this channel." />
+          </p>
+        )
+      ) : undefined
+    }
+    renderMessage={(msg, continuation) => {
+      const replyId = getQuoteReplyToId(msg);
+      return (
+      <ConcordChatMessage
+        key={msg.id}
+        event={msg}
+        title={subjectOf(msg)}
+        permalink={permalink}
+        reactions={reactionsFor(msg.id)}
+        zaps={transport.zapsFor?.(msg.id)}
+        onSendZap={config.zapsEnabled ? transport.sendZap : undefined}
+        onSendOnchainZap={config.zapsEnabled ? transport.sendOnchainZap : undefined}
+        poll={transport.pollFor?.(msg.id)}
+        calendar={transport.calendarFor?.(msg.id)}
+        replies={transport.threadRepliesFor?.(msg.id) ?? EMPTY_REPLIES}
+        continuation={continuation}
+        canWrite={transport.canWrite}
+        canModerate={transport.canModerate}
+        everyoneMention={Boolean(transport.mentionsEveryone?.(msg))}
+        isPinned={Boolean(transport.isPinned?.(msg.id))}
+        onTogglePin={transport.togglePin}
+        sendStatus={transport.sendStatusFor?.(msg.id)}
+        active={activeId === msg.id}
+        onToggleActive={toggleActive}
+        onOpenThread={onOpenThreadCb}
+        onReply={canWrite ? setReplyTo : undefined}
+        replyToId={replyId}
+        replyParent={replyId ? (messagesById.get(replyId) ?? olderReplyParents.get(replyId)) : undefined}
+        onJumpToReply={jumpWithinChannel}
+        onDelete={transport.deleteMessage}
+        onRetry={transport.retry}
+        onDiscard={transport.discard}
+        isEditing={editingId === msg.id}
+        onEdit={canWrite ? startEditing : undefined}
+        onEditSubmit={handleEditSubmit}
+        onEditCancel={cancelEditing}
+      />
+      );
+    }}
+  />
+  );
+  const keptTimelines = useKeptTimelines(channel?.idHex, liveTimeline, (id) => timelineHandles.current.delete(id));
+  useLayoutEffect(() => {
+    timelineRef.current = (channel && timelineHandles.current.get(channel.idHex)?.current) || null;
+  });
+
   if (!communityId) return <Navigate to="/" replace />;
   // Render NOTHING of the community to a non-member; placed before all of it.
   if (noAccess) {
@@ -3964,72 +4046,7 @@ function ConcordCommunityPage() {
                       }
                     />
                   ) : (
-                  <MessageTimeline
-                    // No per-channel `key`: switch in place; the lost anchor resets
-                    // the timeline via its `anchorLost` path.
-                    transport={transport}
-                    entries={mixedEntries}
-                    newDividerId={newDividerId}
-                    renderEntry={(entry, relatedEntries) => isGitTimelineEntry(entry) ? <GitTimelineRow entry={entry} onOpen={openChannelTicket} related={relatedEntries} /> : entry.type === "dm-timer" ? <TimerNotice author={entry.author} seconds={entry.seconds} self={user?.pubkey} /> : null}
-                    handleRef={timelineRef}
-                    syncing={channelSyncing || gateResolving}
-                    syncFailed={channelSyncFailed}
-                    className="flex-1 min-h-0"
-                    emptyState={
-                      // Only once a channel has resolved. A decode dead-end (wraps
-                      // pulled, none opened) is distinct from "empty".
-                      channel ? (
-                        channelDecodeDeadEnd(channel.idHex) ? (
-                          <p className="px-2 py-8 text-center text-sm text-muted-foreground">
-                            <FormattedMessage id="concordPage.timeline.undecryptable" defaultMessage="There are messages here, but they can't be decrypted with the keys this device holds yet. They should become readable once the next key update from the community reaches you." />
-                          </p>
-                        ) : (
-                          <p className="px-2 py-8 text-center text-sm text-muted-foreground">
-                            <FormattedMessage id="concordPage.timeline.empty" defaultMessage="No messages yet. Only members can read this channel." />
-                          </p>
-                        )
-                      ) : undefined
-                    }
-                    renderMessage={(msg, continuation) => {
-                      const replyId = getQuoteReplyToId(msg);
-                      return (
-                      <ConcordChatMessage
-                        key={msg.id}
-                        event={msg}
-                        title={subjectOf(msg)}
-                        permalink={permalink}
-                        reactions={reactionsFor(msg.id)}
-                        zaps={transport.zapsFor?.(msg.id)}
-                        onSendZap={config.zapsEnabled ? transport.sendZap : undefined}
-                        onSendOnchainZap={config.zapsEnabled ? transport.sendOnchainZap : undefined}
-                        poll={transport.pollFor?.(msg.id)}
-                        calendar={transport.calendarFor?.(msg.id)}
-                        replies={transport.threadRepliesFor?.(msg.id) ?? EMPTY_REPLIES}
-                        continuation={continuation}
-                        canWrite={transport.canWrite}
-                        canModerate={transport.canModerate}
-                        everyoneMention={Boolean(transport.mentionsEveryone?.(msg))}
-                        isPinned={Boolean(transport.isPinned?.(msg.id))}
-                        onTogglePin={transport.togglePin}
-                        sendStatus={transport.sendStatusFor?.(msg.id)}
-                        active={activeId === msg.id}
-                        onToggleActive={toggleActive}
-                        onOpenThread={onOpenThreadCb}
-                        onReply={canWrite ? setReplyTo : undefined}
-                        replyToId={replyId}
-                        replyParent={replyId ? (messagesById.get(replyId) ?? olderReplyParents.get(replyId)) : undefined}
-                        onJumpToReply={jumpWithinChannel}
-                        onDelete={transport.deleteMessage}
-                        onRetry={transport.retry}
-                        onDiscard={transport.discard}
-                        isEditing={editingId === msg.id}
-                        onEdit={canWrite ? startEditing : undefined}
-                        onEditSubmit={handleEditSubmit}
-                        onEditCancel={cancelEditing}
-                      />
-                      );
-                    }}
-                  />
+                  <KeptTimelines active={channel?.idHex} kept={keptTimelines}>{liveTimeline}</KeptTimelines>
                   )}
 
                   {presentation !== "feed" && typingPubkeys.length > 0 && <TypingIndicator pubkeys={typingPubkeys} />}
