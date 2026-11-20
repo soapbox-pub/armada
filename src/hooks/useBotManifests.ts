@@ -37,6 +37,7 @@ export interface BotManifestsResult {
 }
 
 const EMPTY: string[] = [];
+const EMPTY_ROSTER = { members: EMPTY, key: bytesToHex(sha256(new Uint8Array())) };
 // Stable empties, so consumers' memo inputs don't churn.
 const EMPTY_ENTRIES: BotCommandEntry[] = [];
 const EMPTY_PROFILES: Record<string, BotRosterProfile> = {};
@@ -93,6 +94,23 @@ function newestPerAuthor(events: NostrEvent[], asked: Set<string>, kind: number)
 }
 
 /**
+ * A roster deduplicated and sorted, so its key is stable under reordering, and that
+ * key hashed: thousands of pubkeys in a query key are re-hashed by every observer on
+ * every render. Per input array, since the composer remounts on every channel switch.
+ */
+const rosters = new WeakMap<string[], { members: string[]; key: string }>();
+function rosterOf(memberPubkeys: string[] | undefined): { members: string[]; key: string } {
+  if (!memberPubkeys) return EMPTY_ROSTER;
+  let roster = rosters.get(memberPubkeys);
+  if (!roster) {
+    const members = [...new Set(memberPubkeys)].sort();
+    roster = { members, key: bytesToHex(sha256(new TextEncoder().encode(members.join(",")))) };
+    rosters.set(memberPubkeys, roster);
+  }
+  return roster;
+}
+
+/**
  * Resolve the bot commands available in a conversation. Two-stage: kind-0 `bot`
  * flags (NIP-24) pick the bots, then only they get a manifest query. Invalid
  * manifests are ignored entirely. Warms on open so the composer knows whether
@@ -107,13 +125,7 @@ export function useBotManifests(
   const { config } = useAppContext();
   const eventStore = useEventStore();
 
-  // Sorted + joined so the key is stable under reordering.
-  const members = useMemo(
-    () => (memberPubkeys ? [...new Set(memberPubkeys)].sort() : EMPTY),
-    [memberPubkeys],
-  );
-  // Hashed: thousands of pubkeys in a query key are re-hashed by every observer on every render.
-  const membersKey = useMemo(() => bytesToHex(sha256(new TextEncoder().encode(members.join(",")))), [members]);
+  const { members, key: membersKey } = useMemo(() => rosterOf(memberPubkeys), [memberPubkeys]);
 
   // Search the conversation's relays plus app relays: a bot's kind-0 may never
   // have reached the pool.
