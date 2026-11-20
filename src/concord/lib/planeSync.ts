@@ -34,7 +34,7 @@ import { readControlSnapshot, writeOpened } from "@/concord/lib/rumorStore";
 import { isStreamPubkey, streamAuthsSettled } from "@/concord/lib/streamAuth";
 import { openWrap, openWrapsBatched, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib/stream";
 import { verifyEventsOnce } from "@/lib/verifyCache";
-import { ecVerifyBatch } from "@/lib/verifyPool";
+import { ecDecryptBatch, ecVerifyBatch } from "@/lib/verifyPool";
 import type { StreamKeyView } from "@/concord/lib/derive";
 import type { Community } from "@/concord/lib/types";
 import { getArmadaDB } from "@/lib/db/armadaDB";
@@ -229,7 +229,7 @@ export async function openPlaneWrapsChunked(wraps: NostrRumor[], groups: StreamK
     const stream = byPk.get(wrap.pubkey);
     if (stream) items.push({ wrap, stream });
   }
-  const opened = await openWrapsBatched(items, (seals) => verifyEventsOnce(seals, ecVerifyBatch), PLANE_DECODE_SLICE_MS);
+  const opened = await openWrapsBatched(items, (seals) => verifyEventsOnce(seals, ecVerifyBatch), PLANE_DECODE_SLICE_MS, ecDecryptBatch);
   return opened.filter((o): o is OpenedWireEvent => o !== undefined);
 }
 

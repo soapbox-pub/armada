@@ -1,3 +1,4 @@
+import { decrypt as nip44Decrypt } from "nostr-tools/nip44";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import type { EventTemplate } from "nostr-tools/pure";
 import { describe, expect, it } from "vitest";
@@ -258,5 +259,39 @@ describe("openWrapsBatched", () => {
     const again = await openWrapsBatched(good.map((wrap) => ({ wrap, stream })), verify);
     expect(again.map((o) => o?.content)).toEqual(["one", "two"]);
     expect(batches).toBe(1);
+  });
+});
+
+describe("openWrapsBatched with a decrypt batch", () => {
+  it("opens what the synchronous path opens, through the batch, and still drops a forged seal", async () => {
+    const alice = testSigner();
+    const stream = channelGroupKey(secret, channelId, 0);
+    const rumorOf = (content: string) => buildRumor({ kind: KIND_MESSAGE, content, tags: channelBindingTags(channelIdHex, 0n), pubkey: alice.pubkey });
+    const good = [
+      await wrapSeal(await sealRumor(rumorOf("enc"), KIND_SEAL_ENCRYPTED, stream, alice), stream),
+      await wrapSeal(await sealRumor(rumorOf("plain"), KIND_SEAL_PLAINTEXT, stream, alice), stream),
+    ];
+    const seal = await sealRumor(rumorOf("forged"), KIND_SEAL_ENCRYPTED, stream, alice);
+    const forged = await wrapSeal({ ...seal, sig: "00".repeat(64) }, stream);
+    let decrypts = 0;
+    const decrypt = async (jobs: Array<{ key: Uint8Array; payload: string }>) =>
+      jobs.map((job) => {
+        decrypts++;
+        try {
+          return nip44Decrypt(job.payload, job.key);
+        } catch {
+          return null;
+        }
+      });
+    const out = await openWrapsBatched(
+      [good[0], forged, good[1]].map((wrap) => ({ wrap, stream })),
+      (seals) => verifyEventsOnce(seals, ecVerifyBatch),
+      5,
+      decrypt,
+    );
+    expect(out.map((o) => o?.content)).toEqual(["enc", undefined, "plain"]);
+    expect(out[0]).toMatchObject({ sealKind: KIND_SEAL_ENCRYPTED, author: alice.pubkey, wrapId: good[0].id });
+    // Three wraps, then only the one encrypted seal that verified.
+    expect(decrypts).toBe(4);
   });
 });

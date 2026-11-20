@@ -22,10 +22,11 @@
  */
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
-import { finalizeEvent, generateSecretKey } from "nostr-tools/pure";
+import * as nip44 from "nostr-tools/nip44";
+import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { _resetVerifyPoolForTests, ecSignBatch, ecVerifyBatch } from "./verifyPool";
+import { _resetVerifyPoolForTests, ecDecryptBatch, ecSignBatch, ecVerifyBatch } from "./verifyPool";
 
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -57,6 +58,14 @@ function realSign(job: SignJob): string | null {
  * already broken (a message to it simply vanishes, which is what dispatching
  * to a dead browser worker does).
  */
+function realDecrypt(job: { key: Uint8Array; payload: string }): string | null {
+  try {
+    return nip44.decrypt(job.payload, job.key);
+  } catch {
+    return null;
+  }
+}
+
 class FakeWorker {
   static instances: FakeWorker[] = [];
   static messages = 0;
@@ -86,7 +95,9 @@ class FakeWorker {
     }
     const response: WorkerResponse = request.op === "sign"
       ? { id: request.id, results: request.jobs.map(realSign) }
-      : { id: request.id, results: request.triples.map(realVerify) };
+      : request.op === "decrypt"
+        ? { id: request.id, results: request.jobs.map(realDecrypt) }
+        : { id: request.id, results: request.triples.map(realVerify) };
     queueMicrotask(() => this.onmessage?.({ data: response }));
   }
 
@@ -235,6 +246,27 @@ describe("ecVerifyBatch", () => {
     ).not.toThrow();
   });
 
+  it("keeps a worker whose reply waited behind a long task on this thread", async () => {
+    _resetVerifyPoolForTests({ roundDeadlineMs: 20 });
+    await ecVerifyBatch(triples(30));
+    const worker = FakeWorker.instances[0];
+    worker.behavior = "silent";
+    const pending = ecVerifyBatch(triples(30));
+    // A long task: the deadline timer comes due while this thread can't run it.
+    const end = performance.now() + 300;
+    while (performance.now() < end) {
+      // busy
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(worker.terminated).toBe(false);
+    for (const request of worker.swallowed) {
+      const n = request.op === "verify" ? request.triples.length : request.jobs.length;
+      worker.onmessage?.({ data: { id: request.id, results: Array<boolean>(n).fill(true) } });
+    }
+    expect((await pending).every(Boolean)).toBe(true);
+    expect(worker.terminated).toBe(false);
+  });
+
   it("yields to the event loop while verifying inline", async () => {
     // No Worker at all: the whole batch runs on this thread — which is exactly
     // when blocking matters. A macrotask queued before the call must get to
@@ -332,5 +364,19 @@ describe("ecSignBatch", () => {
 
     set.forEach((s, i) => expect(validSig(sigs[i], s.job.hash, s.pubkey)).toBe(true));
     expect(interleaved).toBe(true);
+  });
+});
+
+describe("ecDecryptBatch", () => {
+  it("opens payloads in order, in the pool and inline, with null for one that doesn't open", async () => {
+    const key = nip44.getConversationKey(generateSecretKey(), getPublicKey(generateSecretKey()));
+    const jobs = Array.from({ length: 80 }, (_, i) => ({ key, payload: nip44.encrypt(`m${i}`, key) }));
+    jobs[7] = { key, payload: jobs[7].payload.slice(0, -8) + "AAAAAAAA" };
+    const pooled = await ecDecryptBatch(jobs);
+    expect(FakeWorker.messages).toBeGreaterThan(0);
+    expect(pooled[0]).toBe("m0");
+    expect(pooled[7]).toBeNull();
+    expect(pooled[79]).toBe("m79");
+    expect(await ecDecryptBatch(jobs.slice(0, 1))).toEqual(["m0"]);
   });
 });

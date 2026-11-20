@@ -16,10 +16,31 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 
 import type { EcVerifyBatch, VerifyTriple } from "./verifyCache";
-import type { SignJob, WorkerRequest, WorkerResponse } from "./verifyWorkerTypes";
+import { decrypt as nip44Decrypt } from "nostr-tools/nip44";
 
-/** Min verify batch for the pool (~1ms fixed round cost vs ~1.8ms/verify on desktop). */
-const VERIFY_INLINE_THRESHOLD = 24;
+import type { DecryptJob, SignJob, WorkerRequest, WorkerResponse } from "./verifyWorkerTypes";
+
+/**
+ * Main-thread time a verify batch may take inline before it goes to the pool. Measured,
+ * not counted: a verify is ~1.8ms on a desktop and ~9ms on a low-end phone, where a
+ * fixed count kept every relay drain on the UI thread.
+ */
+const VERIFY_INLINE_BUDGET_MS = 16;
+const VERIFY_INLINE_MAX = 24;
+/** Running average of one inline verify, seeded with a desktop's. */
+let inlineVerifyMs = 1.8;
+
+function verifyInlineThreshold(): number {
+  return Math.max(2, Math.min(VERIFY_INLINE_MAX, Math.ceil(VERIFY_INLINE_BUDGET_MS / inlineVerifyMs)));
+}
+
+/** {@link verifyOneInline}, feeding the average the threshold is set by. */
+function verifyOneTimed(t: VerifyTriple): boolean {
+  const start = performance.now();
+  const ok = verifyOneInline(t);
+  inlineVerifyMs = inlineVerifyMs * 0.9 + (performance.now() - start) * 0.1;
+  return ok;
+}
 
 /** Signing (~4ms incl. @noble's self-verify): two already beat the round trip. */
 const SIGN_INLINE_THRESHOLD = 2;
@@ -35,13 +56,16 @@ const ROUND_DEADLINE_BASE_MS = 2_000;
 const ROUND_DEADLINE_PER_VERIFY_MS = 50;
 const ROUND_DEADLINE_PER_SIGN_MS = 100;
 
+/** A deadline timer this late fired after a long task, not after the worker's silence. */
+const LATE_TIMER_MS = 250;
+
 let roundDeadlineOverride: number | undefined;
 
 function roundDeadlineMs(request: WorkerRequest): number {
   if (roundDeadlineOverride !== undefined) return roundDeadlineOverride;
-  return request.op === "sign"
-    ? ROUND_DEADLINE_BASE_MS + ROUND_DEADLINE_PER_SIGN_MS * request.jobs.length
-    : ROUND_DEADLINE_BASE_MS + ROUND_DEADLINE_PER_VERIFY_MS * request.triples.length;
+  if (request.op === "sign") return ROUND_DEADLINE_BASE_MS + ROUND_DEADLINE_PER_SIGN_MS * request.jobs.length;
+  if (request.op === "decrypt") return ROUND_DEADLINE_BASE_MS + ROUND_DEADLINE_PER_VERIFY_MS * request.jobs.length;
+  return ROUND_DEADLINE_BASE_MS + ROUND_DEADLINE_PER_VERIFY_MS * request.triples.length;
 }
 
 /** Leave cores for the compositor; the pool is to free the UI thread, not saturate. */
@@ -156,10 +180,20 @@ function ensurePool(): PoolWorker[] | null {
  */
 function dispatch(entry: PoolWorker, request: WorkerRequest): Promise<unknown[] | null> {
   return new Promise<unknown[] | null>((resolve) => {
-    const deadline = setTimeout(() => {
-      if (entry.pending.has(request.id)) retire(entry);
-    }, roundDeadlineMs(request));
-    entry.pending.set(request.id, { settle: resolve, deadline });
+    const ms = roundDeadlineMs(request);
+    // The deadline is a timer on THIS thread: when a long task held it, the reply can
+    // be queued behind the overdue timer, which then retired a healthy worker for the
+    // session and left every verify inline. A timer that fired late only re-arms.
+    const arm = (): ReturnType<typeof setTimeout> => {
+      const due = performance.now() + ms;
+      return setTimeout(() => {
+        const round = entry.pending.get(request.id);
+        if (!round) return;
+        if (performance.now() - due > LATE_TIMER_MS) round.deadline = arm();
+        else retire(entry);
+      }, ms);
+    };
+    entry.pending.set(request.id, { settle: resolve, deadline: arm() });
     try {
       entry.worker.postMessage(request);
     } catch {
@@ -209,10 +243,38 @@ async function runBatch<J, R>(
 export const ecVerifyBatch: EcVerifyBatch = (triples: VerifyTriple[]): Promise<boolean[]> =>
   runBatch(
     triples,
-    VERIFY_INLINE_THRESHOLD,
+    verifyInlineThreshold(),
     (chunk) => ({ id: nextRoundId++, op: "verify", triples: chunk }),
-    verifyOneInline,
+    verifyOneTimed,
     (answer) => answer === true,
+  );
+
+/** Running average of one inline NIP-44 open (~0.3ms on a desktop, ~2ms on a low-end phone). */
+let inlineDecryptMs = 0.3;
+
+function decryptOneTimed(job: DecryptJob): string | null {
+  const start = performance.now();
+  let out: string | null;
+  try {
+    out = nip44Decrypt(job.payload, job.key);
+  } catch {
+    out = null;
+  }
+  inlineDecryptMs = inlineDecryptMs * 0.9 + (performance.now() - start) * 0.1;
+  return out;
+}
+
+/**
+ * Open NIP-44 payloads (pool or inline), in order; `null` where one doesn't open.
+ * Never throws. Worker failures fall back inline.
+ */
+export const ecDecryptBatch = (jobs: DecryptJob[]): Promise<(string | null)[]> =>
+  runBatch(
+    jobs,
+    Math.max(2, Math.min(VERIFY_INLINE_MAX * 4, Math.ceil(VERIFY_INLINE_BUDGET_MS / inlineDecryptMs))),
+    (chunk) => ({ id: nextRoundId++, op: "decrypt", jobs: chunk }),
+    decryptOneTimed,
+    (answer) => (typeof answer === "string" ? answer : null),
   );
 
 /** A pluggable Schnorr batch signer: one hex signature (or `null`) per job, in order. */
@@ -236,5 +298,7 @@ export function _resetVerifyPoolForTests(opts?: { roundDeadlineMs?: number }): v
   if (Array.isArray(pool)) for (const entry of pool) retire(entry);
   pool = undefined;
   nextRoundId = 0;
+  inlineVerifyMs = 1.8;
+  inlineDecryptMs = 0.3;
   roundDeadlineOverride = opts?.roundDeadlineMs;
 }

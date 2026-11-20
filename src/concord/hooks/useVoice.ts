@@ -19,7 +19,7 @@ import {
 } from "@/concord/lib/stream";
 import type { StreamKeyView } from "@/concord/lib/derive";
 import { verifyEventsOnce } from "@/lib/verifyCache";
-import { ecVerifyBatch } from "@/lib/verifyPool";
+import { ecDecryptBatch, ecVerifyBatch } from "@/lib/verifyPool";
 import { citationFor, useControlFold } from "@/concord/hooks/useControlPlane";
 import { mayConnect } from "@/concord/lib/callGate";
 import { citationToTag } from "@/concord/lib/edition";
@@ -95,7 +95,7 @@ function batchedOpener(group: StreamKeyView, handle: (opened: OpenedWireEvent) =
     scheduled = false;
     const batch = queue;
     queue = [];
-    const opened = await openWrapsBatched(batch.map((wrap) => ({ wrap, stream: group })), (seals) => verifyEventsOnce(seals, ecVerifyBatch));
+    const opened = await openWrapsBatched(batch.map((wrap) => ({ wrap, stream: group })), (seals) => verifyEventsOnce(seals, ecVerifyBatch), undefined, ecDecryptBatch);
     if (stopped) return;
     for (const o of opened) if (o) handle(o);
   };

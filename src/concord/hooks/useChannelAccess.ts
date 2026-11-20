@@ -25,7 +25,7 @@ import { registerStreamKeys } from "@/concord/lib/streamAuth";
 import { peekPendingWraps } from "@/concord/lib/rumorStore";
 import { openWrap, openWrapsBatched, type OpenedEvent, type OpenedWireEvent } from "@/concord/lib/stream";
 import { idIsHash, verifyEventsOnce } from "@/lib/verifyCache";
-import { ecVerifyBatch } from "@/lib/verifyPool";
+import { ecDecryptBatch, ecVerifyBatch } from "@/lib/verifyPool";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { nowSecs } from "@/lib/relayClock";
@@ -226,7 +226,7 @@ export async function readAccessPlanes(
   // Only wraps not opened before; a flooded plane is thousands, and their seals verify in one batch.
   const openings = listed.map(({ wrap }) => memoizedOpening(wrap));
   const fresh = listed.filter((_, i) => openings[i] === undefined);
-  const opened = await openWrapsBatched(fresh.map(({ wrap, at }) => ({ wrap, stream: at.plane })), (seals) => verifyEventsOnce(seals, ecVerifyBatch), OPEN_SLICE_MS);
+  const opened = await openWrapsBatched(fresh.map(({ wrap, at }) => ({ wrap, stream: at.plane })), (seals) => verifyEventsOnce(seals, ecVerifyBatch), OPEN_SLICE_MS, ecDecryptBatch);
   const freshOpenings = new Map<NostrEvent, OpenedEvent | null>();
   fresh.forEach(({ wrap }, i) => {
     const o = withoutSeal(opened[i]);

@@ -245,6 +245,30 @@ export interface WrapToSeal {
  *      hash and its pubkey equals the seal signer (anti re-seal).
  */
 export function openWrapToSeal(wrap: NostrRumor, stream: StreamKeyView): WrapToSeal {
+  checkWrap(wrap, stream);
+  let plaintext: string;
+  try {
+    plaintext = nip44Decrypt(wrap.content, stream.convKey);
+  } catch (e) {
+    throw new StreamError("decrypt", `wrap decrypt: ${e instanceof Error ? e.message : e}`);
+  }
+  const seal = sealOf(plaintext);
+  return {
+    seal,
+    finish: () => {
+      let json: string;
+      try {
+        json = seal.kind === KIND_SEAL_ENCRYPTED ? nip44Decrypt(seal.content, stream.convKey) : seal.content;
+      } catch (e) {
+        throw new StreamError("decrypt", `rumor recover: ${e instanceof Error ? e.message : e}`);
+      }
+      return finishRumor(wrap, seal, json);
+    },
+  };
+}
+
+/** Steps 1 of {@link openWrapToSeal}: the wrap's kind, author and, on a write-restricted stream, signature. */
+function checkWrap(wrap: NostrRumor, stream: StreamKeyView): void {
   if (wrap.kind !== KIND_WRAP && wrap.kind !== KIND_WRAP_EPHEMERAL) {
     throw new StreamError("bad-wrap-kind", `not a stream wrap: kind ${wrap.kind}`);
   }
@@ -259,59 +283,60 @@ export function openWrapToSeal(wrap: NostrRumor, stream: StreamKeyView): WrapToS
       throw new StreamError("bad-wrap-signature", "write-restricted wrap signature invalid");
     }
   }
+}
 
+/** Step 2: the decrypted wrap as a seal of a known kind. */
+function sealOf(plaintext: string): NostrEvent {
   let seal: NostrEvent;
   try {
-    seal = JSON.parse(nip44Decrypt(wrap.content, stream.convKey)) as NostrEvent;
+    seal = JSON.parse(plaintext) as NostrEvent;
   } catch (e) {
     throw new StreamError("decrypt", `wrap decrypt: ${e instanceof Error ? e.message : e}`);
   }
   if (seal.kind !== KIND_SEAL_ENCRYPTED && seal.kind !== KIND_SEAL_PLAINTEXT) {
-    throw new StreamError("bad-seal-kind", `unknown seal kind ${seal.kind}`);
+    throw new StreamError("bad-seal-kind", `unknown seal kind ${seal?.kind}`);
+  }
+  return seal;
+}
+
+/** Step 3, from the rumor's JSON: its author is the seal's signer and its id is its hash. */
+function finishRumor(wrap: NostrRumor, seal: NostrEvent, json: string): OpenedWireEvent {
+  let rumor: NostrRumor;
+  try {
+    rumor = JSON.parse(json) as NostrRumor;
+  } catch (e) {
+    throw new StreamError(
+      seal.kind === KIND_SEAL_ENCRYPTED ? "decrypt" : "parse",
+      `rumor recover: ${e instanceof Error ? e.message : e}`,
+    );
+  }
+
+  if (rumor.pubkey !== seal.pubkey) {
+    throw new StreamError("author-mismatch", "rumor author does not match the seal's signer");
+  }
+  const expectedId = getEventHash({
+    kind: rumor.kind,
+    content: rumor.content,
+    tags: rumor.tags,
+    created_at: rumor.created_at,
+    pubkey: rumor.pubkey,
+  });
+  if (rumor.id !== expectedId) {
+    throw new StreamError("bad-rumor-id", "rumor id is not its event hash");
   }
 
   return {
+    rumorId: rumor.id,
+    author: seal.pubkey,
+    kind: rumor.kind,
+    content: rumor.content,
+    tags: rumor.tags,
+    ms: resolveMs(rumor.created_at, rumor.tags),
+    createdAt: rumor.created_at,
+    wrapId: wrap.id,
+    streamPk: wrap.pubkey,
+    sealKind: seal.kind,
     seal,
-    finish: () => {
-      let rumor: NostrRumor;
-      try {
-        const json = seal.kind === KIND_SEAL_ENCRYPTED ? nip44Decrypt(seal.content, stream.convKey) : seal.content;
-        rumor = JSON.parse(json) as NostrRumor;
-      } catch (e) {
-        throw new StreamError(
-          seal.kind === KIND_SEAL_ENCRYPTED ? "decrypt" : "parse",
-          `rumor recover: ${e instanceof Error ? e.message : e}`,
-        );
-      }
-
-      if (rumor.pubkey !== seal.pubkey) {
-        throw new StreamError("author-mismatch", "rumor author does not match the seal's signer");
-      }
-      const expectedId = getEventHash({
-        kind: rumor.kind,
-        content: rumor.content,
-        tags: rumor.tags,
-        created_at: rumor.created_at,
-        pubkey: rumor.pubkey,
-      });
-      if (rumor.id !== expectedId) {
-        throw new StreamError("bad-rumor-id", "rumor id is not its event hash");
-      }
-
-      return {
-        rumorId: rumor.id,
-        author: seal.pubkey,
-        kind: rumor.kind,
-        content: rumor.content,
-        tags: rumor.tags,
-        ms: resolveMs(rumor.created_at, rumor.tags),
-        createdAt: rumor.created_at,
-        wrapId: wrap.id,
-        streamPk: wrap.pubkey,
-        sealKind: seal.kind,
-        seal,
-      };
-    },
   };
 }
 
@@ -341,55 +366,111 @@ export function openWrap(wrap: NostrRumor, stream: StreamKeyView): OpenedWireEve
   return { ...opened };
 }
 
+/** NIP-44 decryption of many payloads, each under its own conversation key; `null` where one fails. */
+export type DecryptBatch = (jobs: Array<{ key: Uint8Array; payload: string }>) => Promise<Array<string | null>>;
+
 /**
  * {@link openWrap} over many wraps, in order, with the seals' Schnorr checks in one
  * `verifySeals` batch (the worker pool) rather than one at a time on this thread:
- * ~9ms each on a phone, and a plane read is hundreds of them. Decrypting and
- * finishing yield every `sliceMs`. A wrap that doesn't open is `undefined`.
+ * ~9ms each on a phone, and a plane read is hundreds of them. Given `decrypt`, the
+ * NIP-44 layers go to it too (two per wrap, most of an opening's cost); the seal's
+ * hash and the rumor's bindings are always checked here. What runs here yields
+ * every `sliceMs`. A wrap that doesn't open is `undefined`.
  */
 export async function openWrapsBatched(
   items: ReadonlyArray<{ wrap: NostrRumor; stream: StreamKeyView }>,
   verifySeals: (seals: NostrEvent[]) => Promise<boolean[]>,
   sliceMs = 5,
+  decrypt?: DecryptBatch,
 ): Promise<Array<OpenedWireEvent | undefined>> {
   const out = new Array<OpenedWireEvent | undefined>(items.length);
-  const pending: Array<{ slot: number; step: WrapToSeal }> = [];
   let sliceStart = performance.now();
+  const yieldIfDue = async () => {
+    if (performance.now() - sliceStart < sliceMs) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sliceStart = performance.now();
+  };
+  const remember = (slot: number, opened: OpenedWireEvent) => {
+    const { wrap, stream } = items[slot];
+    if (idIsHash(wrap as NostrEvent)) {
+      if (openedWraps.size >= OPENED_WRAPS_MAX) openedWraps.delete(openedWraps.keys().next().value!);
+      openedWraps.set(wrap.id, { streamPk: stream.pk, opened });
+    }
+    out[slot] = { ...opened };
+  };
+
+  // Memo hits, and the wraps left to open.
+  const misses: number[] = [];
   for (let i = 0; i < items.length; i++) {
     const { wrap, stream } = items[i];
     const memo = openedWraps.get(wrap.id);
-    if (memo && memo.streamPk === stream.pk && idIsHash(wrap as NostrEvent)) {
-      out[i] = { ...memo.opened };
-    } else {
+    if (memo && memo.streamPk === stream.pk && idIsHash(wrap as NostrEvent)) out[i] = { ...memo.opened };
+    else misses.push(i);
+    if (i + 1 < items.length) await yieldIfDue();
+  }
+  if (misses.length === 0) return out;
+
+  if (!decrypt) {
+    const pending: Array<{ slot: number; step: WrapToSeal }> = [];
+    for (const slot of misses) {
       try {
-        pending.push({ slot: i, step: openWrapToSeal(wrap, stream) });
+        pending.push({ slot, step: openWrapToSeal(items[slot].wrap, items[slot].stream) });
       } catch {
         // not ours / malformed
       }
+      await yieldIfDue();
     }
-    if (i + 1 < items.length && performance.now() - sliceStart >= sliceMs) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      sliceStart = performance.now();
-    }
-  }
-  if (pending.length === 0) return out;
-  const oks = await verifySeals(pending.map((p) => p.step.seal));
-  sliceStart = performance.now();
-  for (let j = 0; j < pending.length; j++) {
-    if (j > 0 && performance.now() - sliceStart >= sliceMs) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      sliceStart = performance.now();
-    }
-    if (oks[j] !== true) continue;
-    const { slot, step } = pending[j];
-    const { wrap, stream } = items[slot];
-    try {
-      const opened = step.finish();
-      if (idIsHash(wrap as NostrEvent)) {
-        if (openedWraps.size >= OPENED_WRAPS_MAX) openedWraps.delete(openedWraps.keys().next().value!);
-        openedWraps.set(wrap.id, { streamPk: stream.pk, opened });
+    if (pending.length === 0) return out;
+    const oks = await verifySeals(pending.map((p) => p.step.seal));
+    sliceStart = performance.now();
+    for (let j = 0; j < pending.length; j++) {
+      if (j > 0) await yieldIfDue();
+      if (oks[j] !== true) continue;
+      try {
+        remember(pending[j].slot, pending[j].step.finish());
+      } catch {
+        // a bad rumor under a good seal
       }
-      out[slot] = { ...opened };
+    }
+    return out;
+  }
+
+  const checked = misses.filter((slot) => {
+    try {
+      checkWrap(items[slot].wrap, items[slot].stream);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const sealTexts = await decrypt(checked.map((slot) => ({ key: items[slot].stream.convKey, payload: items[slot].wrap.content })));
+  sliceStart = performance.now();
+  const sealed: Array<{ slot: number; seal: NostrEvent }> = [];
+  for (let j = 0; j < checked.length; j++) {
+    const text = sealTexts[j];
+    if (typeof text !== "string") continue;
+    try {
+      sealed.push({ slot: checked[j], seal: sealOf(text) });
+    } catch {
+      // not a seal
+    }
+    await yieldIfDue();
+  }
+  if (sealed.length === 0) return out;
+  const oks = await verifySeals(sealed.map((p) => p.seal));
+  const good = sealed.filter((_, j) => oks[j] === true);
+  // A plaintext seal carries its rumor as is; only encrypted ones go to `decrypt`.
+  const encrypted = good.filter((p) => p.seal.kind === KIND_SEAL_ENCRYPTED);
+  const rumorTexts = await decrypt(encrypted.map((p) => ({ key: items[p.slot].stream.convKey, payload: p.seal.content })));
+  const rumorOf = new Map(encrypted.map((p, j) => [p, rumorTexts[j]]));
+  sliceStart = performance.now();
+  for (let j = 0; j < good.length; j++) {
+    if (j > 0) await yieldIfDue();
+    const { slot, seal } = good[j];
+    const json = seal.kind === KIND_SEAL_ENCRYPTED ? rumorOf.get(good[j]) : seal.content;
+    if (typeof json !== "string") continue;
+    try {
+      remember(slot, finishRumor(items[slot].wrap, seal, json));
     } catch {
       // a bad rumor under a good seal
     }
