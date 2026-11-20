@@ -31,7 +31,8 @@ const VERIFY_INLINE_MAX = 24;
 let inlineVerifyMs = 1.8;
 
 function verifyInlineThreshold(): number {
-  return Math.max(2, Math.min(VERIFY_INLINE_MAX, Math.ceil(VERIFY_INLINE_BUDGET_MS / inlineVerifyMs)));
+  // Rounded down: where one verify alone overruns the budget, even it goes to the pool.
+  return Math.max(1, Math.min(VERIFY_INLINE_MAX, Math.floor(VERIFY_INLINE_BUDGET_MS / inlineVerifyMs)));
 }
 
 /** {@link verifyOneInline}, feeding the average the threshold is set by. */
