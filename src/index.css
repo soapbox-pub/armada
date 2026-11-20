@@ -243,6 +243,23 @@
     button, a, [role="button"], label {
       -webkit-tap-highlight-color: transparent;
     }
+    /* A touch browser gets the APK's selection rules: a hold opens our sheet (with Copy text). */
+    html {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    input,
+    textarea,
+    [contenteditable],
+    p,
+    pre,
+    code,
+    .select-text,
+    [data-selectable] {
+      -webkit-user-select: text;
+      user-select: text;
+    }
   }
   /* Re-enable selection where reading/copying text is the point. */
   html.native input,
