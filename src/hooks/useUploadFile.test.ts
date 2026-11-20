@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { mirrorToServers, repairDoubledScheme, uploadToServers } from "./useUploadFile";
+import { mirrorToServers, repairDoubledScheme, uploadToServers, writeToFirstServer } from "./useUploadFile";
 
 import type { NostrEvent, NostrSigner } from "@nostrify/nostrify";
 
@@ -222,8 +222,8 @@ describe("uploadToServers", () => {
     expect(tags[0]).toEqual(["url", `https://pref.example/${HASH}.txt`]);
   });
 
-  it("mirrors to a server whose PUT failed in transit", async () => {
-    const calls = stubServers({ "https://flaky.example": [{ error: true }] });
+  it("mirrors to a server whose PUT failed with a server error", async () => {
+    const calls = stubServers({ "https://flaky.example": [{ status: 500 }] });
     const tags = await uploadToServers(file(), ["https://a.example/", "https://flaky.example/"], signer, {
       preferred: "https://a.example/",
     });
@@ -231,6 +231,22 @@ describe("uploadToServers", () => {
     expect(tags[0]).toEqual(["url", `https://a.example/${HASH}.txt`]);
     expect(calls).toContain("https://flaky.example/mirror");
     expect(calls).not.toContain("https://a.example/mirror");
+  });
+
+  // It may still be storing the blob: a second write on top of it stores it twice (ditto#337).
+  it.each([
+    ["dropped", { error: true }],
+    ["hit a gateway timeout", { status: 504 }],
+  ])("sends nothing more to a server whose PUT %s", async (_, step) => {
+    const calls = stubServers({ "https://flaky.example": [step], "https://pref.example": [step] });
+    await uploadToServers(file(), ["https://pref.example/", "https://flaky.example/", "https://a.example/"], signer, {
+      preferred: "https://pref.example/",
+    });
+    await flush();
+    expect(calls.filter((c) => !c.startsWith("https://a.example")).sort()).toEqual([
+      "https://flaky.example/upload",
+      "https://pref.example/upload",
+    ]);
   });
 
   it("takes the first to answer without a preference", async () => {
@@ -278,7 +294,7 @@ describe("uploadToServers", () => {
   });
 
   it("passes the expiration on to a mirror", async () => {
-    const calls = stubServers({ "https://flaky.example": [{ error: true }, { error: true }] });
+    const calls = stubServers({ "https://flaky.example": [{ status: 500 }] });
     const fetchMock = vi.mocked(globalThis.fetch);
     await uploadToServers(file(), ["https://a.example/", "https://flaky.example/"], signer, {
       preferred: "https://a.example/",
@@ -288,5 +304,80 @@ describe("uploadToServers", () => {
     expect(calls).toContain("https://flaky.example/mirror");
     const mirror = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/mirror"));
     expect(new Headers(mirror?.[1]?.headers).get("x-expiration")).toBe("1900000000");
+  });
+});
+
+/**
+ * Rehosting writes servers one at a time, so no server has a mirror and an
+ * upload of the same blob in flight together (ditto#337).
+ */
+describe("writeToFirstServer", () => {
+  const HASH = "c".repeat(64);
+  const SOURCE = `https://elsewhere.example/${HASH}.png`;
+  const PUBKEY = "e".repeat(64);
+  const signer: NostrSigner = {
+    getPublicKey: async () => PUBKEY,
+    signEvent: async (t) => ({ ...t, pubkey: PUBKEY, id: "f".repeat(64), sig: "0".repeat(128) }) as NostrEvent,
+  };
+
+  const ok = (input: RequestInfo | URL) =>
+    new Response(JSON.stringify({ url: `${new URL(String(input)).origin}/${HASH}.png`, sha256: HASH, size: 3 }));
+
+  const mirror = (servers: string[]) => writeToFirstServer(servers, signer, (uploader) => uploader.mirror(SOURCE));
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("writes only to the first server when it succeeds, leaving the rest to mirror", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => ok(input));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const placement = await mirror(["https://a.example/", "https://b.example/", "https://c.example/"]);
+
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual(["https://a.example/mirror"]);
+    expect(placement.tags?.[0]).toEqual(["url", `https://a.example/${HASH}.png`]);
+    expect(placement.untried).toEqual(["https://b.example/", "https://c.example/"]);
+  });
+
+  it("sends nothing to the next server while the first is still working", async () => {
+    let finish!: () => void;
+    const fetchMock = vi.fn<typeof fetch>((input) =>
+      new Promise<Response>((resolve) => { finish = () => resolve(ok(input)); }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = mirror(["https://a.example/", "https://b.example/"]);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    finish();
+    expect((await pending).untried).toEqual(["https://b.example/"]);
+  });
+
+  it("falls back on a refusal and lists the refuser, but not one that timed out", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const { origin } = new URL(String(input));
+      if (origin === "https://a.example") return new Response(null, { status: 502 });
+      if (origin === "https://b.example") throw new DOMException("timed out", "TimeoutError");
+      if (origin === "https://c.example") return new Response(null, { status: 524 });
+      return ok(input);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const placement = await mirror(["https://a.example/", "https://b.example/", "https://c.example/", "https://d.example/", "https://e.example/"]);
+
+    expect(placement.tags?.[0]).toEqual(["url", `https://d.example/${HASH}.png`]);
+    expect(placement.refused).toEqual(["https://a.example/"]);
+    expect(placement.untried).toEqual(["https://e.example/"]);
+  });
+
+  it("reports the last error when every server fails", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => new Response(null, { status: 500 })));
+
+    const placement = await mirror(["https://a.example/", "https://b.example/"]);
+
+    expect(placement.tags).toBeUndefined();
+    expect(placement.error).toBeInstanceOf(Error);
+    expect(placement.refused).toEqual(["https://a.example/", "https://b.example/"]);
   });
 });

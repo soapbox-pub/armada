@@ -62,13 +62,26 @@ class BlossomRequestError extends Error {
   }
 }
 
+/** Gateway timeouts: the proxy gave up, but the server behind it may still be storing the blob. */
+const GATEWAY_TIMEOUT_STATUSES = new Set([504, 524]);
+
+/**
+ * Whether a server may still be writing the blob after a request for it ended: the request
+ * timed out or dropped without the server's own answer. Such a server gets no further
+ * write — a retry or mirror landing on top of the first stores the blob twice (ditto#337).
+ */
+function writeInDoubt(status: number | undefined): boolean {
+  return status === undefined || GATEWAY_TIMEOUT_STATUSES.has(status);
+}
+
 /**
  * PUT a file to every server at once (BUD-02) and pick the URL to embed: the
  * preferred server's when it takes the blob — retried once if it failed for a
  * reason other than a refusal — within `PREFERRED_GRACE_MS` (or half the time
  * taken) of another server succeeding, else the first other server's.
  * Every other server already holding the blob by then is listed as a NIP-94
- * `fallback`; any whose PUT fails is sent a `PUT /mirror` (BUD-04) instead.
+ * `fallback`; any whose PUT fails with a server error is sent a `PUT /mirror` (BUD-04) instead.
+ * Neither the retry nor a mirror goes to a server whose PUT may still be landing (`writeInDoubt`).
  * With `expiration`, each request asks the server to drop the blob after it
  * (`X-Expiration`, blossom#115); servers that don't know the header ignore it.
  * Exported for testing.
@@ -117,7 +130,7 @@ export async function uploadToServers(
       let attempt = put(server);
       if (server === preferred) {
         attempt = attempt.catch(async (error: unknown) => {
-          if (signal?.aborted || error instanceof BlossomRequestError && error.status < 500) throw error;
+          if (signal?.aborted || !mayRewrite(error)) throw error;
           await new Promise((resolve) => setTimeout(resolve, PREFERRED_RETRY_DELAY_MS));
           if (signal?.aborted) throw error;
           return put(server);
@@ -175,13 +188,21 @@ export async function uploadToServers(
   for (const server of servers) {
     if (server === winner || held.has(server)) continue;
     attempts.get(server)!.catch((error: unknown) => {
-      // A refusal (too large, wrong type, unauthorized) would refuse the mirror too.
-      if (signal?.aborted || error instanceof BlossomRequestError && error.status < 500) return;
+      if (signal?.aborted || !mayRewrite(error)) return;
       mirrorToServers(url, [server], signer, { expiration }).catch(() => {});
     });
   }
 
   return tags;
+}
+
+/**
+ * Whether a failed PUT leaves the server open to another write of the blob: only after a
+ * server error. A refusal (too large, wrong type, unauthorized) would refuse again, and a
+ * PUT that timed out or dropped may still be landing.
+ */
+function mayRewrite(error: unknown): boolean {
+  return error instanceof BlossomRequestError && error.status >= 500 && !writeInDoubt(error.status);
 }
 
 /** A BUD-02 blob descriptor as NIP-94 tags, the server's own `nip94` taking precedence. */
@@ -249,22 +270,15 @@ export function useRehostFile() {
       const sourceOrigin = originOf(sourceUrl);
       if (servers.some((s) => originOf(s) === sourceOrigin)) return sourceUrl;
 
-      const uploader = new BlossomUploader({
-        servers,
-        signer: user.signer,
-        fetch: (input, init) =>
-          globalThis.fetch(input, {
-            ...init,
-            signal: init?.signal
-              ? AbortSignal.any([init.signal, AbortSignal.timeout(60_000)])
-              : AbortSignal.timeout(60_000),
-          }),
-      });
+      let placement: Placement = { untried: [], refused: servers };
+      // A mirror needs the blob's sha256 in the path; anything else can only be uploaded.
+      if (/[0-9a-f]{64}/.test(new URL(sourceUrl).pathname)) {
+        placement = await writeToFirstServer(servers, user.signer, (uploader) => uploader.mirror(sourceUrl));
+      }
 
-      let tags: string[][];
-      try {
-        tags = await uploader.mirror(sourceUrl);
-      } catch {
+      if (!placement.tags) {
+        // Only where the mirror was refused outright: one that timed out may still be fetching.
+        if (placement.refused.length === 0) throw placement.error;
         // Fetching the creator's host from here is a sender-named load like any image.
         const src = mediaSrc(sourceUrl, policy);
         if (!src) throw new Error(t({ id: "useUploadFile.cannotCopy", defaultMessage: "This file can't be copied." }));
@@ -272,17 +286,73 @@ export function useRehostFile() {
         if (!response.ok) throw new Error(t({ id: "useUploadFile.downloadFailed", defaultMessage: "Download failed ({status})" }, { status: response.status }));
         const blob = await response.blob();
         const name = new URL(sourceUrl).pathname.split("/").pop() || "file";
-        tags = await uploader.upload(new File([blob], name, { type: blob.type }));
+        const file = new File([blob], name, { type: blob.type });
+        placement = await writeToFirstServer(placement.refused, user.signer, (uploader) => uploader.upload(file));
+        if (!placement.tags) throw placement.error;
       }
 
-      const url = repairDoubledScheme(tags[0][1]);
-      const mirrorServers = servers.filter((s) => originOf(s) !== originOf(url));
+      const url = repairDoubledScheme(placement.tags[0][1]);
+      const mirrorServers = placement.untried.filter((s) => originOf(s) !== originOf(url));
       if (mirrorServers.length > 0) {
         mirrorToServers(url, mirrorServers, user.signer).catch(() => { /* best-effort */ });
       }
       return url;
     },
   });
+}
+
+/** Where a blob landed after `writeToFirstServer`. */
+interface Placement {
+  /** NIP-94 tags from the server that took the blob, if one did. */
+  tags?: string[][];
+  /** Servers never sent a request, so safe to mirror to. */
+  untried: string[];
+  /** Servers that answered with a failure, so nothing of ours is still landing there. */
+  refused: string[];
+  /** Why the last server failed, when none took the blob. */
+  error?: unknown;
+}
+
+/**
+ * Write a blob to the first server that takes it, one at a time in order, so no server
+ * is sent a second write while the first may still be landing (ditto#337). A server whose
+ * request ended in doubt (`writeInDoubt`) is neither `untried` nor `refused`.
+ * Exported for testing.
+ */
+export async function writeToFirstServer(
+  servers: string[],
+  signer: NostrSigner,
+  write: (uploader: BlossomUploader) => Promise<string[][]>,
+): Promise<Placement> {
+  const refused: string[] = [];
+  let error: unknown = new Error("No Blossom servers configured");
+
+  for (const [i, server] of servers.entries()) {
+    let status: number | undefined;
+    const uploader = new BlossomUploader({
+      servers: [server],
+      signer,
+      fetch: async (input, init) => {
+        const response = await globalThis.fetch(input, {
+          ...init,
+          signal: init?.signal
+            ? AbortSignal.any([init.signal, AbortSignal.timeout(60_000)])
+            : AbortSignal.timeout(60_000),
+        });
+        status = response.status;
+        return response;
+      },
+    });
+
+    try {
+      return { tags: await write(uploader), untried: servers.slice(i + 1), refused };
+    } catch (e) {
+      error = e;
+      if (!writeInDoubt(status)) refused.push(server);
+    }
+  }
+
+  return { untried: [], refused, error };
 }
 
 /**
