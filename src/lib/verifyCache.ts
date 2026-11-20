@@ -8,8 +8,8 @@
  *  - FAILED verifies are never memoized, so forgeries can't poison an id.
  */
 import { schnorr } from "@noble/curves/secp256k1.js";
-import { hexToBytes } from "@noble/hashes/utils.js";
-import { getEventHash } from "nostr-tools/pure";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import { getEventHash, validateEvent } from "nostr-tools/pure";
 
 import { IdLog, type IdLogKV } from "@/lib/db/idLog";
 import { perfCount } from "@/lib/perf";
@@ -127,14 +127,46 @@ export function idIsHash(event: NostrEvent): boolean {
   } catch {
     return false;
   }
-  if (ok && !seen) {
-    if (hashed.size >= HASHED_MAX) hashed.delete(hashed.keys().next().value!);
-    // A snapshot: a caller may go on to mutate the object it passed.
-    const { pubkey, created_at, kind, content } = event;
-    hashed.set(event.id, { pubkey, created_at, kind, content, tags: event.tags.map((t) => [...t]) });
-  }
+  if (ok && !seen) rememberHashed(event);
   return ok;
 }
+
+function rememberHashed(event: NostrEvent): void {
+  if (hashed.size >= HASHED_MAX) hashed.delete(hashed.keys().next().value!);
+  // A snapshot: a caller may go on to mutate the object it passed.
+  const { pubkey, created_at, kind, content } = event;
+  hashed.set(event.id, { pubkey, created_at, kind, content, tags: event.tags.map((t) => [...t]) });
+}
+
+/**
+ * Hash-check `events` with the browser's native SHA-256 ahead of {@link idIsHash},
+ * remembering each whose id is its hash, so the synchronous checks that follow are
+ * copy hits. Same answers, computed here, just not in JavaScript: a relay drain on a
+ * phone hashed thousands of wraps a minute at ~0.3ms each. Anything it can't settle
+ * (no WebCrypto, a malformed event, a mismatch) is left to {@link idIsHash}.
+ */
+export async function primeHashes(events: readonly NostrEvent[]): Promise<void> {
+  const subtle = typeof crypto !== "undefined" ? crypto.subtle : undefined;
+  if (!subtle) return;
+  const todo = events.filter((e) => !hashed.has(e.id) && validateEvent(e));
+  if (todo.length < PRIME_MIN) return;
+  const encoder = new TextEncoder();
+  await Promise.all(todo.map(async (event) => {
+    // A snapshot of what is hashed, so a caller mutating the event meanwhile can't
+    // pair one content with another's verdict.
+    const copy: NostrEvent = { ...event, tags: event.tags.map((t) => [...t]) };
+    try {
+      const serialized = JSON.stringify([0, copy.pubkey, copy.created_at, copy.kind, copy.tags, copy.content]);
+      const digest = new Uint8Array(await subtle.digest("SHA-256", encoder.encode(serialized)));
+      if (bytesToHex(digest) === copy.id && !hashed.has(copy.id)) rememberHashed(copy);
+    } catch {
+      // left to idIsHash
+    }
+  }));
+}
+
+/** Below this, the async round costs more than hashing inline. */
+const PRIME_MIN = 4;
 
 /**
  * Main-thread hash binding shared by both verify paths: `"decided"` (final
@@ -203,6 +235,7 @@ export async function verifyEventsOnce(
   events: NostrEvent[],
   ecVerify: EcVerifyBatch,
 ): Promise<boolean[]> {
+  await primeHashes(events);
   const start = performance.now();
   const result = new Array<boolean>(events.length);
   const residue: VerifyTriple[] = [];

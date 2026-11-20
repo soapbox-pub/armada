@@ -12,7 +12,7 @@ import { NRelay1, type NRelay1Opts } from "@nostrify/nostrify";
 import type { NostrEvent, NostrRelayMsg } from "@nostrify/types";
 
 import { relayMsgSchema } from "./relayMsgParse";
-import { type EcVerifyBatch, idIsHash, verifyEventsOnce } from "./verifyCache";
+import { type EcVerifyBatch, idIsHash, primeHashes, verifyEventsOnce } from "./verifyCache";
 import { ecVerifyBatch } from "./verifyPool";
 
 // Replace NRelay1's zod frame parser app-wide with the hand-written one (same verdicts).
@@ -78,6 +78,7 @@ export class RelayInbox {
         // Take everything accumulated while the previous verify was awaited.
         const batch = this.pending;
         this.pending = [];
+        await primeHashes(batch.flatMap((msg) => (msg[0] === "EVENT" ? [msg[2]] : [])));
         const events: NostrEvent[] = [];
         for (const msg of batch) if (this.needsVerify(msg)) events.push(msg[2]);
         // Never throws: a dead verifier yields "unverified", dropping those events.

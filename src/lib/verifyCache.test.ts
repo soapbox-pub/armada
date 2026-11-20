@@ -12,7 +12,7 @@
 import { finalizeEvent, generateSecretKey } from "nostr-tools/pure";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { _resetVerifyCacheForTests, idIsHash, persistVerifiedIds, verifyEventOnce, verifyEventsOnce } from "./verifyCache";
+import { _resetVerifyCacheForTests, idIsHash, persistVerifiedIds, primeHashes, verifyEventOnce, verifyEventsOnce } from "./verifyCache";
 import { perfReport, perfReset } from "./perf";
 import { ecVerifyBatch as inlineEcVerify } from "./verifyPool";
 
@@ -230,5 +230,17 @@ describe("idIsHash", () => {
     event.tags.push(["p", "x"]);
     expect(idIsHash({ ...event, tags: [] })).toBe(true);
     expect(idIsHash(event)).toBe(false);
+  });
+});
+
+describe("primeHashes", () => {
+  it("settles a batch natively, so the synchronous checks after it are copy hits, and primes no forgery", async () => {
+    const events = ["a", "b", "c", "d", "e"].map((c) => signed(c));
+    const forged = { ...signed("f"), content: "forged" };
+    await primeHashes([...events, forged]);
+    perfReset();
+    for (const e of events) expect(idIsHash({ ...e, tags: e.tags.map((t) => [...t]) })).toBe(true);
+    expect(perfReport().aggregates.find((a) => a.label === "crypto.idHash (copy hit)")?.count).toBe(5);
+    expect(idIsHash(forged)).toBe(false);
   });
 });
