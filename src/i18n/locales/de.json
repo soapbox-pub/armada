@@ -4303,6 +4303,7 @@
   "stickerPicker.noPacksHint": "Füge deinem Profil Emoji-Pakete hinzu, um Sticker zu verwenden",
   "stickerPicker.noResults": "Keine Sticker gefunden",
   "stickerPicker.noResultsHint": "Versuche einen anderen Suchbegriff",
+  "stickerPicker.packs": "Sticker-Pakete",
   "stickerPicker.search": "Sticker suchen",
   "stickerPicker.workspace": "Workspace",
   "storageSettings.cachesFooter": "Einen Cache zu leeren schafft nur Platz. Armada lädt herunter, was es wieder braucht.",

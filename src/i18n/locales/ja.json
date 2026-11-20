@@ -4303,6 +4303,7 @@
   "stickerPicker.noPacksHint": "ステッカーを使うには、プロフィールに絵文字パックを追加してください",
   "stickerPicker.noResults": "ステッカーが見つかりません",
   "stickerPicker.noResultsHint": "別の検索語をお試しください",
+  "stickerPicker.packs": "ステッカーパック",
   "stickerPicker.search": "ステッカーを検索",
   "stickerPicker.workspace": "ワークスペース",
   "storageSettings.cachesFooter": "キャッシュを消去しても空き容量が増えるだけです。必要なものは Armada がもう一度ダウンロードします。",

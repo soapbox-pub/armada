@@ -4303,6 +4303,7 @@
   "stickerPicker.noPacksHint": "Aggiungi pacchetti di emoji al tuo profilo per usare gli sticker",
   "stickerPicker.noResults": "Nessuno sticker trovato",
   "stickerPicker.noResultsHint": "Prova un altro termine di ricerca",
+  "stickerPicker.packs": "Pacchetti di sticker",
   "stickerPicker.search": "Cerca sticker",
   "stickerPicker.workspace": "Workspace",
   "storageSettings.cachesFooter": "Svuotare una cache libera solo spazio. Armada riscarica ciò che le serve.",

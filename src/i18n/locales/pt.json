@@ -4303,6 +4303,7 @@
   "stickerPicker.noPacksHint": "Adicione pacotes de emoji ao seu perfil para usar figurinhas",
   "stickerPicker.noResults": "Nenhuma figurinha encontrada",
   "stickerPicker.noResultsHint": "Tente outro termo de busca",
+  "stickerPicker.packs": "Pacotes de figurinhas",
   "stickerPicker.search": "Buscar figurinhas",
   "stickerPicker.workspace": "Workspace",
   "storageSettings.cachesFooter": "Limpar um cache só libera espaço. O Armada baixa de novo o que precisar.",
