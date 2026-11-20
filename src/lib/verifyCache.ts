@@ -84,7 +84,9 @@ type Hashed = Pick<NostrEvent, "pubkey" | "created_at" | "kind" | "tags" | "cont
  * fields all EQUAL a remembered copy has the same hash, so the comparison stands
  * in for the sha256 — each wrap arrives once per relay.
  */
-const HASHED_MAX = 2048;
+// Sized for a plane: one access plane alone is thousands of wraps, each checked several
+// times a pass, and a smaller FIFO evicted them before the next check, re-hashing each.
+const HASHED_MAX = 16_384;
 /** Max unbroken hashing in {@link verifyEventsOnce} before yielding. */
 const HASH_SLICE_MS = 8;
 const hashed = new Map<string, Hashed>();
@@ -112,6 +114,9 @@ export function idIsHash(event: NostrEvent): boolean {
     tagsEqual(seen.tags, event.tags)
   ) {
     perfCount("crypto.idHash (copy hit)", 0, 1, "events");
+    // Most recently used last, so eviction drops the coldest.
+    hashed.delete(event.id);
+    hashed.set(event.id, seen);
     return true;
   }
   let ok: boolean;
