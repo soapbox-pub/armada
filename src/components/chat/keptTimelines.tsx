@@ -56,7 +56,9 @@ export function useKeptTimelines(
  * shown or not, and a hidden one is `content-visibility: hidden` rather than
  * `display: none`: its layout and scroll position survive, so showing it again is a
  * paint, not a style and layout pass over every row. In a FIXED order: moving a
- * mounted timeline in the DOM would cost what keeping it saves.
+ * mounted timeline in the DOM would cost what keeping it saves. The shown one is
+ * stacked above the rest: a skipped box still takes hits on its own area, so a hidden
+ * one later in that order would catch every wheel, touch and press meant for it.
  */
 export function KeptTimelines({
   active,
@@ -90,7 +92,7 @@ export function KeptTimelines({
     <div className="relative flex-1 min-h-0">
       {[...kept.keys()].sort().map((id) =>
         id === active ? (
-          <div key={id} ref={ref(id)} className="absolute inset-0 flex flex-col">
+          <div key={id} ref={ref(id)} className="absolute inset-0 z-[1] flex flex-col">
             {children}
           </div>
         ) : (
