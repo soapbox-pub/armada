@@ -16,6 +16,16 @@
 }
 
 /*
+ * Every modal Radix layer locks scrolling through react-remove-scroll-bar, which
+ * sets this on body. Inherited, it restyled the whole document on each open and
+ * close (~0.3 s apiece on a phone); nothing here reads it below body.
+ */
+@property --removed-body-scroll-bar-size {
+  syntax: "*";
+  inherits: false;
+}
+
+/*
  * Theme color tokens (--background, --primary, …) are injected at runtime into
  * <style id="theme-vars"> by:
  *   - public/theme.js  (synchronously in <head>, before first paint)
