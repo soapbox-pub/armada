@@ -8,7 +8,7 @@
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAccessDuty } from "@/concord/hooks/useAccessDuty";
 import { useChannelAccess, useHistoryAccess } from "@/concord/hooks/useChannelAccess";
@@ -33,7 +33,7 @@ function Duties({ community }: { community: Community }) {
   return null;
 }
 
-function MaybeDuties({ community, me }: { community: Community; me: string }) {
+const MaybeDuties = memo(function MaybeDuties({ community, me }: { community: Community; me: string }) {
   const queryClient = useQueryClient();
   const queryKey = useMemo(() => ["concord", "duties-owed", community.idHex, me], [community.idHex, me]);
   // Judged again as soon as the saved fold changes (an in-memory read).
@@ -60,12 +60,26 @@ function MaybeDuties({ community, me }: { community: Community; me: string }) {
     },
   });
   return owed ? <Duties community={community} /> : null;
-}
+});
 
 function CommunityDutiesInner() {
   const entries = useJoinedCommunities();
   const me = useCurrentUser().user?.pubkey;
-  const communities = useMemo(() => entries.flatMap((e) => rehydrateCommunity(e) ?? []), [entries]);
+  // The same entry keeps its Community: a list refetch handed every duty a new object,
+  // re-rendering all of them and re-arming each one's effects.
+  const byEntry = useRef(new Map<string, Community | null>());
+  const communities = useMemo(() => {
+    const next = new Map<string, Community | null>();
+    const out: Community[] = [];
+    for (const e of entries) {
+      const sig = JSON.stringify(e);
+      const community = byEntry.current.get(sig) ?? rehydrateCommunity(e) ?? null;
+      next.set(sig, community);
+      if (community) out.push(community);
+    }
+    byEntry.current = next;
+    return out;
+  }, [entries]);
   if (!me) return null;
   return (
     <>
