@@ -21,4 +21,9 @@ describe("AvatarImage", () => {
       setFontScale(100);
     }
   });
+
+  it("sizes from a wrapper's classes when it fills the wrapper", () => {
+    render(<Avatar className="size-full" sizeClassName="h-10 w-10 size-6"><AvatarImage src="https://x.test/c.png" /></Avatar>);
+    expect(boxes.at(-1)).toBe(24);
+  });
 });

@@ -31,19 +31,21 @@ const AvatarShapeContext = React.createContext<AvatarShape | undefined>(undefine
 export interface AvatarProps extends React.HTMLAttributes<HTMLDivElement> {
   /** Avatar mask shape. Defaults to "circle". */
   shape?: AvatarShape;
+  /** Classes that size the avatar, when a wrapper carries them and this fills it (`size-full`). */
+  sizeClassName?: string;
 }
 
 const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
-  ({ className, children, shape, style, ...props }, ref) => {
+  ({ className, children, shape, style, sizeClassName, ...props }, ref) => {
     const hasSrcRef = React.useRef(false)
     hasSrcRef.current = false
 
     const fontScale = useFontScale()
     const box = React.useMemo(() => {
-      const css = boxFromClasses(className)
+      const css = boxFromClasses(sizeClassName ?? className)
       // The text size is a percentage.
       return css === undefined ? undefined : Math.round((css * fontScale) / 100)
-    }, [className, fontScale])
+    }, [className, sizeClassName, fontScale])
 
     const hasValidShape = !!shape && isValidAvatarShape(shape)
     const isEmojiShape = hasValidShape && isEmoji(shape)

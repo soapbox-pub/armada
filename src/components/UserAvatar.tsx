@@ -89,6 +89,7 @@ function UserAvatarView({
       shape={avatarShape}
       aria-hidden={ariaHidden}
       className={wrapped ? "size-full" : className}
+      sizeClassName={wrapped ? cn("h-10 w-10", className) : undefined}
       style={wrapped ? undefined : frameStyle}
     >
       {!anonymous && <AvatarImage src={metadata?.picture} imeta={imeta} alt={alt ?? label} draggable={draggable} loops={loops} />}
