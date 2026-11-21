@@ -2,10 +2,11 @@
 //! a fresh endpoint per call speaking `concord/voice/1`, one QUIC connection per
 //! peer, and the audio in unreliable datagrams.
 //!
-//! As dumb as the gossip half. Which peers to dial or keep, the datagram header
-//! and the audio itself are decided in `src/concord/lib/irohVoice.ts` and
-//! `src/lib/irohVoice/`; this moves datagrams between connections and says when
-//! a connection comes or goes.
+//! As dumb as the gossip half. Which peers to dial or keep, the datagram header,
+//! the video stream format and the media itself are decided in
+//! `src/concord/lib/irohVoice.ts`, `irohVideo.ts` and `src/lib/irohVoice/`; this
+//! moves datagrams and whole unidirectional streams (Vector's video frames and
+//! controls, one per stream) between connections and says when one comes or goes.
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -26,6 +27,10 @@ const DATAGRAM_SEND_BUFFER: usize = 4096;
 const CONNECT_TIMEOUT_MS: i32 = 15_000;
 /// Vector's cap on a call's peers; a dial past it is refused here too.
 const MAX_LINKS: usize = 14;
+/// Vector's `MAX_VIDEO_FRAME`, plus the stream's type byte and frame header.
+const MAX_STREAM: usize = 1024 * 1024 + 17;
+/// Vector's `INBOUND_FRAME_TIMEOUT`: a stream not whole by then is a lost frame.
+const STREAM_TIMEOUT_MS: i32 = 2_000;
 
 type Links = Rc<RefCell<HashMap<[u8; 32], Connection>>>;
 
@@ -36,6 +41,7 @@ pub struct VoiceNode {
     on_datagram: js_sys::Function,
     on_link: js_sys::Function,
     on_closed: js_sys::Function,
+    on_stream: js_sys::Function,
 }
 
 #[wasm_bindgen]
@@ -46,12 +52,14 @@ impl VoiceNode {
     ///
     /// `on_link(idHex, inbound)` fires for every connection that lands, before any
     /// of its datagrams; `on_datagram(idHex, bytes)` per datagram; `on_closed(idHex)`
-    /// when a link ends, whoever ended it.
+    /// when a link ends, whoever ended it; `on_stream(idHex, bytes)` per whole
+    /// unidirectional stream, or `on_stream(idHex, undefined)` for one that broke off.
     pub async fn bind(
         relays: Vec<String>,
         on_link: js_sys::Function,
         on_datagram: js_sys::Function,
         on_closed: js_sys::Function,
+        on_stream: js_sys::Function,
     ) -> Result<VoiceNode, JsError> {
         let urls: Vec<RelayUrl> = if relays.is_empty() {
             iroh::defaults::prod::default_relay_map().urls::<Vec<RelayUrl>>()
@@ -97,6 +105,7 @@ impl VoiceNode {
             on_datagram,
             on_link,
             on_closed,
+            on_stream,
         };
         // Every inbound connection is reported, and the page closes the ones its
         // presence doesn't bind to a member who may connect (Vector `acceptor`).
@@ -166,6 +175,29 @@ impl VoiceNode {
         conn.is_some_and(|c| c.send_datagram(datagram.into()).is_ok())
     }
 
+    /// One whole unidirectional stream to a peer: a video frame or a control. Never waits
+    /// for stream credit — a peer that has none skips this one (Vector `ship`) — and resets
+    /// a stream not delivered within `stale_ms`. Resolves whether it went.
+    #[wasm_bindgen(js_name = sendStream)]
+    pub async fn send_stream(&self, id_hex: &str, bytes: Vec<u8>, priority: i32, stale_ms: i32) -> bool {
+        let Some(id) = parse_id(id_hex) else { return false };
+        let conn = self.links.borrow().get(&id).cloned();
+        let Some(conn) = conn else { return false };
+        let Some(Ok(mut s)) = futures_util::FutureExt::now_or_never(conn.open_uni()) else { return false };
+        let _ = s.set_priority(priority);
+        let outcome = {
+            let sent = async { s.write_chunk(bytes.into()).await.is_ok() && s.finish().is_ok() && s.stopped().await.is_ok() };
+            match futures_util::future::select(std::pin::pin!(sent), std::pin::pin!(wasm_sleep(stale_ms))).await {
+                futures_util::future::Either::Left((ok, _)) => Some(ok),
+                futures_util::future::Either::Right(_) => None,
+            }
+        };
+        outcome.unwrap_or_else(|| {
+            let _ = s.reset(VarInt::from_u32(1));
+            false
+        })
+    }
+
     /// The selected path's round trip to a peer, in ms; 0 when not linked.
     #[wasm_bindgen(js_name = rttMs)]
     pub fn rtt_ms(&self, id_hex: &str) -> u32 {
@@ -194,11 +226,11 @@ impl VoiceNode {
     }
 
     fn callbacks(&self) -> Callbacks {
-        Rc::new((self.on_link.clone(), self.on_datagram.clone(), self.on_closed.clone()))
+        Rc::new((self.on_link.clone(), self.on_datagram.clone(), self.on_closed.clone(), self.on_stream.clone()))
     }
 }
 
-type Callbacks = Rc<(js_sys::Function, js_sys::Function, js_sys::Function)>;
+type Callbacks = Rc<(js_sys::Function, js_sys::Function, js_sys::Function, js_sys::Function)>;
 
 /// Take a connection as the link to its peer, unless one is held already or the
 /// call is full (Vector `link`), and read its datagrams until it closes.
@@ -214,6 +246,30 @@ fn adopt(links: &Links, cbs: &Callbacks, conn: Connection, inbound: bool) -> boo
     }
     let id_hex = JsValue::from_str(&hex(&id));
     let _ = cbs.0.call2(&JsValue::NULL, &id_hex, &JsValue::from_bool(inbound));
+    // Every stream the peer opens, read whole, in the order they arrive.
+    let (streams, stream_cbs, stream_id) = (conn.clone(), cbs.clone(), id_hex.clone());
+    wasm_bindgen_futures::spawn_local(async move {
+        while let Ok(mut s) = streams.accept_uni().await {
+            let (cbs, id) = (stream_cbs.clone(), stream_id.clone());
+            wasm_bindgen_futures::spawn_local(async move {
+                let whole = {
+                    let read = std::pin::pin!(s.read_to_end(MAX_STREAM));
+                    match futures_util::future::select(read, std::pin::pin!(wasm_sleep(STREAM_TIMEOUT_MS))).await {
+                        futures_util::future::Either::Left((Ok(bytes), _)) => Some(bytes),
+                        _ => None,
+                    }
+                };
+                let arg = match &whole {
+                    Some(bytes) => js_sys::Uint8Array::from(&bytes[..]).into(),
+                    None => {
+                        let _ = s.stop(VarInt::from_u32(0));
+                        JsValue::UNDEFINED
+                    }
+                };
+                let _ = cbs.3.call2(&JsValue::NULL, &id, &arg);
+            });
+        }
+    });
     let (links, cbs) = (links.clone(), cbs.clone());
     wasm_bindgen_futures::spawn_local(async move {
         while let Ok(datagram) = conn.read_datagram().await {

@@ -63,6 +63,10 @@ import { t } from "@/i18n";
 /** The stable empty fold (so idle rows keep constant props). */
 const EMPTY_FOLD: VoicePresenceFold = { present: [], claims: new Map(), otherTransport: [] };
 
+function sameIroh(left: IrohAddress | undefined, right: IrohAddress | undefined): boolean {
+  return left?.endpoint === right?.endpoint && left?.relay === right?.relay;
+}
+
 function sameClaims(left: Map<string, string[]>, right: Map<string, string[]>): boolean {
   if (left.size !== right.size) return false;
   for (const [identity, authors] of left) {
@@ -219,6 +223,7 @@ export function useVoicePresence(
               p.serverDeafened === next.present[i].serverDeafened &&
               p.alsoOn === next.present[i].alsoOn &&
               p.bridge === next.present[i].bridge &&
+              sameIroh(p.iroh, next.present[i].iroh) &&
               p.screenShareIdentities.join("\0") ===
                 next.present[i].screenShareIdentities.join("\0"),
           ) &&
@@ -231,7 +236,10 @@ export function useVoicePresence(
               p.muted === next.otherTransport[i].muted &&
               p.deafened === next.otherTransport[i].deafened &&
               p.serverMuted === next.otherTransport[i].serverMuted &&
-              p.serverDeafened === next.otherTransport[i].serverDeafened,
+              p.serverDeafened === next.otherTransport[i].serverDeafened &&
+              p.screen === next.otherTransport[i].screen &&
+              p.camera === next.otherTransport[i].camera &&
+              sameIroh(p.iroh, next.otherTransport[i].iroh),
           )
         ) {
           return prev;

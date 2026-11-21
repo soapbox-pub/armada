@@ -87,6 +87,7 @@ export class IrohVoiceAudio {
   private readonly started = performance.now();
   private muted = false;
   private deafened = false;
+  private mic = { level: 0, at: 0 };
   private closed = false;
 
   constructor(private readonly send: SendDatagram) {
@@ -239,8 +240,16 @@ export class IrohVoiceAudio {
     return tap;
   }
 
+  /** How loud our own microphone was lately, 0 to 1; 0 while muted. */
+  micLevel(): number {
+    return !this.muted && performance.now() - this.mic.at < 250 ? this.mic.level : 0;
+  }
+
   private captured(pcm: Float32Array<ArrayBuffer>): void {
     if (this.closed || pcm.length !== FRAME) return;
+    let peak = 0;
+    for (let i = 0; i < pcm.length; i++) peak = Math.max(peak, Math.abs(pcm[i]));
+    this.mic = { level: peak, at: performance.now() };
     if (this.muted || this.deafened) {
       this.send(packFrame(this.seq++, this.elapsed(), FLAG_MUTED, new Uint8Array()));
       return;

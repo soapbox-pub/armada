@@ -29,6 +29,7 @@ export interface VoiceTransport {
   relayUrl(): string | undefined;
   dial(idHex: string, relay: string): Promise<void>;
   send(idHex: string, datagram: Uint8Array): boolean;
+  sendStream(idHex: string, bytes: Uint8Array, priority: number, staleMs: number): Promise<boolean>;
   rttMs(idHex: string): number;
   unlink(idHex: string, reason: string): void;
   close(): Promise<void>;
@@ -39,6 +40,7 @@ export type VoiceNodeBinder = (
   onLink: (idHex: string, inbound: boolean) => void,
   onDatagram: (idHex: string, bytes: Uint8Array) => void,
   onClosed: (idHex: string) => void,
+  onStream: (idHex: string, bytes: Uint8Array | undefined) => void,
 ) => Promise<VoiceTransport>;
 
 interface WasmModule {
@@ -85,7 +87,7 @@ export async function voiceNodeBinder(): Promise<VoiceNodeBinder | undefined> {
   const mod = await wasmModule();
   // An older build of the module, from before the voice half.
   if (!mod?.VoiceNode) return undefined;
-  return (relays, onLink, onDatagram, onClosed) => mod.VoiceNode.bind(relays, onLink, onDatagram, onClosed);
+  return (relays, onLink, onDatagram, onClosed, onStream) => mod.VoiceNode.bind(relays, onLink, onDatagram, onClosed, onStream);
 }
 
 /**

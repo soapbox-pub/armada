@@ -550,6 +550,9 @@ export interface VoiceOtherTransport {
   deafened?: boolean;
   serverMuted?: boolean;
   serverDeafened?: boolean;
+  /** What they say they send (CORD-07 §4): a shared screen, a camera. */
+  screen?: boolean;
+  camera?: boolean;
   /** Their endpoint, on `iroh`. */
   iroh?: IrohAddress;
   ms: number;
@@ -649,6 +652,8 @@ function leaveOneSide(prev: VoicePresenceEntry, left: VoicePresenceEntry, nowMs:
     status: "joined",
     transport: other.transport,
     ...(other.iroh ? { iroh: other.iroh } : {}),
+    ...(other.screen ? { screen: true } : {}),
+    ...(other.camera ? { camera: true } : {}),
     ...(other.muted ? { muted: true } : {}),
     ...(other.deafened ? { deafened: true } : {}),
     ms: other.ms,
@@ -662,6 +667,8 @@ function leaveOneSide(prev: VoicePresenceEntry, left: VoicePresenceEntry, nowMs:
 export interface OtherHalf {
   transport: string;
   iroh?: IrohAddress;
+  screen?: boolean;
+  camera?: boolean;
   muted?: boolean;
   deafened?: boolean;
   ms: number;
@@ -672,6 +679,8 @@ function otherHalfOf(e: VoicePresenceEntry, heardAt: number): OtherHalf {
   return {
     transport: e.transport!,
     ...(e.iroh ? { iroh: e.iroh } : {}),
+    ...(e.screen ? { screen: true } : {}),
+    ...(e.camera ? { camera: true } : {}),
     ...(e.muted ? { muted: true } : {}),
     ...(e.deafened ? { deafened: true } : {}),
     ms: e.ms,
@@ -852,6 +861,8 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
         transport: top.transport,
         ...(top.iroh ? { iroh: top.iroh } : {}),
         ...(top.muted ? { muted: true } : {}),
+        ...(top.screen ? { screen: true } : {}),
+        ...(top.camera ? { camera: true } : {}),
         ...(top.deafened ? { deafened: true } : {}),
         ...(top.serverMuted ? { serverMuted: true } : {}),
         ...(top.serverDeafened ? { serverDeafened: true } : {}),

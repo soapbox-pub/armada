@@ -103,7 +103,10 @@ import {
 } from "@/lib/voiceDevices";
 import { syncRnnoise } from "@/lib/voiceProcessor";
 import { IrohCallBar } from "@/components/IrohCallBar";
+import { IrohCallStage } from "@/components/chat/IrohCallStage";
+import { IrohPeersContext, useIrohPeers, type P2pCallView } from "@/lib/irohVoice/peers";
 import { useCallMicTrack } from "@/concord/hooks/useCallMicTrack";
+import { useLiveKitVideoTracks, useOwnVideoCapture } from "@/concord/hooks/useCallVideoTracks";
 import { peerToPeerAvailable, useIrohVoice } from "@/concord/hooks/useIrohVoice";
 import { communityVoiceRelays } from "@/concord/lib/irohVoice";
 import type { CallAllowance } from "@/concord/lib/callGate";
@@ -147,6 +150,7 @@ function SpeakingReporter() {
   const { setSpeakingPubkeys } = useCall();
   const resolveIdentity = useVoiceIdentity();
   const speakers = useSpeakers();
+  const { peers } = useIrohPeers();
 
   useEffect(() => {
     const pubkeys = new Set<string>();
@@ -154,8 +158,9 @@ function SpeakingReporter() {
       const { pubkey, verified } = resolveIdentity(identity);
       if (verified) pubkeys.add(pubkey);
     }
+    for (const p of peers) if (p.speaking) pubkeys.add(p.pubkey);
     setSpeakingPubkeys(pubkeys);
-  }, [speakers, resolveIdentity, setSpeakingPubkeys]);
+  }, [speakers, resolveIdentity, setSpeakingPubkeys, peers]);
 
   useEffect(() => () => setSpeakingPubkeys(new Set()), [setSpeakingPubkeys]);
 
@@ -173,6 +178,7 @@ function MutedReporter() {
   const { setMutedPubkeys } = useCall();
   const resolveIdentity = useVoiceIdentity();
   const participants = useParticipants();
+  const { peers } = useIrohPeers();
 
   useEffect(() => {
     const pubkeys = new Set<string>();
@@ -185,8 +191,9 @@ function MutedReporter() {
       const { pubkey, verified } = resolveIdentity(p.identity);
       if (verified) pubkeys.add(pubkey);
     }
+    for (const p of peers) if (p.muted) pubkeys.add(p.pubkey);
     setMutedPubkeys(pubkeys);
-  }, [participants, resolveIdentity, setMutedPubkeys]);
+  }, [participants, resolveIdentity, setMutedPubkeys, peers]);
 
   useEffect(() => () => setMutedPubkeys(new Set()), [setMutedPubkeys]);
 
@@ -198,6 +205,7 @@ function StreamingReporter() {
   const { setStreamingPubkeys } = useCall();
   const resolveIdentity = useVoiceIdentity();
   const participants = useParticipants();
+  const { peers } = useIrohPeers();
 
   useEffect(() => {
     const pubkeys = new Set<string>();
@@ -207,8 +215,9 @@ function StreamingReporter() {
       const { pubkey, verified } = resolveIdentity(p.identity);
       if (verified) pubkeys.add(pubkey);
     }
+    for (const p of peers) if (p.sending.screen) pubkeys.add(p.pubkey);
     setStreamingPubkeys(pubkeys);
-  }, [participants, resolveIdentity, setStreamingPubkeys]);
+  }, [participants, resolveIdentity, setStreamingPubkeys, peers]);
 
   useEffect(() => () => setStreamingPubkeys(new Set()), [setStreamingPubkeys]);
 
@@ -256,6 +265,7 @@ function RosterReporter() {
   const { setVoiceRoomPubkeys } = useCall();
   const resolveIdentity = useVoiceIdentity();
   const participants = useParticipants();
+  const { peers } = useIrohPeers();
 
   useEffect(() => {
     const pubkeys: string[] = [];
@@ -268,12 +278,42 @@ function RosterReporter() {
       seen.add(pubkey);
       pubkeys.push(pubkey);
     }
+    for (const p of peers) {
+      if (seen.has(p.pubkey)) continue;
+      seen.add(p.pubkey);
+      pubkeys.push(p.pubkey);
+    }
     setVoiceRoomPubkeys(pubkeys);
-  }, [participants, resolveIdentity, setVoiceRoomPubkeys]);
+  }, [participants, resolveIdentity, setVoiceRoomPubkeys, peers]);
 
   // Null on teardown so consumers fall back to relay presence.
   useEffect(() => () => setVoiceRoomPubkeys(null), [setVoiceRoomPubkeys]);
 
+  return null;
+}
+
+/**
+ * The same reports for a call that is peer to peer alone, where no LiveKit room exists:
+ * us and the members we're linked to.
+ */
+function IrohCallReporter({ view }: { view: P2pCallView }) {
+  const { setSpeakingPubkeys, setMutedPubkeys, setStreamingPubkeys, setVoiceRoomPubkeys } = useCall();
+  useEffect(() => {
+    const everyone = [...(view.self ? [{ ...view.self, sending: { camera: Boolean(view.self.camera), screen: Boolean(view.self.screen) } }] : []), ...view.peers];
+    setVoiceRoomPubkeys([...new Set(everyone.map((p) => p.pubkey))]);
+    setSpeakingPubkeys(new Set(everyone.filter((p) => p.speaking).map((p) => p.pubkey)));
+    setMutedPubkeys(new Set(everyone.filter((p) => p.muted).map((p) => p.pubkey)));
+    setStreamingPubkeys(new Set(everyone.filter((p) => p.sending.screen).map((p) => p.pubkey)));
+  }, [view, setSpeakingPubkeys, setMutedPubkeys, setStreamingPubkeys, setVoiceRoomPubkeys]);
+  useEffect(
+    () => () => {
+      setVoiceRoomPubkeys(null);
+      setSpeakingPubkeys(new Set());
+      setMutedPubkeys(new Set());
+      setStreamingPubkeys(new Set());
+    },
+    [setSpeakingPubkeys, setMutedPubkeys, setStreamingPubkeys, setVoiceRoomPubkeys],
+  );
   return null;
 }
 
@@ -1161,6 +1201,9 @@ function ConcordVoiceRoom({
   const localMediaRef = useRef(localMedia);
   localMediaRef.current = localMedia;
   const micTrack = useCallMicTrack(e2ee.room, onSfu, sfuFailed);
+  // Our pictures for the peer-to-peer links: what LiveKit publishes, or the call's own captures.
+  const sfuVideo = useLiveKitVideoTracks(e2ee.room, onSfu);
+  const ownVideo = useOwnVideoCapture(sfuFailed);
   const voiceRelays = useMemo(() => communityVoiceRelays(folded?.metadata), [folded?.metadata]);
   const iroh = useIrohVoice({
     enabled: true,
@@ -1171,7 +1214,17 @@ function ConcordVoiceRoom({
     micTrack,
     muted: onSfu ? localMedia.muted : p2pMuted,
     gate,
+    video: sfuFailed ? ownVideo.sources : sfuVideo,
   });
+  const p2pView = useMemo<P2pCallView>(
+    () => ({
+      peers: iroh.peers,
+      ...(sfuFailed && me
+        ? { self: { pubkey: me, speaking: iroh.selfSpeaking, muted: p2pMuted, ...ownVideo.sources } }
+        : {}),
+    }),
+    [iroh.peers, iroh.selfSpeaking, sfuFailed, me, p2pMuted, ownVideo.sources],
+  );
   const irohStatusRef = useRef(iroh.status);
   irohStatusRef.current = iroh.status;
   const fallBackToP2p = useCallback(() => {
@@ -1200,8 +1253,8 @@ function ConcordVoiceRoom({
     };
   }, [tokenData, e2ee.room, sfuLost, fallBackToP2p]);
   const heartbeatMedia = useMemo(
-    () => (sfuFailed ? { muted: p2pMuted, screen: false, camera: false } : localMedia),
-    [sfuFailed, p2pMuted, localMedia],
+    () => (sfuFailed ? { muted: p2pMuted, screen: Boolean(ownVideo.sources.screen), camera: Boolean(ownVideo.sources.camera) } : localMedia),
+    [sfuFailed, p2pMuted, localMedia, ownVideo.sources],
   );
   const { sendReaction, announceAdditionalIdentities, announceRecording } = useVoiceHeartbeat(
     community,
@@ -1947,19 +2000,34 @@ function ConcordVoiceRoom({
   );
 
   if (sfuFailed && iroh.status !== "unavailable") {
+    const callLabel = <ConcordCallLabel community={community.name} channel={channel.name} onFocus={goToChannel} />;
+    const mayVideo = !me || (gate?.(me).video ?? true);
+    const controls = {
+      muted: p2pMuted,
+      canSpeak: !me || (gate?.(me).speak ?? true),
+      onToggleMute: () => setP2pMuted((m) => !m),
+      onLeave,
+      ...(mayVideo
+        ? {
+            camera: Boolean(ownVideo.sources.camera),
+            screen: Boolean(ownVideo.sources.screen),
+            onToggleCamera: () => void ownVideo.toggle("camera"),
+            onToggleScreen: () => void ownVideo.toggle("screen"),
+          }
+        : {}),
+    };
     const p2pBar = (stacked: boolean) => (
-      <IrohCallBar
-        label={<ConcordCallLabel community={community.name} channel={channel.name} onFocus={goToChannel} />}
-        connecting={iroh.status !== "on"}
-        linked={iroh.linked.length}
-        muted={p2pMuted}
-        canSpeak={!me || (gate?.(me).speak ?? true)}
-        onToggleMute={() => setP2pMuted((m) => !m)}
-        onLeave={onLeave}
-        stacked={stacked}
-      />
+      <IrohCallBar label={callLabel} connecting={iroh.status !== "on"} linked={iroh.linked.length} stacked={stacked} {...controls} />
     );
-    return <>{placeBar(p2pBar(false), p2pBar(true))}</>;
+    return (
+      <VoiceModerationContext.Provider value={voiceActionsFor}>
+        <IrohPeersContext.Provider value={p2pView}>
+          <IrohCallReporter view={p2pView} />
+          {placeStage(<IrohCallStage view={p2pView} open={stageOpen} callLabel={callLabel} controls={controls} />)}
+          {placeBar(p2pBar(false), p2pBar(true))}
+        </IrohPeersContext.Provider>
+      </VoiceModerationContext.Provider>
+    );
   }
   if (isLoading) return <>{<LoadingBar placeBar={placeBar} label={<FormattedMessage id="persistentVoiceRoom.requestingAccess" defaultMessage="Requesting voice access…" />} />}</>;
   if (error || !tokenData) return <>{<ErrorBar placeBar={placeBar} error={error} onLeave={onLeave} />}</>;
@@ -1986,17 +2054,19 @@ function ConcordVoiceRoom({
     <VoiceIdentityContext.Provider value={resolveIdentity}>
       <CallSignalsContext.Provider value={signals}>
         <VoiceModerationContext.Provider value={voiceActionsFor}>
-          <VoiceRoomShell
-            serverUrl={tokenData.url}
-            token={tokenData.token}
-            options={{}}
-            room={room}
-            onDisconnected={handleDisconnected}
-            placeBar={placeBar}
-            placeStage={placeStage}
-            stageOpen={stageOpen}
-            label={label}
-          />
+          <IrohPeersContext.Provider value={p2pView}>
+            <VoiceRoomShell
+              serverUrl={tokenData.url}
+              token={tokenData.token}
+              options={{}}
+              room={room}
+              onDisconnected={handleDisconnected}
+              placeBar={placeBar}
+              placeStage={placeStage}
+              stageOpen={stageOpen}
+              label={label}
+            />
+          </IrohPeersContext.Provider>
         </VoiceModerationContext.Provider>
       </CallSignalsContext.Provider>
     </VoiceIdentityContext.Provider>

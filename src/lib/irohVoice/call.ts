@@ -43,6 +43,8 @@ export class IrohVoiceCall {
   private readonly listeners = new Set<() => void>();
   private snapshot: LinkedPeer[] = [];
   private gain: (author: string) => { audible: boolean; volume: number } = () => ({ audible: true, volume: 1 });
+  private streamSink?: (id: string, bytes: Uint8Array | undefined) => void;
+  private linkSink?: (id: string, up: boolean) => void;
   private closed = false;
 
   private constructor(private readonly audio: LinkAudio, private readonly now: () => number) {}
@@ -63,6 +65,7 @@ export class IrohVoiceCall {
         (id, inbound) => c.onLink(id, inbound),
         (id, bytes) => c.onDatagram(id, bytes),
         (id) => c.onClosed(id),
+        (id, bytes) => c.onStream(id, bytes),
       );
     } catch (e) {
       await engine.close();
@@ -82,6 +85,18 @@ export class IrohVoiceCall {
   setTargets(targets: P2pTarget[]): void {
     this.targets = targets;
     this.reconcile();
+  }
+
+  /** Where each adopted peer's streams go (the video engine), and who hears of links coming and going. */
+  setStreamSink(sink: (id: string, bytes: Uint8Array | undefined) => void, links: (id: string, up: boolean) => void): void {
+    this.streamSink = sink;
+    this.linkSink = links;
+  }
+
+  /** One whole stream to an adopted peer; false for anyone else, or a stream that didn't land. */
+  sendStream(id: string, bytes: Uint8Array, priority: number, staleMs: number): Promise<boolean> {
+    if (this.closed || !this.links.get(id)?.author) return Promise.resolve(false);
+    return this.node.sendStream(id, bytes, priority, staleMs);
   }
 
   /** Whether each member is heard, and how loud, judged again on every change. */
@@ -147,12 +162,17 @@ export class IrohVoiceCall {
     this.links.set(id, { author, since: this.now() });
     this.audio.addPeer(id);
     this.applyGain(id, author);
+    this.linkSink?.(id, true);
     this.changed();
   }
 
   private applyGain(id: string, author: string): void {
     const { audible, volume } = this.gain(author);
     this.audio.setPeerGain(id, audible, volume);
+  }
+
+  private onStream(id: string, bytes: Uint8Array | undefined): void {
+    if (this.links.get(id)?.author) this.streamSink?.(id, bytes);
   }
 
   private onDatagram(id: string, bytes: Uint8Array): void {
@@ -163,7 +183,10 @@ export class IrohVoiceCall {
     const link = this.links.get(id);
     this.links.delete(id);
     this.audio.removePeer(id);
-    if (link?.author) this.changed();
+    if (link?.author) {
+      this.linkSink?.(id, false);
+      this.changed();
+    }
   }
 
   private broadcast(datagram: Uint8Array): void {

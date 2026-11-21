@@ -10,7 +10,12 @@ const HIGHER = "9".repeat(64);
 const RELAY = "https://euc1-1.relay.n0.iroh.link/";
 
 function harness() {
-  const cb = {} as { link: (id: string, inbound: boolean) => void; datagram: (id: string, b: Uint8Array) => void; closed: (id: string) => void };
+  const cb = {} as {
+    link: (id: string, inbound: boolean) => void;
+    datagram: (id: string, b: Uint8Array) => void;
+    closed: (id: string) => void;
+    stream: (id: string, b: Uint8Array | undefined) => void;
+  };
   const sent: [string, number][] = [];
   const node: VoiceTransport = {
     endpointHex: () => MINE,
@@ -20,6 +25,7 @@ function harness() {
       sent.push([id, d[0]]);
       return true;
     }),
+    sendStream: vi.fn(async () => true),
     rttMs: () => 0,
     unlink: vi.fn((id: string) => cb.closed(id)),
     close: vi.fn(async () => undefined),
@@ -28,8 +34,8 @@ function harness() {
   let send: (d: Uint8Array) => void = () => undefined;
   const start = () =>
     IrohVoiceCall.start(
-      async (_relays, onLink, onDatagram, onClosed) => {
-        Object.assign(cb, { link: onLink, datagram: onDatagram, closed: onClosed });
+      async (_relays, onLink, onDatagram, onClosed, onStream) => {
+        Object.assign(cb, { link: onLink, datagram: onDatagram, closed: onClosed, stream: onStream });
         return node;
       },
       [],
@@ -114,6 +120,27 @@ describe("the peer-to-peer links", () => {
     expect(h.audio.setPeerGain).toHaveBeenLastCalledWith(HIGHER, false, 1.5);
     call.setGain(() => ({ audible: true, volume: 1 }));
     expect(h.audio.setPeerGain).toHaveBeenLastCalledWith(HIGHER, true, 1);
+  });
+
+  it("hands only adopted peers' streams to the video sink, and sends streams only to them", async () => {
+    const h = harness();
+    const call = await h.start();
+    const sink = vi.fn();
+    const links = vi.fn();
+    call.setStreamSink(sink, links);
+    h.cb.link(LOWER, true);
+    h.cb.stream(LOWER, new Uint8Array([2]));
+    expect(sink).not.toHaveBeenCalled();
+    expect(await call.sendStream(LOWER, new Uint8Array([1]), 0, 400)).toBe(false);
+    call.setTargets([target("l", LOWER, false)]);
+    expect(links).toHaveBeenCalledWith(LOWER, true);
+    h.cb.stream(LOWER, new Uint8Array([2]));
+    h.cb.stream(LOWER, undefined);
+    expect(sink.mock.calls).toEqual([[LOWER, new Uint8Array([2])], [LOWER, undefined]]);
+    expect(await call.sendStream(LOWER, new Uint8Array([1]), 0, 400)).toBe(true);
+    expect(h.node.sendStream).toHaveBeenCalledWith(LOWER, new Uint8Array([1]), 0, 400);
+    h.cb.closed(LOWER);
+    expect(links).toHaveBeenLastCalledWith(LOWER, false);
   });
 
   it("closes the audio and the endpoint on stop", async () => {
