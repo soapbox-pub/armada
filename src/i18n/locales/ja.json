@@ -3269,6 +3269,8 @@
   "persistentVoiceRoom.joinFailedDetail": "ボイスに参加できませんでした: {detail}",
   "persistentVoiceRoom.openingMic": "マイクを起動中…",
   "persistentVoiceRoom.otherTransport.description": "このブラウザーはピアツーピア通話に参加できないため、お互いの声は聞こえません。",
+  "persistentVoiceRoom.otherTransport.noModule": "この Armada はピアツーピア通話なしでビルドされているため、お互いの声は聞こえません。",
+  "persistentVoiceRoom.otherTransport.startFailed": "ピアツーピア通話を開始できなかったため、お互いの声は聞こえません。",
   "persistentVoiceRoom.otherTransport.title": "{count, plural, other {#人のメンバー}}がこの通話にピアツーピアで参加しています",
   "persistentVoiceRoom.p2pOnly.description": "音声サーバーに接続できなかったため、直接接続でほかの参加者の声を聞いています。",
   "persistentVoiceRoom.p2pOnly.title": "ピアツーピアで参加しました",

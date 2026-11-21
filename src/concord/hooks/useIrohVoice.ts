@@ -10,6 +10,12 @@ import { getPreferredSpeakerId, getUserVolume, subscribeUserVolumes, subscribeVo
 
 export type IrohVoiceStatus = "off" | "starting" | "on" | "unavailable";
 
+/**
+ * Why peer to peer is off: this build has no iroh module (`npm run build:wasm` didn't run or
+ * failed), this browser has no WebCodecs Opus, or the endpoint wouldn't bind.
+ */
+export type IrohUnavailable = "build" | "browser" | "start";
+
 export interface IrohVoiceOptions {
   /** In the call: binds an endpoint for as long as this holds. */
   enabled: boolean;
@@ -28,6 +34,8 @@ export interface IrohVoiceOptions {
 
 export interface IrohVoice {
   status: IrohVoiceStatus;
+  /** Set while `status` is `"unavailable"`. */
+  unavailable?: IrohUnavailable;
   /** What our presence names, once bound. */
   address: IrohAddress | undefined;
   /** The members linked now. */
@@ -51,6 +59,7 @@ export function useIrohVoice(opts: IrohVoiceOptions): IrohVoice {
   const { enabled, onSfu, fold, me, relays, micTrack, muted, gate } = opts;
   const [call, setCall] = useState<{ call: IrohVoiceCall; audio: IrohVoiceAudio } | undefined>();
   const [status, setStatus] = useState<IrohVoiceStatus>("off");
+  const [unavailable, setUnavailable] = useState<IrohUnavailable | undefined>();
   const [address, setAddress] = useState<IrohAddress | undefined>();
   const relaysKey = relays.join(",");
 
@@ -59,19 +68,21 @@ export function useIrohVoice(opts: IrohVoiceOptions): IrohVoice {
     let cancelled = false;
     let held: IrohVoiceCall | undefined;
     setStatus("starting");
+    const off = (why: IrohUnavailable, detail?: unknown) => {
+      console.warn(`[iroh voice] peer-to-peer calls are off here (${why})`, detail ?? "");
+      setUnavailable(why);
+      setStatus("unavailable");
+    };
     void (async () => {
-      const bind = irohAudioSupported() ? await voiceNodeBinder() : undefined;
+      if (!irohAudioSupported()) return off("browser", "no WebCodecs AudioEncoder/AudioDecoder or AudioWorklet");
+      const bind = await voiceNodeBinder();
       if (cancelled) return;
-      if (!bind) {
-        setStatus("unavailable");
-        return;
-      }
+      if (!bind) return off("build", "the iroh wasm module (crates/webxdc-rt) isn't in this build, or predates VoiceNode");
       let audio: IrohVoiceAudio | undefined;
       try {
         held = await IrohVoiceCall.start(bind, relaysKey ? relaysKey.split(",") : [], (send) => (audio = new IrohVoiceAudio(send)));
       } catch (e) {
-        console.warn("[iroh voice] couldn't bind an endpoint", e);
-        if (!cancelled) setStatus("unavailable");
+        if (!cancelled) off("start", e);
         return;
       }
       if (cancelled) {
@@ -87,6 +98,7 @@ export function useIrohVoice(opts: IrohVoiceOptions): IrohVoice {
       void held?.stop();
       setCall(undefined);
       setAddress(undefined);
+      setUnavailable(undefined);
       setStatus("off");
     };
   }, [enabled, relaysKey]);
@@ -141,5 +153,5 @@ export function useIrohVoice(opts: IrohVoiceOptions): IrohVoice {
     () => call?.call.linked() ?? NONE,
   );
 
-  return { status, address, linked };
+  return { status, unavailable, address, linked };
 }

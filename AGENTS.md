@@ -222,8 +222,10 @@ compile it through a prebuild hook, rebuilding only when a source file,
 
 **It is optional locally and required in the deploy.** Without a Rust
 toolchain the hook prints what to install and exits 0: the app builds and runs,
-Mini Apps still open and sync their state, and only multiplayer is off. Nobody
-needs Rust to work on the chat UI. The deploy workflow sets
+Mini Apps still open and sync their state, and only multiplayer and
+peer-to-peer voice are off — a build without it cannot hear Vector's callers,
+and says so ("built without peer-to-peer calling"). Nobody needs Rust to work
+on the chat UI. The deploy workflow sets
 `WEBXDC_RT_REQUIRED=1`, which turns a missing toolchain or a failed compile
 into a failed deploy rather than a published build with multiplayer silently
 switched off.

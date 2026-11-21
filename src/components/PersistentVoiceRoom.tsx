@@ -1003,6 +1003,9 @@ function buildE2eeRoom(keyProvider: BaseKeyProvider): {
   return { room: new Room(opts), worker };
 }
 
+/** How long a LiveKit room may take to connect after its token before the call goes peer to peer. */
+const SFU_CONNECT_GRACE_MS = 20_000;
+
 /** Concord call bar title; a button back to the voice channel. Exported for tests. */
 export function ConcordCallLabel({
   community,
@@ -1068,8 +1071,12 @@ function ConcordVoiceRoom({
   );
 
   const { data: tokenData, error, isLoading } = useAvToken(channel, broker ?? undefined, true, fallbackBrokers);
-  // No LiveKit server answered, or none would mint: the call goes on peer to peer (CORD-07 §8).
-  const sfuFailed = !broker || (!isLoading && (Boolean(error) || !tokenData));
+  // LiveKit gave up on us after a token: the room never connected, or dropped for good.
+  const [sfuLost, setSfuLost] = useState(false);
+  const sfuLostRef = useRef(false);
+  // No LiveKit server answered, none would mint, or the room never came up: the call goes on
+  // peer to peer (CORD-07 §8).
+  const sfuFailed = !broker || sfuLost || (!isLoading && (Boolean(error) || !tokenData));
 
   // Raise-hand/reactions ride additive tags on the encrypted presence rumor (Armada extension).
   const [handRaised, setHandRaised] = useState(false);
@@ -1151,6 +1158,8 @@ function ConcordVoiceRoom({
   // The peer-to-peer half: Vector members, and anyone whose LiveKit failed, heard over iroh.
   const [p2pMuted, setP2pMuted] = useState(false);
   const onSfu = Boolean(tokenData) && !sfuFailed;
+  const localMediaRef = useRef(localMedia);
+  localMediaRef.current = localMedia;
   const micTrack = useCallMicTrack(e2ee.room, onSfu, sfuFailed);
   const voiceRelays = useMemo(() => communityVoiceRelays(folded?.metadata), [folded?.metadata]);
   const iroh = useIrohVoice({
@@ -1163,6 +1172,33 @@ function ConcordVoiceRoom({
     muted: onSfu ? localMedia.muted : p2pMuted,
     gate,
   });
+  const irohStatusRef = useRef(iroh.status);
+  irohStatusRef.current = iroh.status;
+  const fallBackToP2p = useCallback(() => {
+    if (sfuLostRef.current || irohStatusRef.current === "unavailable") return false;
+    sfuLostRef.current = true;
+    // As the member left their mic: never a hot mic they didn't choose.
+    setP2pMuted(localMediaRef.current.muted);
+    setSfuLost(true);
+    return true;
+  }, []);
+  useEffect(() => {
+    const room = e2ee.room;
+    if (!tokenData || !room || sfuLost) return;
+    if (room.state === ConnectionState.Connected) return;
+    // LiveKit's own connect times out at about 15 s; past this the room isn't coming up.
+    const timer = setTimeout(() => {
+      if (room.state !== ConnectionState.Connected) fallBackToP2p();
+    }, SFU_CONNECT_GRACE_MS);
+    const onState = (state: ConnectionState) => {
+      if (state === ConnectionState.Connected) clearTimeout(timer);
+    };
+    room.on(RoomEvent.ConnectionStateChanged, onState);
+    return () => {
+      clearTimeout(timer);
+      room.off(RoomEvent.ConnectionStateChanged, onState);
+    };
+  }, [tokenData, e2ee.room, sfuLost, fallBackToP2p]);
   const heartbeatMedia = useMemo(
     () => (sfuFailed ? { muted: p2pMuted, screen: false, camera: false } : localMedia),
     [sfuFailed, p2pMuted, localMedia],
@@ -1170,8 +1206,8 @@ function ConcordVoiceRoom({
   const { sendReaction, announceAdditionalIdentities, announceRecording } = useVoiceHeartbeat(
     community,
     channel,
-    tokenData?.identity,
-    tokenData?.origin,
+    sfuFailed ? undefined : tokenData?.identity,
+    sfuFailed ? undefined : tokenData?.origin,
     handRaised,
     hevcIdentities,
     noRecord,
@@ -1839,12 +1875,23 @@ function ConcordVoiceRoom({
         },
         { count: otherTransportCount },
       ),
-      description: t({
-        id: "persistentVoiceRoom.otherTransport.description",
-        defaultMessage: "This browser can't join peer-to-peer calls, so you won't hear each other.",
-      }),
+      description:
+        iroh.unavailable === "build"
+          ? t({
+              id: "persistentVoiceRoom.otherTransport.noModule",
+              defaultMessage: "This copy of Armada was built without peer-to-peer calling, so you won't hear each other.",
+            })
+          : iroh.unavailable === "start"
+            ? t({
+                id: "persistentVoiceRoom.otherTransport.startFailed",
+                defaultMessage: "Peer-to-peer calling couldn't start, so you won't hear each other.",
+              })
+            : t({
+                id: "persistentVoiceRoom.otherTransport.description",
+                defaultMessage: "This browser can't join peer-to-peer calls, so you won't hear each other.",
+              }),
     });
-  }, [tokenData, otherTransportCount, iroh.status]);
+  }, [tokenData, otherTransportCount, iroh.status, iroh.unavailable]);
 
   const warnedP2pOnly = useRef(false);
   useEffect(() => {
@@ -1854,7 +1901,7 @@ function ConcordVoiceRoom({
       title: t({ id: "persistentVoiceRoom.p2pOnly.title", defaultMessage: "Joined peer to peer" }),
       description: t({
         id: "persistentVoiceRoom.p2pOnly.description",
-        defaultMessage: "No voice server could be reached, so you hear the others over direct links instead.",
+        defaultMessage: "Couldn't connect to a voice server, so you hear the others over direct links instead.",
       }),
     });
   }, [sfuFailed, iroh.status]);
@@ -1887,12 +1934,16 @@ function ConcordVoiceRoom({
 
   const handleDisconnected = useCallback(
     (reason?: DisconnectReason) => {
+      // Our own teardown of the LiveKit room on falling back is not the call ending.
+      if (sfuLostRef.current) return;
       if (reason !== undefined && reason !== DisconnectReason.CLIENT_INITIATED) {
         console.warn("concord voice disconnected", { reason: DisconnectReason[reason] ?? reason });
       }
+      // Rejoining gave up on a lost connection: the call goes on peer to peer. A removal ends it.
+      if (isRecoverableDisconnect(reason) && fallBackToP2p()) return;
       onLeave();
     },
-    [onLeave],
+    [onLeave, fallBackToP2p],
   );
 
   if (sfuFailed && iroh.status !== "unavailable") {

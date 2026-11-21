@@ -445,7 +445,10 @@ export function useVoiceHeartbeat(
   const irohKey = iroh ? `${iroh.endpoint}|${iroh.relay ?? ""}` : "";
   // Off LiveKit the endpoint alone puts us in the call; on it, it rides the SFU heartbeat.
   const active = Boolean(identity && broker) || (irohAlone && Boolean(iroh));
-  const aloneEndpoint = irohAlone ? iroh?.endpoint : undefined;
+  // Read at send time: dropping the SFU identity for peer to peer alone must not send a
+  // `left`, which Vector takes as leaving the call and unlinks.
+  const sfuRef = useRef({ identity, broker });
+  sfuRef.current = { identity, broker };
 
   const publish = useCallback(
     async (
@@ -485,12 +488,13 @@ export function useVoiceHeartbeat(
 
   useEffect(() => {
     if (!active || !user || !community || !channel) return;
-    void publish("joined", identity, broker).catch(() => undefined);
+    const joined = () => void publish("joined", sfuRef.current.identity, sfuRef.current.broker).catch(() => undefined);
+    joined();
     // Self-rescheduling so each hop re-jitters (see `heartbeatDelayMs`).
     let timer: ReturnType<typeof setTimeout>;
     const schedule = () => {
       timer = setTimeout(() => {
-        void publish("joined", identity, broker).catch(() => undefined);
+        joined();
         schedule();
       }, heartbeatDelayMs());
     };
@@ -501,7 +505,7 @@ export function useVoiceHeartbeat(
       if (author === user.pubkey || greet !== undefined) return;
       greet = setTimeout(() => {
         greet = undefined;
-        void publish("joined", identity, broker).catch(() => undefined);
+        joined();
       }, greetDelayMs());
     });
     return () => {
@@ -511,7 +515,7 @@ export function useVoiceHeartbeat(
       void publish("left").catch(() => undefined);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity, broker, aloneEndpoint, user?.pubkey, community?.idHex, channel?.idHex]);
+  }, [active, user?.pubkey, community?.idHex, channel?.idHex]);
 
   // Republish immediately on hand toggle; skip mount (the join heartbeat has it).
   const mounted = useRef(false);
