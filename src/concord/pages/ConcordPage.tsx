@@ -211,6 +211,7 @@ import { EMPTY_SEARCH_FILTERS, resolveTypedTokens, searchText, type SearchFilter
 import { useConcordThreads, type ConcordThread } from "@/concord/hooks/useConcordThreads";
 import { useTyping, useTypingPublisher } from "@/concord/hooks/useTyping";
 import { resolveVoiceBroker, useVoiceBroker, useVoicePresence } from "@/concord/hooks/useVoice";
+import { peerToPeerAvailable } from "@/concord/hooks/useIrohVoice";
 import { communityAvBrokers, voiceRowTransports } from "@/concord/lib/voice";
 import { useRegisterChannelStreamKeys } from "@/concord/hooks/useStreamAuth";
 import { completeMemberlist, timeoutRunning } from "@/concord/lib/guestbook";
@@ -2109,6 +2110,11 @@ function ConcordCommunityPage() {
         // Broker may be loading or a cached `null`; re-run the rendezvous live.
         const roomHex = ch.voice.room.pk;
         resolved = roomHex ? await resolveVoiceBroker(roomHex, avBrokers) : null;
+      }
+      if (!resolved && (await peerToPeerAvailable())) {
+        // No LiveKit server to be on: the call goes ahead peer to peer (CORD-07 §8).
+        joinConcordCall({ community, channel: ch, broker: null });
+        return;
       }
       if (!resolved) {
         toast({

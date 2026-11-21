@@ -207,7 +207,7 @@ function VoiceParticipantRow({
 const TRANSPORT_LABELS = {
   other: defineMessage({
     id: "voicePresence.otherTransport",
-    defaultMessage: "In the call peer to peer, which Armada can't join yet",
+    defaultMessage: "In the call peer to peer only",
   }),
   bridged: defineMessage({
     id: "voicePresence.bridgedTransport",
@@ -223,7 +223,7 @@ const TRANSPORT_LABELS = {
   }),
 } satisfies Record<VoiceRowTransport, MessageDescriptor>;
 
-/** A roster row's peer-to-peer marker, dimmed where the member can't be heard here. */
+/** A roster row's peer-to-peer marker, dimmed for a member who is on peer to peer only. */
 function TransportMarker({ transport }: { transport: VoiceRowTransport }) {
   const intl = useIntl();
   const label = intl.formatMessage(TRANSPORT_LABELS[transport]);

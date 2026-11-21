@@ -48,6 +48,7 @@ import {
   type AvToken,
   type VoiceDirective,
   type VoiceDirectiveVerb,
+  type IrohAddress,
   type VoicePresenceEntry,
   type VoicePresenceFold,
   type VoiceReactionEntry,
@@ -401,6 +402,9 @@ export function useVoiceModeration(community: Community | undefined, channel: Ch
  * Also carries Armada extensions (see voice.ts): the sticky `hand`, `norecord`
  * and `recording` states, and `sendReaction` on an off-cycle `joined` — additive
  * tags on the same kind-23313 rumor, so no new frozen kind (CORD-02 §6).
+ * `iroh` names this member's peer-to-peer endpoint in the same `joined` (CORD-07
+ * §8), so Vector peers reach it; with `irohAlone` it is announced with no SFU
+ * identity, for a call that couldn't reach LiveKit.
  */
 export function useVoiceHeartbeat(
   community: Community | undefined,
@@ -412,6 +416,8 @@ export function useVoiceHeartbeat(
   noRecord = false,
   /** What the call shows of this member (CORD-07 §4), re-sent the moment it changes. */
   media: { muted: boolean; screen: boolean; camera: boolean } = { muted: false, screen: false, camera: false },
+  iroh?: IrohAddress,
+  irohAlone = false,
 ): {
   sendReaction: (emoji: string) => void;
   announceAdditionalIdentities: (identities: readonly string[]) => Promise<void>;
@@ -434,6 +440,12 @@ export function useVoiceHeartbeat(
   const additionalIdentitiesRef = useRef(additionalIdentities);
   additionalIdentitiesRef.current = additionalIdentities;
   const additionalIdentitiesKey = additionalIdentities.join("\0");
+  const irohRef = useRef(iroh);
+  irohRef.current = iroh;
+  const irohKey = iroh ? `${iroh.endpoint}|${iroh.relay ?? ""}` : "";
+  // Off LiveKit the endpoint alone puts us in the call; on it, it rides the SFU heartbeat.
+  const active = Boolean(identity && broker) || (irohAlone && Boolean(iroh));
+  const aloneEndpoint = irohAlone ? iroh?.endpoint : undefined;
 
   const publish = useCallback(
     async (
@@ -453,6 +465,7 @@ export function useVoiceHeartbeat(
             recording: recordingRef.current,
             noRecord: noRecordRef.current,
             additionalIdentities: additionalIdentitiesRef.current,
+            iroh: irohRef.current,
             ...mediaRef.current,
           }),
           ...(reaction ? [reactionTag(reaction.emoji, reaction.nonce)] : []),
@@ -471,7 +484,7 @@ export function useVoiceHeartbeat(
   );
 
   useEffect(() => {
-    if (!identity || !broker || !user || !community || !channel) return;
+    if (!active || !user || !community || !channel) return;
     void publish("joined", identity, broker).catch(() => undefined);
     // Self-rescheduling so each hop re-jitters (see `heartbeatDelayMs`).
     let timer: ReturnType<typeof setTimeout>;
@@ -498,19 +511,19 @@ export function useVoiceHeartbeat(
       void publish("left").catch(() => undefined);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity, broker, user?.pubkey, community?.idHex, channel?.idHex]);
+  }, [identity, broker, aloneEndpoint, user?.pubkey, community?.idHex, channel?.idHex]);
 
   // Republish immediately on hand toggle; skip mount (the join heartbeat has it).
   const mounted = useRef(false);
   useEffect(() => {
-    if (!identity || !broker) return;
+    if (!active) return;
     if (!mounted.current) {
       mounted.current = true;
       return;
     }
     void publish("joined", identity, broker).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handRaised, noRecord, mediaKey, identity, broker]);
+  }, [handRaised, noRecord, mediaKey, irohKey, identity, broker]);
 
   // Separate from the main heartbeat effect, whose teardown would emit a `left`.
   const identitiesMounted = useRef(false);
@@ -526,14 +539,14 @@ export function useVoiceHeartbeat(
 
   const sendReaction = useCallback(
     (emoji: string) => {
-      if (!identity || !broker) return;
+      if (!active) return;
       const nonce =
         typeof crypto?.randomUUID === "function"
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       void publish("joined", identity, broker, { emoji, nonce }).catch(() => undefined);
     },
-    [publish, identity, broker],
+    [publish, identity, broker, active],
   );
 
   const announceAdditionalIdentities = useCallback(
@@ -554,14 +567,14 @@ export function useVoiceHeartbeat(
   const announceRecording = useCallback(
     async (recording: boolean) => {
       recordingRef.current = recording;
-      if (!identity || !broker) return false;
+      if (!active) return false;
       try {
         return await publish("joined", identity, broker);
       } catch {
         return false;
       }
     },
-    [broker, identity, publish],
+    [broker, identity, publish, active],
   );
 
   return { sendReaction, announceAdditionalIdentities, announceRecording };

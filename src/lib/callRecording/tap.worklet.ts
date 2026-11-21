@@ -3,6 +3,8 @@
  * batch, stamped with the context frame of its first sample, straight to the
  * recording worker over the port it is handed. The stamp is what lines every
  * voice's file up with the others — they all share this context's clock.
+ * A peer-to-peer call's capture (`src/lib/irohVoice/audio.ts`) reuses it with a
+ * 20 ms `batch`, one Opus frame per post.
  */
 
 declare const currentFrame: number;
@@ -15,14 +17,18 @@ const BATCH = 4096;
 
 class RecordTap extends AudioWorkletProcessor {
   private out: MessagePort | null = null;
-  private buf = new Float32Array(BATCH);
+  private readonly batch: number;
+  private buf: Float32Array;
   private fill = 0;
   private start = 0;
   private next = -1;
   private stopped = false;
 
-  constructor() {
+  constructor(options?: { processorOptions?: { batch?: number } }) {
     super();
+    const batch = options?.processorOptions?.batch;
+    this.batch = typeof batch === "number" && batch > 0 ? batch : BATCH;
+    this.buf = new Float32Array(this.batch);
     this.port.onmessage = (event: MessageEvent<{ port?: MessagePort; flush?: boolean }>) => {
       if (event.data.port) this.out = event.data.port;
       if (event.data.flush) {
@@ -42,11 +48,11 @@ class RecordTap extends AudioWorkletProcessor {
     if (this.fill === 0) this.start = currentFrame;
     let i = 0;
     while (i < input.length) {
-      const n = Math.min(input.length - i, BATCH - this.fill);
+      const n = Math.min(input.length - i, this.batch - this.fill);
       this.buf.set(input.subarray(i, i + n), this.fill);
       this.fill += n;
       i += n;
-      if (this.fill === BATCH) {
+      if (this.fill === this.batch) {
         this.flush();
         this.start = currentFrame + i;
       }

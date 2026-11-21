@@ -10,6 +10,9 @@
 //! own Rust. This crate moves opaque bytes between peers and nothing else, so
 //! the interop surface stays in one place instead of straddling a language
 //! boundary.
+//!
+//! `voice` is the second user of the same iroh: a Concord voice Channel's
+//! peer-to-peer call, interoperable with Vector's.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -22,11 +25,13 @@ use iroh_gossip::net::{Gossip, GOSSIP_ALPN};
 use iroh_gossip::proto::TopicId;
 use wasm_bindgen::prelude::*;
 
+mod voice;
+
 /// Vector's cap. A larger frame is dropped by the far side rather than
 /// rejected, so refuse it here where the caller can still be told.
 const MAX_MESSAGE_SIZE: usize = 128 * 1024;
 
-fn err(e: impl std::fmt::Display) -> JsError {
+pub(crate) fn err(e: impl std::fmt::Display) -> JsError {
     JsError::new(&e.to_string())
 }
 
@@ -314,7 +319,7 @@ impl RealtimeNode {
 }
 
 /// `setTimeout` as a future. There is no tokio timer in a browser.
-async fn wasm_sleep(ms: i32) {
+pub(crate) async fn wasm_sleep(ms: i32) {
     let (tx, rx) = futures_channel::oneshot::channel::<()>();
     let cb = Closure::once_into_js(move || {
         let _ = tx.send(());

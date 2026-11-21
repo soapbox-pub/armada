@@ -74,6 +74,8 @@ export interface ConcordSeedPayload {
   ownerSk?: string;
   /** The owner times the viewer out until this many seconds from now (CORD-04 §8). Needs `ownerSk`. */
   timeoutViewerSecs?: number;
+  /** Add a voice Channel by this name after the chat ones. */
+  voiceChannel?: string;
 }
 
 export interface ConcordSeedResult {
@@ -147,6 +149,7 @@ async function seed(p: ConcordSeedPayload): Promise<ConcordSeedResult> {
   const { community, generalChannelId } = mintCommunity("Perf Harbor", owner, ["wss://relay.invalid"]);
   const control = currentControlWriteGroup(community);
   const channelIds = [generalChannelId, ...p.channelSizes.slice(1).map(() => random32())];
+  const voiceId = p.voiceChannel ? random32() : undefined;
 
   // Genesis: the metadata edition, then one edition per channel.
   const genesis = [
@@ -154,6 +157,9 @@ async function seed(p: ConcordSeedPayload): Promise<ConcordSeedResult> {
     ...channelIds.map((id, i) =>
       buildChannelEdition(id, { name: i === 0 ? "general" : `channel-${i}`, private: false }, { actorPubkey: owner, version: 1n }),
     ),
+    ...(voiceId && p.voiceChannel
+      ? [buildChannelEdition(voiceId, withChannelView({ name: p.voiceChannel, private: false }, "voice"), { actorPubkey: owner, version: 1n })]
+      : []),
   ];
   if (p.ranked) {
     const legacy = channelIds.map((id) => bytesToHex(id)).sort();
@@ -212,7 +218,11 @@ async function seed(p: ConcordSeedPayload): Promise<ConcordSeedResult> {
   }
 
   await writeMembership(community, sk, self);
-  return { communityId: community.idHex, channelIds: channelIds.map(bytesToHex), ...(p.relayHistory ? { wraps } : {}) };
+  return {
+    communityId: community.idHex,
+    channelIds: [...channelIds, ...(voiceId ? [voiceId] : [])].map(bytesToHex),
+    ...(p.relayHistory ? { wraps } : {}),
+  };
 }
 
 /**

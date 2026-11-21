@@ -4,12 +4,13 @@ import type { Channel, Community } from "@/concord/lib/types";
 
 /**
  * A Concord (CORD-07) E2EE voice room: community + channel (whose keys derive the
- * room, token grant and media keys) and the §5-chosen blind broker origin.
+ * room, token grant and media keys) and the §5-chosen blind broker origin; null
+ * when none answered, and the call is peer to peer only (CORD-07 §8).
  */
 export interface ConcordVoiceContext {
   community: Community;
   channel: Channel;
-  broker: string;
+  broker: string | null;
 }
 
 /**

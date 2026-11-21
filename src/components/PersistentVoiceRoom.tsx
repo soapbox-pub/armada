@@ -102,6 +102,11 @@ import {
   subscribeVoiceDevices,
 } from "@/lib/voiceDevices";
 import { syncRnnoise } from "@/lib/voiceProcessor";
+import { IrohCallBar } from "@/components/IrohCallBar";
+import { useCallMicTrack } from "@/concord/hooks/useCallMicTrack";
+import { peerToPeerAvailable, useIrohVoice } from "@/concord/hooks/useIrohVoice";
+import { communityVoiceRelays } from "@/concord/lib/irohVoice";
+import type { CallAllowance } from "@/concord/lib/callGate";
 import { keepCallAwake } from "@/lib/callKeepAwake";
 import { guardSilenceProbe, keepCallAudioOutput, keepCallAudioRunning } from "@/lib/voiceAudioContext";
 import { DetectedSpeakersContext, useDetectedSpeakers, useSpeakers } from "@/hooks/useSpeakers";
@@ -1062,7 +1067,9 @@ function ConcordVoiceRoom({
     [channel.voice.room.pk, broker, communityBrokers],
   );
 
-  const { data: tokenData, error, isLoading } = useAvToken(channel, broker, true, fallbackBrokers);
+  const { data: tokenData, error, isLoading } = useAvToken(channel, broker ?? undefined, true, fallbackBrokers);
+  // No LiveKit server answered, or none would mint: the call goes on peer to peer (CORD-07 §8).
+  const sfuFailed = !broker || (!isLoading && (Boolean(error) || !tokenData));
 
   // Raise-hand/reactions ride additive tags on the encrypted presence rumor (Armada extension).
   const [handRaised, setHandRaised] = useState(false);
@@ -1083,14 +1090,17 @@ function ConcordVoiceRoom({
   // Receivers enforce SPEAK and VIDEO, and a Timeout silences and hides (CORD-04 §8).
   const { timeouts } = useGuestbook(community);
   // …and a moderator's mute or deafen (CORD-07 §7).
-  const present = fold.present;
+  // Peer-to-peer members' moderation counts too: a directive names a member, not a transport (CORD-07 §7).
+  const present = useMemo(() => [...fold.present, ...fold.otherTransport], [fold]);
   const me = user?.pubkey;
+  const [gate, setGate] = useState<((pubkey: string) => CallAllowance) | undefined>();
   // What this member may send: without SPEAK or VIDEO, or under a Timeout, its own tracks stop (Vector).
   const e2eeRoomRef = useRef<Room | null>(null);
   useEffect(() => {
     const gate = () => {
       const next = callGateFor(folded, channel.idHex, channel.isPrivate, timeouts, present, me, clockNowMs());
       setCallGate(next);
+      setGate(() => next);
       if (!me) return;
       const own = next(me);
       const lp = e2eeRoomRef.current?.localParticipant;
@@ -1126,6 +1136,37 @@ function ConcordVoiceRoom({
   const noRecord = useSyncExternalStore(subscribeNoRecord, getNoRecord);
   // What the call shows of this member, carried on its presence (CORD-07 §4); set below off the room.
   const [localMedia, setLocalMedia] = useState({ muted: false, screen: false, camera: false });
+  // Concord media MUST be E2EE; a failed worker renders a leavable error.
+  const e2ee = useMemo((): {
+    room: Room | null;
+    keyProvider: SenderKeyProvider;
+    worker: Worker | null;
+    error?: unknown;
+  } => {
+    const keyProvider = new SenderKeyProvider();
+    return { keyProvider, ...buildE2eeRoom(keyProvider) };
+  }, []);
+  e2eeRoomRef.current = e2ee.room;
+
+  // The peer-to-peer half: Vector members, and anyone whose LiveKit failed, heard over iroh.
+  const [p2pMuted, setP2pMuted] = useState(false);
+  const onSfu = Boolean(tokenData) && !sfuFailed;
+  const micTrack = useCallMicTrack(e2ee.room, onSfu, sfuFailed);
+  const voiceRelays = useMemo(() => communityVoiceRelays(folded?.metadata), [folded?.metadata]);
+  const iroh = useIrohVoice({
+    enabled: true,
+    onSfu,
+    fold,
+    me,
+    relays: voiceRelays,
+    micTrack,
+    muted: onSfu ? localMedia.muted : p2pMuted,
+    gate,
+  });
+  const heartbeatMedia = useMemo(
+    () => (sfuFailed ? { muted: p2pMuted, screen: false, camera: false } : localMedia),
+    [sfuFailed, p2pMuted, localMedia],
+  );
   const { sendReaction, announceAdditionalIdentities, announceRecording } = useVoiceHeartbeat(
     community,
     channel,
@@ -1134,7 +1175,9 @@ function ConcordVoiceRoom({
     handRaised,
     hevcIdentities,
     noRecord,
-    localMedia,
+    heartbeatMedia,
+    iroh.address,
+    sfuFailed,
   );
   const reactions = useVoiceReactions(community, channel);
 
@@ -1192,17 +1235,6 @@ function ConcordVoiceRoom({
   }, [raisedHands, setRaisedHands]);
   useEffect(() => () => setRaisedHands(new Set()), [setRaisedHands]);
 
-  // Concord media MUST be E2EE; a failed worker renders a leavable error.
-  const e2ee = useMemo((): {
-    room: Room | null;
-    keyProvider: SenderKeyProvider;
-    worker: Worker | null;
-    error?: unknown;
-  } => {
-    const keyProvider = new SenderKeyProvider();
-    return { keyProvider, ...buildE2eeRoom(keyProvider) };
-  }, []);
-  e2eeRoomRef.current = e2ee.room;
 
   // A moderator's directive to this member, which an honest client obeys (CORD-07 §7).
   const obey = useRef({ folded, communityBrokers, onLeave, joinConcordCall, ctx });
@@ -1235,7 +1267,7 @@ function ConcordVoiceRoom({
       const to = channelsView(o.ctx.community, o.folded).find((c) => c.idHex === d.to && c.view === "voice");
       void (async () => {
         const broker = to?.voice.room.pk ? await resolveVoiceBroker(to.voice.room.pk, o.communityBrokers) : null;
-        if (!to || !broker) {
+        if (!to || (!broker && !(await peerToPeerAvailable()))) {
           toast({ title: t({ id: "persistentVoiceRoom.directive.disconnected", defaultMessage: "A moderator disconnected you from the call" }) });
           o.onLeave();
           return;
@@ -1796,7 +1828,7 @@ function ConcordVoiceRoom({
     return fold.otherTransport.filter((p) => !bridged.has(p.transport)).length;
   }, [fold]);
   useEffect(() => {
-    if (warnedOtherTransport.current || !tokenData || otherTransportCount === 0) return;
+    if (warnedOtherTransport.current || !tokenData || otherTransportCount === 0 || iroh.status !== "unavailable") return;
     warnedOtherTransport.current = true;
     toast({
       title: t(
@@ -1809,10 +1841,23 @@ function ConcordVoiceRoom({
       ),
       description: t({
         id: "persistentVoiceRoom.otherTransport.description",
-        defaultMessage: "Armada can't join peer-to-peer calls yet, so you won't hear each other.",
+        defaultMessage: "This browser can't join peer-to-peer calls, so you won't hear each other.",
       }),
     });
-  }, [tokenData, otherTransportCount]);
+  }, [tokenData, otherTransportCount, iroh.status]);
+
+  const warnedP2pOnly = useRef(false);
+  useEffect(() => {
+    if (warnedP2pOnly.current || !sfuFailed || iroh.status !== "on") return;
+    warnedP2pOnly.current = true;
+    toast({
+      title: t({ id: "persistentVoiceRoom.p2pOnly.title", defaultMessage: "Joined peer to peer" }),
+      description: t({
+        id: "persistentVoiceRoom.p2pOnly.description",
+        defaultMessage: "No voice server could be reached, so you hear the others over direct links instead.",
+      }),
+    });
+  }, [sfuFailed, iroh.status]);
 
   // Others render as members only under a sole fresh presence claim (§4).
   const resolveIdentity = useCallback<VoiceIdentityResolver>(
@@ -1850,6 +1895,23 @@ function ConcordVoiceRoom({
     [onLeave],
   );
 
+  if (sfuFailed && iroh.status !== "unavailable") {
+    return (
+      <>
+        {placeBar(
+          <IrohCallBar
+            label={<ConcordCallLabel community={community.name} channel={channel.name} onFocus={goToChannel} />}
+            connecting={iroh.status !== "on"}
+            linked={iroh.linked.length}
+            muted={p2pMuted}
+            canSpeak={!me || (gate?.(me).speak ?? true)}
+            onToggleMute={() => setP2pMuted((m) => !m)}
+            onLeave={onLeave}
+          />,
+        )}
+      </>
+    );
+  }
   if (isLoading) return <>{<LoadingBar placeBar={placeBar} label={<FormattedMessage id="persistentVoiceRoom.requestingAccess" defaultMessage="Requesting voice access…" />} />}</>;
   if (error || !tokenData) return <>{<ErrorBar placeBar={placeBar} error={error} onLeave={onLeave} />}</>;
   // Never join Concord without E2EE; show a leavable error instead.
