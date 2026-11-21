@@ -4294,6 +4294,7 @@
   "slashCommands.roll.invalid": "Couldn't read that roll. Try something like /roll 2d6+3.",
   "slashCommands.roll.level": "{name} can be cast with a spell slot of level {min} to 9.",
   "slashCommands.roll.limits": "You can roll up to {dice} dice with up to {sides} sides each.",
+  "slashCommands.roll.preset": "{upcast, select, none {Level {level} spell} other {Level {level} spell, +{upcast} per higher slot}}",
   "slashCommands.slap.description": "Slap someone around a bit with a large trout",
   "slashCommands.specifyUser": "Specify a user, e.g. by @mention or npub.",
   "slashCommands.thread.description": "Start a thread on the latest message",

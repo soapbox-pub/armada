@@ -4294,6 +4294,7 @@
   "slashCommands.roll.invalid": "Impossibile leggere quel tiro. Prova qualcosa come /roll 2d6+3.",
   "slashCommands.roll.level": "{name} può essere lanciato con uno slot incantesimo di livello da {min} a 9.",
   "slashCommands.roll.limits": "Puoi tirare fino a {dice} dadi con al massimo {sides} facce ciascuno.",
+  "slashCommands.roll.preset": "{upcast, select, none {Incantesimo di livello {level}} other {Incantesimo di livello {level}, +{upcast} per ogni livello superiore}}",
   "slashCommands.slap.description": "Dai a qualcuno qualche schiaffo con una grossa trota",
   "slashCommands.specifyUser": "Indica un utente, ad es. con una @menzione o un npub.",
   "slashCommands.thread.description": "Avvia un thread sull’ultimo messaggio",

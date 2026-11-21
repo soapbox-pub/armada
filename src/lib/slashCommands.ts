@@ -9,7 +9,7 @@ import {
   rollDice,
   splitRollArgument,
 } from "@/lib/dice";
-import { presetRoll } from "@/lib/dicePresets";
+import { ROLL_PRESETS, presetRoll } from "@/lib/dicePresets";
 import type { NostrRumor } from "@/lib/nostrRumor";
 
 /**
@@ -68,8 +68,17 @@ export interface SlashCommand {
    * insert "/name " for the user to type the argument.
    */
   runsOnSelect?: boolean;
+  /** Named first arguments the menu offers after `/name `, like a manifest's commands. */
+  options?: () => SlashOption[];
   /** `arg` is everything after the command word, trimmed. */
   run: (arg: string, ctx: SlashCommandContext) => SlashRunResult;
+}
+
+export interface SlashOption {
+  value: string;
+  /** Shown beside the value, e.g. the dice a preset rolls. */
+  hint?: string;
+  description?: string;
 }
 
 const requireTarget = (
@@ -175,6 +184,18 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     },
     usage: "/roll 2d6+3 · /roll fireball 5",
     kind: "text",
+    options: () =>
+      ROLL_PRESETS.map((preset) => ({
+        value: preset.name,
+        hint: preset.roll,
+        description: t(
+          {
+            id: "slashCommands.roll.preset",
+            defaultMessage: "{upcast, select, none {Level {level} spell} other {Level {level} spell, +{upcast} per higher slot}}",
+          },
+          { level: preset.level ?? 0, upcast: preset.upcast ?? "none" },
+        ),
+      })),
     run: (rawArg) => {
       // `[2d6+3]`, copied from a usage line's optional-argument brackets, is still the roll.
       const arg = rawArg.replace(/^\s*[[(]\s*([^\])]*?)\s*[\])]/, "$1");
@@ -321,6 +342,26 @@ export function matchSlashCommands(
     if (!q) return true;
     return c.name.startsWith(q) || c.aliases?.some((a) => a.startsWith(q));
   });
+}
+
+/**
+ * `commands`' options with a word starting `query` (`bolt` finds `guiding-bolt`;
+ * dashes optional), those starting with it first.
+ */
+export function matchSlashOptions(
+  commands: SlashCommand[],
+  query: string,
+): { command: SlashCommand; option: SlashOption }[] {
+  const squash = (s: string) => s.toLowerCase().replace(/[-_]/g, "");
+  const q = squash(query);
+  const hits = commands.flatMap((command) =>
+    (command.options?.() ?? [])
+      .map((option) => ({ command, option, key: squash(option.value), words: option.value.toLowerCase().split(/[-_]/) }))
+      .filter(({ key, words }) => key.startsWith(q) || words.some((w) => w.startsWith(q))),
+  );
+  return [...hits.filter((h) => h.key.startsWith(q)), ...hits.filter((h) => !h.key.startsWith(q))].map(
+    ({ command, option }) => ({ command, option }),
+  );
 }
 
 /**

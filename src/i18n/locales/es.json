@@ -4294,6 +4294,7 @@
   "slashCommands.roll.invalid": "No se entendió esa tirada. Prueba algo como /roll 2d6+3.",
   "slashCommands.roll.level": "{name} se puede lanzar con un espacio de conjuro de nivel {min} a 9.",
   "slashCommands.roll.limits": "Puedes tirar hasta {dice} dados de hasta {sides} caras cada uno.",
+  "slashCommands.roll.preset": "{upcast, select, none {Conjuro de nivel {level}} other {Conjuro de nivel {level}, +{upcast} por cada nivel superior}}",
   "slashCommands.slap.description": "Darle a alguien unos cuantos golpes con una trucha enorme",
   "slashCommands.specifyUser": "Indica un usuario, p. ej. con una @mención o su npub.",
   "slashCommands.thread.description": "Iniciar un hilo en el último mensaje",

@@ -4294,6 +4294,7 @@
   "slashCommands.roll.invalid": "そのロールを読み取れませんでした。/roll 2d6+3 のように入力してください。",
   "slashCommands.roll.level": "{name} は {min}〜9 レベルの呪文スロットで唱えられます。",
   "slashCommands.roll.limits": "振れるダイスは最大 {dice} 個、各 {sides} 面までです。",
+  "slashCommands.roll.preset": "{upcast, select, none {レベル {level} の呪文} other {レベル {level} の呪文、上位スロットごとに +{upcast}}}",
   "slashCommands.slap.description": "大きなマスで誰かをちょっと叩く",
   "slashCommands.specifyUser": "@メンションや npub などでユーザーを指定してください。",
   "slashCommands.thread.description": "最新のメッセージでスレッドを開始",

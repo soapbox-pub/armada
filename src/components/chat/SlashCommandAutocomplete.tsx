@@ -4,7 +4,14 @@ import { DisplayName } from "@/components/DisplayName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useAuthor } from "@/hooks/useAuthor";
 import { usePortalDropdown } from "@/hooks/usePortalDropdown";
-import { matchSlashCommands, type SlashCapability, type SlashCommand } from "@/lib/slashCommands";
+import {
+  findSlashCommand,
+  matchSlashCommands,
+  matchSlashOptions,
+  type SlashCapability,
+  type SlashCommand,
+  type SlashOption,
+} from "@/lib/slashCommands";
 import { menuPickHandlers } from "@/lib/menuPick";
 import { cn } from "@/lib/utils";
 import { useIntl } from "@/i18n";
@@ -37,7 +44,8 @@ interface SlashCommandAutocompleteProps {
 /** Section headers are not rows and never take focus. */
 type Row =
   | { type: "local"; command: SlashCommand }
-  | { type: "bot"; entry: BotCommandEntry };
+  | { type: "bot"; entry: BotCommandEntry }
+  | { type: "option"; command: SlashCommand; option: SlashOption };
 
 interface Section {
   key: string;
@@ -46,11 +54,15 @@ interface Section {
   rows: Row[];
 }
 
+const squash = (word: string) => word.toLowerCase().replace(/[-_]/g, "");
+
 /** Argument names shown before collapsing into `+N`, so rows fit the menu. */
 const MAX_VISIBLE_ARGS = 2;
 
 const rowKey = (row: Row): string =>
-  row.type === "local" ? `local:${row.command.name}` : `bot:${row.entry.bot}:${row.entry.command.name}`;
+  row.type === "local" ? `local:${row.command.name}`
+  : row.type === "option" ? `option:${row.command.name}:${row.option.value}`
+  : `bot:${row.entry.bot}:${row.entry.command.name}`;
 
 function BotIdentity({ pubkey, avatarOnly }: { pubkey: string; avatarOnly?: boolean }) {
   const author = useAuthor(pubkey);
@@ -79,7 +91,8 @@ function BotIdentity({ pubkey, avatarOnly }: { pubkey: string; avatarOnly?: bool
 /**
  * Command palette for a leading `/command` while the first token is typed (never
  * URLs or mid-message slashes). Built-ins first, then a section per bot; bot
- * commands are identified by (bot, name).
+ * commands are identified by (bot, name). A built-in's options (`/roll fireball`)
+ * are offered after `/name `, and by name from the first token too.
  */
 export function SlashCommandAutocomplete({
   textareaRef,
@@ -97,6 +110,8 @@ export function SlashCommandAutocomplete({
 }: SlashCommandAutocompleteProps) {
   const intl = useIntl();
   const [query, setQuery] = useState("");
+  /** The command whose options are being typed (`/roll fi`), else null. */
+  const [optionsOf, setOptionsOf] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   // Bottom-anchored so the menu grows upward from the composer.
@@ -114,6 +129,21 @@ export function SlashCommandAutocomplete({
   const sections = useMemo<Section[]>(() => {
     if (!isOpen) return [];
     const out: Section[] = [];
+    const allowed = (list: SlashCommand[]) => (commandFilter ? list.filter(commandFilter) : list);
+    const optionSections = (hits: ReturnType<typeof matchSlashOptions>) => {
+      const byCommand = new Map<string, Row[]>();
+      for (const { command, option } of hits) {
+        const rows = byCommand.get(command.name) ?? [];
+        rows.push({ type: "option", command, option });
+        byCommand.set(command.name, rows);
+      }
+      return [...byCommand].map(([name, rows]): Section => ({ key: `options:${name}`, label: `/${name}`, rows }));
+    };
+
+    if (optionsOf !== null) {
+      const command = allowed(matchSlashCommands("", canModerate, capabilities)).find((c) => c.name === optionsOf);
+      return command ? optionSections(matchSlashOptions([command], query)) : [];
+    }
 
     // Prefix matches hoisted; manifest order kept within a tier (it's meaningful).
     const q = query.toLowerCase();
@@ -136,8 +166,7 @@ export function SlashCommandAutocomplete({
       out.push({ key: "recents", label: intl.formatMessage({ id: "slashCommandAutocomplete.recentlyUsed", defaultMessage: "Recently used" }), rows: recentRows });
     }
 
-    const base = matchSlashCommands(query, canModerate, capabilities);
-    const local = commandFilter ? base.filter(commandFilter) : base;
+    const local = allowed(matchSlashCommands(query, canModerate, capabilities));
     if (local.length > 0) {
       out.push({
         key: "local",
@@ -158,8 +187,11 @@ export function SlashCommandAutocomplete({
       out.push({ key: `bot:${bot}`, bot, rows });
     }
 
+    // An empty `/` would list every option of every command; wait for a letter.
+    if (q) out.push(...optionSections(matchSlashOptions(allowed(matchSlashCommands("", canModerate, capabilities)), q)));
+
     return out;
-  }, [isOpen, query, canModerate, capabilities, commandFilter, botEntries, botRecents, intl]);
+  }, [isOpen, query, optionsOf, canModerate, capabilities, commandFilter, botEntries, botRecents, intl]);
 
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
@@ -177,15 +209,20 @@ export function SlashCommandAutocomplete({
     if (!textarea) return;
     const value = textarea.value;
 
-    // Whole message is `/word` with no whitespace yet (a space starts arguments).
+    // Whole message is `/word` with no whitespace yet (a space starts arguments),
+    // or `/word partial` for a command that offers options.
     const match = value.match(/^\/([\w-]*)$/);
-    if (!match) {
+    const optionMatch = match ? null : value.match(/^\/(\w+)\s+([\w-]*)$/);
+    const optionCommand = optionMatch ? findSlashCommand(optionMatch[1]) : undefined;
+    if (!match && !optionCommand?.options) {
       setIsOpen(false);
       return;
     }
 
-    setQuery(match[1]);
-    setSelectedIndex(0);
+    setQuery(match ? match[1] : optionMatch![2]);
+    setOptionsOf(match ? null : optionCommand!.name);
+    // Nothing chosen until arrowed to, so a bare `/roll ` still sends on Enter.
+    setSelectedIndex(optionMatch && !optionMatch[2] ? -1 : 0);
     setIsOpen(true);
 
     const rect = textarea.getBoundingClientRect();
@@ -205,14 +242,18 @@ export function SlashCommandAutocomplete({
       onRunBotCommand?.(row.entry);
       return;
     }
+    const textarea = textareaRef.current;
+    const end = textarea?.value.length ?? query.length + 1;
+    if (row.type === "option") {
+      onInsertCommand({ start: 0, end, replacement: `/${row.command.name} ${row.option.value} ` });
+      return;
+    }
     const command = row.command;
     // Argument-less commands run on pick; others insert "/name ".
     if (command.runsOnSelect) {
       onRunCommand(command);
       return;
     }
-    const textarea = textareaRef.current;
-    const end = textarea?.value.length ?? query.length + 1;
     onInsertCommand({ start: 0, end, replacement: `/${command.name} ` });
   }, [textareaRef, query, onInsertCommand, onRunCommand, onRunBotCommand]);
 
@@ -238,6 +279,8 @@ export function SlashCommandAutocomplete({
           // With no row under the cursor, Enter belongs to the composer.
           const row = rows[selectedIndex];
           if (!row) return;
+          // A fully typed option sends; only Tab re-completes it.
+          if (e.key === "Enter" && row.type === "option" && squash(row.option.value) === squash(query)) return;
           e.preventDefault();
           e.stopImmediatePropagation();
           selectRow(row);
@@ -252,7 +295,7 @@ export function SlashCommandAutocomplete({
 
     textarea.addEventListener("keydown", handleKeyDown);
     return () => textarea.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, rows, selectedIndex, textareaRef, selectRow, showLoading]);
+  }, [isOpen, rows, selectedIndex, textareaRef, selectRow, showLoading, query]);
 
   useEffect(() => {
     if (selectedIndex >= 0 && listRef.current) {
@@ -285,6 +328,28 @@ export function SlashCommandAutocomplete({
               {section.rows.map((row) => {
                 flatIndex += 1;
                 const index = flatIndex;
+                if (row.type === "option") {
+                  return (
+                    <button
+                      key={rowKey(row)}
+                      data-slash-item
+                      data-highlighted={index === selectedIndex || undefined}
+                      className={cn(
+                        "relative w-full flex items-baseline gap-2 scroll-mt-8 menu-row clip-corner px-2 py-1.5 text-left transition-colors cursor-pointer",
+                        index === selectedIndex ? "bg-foreground/[0.08]" : "hover:bg-foreground/[0.05]",
+                      )}
+                      {...menuPickHandlers(() => selectRow(row))}
+                    >
+                      <span className="font-mono text-sm font-semibold shrink-0">{row.option.value}</span>
+                      {row.option.hint && (
+                        <span className="font-mono text-xs shrink-0 text-foreground/70">{row.option.hint}</span>
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                        {row.option.description}
+                      </span>
+                    </button>
+                  );
+                }
                 const isBot = row.type === "bot";
                 const command = isBot ? row.entry.command : row.command;
                 const args = isBot ? row.entry.command.args : [];

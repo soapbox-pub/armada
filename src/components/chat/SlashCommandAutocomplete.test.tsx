@@ -204,3 +204,49 @@ describe("SlashCommandAutocomplete — bot commands", () => {
     expect(screen.queryByText(/Looking for bots/)).not.toBeInTheDocument();
   });
 });
+
+describe("SlashCommandAutocomplete — command options", () => {
+  function Options({ content, onInsertCommand }: { content: string; onInsertCommand: (p: { replacement: string }) => void }) {
+    const ref = useRef<HTMLTextAreaElement>(null);
+    return (
+      <>
+        <textarea ref={ref} value={content} readOnly aria-label="composer" />
+        <SlashCommandAutocomplete
+          textareaRef={ref}
+          content={content}
+          canModerate={false}
+          capabilities={new Set()}
+          onInsertCommand={onInsertCommand}
+          onRunCommand={vi.fn()}
+        />
+      </>
+    );
+  }
+
+  it("lists /roll's presets as their name is typed", () => {
+    const insert = vi.fn();
+    render(<Options content="/roll fire" onInsertCommand={insert} />);
+    expect(screen.getByText("fireball")).toBeInTheDocument();
+    expect(screen.getByText("8d6")).toBeInTheDocument();
+    expect(screen.queryByText("cone-of-cold")).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByLabelText("composer"), { key: "Enter" });
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ replacement: "/roll fireball " }));
+  });
+
+  it("finds a preset from the command word too", () => {
+    render(<Options content="/fireb" onInsertCommand={vi.fn()} />);
+    expect(screen.getByText("fireball")).toBeInTheDocument();
+  });
+
+  it("lets Enter send a bare /roll and a fully typed preset", () => {
+    for (const content of ["/roll ", "/roll fireball"]) {
+      const insert = vi.fn();
+      const { unmount } = render(<Options content={content} onInsertCommand={insert} />);
+      const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+      screen.getByLabelText("composer").dispatchEvent(enter);
+      expect(enter.defaultPrevented, content).toBe(false);
+      expect(insert).not.toHaveBeenCalled();
+      unmount();
+    }
+  });
+});

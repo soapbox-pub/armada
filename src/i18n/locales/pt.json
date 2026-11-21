@@ -4294,6 +4294,7 @@
   "slashCommands.roll.invalid": "Não foi possível ler essa rolagem. Tente algo como /roll 2d6+3.",
   "slashCommands.roll.level": "{name} pode ser conjurado com um espaço de magia de nível {min} a 9.",
   "slashCommands.roll.limits": "Você pode rolar até {dice} dados com até {sides} lados cada.",
+  "slashCommands.roll.preset": "{upcast, select, none {Magia de nível {level}} other {Magia de nível {level}, +{upcast} por nível acima}}",
   "slashCommands.slap.description": "Dar uns tapas em alguém com uma truta enorme",
   "slashCommands.specifyUser": "Indique um usuário, por exemplo com @menção ou npub.",
   "slashCommands.thread.description": "Iniciar uma thread na mensagem mais recente",

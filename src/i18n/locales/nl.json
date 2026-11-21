@@ -4294,6 +4294,7 @@
   "slashCommands.roll.invalid": "Die worp kon niet gelezen worden. Probeer iets als /roll 2d6+3.",
   "slashCommands.roll.level": "{name} kan worden uitgesproken met een spreukplaats van niveau {min} tot 9.",
   "slashCommands.roll.limits": "Je kunt tot {dice} dobbelstenen gooien met elk maximaal {sides} zijden.",
+  "slashCommands.roll.preset": "{upcast, select, none {Spreuk van niveau {level}} other {Spreuk van niveau {level}, +{upcast} per hogere plaats}}",
   "slashCommands.slap.description": "Iemand een paar keer slaan met een grote forel",
   "slashCommands.specifyUser": "Geef een gebruiker op, bijv. met een @vermelding of npub.",
   "slashCommands.thread.description": "Een thread starten bij het laatste bericht",

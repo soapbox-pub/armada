@@ -4294,6 +4294,7 @@
   "slashCommands.roll.invalid": "Dieser Wurf ist unverständlich. Versuch es z. B. mit /roll 2d6+3.",
   "slashCommands.roll.level": "{name} kann mit einem Zauberplatz der Stufe {min} bis 9 gewirkt werden.",
   "slashCommands.roll.limits": "Du kannst bis zu {dice} Würfel mit jeweils bis zu {sides} Seiten werfen.",
+  "slashCommands.roll.preset": "{upcast, select, none {Zauber des Grades {level}} other {Zauber des Grades {level}, +{upcast} je höherem Grad}}",
   "slashCommands.slap.description": "Jemandem eine große Forelle um die Ohren hauen",
   "slashCommands.specifyUser": "Gib einen Nutzer an, z. B. per @Erwähnung oder npub.",
   "slashCommands.thread.description": "Einen Thread zur neuesten Nachricht starten",
