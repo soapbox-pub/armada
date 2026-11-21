@@ -300,7 +300,8 @@ function IrohCallReporter({ view }: { view: P2pCallView }) {
   const { setSpeakingPubkeys, setMutedPubkeys, setStreamingPubkeys, setVoiceRoomPubkeys } = useCall();
   useEffect(() => {
     const everyone = [...(view.self ? [{ ...view.self, sending: { camera: Boolean(view.self.camera), screen: Boolean(view.self.screen) } }] : []), ...view.peers];
-    setVoiceRoomPubkeys([...new Set(everyone.map((p) => p.pubkey))]);
+    // The members we're linked to; we're in the roster by our own presence, never linked to ourselves.
+    setVoiceRoomPubkeys(view.peers.map((p) => p.pubkey));
     setSpeakingPubkeys(new Set(everyone.filter((p) => p.speaking).map((p) => p.pubkey)));
     setMutedPubkeys(new Set(everyone.filter((p) => p.muted).map((p) => p.pubkey)));
     setStreamingPubkeys(new Set(everyone.filter((p) => p.sending.screen).map((p) => p.pubkey)));
