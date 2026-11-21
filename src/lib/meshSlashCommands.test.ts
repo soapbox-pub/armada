@@ -12,7 +12,7 @@ import {
 
 describe("isMeshSlashCommand", () => {
   it("allows the mesh-appropriate commands", () => {
-    for (const name of ["me", "shrug", "tableflip", "unflip", "slap", "mention"]) {
+    for (const name of ["me", "shrug", "tableflip", "unflip", "slap", "roll", "mention"]) {
       const cmd = SLASH_COMMANDS.find((c) => c.name === name)!;
       expect(isMeshSlashCommand(cmd)).toBe(true);
     }

@@ -1,4 +1,6 @@
+import { DiceRollBody } from "@/components/chat/DiceRoll";
 import { MeshContent } from "@/components/chat/MeshContent";
+import { parseRollMessage } from "@/lib/dice";
 import { MessageRow, type MessageIdentity } from "@/components/chat/MessageRow";
 import { isMeAction, meActionText } from "@/lib/slashCommands";
 import { meshMentionsMe } from "@/lib/meshIdentity";
@@ -26,7 +28,16 @@ export function MeshMessage({ event, identity, peers, myPeerID, continuation, on
   const mentionsMe = meshMentionsMe(event.content, myPeerID);
   const isSelf = !!myPeerID && event.pubkey === myPeerID;
 
-  const body = isMeAction(event) ? (
+  const roll = parseRollMessage(event.content);
+  const body = roll ? (
+    <DiceRollBody
+      roll={roll}
+      id={event.id}
+      createdAt={event.created_at}
+      own={isSelf}
+      name={<span style={{ color: identity.color }}>{identity.name}</span>}
+    />
+  ) : isMeAction(event) ? (
     <div className="text-chat italic text-muted-foreground">
       <span className="font-semibold not-italic" style={{ color: identity.color }}>
         {identity.name}

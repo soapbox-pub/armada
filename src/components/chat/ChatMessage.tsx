@@ -69,6 +69,8 @@ import { removeMessageFromDevice } from "@/lib/removeMessageFromDevice";
 import { requestCommand } from "@/hooks/useCommandBus";
 import { commandLine } from "@/lib/botCommands";
 import { isMeAction, meActionText } from "@/lib/slashCommands";
+import { parseRollMessage } from "@/lib/dice";
+import { DiceRollBody } from "@/components/chat/DiceRoll";
 import { shortTimeAgo } from "@/lib/formatTime";
 import { cn } from "@/lib/utils";
 
@@ -506,6 +508,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
   const client = clientNameOf(event.tags);
   const isFailed = sendStatus === "failed";
   const isOwn = user?.pubkey === event.pubkey;
+  const diceRoll = useMemo(() => parseRollMessage(event.content), [event.content]);
   // Mentions, replies to you, or authorized @everyone; never your own. Off in DMs.
   const mentionsMe = Boolean(
     mentionHighlight &&
@@ -520,6 +523,8 @@ const ChatMessageInner = memo(function ChatMessageInner({
     (event.kind === KIND_GROUP_CHAT || event.kind === KIND_DM_CHAT) &&
     !isPending &&
     !isFailed &&
+    // A roll's numbers are its point; editing them would only fake one.
+    !diceRoll &&
     Boolean(onEdit);
   const canDelete = Boolean(onDelete) && ((isOwn && !isPending && !isFailed) || canModerate);
   const canPin = Boolean(onTogglePin) && canModerate && !isPending && !isFailed;
@@ -884,6 +889,14 @@ const ChatMessageInner = memo(function ChatMessageInner({
             </>
           )}
         </div>
+      ) : diceRoll && !wasEdited ? (
+        <DiceRollBody
+          roll={diceRoll}
+          id={event.id}
+          createdAt={event.created_at}
+          own={isOwn}
+          name={<DisplayName pubkey={identityOverride ? undefined : event.pubkey} name={identityOverride?.name} />}
+        />
       ) : isMeAction(event) ? (
         <div className="text-chat italic text-muted-foreground">
           <span className="font-semibold not-italic text-primary">

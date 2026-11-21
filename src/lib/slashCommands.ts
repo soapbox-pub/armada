@@ -1,6 +1,14 @@
 import { nip19 } from "nostr-tools";
 
 import { t } from "@/i18n";
+import {
+  MAX_DICE,
+  MAX_SIDES,
+  formatRollMessage,
+  parseDiceExpression,
+  rollDice,
+  splitRollArgument,
+} from "@/lib/dice";
 import type { NostrRumor } from "@/lib/nostrRumor";
 
 /**
@@ -156,6 +164,33 @@ export const SLASH_COMMANDS: SlashCommand[] = [
       const [target, ...tail] = rest.split(/\s+/);
       const suffix = tail.length ? tail.join(" ") : "around a bit with a large trout";
       return { type: "send", text: `${ME_ACTION_PREFIX}slaps ${target} ${suffix}` };
+    },
+  },
+  {
+    name: "roll",
+    aliases: ["dice"],
+    get description() {
+      return t({ id: "slashCommands.roll.description", defaultMessage: "Roll dice, e.g. 2d6+3 (a d20 by default)" });
+    },
+    usage: "/roll [2d6+3] [label]",
+    kind: "text",
+    run: (arg) => {
+      const { expression, label } = splitRollArgument(arg);
+      const parsed = parseDiceExpression(expression || "1d20");
+      if (parsed.ok) return { type: "send", text: formatRollMessage(rollDice(parsed.terms, label)) };
+      if (parsed.reason === "limits") {
+        return {
+          type: "error",
+          message: t(
+            { id: "slashCommands.roll.limits", defaultMessage: "You can roll up to {dice} dice with up to {sides} sides each." },
+            { dice: MAX_DICE, sides: MAX_SIDES },
+          ),
+        };
+      }
+      return {
+        type: "error",
+        message: t({ id: "slashCommands.roll.invalid", defaultMessage: "Couldn't read that roll. Try something like /roll 2d6+3." }),
+      };
     },
   },
   {
