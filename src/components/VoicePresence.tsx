@@ -217,6 +217,10 @@ const TRANSPORT_LABELS = {
     id: "voicePresence.bothTransports",
     defaultMessage: "In the call on the LiveKit server and peer to peer",
   }),
+  linked: defineMessage({
+    id: "voicePresence.linkedTransport",
+    defaultMessage: "In the call peer to peer, connected to you",
+  }),
   bridge: defineMessage({
     id: "voicePresence.bridge",
     defaultMessage: "Bridging the peer-to-peer call into this one",

@@ -911,13 +911,16 @@ export function bridgedTransports(fold: VoicePresenceFold): Set<string> {
 }
 
 /** How a roster row is in the call beyond the SFU (CORD-07 §4 Transports). */
-export type VoiceRowTransport = "other" | "bridged" | "both" | "bridge";
+export type VoiceRowTransport = "other" | "bridged" | "both" | "bridge" | "linked";
 
-/** Per author, the transport marker their roster row carries; members on the SFU alone have none. */
-export function voiceRowTransports(fold: VoicePresenceFold): Map<string, VoiceRowTransport> {
+/**
+ * Per author, the transport marker their roster row carries; members on the SFU alone have none.
+ * `linked`: the members on peer to peer alone this client holds a link with, heard here.
+ */
+export function voiceRowTransports(fold: VoicePresenceFold, linked: ReadonlySet<string> = new Set()): Map<string, VoiceRowTransport> {
   const bridged = bridgedTransports(fold);
   const out = new Map<string, VoiceRowTransport>();
-  for (const p of fold.otherTransport) out.set(p.author, bridged.has(p.transport) ? "bridged" : "other");
+  for (const p of fold.otherTransport) out.set(p.author, linked.has(p.author) ? "linked" : bridged.has(p.transport) ? "bridged" : "other");
   for (const p of fold.present) if (p.alsoOn) out.set(p.author, p.bridge ? "bridge" : "both");
   return out;
 }

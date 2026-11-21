@@ -5150,6 +5150,7 @@
   "voicePresence.bridgedTransport": "Peer-to-peer in het gesprek, hier te horen via een brug",
   "voicePresence.handRaised": "Hand opgestoken",
   "voicePresence.inVoice": "{count} in spraak",
+  "voicePresence.linkedTransport": "Peer-to-peer in het gesprek, met jou verbonden",
   "voicePresence.live": "LIVE",
   "voicePresence.muted": "Gedempt",
   "voicePresence.otherTransport": "Alleen peer-to-peer in het gesprek",

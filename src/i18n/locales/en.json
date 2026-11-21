@@ -5150,6 +5150,7 @@
   "voicePresence.bridgedTransport": "In the call peer to peer, heard here through a bridge",
   "voicePresence.handRaised": "Hand raised",
   "voicePresence.inVoice": "{count} in voice",
+  "voicePresence.linkedTransport": "In the call peer to peer, connected to you",
   "voicePresence.live": "LIVE",
   "voicePresence.muted": "Muted",
   "voicePresence.otherTransport": "In the call peer to peer only",

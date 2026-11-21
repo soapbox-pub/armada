@@ -5150,6 +5150,7 @@
   "voicePresence.bridgedTransport": "ピアツーピアで通話中（ブリッジ経由でここでも聞こえます）",
   "voicePresence.handRaised": "挙手中",
   "voicePresence.inVoice": "{count} 人が音声に参加中",
+  "voicePresence.linkedTransport": "ピアツーピアで通話中（あなたと接続済み）",
   "voicePresence.live": "LIVE",
   "voicePresence.muted": "ミュート中",
   "voicePresence.otherTransport": "ピアツーピアのみで通話中",

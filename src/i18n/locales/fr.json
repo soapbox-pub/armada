@@ -5150,6 +5150,7 @@
   "voicePresence.bridgedTransport": "Dans l'appel en pair à pair, entendu ici via un pont",
   "voicePresence.handRaised": "Main levée",
   "voicePresence.inVoice": "{count} en vocal",
+  "voicePresence.linkedTransport": "Dans l'appel en pair à pair, connecté à vous",
   "voicePresence.live": "EN DIRECT",
   "voicePresence.muted": "Micro coupé",
   "voicePresence.otherTransport": "Dans l'appel en pair à pair uniquement",

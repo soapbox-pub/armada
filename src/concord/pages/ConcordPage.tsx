@@ -585,7 +585,11 @@ export const ChannelRow = memo(function ChannelRow({
     () => new Set(fold.present.filter((p) => p.noRecord).map((p) => p.author)),
     [fold],
   );
-  const voiceTransports = useMemo(() => voiceRowTransports(fold), [fold]);
+  // In the call, the live roster holds exactly the peer-to-peer members we're linked to.
+  const voiceTransports = useMemo(
+    () => voiceRowTransports(fold, new Set(inCall && voiceRoomPubkeys ? voiceRoomPubkeys : [])),
+    [fold, inCall, voiceRoomPubkeys],
+  );
   // A moderator acts on a call's participants from the roster too, joined or not (CORD-07 §7).
   const voiceMembers = useMemo(() => [...fold.present, ...fold.otherTransport], [fold]);
   const voiceActionsFor = useVoiceActionsFor(community, channel, voiceMembers);

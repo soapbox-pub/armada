@@ -5150,6 +5150,7 @@
   "voicePresence.bridgedTransport": "En la llamada entre pares, se oye aquí a través de un puente",
   "voicePresence.handRaised": "Mano levantada",
   "voicePresence.inVoice": "{count} en voz",
+  "voicePresence.linkedTransport": "En la llamada entre pares, conectado contigo",
   "voicePresence.live": "EN VIVO",
   "voicePresence.muted": "Silenciado",
   "voicePresence.otherTransport": "En la llamada solo entre pares",

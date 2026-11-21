@@ -5150,6 +5150,7 @@
   "voicePresence.bridgedTransport": "Na chamada ponto a ponto, ouvido aqui por meio de uma ponte",
   "voicePresence.handRaised": "Mão levantada",
   "voicePresence.inVoice": "{count} na voz",
+  "voicePresence.linkedTransport": "Na chamada ponto a ponto, conectado a você",
   "voicePresence.live": "AO VIVO",
   "voicePresence.muted": "Silenciado",
   "voicePresence.otherTransport": "Na chamada só ponto a ponto",

@@ -5150,6 +5150,7 @@
   "voicePresence.bridgedTransport": "Per Peer-to-Peer im Anruf, hier über eine Brücke zu hören",
   "voicePresence.handRaised": "Hand gehoben",
   "voicePresence.inVoice": "{count} im Sprachkanal",
+  "voicePresence.linkedTransport": "Per Peer-to-Peer im Anruf, mit dir verbunden",
   "voicePresence.live": "LIVE",
   "voicePresence.muted": "Stummgeschaltet",
   "voicePresence.otherTransport": "Nur per Peer-to-Peer im Anruf",

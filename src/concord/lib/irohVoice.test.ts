@@ -170,3 +170,12 @@ describe("the call's topology", () => {
     expect(p2pTargets(fold([], many), me, { onSfu: true, endpoint: mine, communityRelays: [] })).toHaveLength(MAX_PEERS);
   });
 });
+
+describe("a peer-to-peer member's roster marker", () => {
+  it("reads connected for a member this client is linked to, peer to peer only for the rest", async () => {
+    const { voiceRowTransports } = await import("@/concord/lib/voice");
+    const f = fold([{ author: pk("b"), alsoOn: "iroh" }], [{ author: pk("v") }, { author: pk("w") }]);
+    const rows = voiceRowTransports(f, new Set([pk("v"), pk("b")]));
+    expect([rows.get(pk("v")), rows.get(pk("w")), rows.get(pk("b"))]).toEqual(["linked", "other", "both"]);
+  });
+});
