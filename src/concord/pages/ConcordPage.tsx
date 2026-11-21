@@ -613,7 +613,12 @@ export const ChannelRow = memo(function ChannelRow({
   }, [inCall, voiceRoomPubkeys, foldedParticipants, fold]);
 
   // Per transport: the live LiveKit roster while in this call, presence otherwise.
-  const sfuCount = inCall && voiceRoomPubkeys ? voiceRoomPubkeys.length : fold.present.length;
+  // The live roster carries peer-to-peer members too; only the rest are on LiveKit.
+  const sfuCount = useMemo(() => {
+    if (!inCall || !voiceRoomPubkeys) return fold.present.length;
+    const offSfu = new Set(fold.otherTransport.map((p) => p.author));
+    return voiceRoomPubkeys.filter((pk) => !offSfu.has(pk)).length;
+  }, [inCall, voiceRoomPubkeys, fold]);
   const p2pCount = useMemo(
     () => fold.otherTransport.length + fold.present.filter((p) => p.alsoOn).length,
     [fold],
