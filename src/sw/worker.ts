@@ -23,6 +23,7 @@
 import type { NostrEvent } from "@nostrify/nostrify";
 
 import { t } from "@/i18n/intl";
+import { config } from "@/lib/env";
 import { notificationMessages } from "@/lib/notificationPreview";
 import { deletePushState, readPushState, trimPushState, writePushState } from "@/lib/pushState";
 import type { PushScope } from "@/lib/pushSubscriptions";
@@ -1131,8 +1132,21 @@ function fetchEventFromRelays(
 /** Keep notification routes inside this installed app's origin. */
 function notificationTarget(raw: unknown): string {
   try {
-    const url = new URL(typeof raw === "string" ? raw : "/", self.location.origin);
-    if (url.origin !== self.location.origin) return "/";
+    // Custom app:// origins can serialize as "null" in URL.origin. Compare the
+    // protocol and authority, as the desktop navigation/permission guards do.
+    const base = new URL(self.location.href || self.location.origin);
+    const url = new URL(typeof raw === "string" ? raw : "/", base);
+    const sameApp = url.protocol === base.protocol && url.host === base.host;
+    // A legacy gateway can carry the public conversation URL. On desktop it
+    // still names an internal route, never the default browser.
+    if (!sameApp) {
+      if (base.protocol !== "app:" || base.host !== "armada" || url.protocol !== "https:") return "/";
+      const publicOrigin = new URL(config("PUBLIC_WEB_ORIGIN") || "https://armada.buzz");
+      if (url.origin !== publicOrigin.origin) return "/";
+    }
+    if (url.username || url.password) return "/";
+    // eslint-disable-next-line no-control-regex -- Reject control characters in untrusted routes.
+    if (/[\\\x00-\x1f]/.test(url.pathname)) return "/";
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return "/";
@@ -1181,7 +1195,9 @@ async function openNotificationTarget(target: string): Promise<WindowClient | nu
     });
     fallbackClient = clientList.find((client) => {
       try {
-        return new URL(client.url).origin === self.location.origin;
+        const url = new URL(client.url);
+        const base = new URL(self.location.href || self.location.origin);
+        return url.protocol === base.protocol && url.host === base.host && !url.username && !url.password;
       } catch {
         return false;
       }
