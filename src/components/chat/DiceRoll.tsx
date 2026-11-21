@@ -1,9 +1,9 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { FormattedMessage, useIntl } from "@/i18n";
 import { type DiceRoll as Roll } from "@/lib/dice";
 import { getPolyhedron, type Polyhedron, type V3 } from "@/lib/diceGeometry";
-import { impact, notify, selectionChanged } from "@/lib/haptics";
+import { impact, notify } from "@/lib/haptics";
 import { reducedMotion } from "@/lib/reducedMotion";
 import { nowSecs } from "@/lib/relayClock";
 import { cn } from "@/lib/utils";
@@ -11,13 +11,34 @@ import { cn } from "@/lib/utils";
 type Quat = [number, number, number, number];
 type Tone = "plain" | "crit" | "fumble";
 
-const TUMBLE_MS = 1100;
+/** One die's tumble; each further die lands a beat later. */
+const ROLL_MS = 700;
+const MAX_STAGGER_MS = 80;
 /** A roll this recent tumbles when it first appears; older ones are drawn settled. */
 const FRESH_SECS = 15;
-const DIE_SIZE = 52;
 
-/** Each roll tumbles once per session, however often its row remounts. */
-const tumbled = new Set<string>();
+/** When each roll started tumbling (0: never), so a row that remounts mid-roll resumes it. */
+const tumbleStarts = new Map<string, number>();
+
+function staggerFor(count: number): number {
+  return count > 1 ? Math.min(MAX_STAGGER_MS, 600 / (count - 1)) : 0;
+}
+
+function dieSize(count: number): number {
+  return count === 1 ? 96 : count <= 3 ? 80 : count <= 6 ? 68 : 56;
+}
+
+/** Height above the table, 1 → 0, with the bounces of a thrown die. */
+function drop(t: number): number {
+  const n = 7.5625;
+  const d = 2.75;
+  let b: number;
+  if (t < 1 / d) b = n * t * t;
+  else if (t < 2 / d) b = n * (t -= 1.5 / d) * t + 0.75;
+  else if (t < 2.5 / d) b = n * (t -= 2.25 / d) * t + 0.9375;
+  else b = n * (t -= 2.625 / d) * t + 0.984375;
+  return 1 - b;
+}
 
 const qMul = (a: Quat, b: Quat): Quat => [
   a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
@@ -158,21 +179,31 @@ interface DieProps {
   sides: number;
   value: number;
   seed: number;
-  tumble: boolean;
+  /** `performance.now()` the roll started at, while it is tumbling. */
+  startedAt?: number;
+  /** This die's tumble length; later dice in a roll land later. */
+  duration: number;
   tone: Tone;
-  size?: number;
+  size: number;
+  /** Called as the die hits its final face. */
+  onLand?: () => void;
 }
 
 /**
  * One die. At rest it is static SVG coloured by CSS variables, so a timeline of
  * rolls holds no canvases and follows theme changes. A `tumble` draws on a
- * canvas for its second of motion, then swaps to the same SVG.
+ * canvas while it moves, then swaps to the same SVG.
  */
-const Die = memo(function Die({ sides, value, seed, tumble, tone, size = DIE_SIZE }: DieProps) {
+const Die = memo(function Die({ sides, value, seed, startedAt, duration, tone, size, onLand }: DieProps) {
   const intl = useIntl();
   const ref = useRef<HTMLCanvasElement>(null);
   const poly = getPolyhedron(sides);
+  const tumble = startedAt !== undefined;
   const [rolling, setRolling] = useState(tumble && !!poly);
+  const onLandRef = useRef(onLand);
+  useEffect(() => {
+    onLandRef.current = onLand;
+  });
   const rest = useMemo(() => (poly ? restingPose(poly, value, seed) : undefined), [poly, value, seed]);
   const still = useMemo(() => (poly && rest && !rolling ? facets(poly, rest, 0, value) : undefined), [poly, rest, rolling, value]);
 
@@ -188,24 +219,25 @@ const Die = memo(function Die({ sides, value, seed, tumble, tone, size = DIE_SIZ
     // Wind the rest pose backwards about a random axis and ease it home, so the
     // tumble lands exactly on the result with no correcting snap.
     const axis: V3 = [Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5];
-    const turns = (3 + Math.random() * 2) * Math.PI * 2;
-    const duration = TUMBLE_MS * (0.85 + Math.random() * 0.3);
-    const start = performance.now();
+    const turns = (1.5 + Math.random()) * Math.PI * 2;
+    const start = startedAt ?? performance.now();
     let raf = 0;
     const step = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
-      if (t >= 1) {
-        setRolling(false);
+      const t = Math.min(1, Math.max(0, (now - start) / duration));
+      paint(ctx, facets(poly, qMul(rest, qAxis(axis, turns * (1 - t) ** 3)), 0, t >= 1 ? value : null), fill, px, font);
+      // The fall is a compositor-only transform: no re-layout, no clipping at the canvas edge.
+      canvas.style.transform = `translateY(${(-drop(t) * size * 0.9).toFixed(1)}px)`;
+      canvas.style.opacity = String(Math.min(1, t * 8));
+      if (t < 1) {
+        raf = requestAnimationFrame(step);
         return;
       }
-      const e = 1 - (1 - t) ** 3;
-      const lift = 0.12 * Math.abs(Math.sin(t * Math.PI * 2.5)) * (1 - t) ** 1.5;
-      paint(ctx, facets(poly, qMul(rest, qAxis(axis, turns * (1 - e))), lift, null), fill, px, font);
-      raf = requestAnimationFrame(step);
+      onLandRef.current?.();
+      setRolling(false);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [rolling, poly, rest, tone]);
+  }, [rolling, poly, rest, tone, value, startedAt, duration, size]);
 
   const label = intl.formatMessage({ id: "diceRoll.die", defaultMessage: "d{sides}: {value}" }, { sides, value });
   if (!poly) {
@@ -215,7 +247,7 @@ const Die = memo(function Die({ sides, value, seed, tumble, tone, size = DIE_SIZ
         aria-label={label}
         className={cn(
           "inline-flex h-9 min-w-9 items-center justify-center rounded-lg bg-primary/15 px-2 font-bold tabular-nums text-foreground",
-          tumble && "animate-in zoom-in-50 spin-in-12 duration-500",
+          tumble && "animate-in fade-in zoom-in-50 spin-in-12 duration-500",
         )}
       >
         <span className="mr-0.5 text-[10px] font-semibold text-muted-foreground">d{sides}</span>
@@ -232,13 +264,20 @@ const Die = memo(function Die({ sides, value, seed, tumble, tone, size = DIE_SIZ
         aria-label={label}
         width={Math.round(size * dpr)}
         height={Math.round(size * dpr)}
-        style={{ width: size, height: size }}
+        style={{ width: size, height: size, opacity: 0, willChange: "transform" }}
         className="shrink-0"
       />
     );
   }
   return (
-    <svg role="img" aria-label={label} viewBox="0 0 100 100" width={size} height={size} className="shrink-0">
+    <svg
+      role="img"
+      aria-label={label}
+      viewBox="0 0 100 100"
+      width={size}
+      height={size}
+      className={cn("shrink-0", tumble && "animate-in zoom-in-90 duration-200")}
+    >
       {still?.map((f) => {
         const points = f.points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
         return (
@@ -286,7 +325,7 @@ const Die = memo(function Die({ sides, value, seed, tumble, tone, size = DIE_SIZ
 
 interface DiceRollBodyProps {
   roll: Roll;
-  /** The message id: seeds each die's pose and marks the roll as tumbled. */
+  /** The message id: seeds each die's pose and keys its tumble. */
   id: string;
   createdAt: number;
   /** Whose roll it is, rendered before "rolled". */
@@ -297,30 +336,39 @@ interface DiceRollBodyProps {
 
 /** A `/roll` message: who rolled what, the dice themselves, and the total. */
 export const DiceRollBody = memo(function DiceRollBody({ roll, id, createdAt, name, own }: DiceRollBodyProps) {
-  const [tumble] = useState(
-    () => !tumbled.has(id) && !reducedMotion() && Math.abs(nowSecs() - createdAt) <= FRESH_SECS,
-  );
+  const count = roll.dice.length;
+  const stagger = staggerFor(count);
+  // Only a polyhedron tumbles; a d100 or d7 is a chip and never lands.
+  const landers = roll.dice.filter((die) => getPolyhedron(die.sides)).length;
+  const total = ROLL_MS + stagger * Math.max(0, count - 1);
+  const [{ startedAt, resumed }] = useState(() => {
+    const now = performance.now();
+    const prior = tumbleStarts.get(id);
+    if (prior !== undefined) return { startedAt: now - prior < total ? prior : undefined, resumed: true };
+    const fresh = !reducedMotion() && Math.abs(nowSecs() - createdAt) <= FRESH_SECS;
+    return { startedAt: fresh ? now : undefined, resumed: false };
+  });
   useEffect(() => {
-    tumbled.add(id);
-  }, [id]);
+    if (!tumbleStarts.has(id)) tumbleStarts.set(id, startedAt ?? 0);
+  }, [id, startedAt]);
 
+  const buzz = own && startedAt !== undefined && !resumed;
   useEffect(() => {
-    if (!tumble || !own) return;
-    impact("heavy");
-    const ticks = setInterval(selectionChanged, 90);
-    const done = setTimeout(() => {
-      clearInterval(ticks);
-      notify("success");
-    }, TUMBLE_MS);
-    return () => {
-      clearInterval(ticks);
-      clearTimeout(done);
-    };
-  }, [tumble, own]);
+    if (buzz) impact("heavy");
+  }, [buzz]);
+  const landed = useRef(0);
+  const onLand = useCallback(() => {
+    if (!buzz) return;
+    landed.current += 1;
+    if (landed.current === landers) notify("success");
+    else impact("light");
+  }, [buzz, landers]);
 
   // A single d20, modifiers aside, gets the natural 20 / natural 1 treatment.
   const single = roll.dice.length === 1 && roll.dice[0].sides === 20 && roll.dice[0].sign === 1 ? roll.dice[0].value : 0;
   const tone: Tone = single === 20 ? "crit" : single === 1 ? "fumble" : "plain";
+  const tumble = startedAt !== undefined;
+  const reveal = tumble ? { animationDelay: `${Math.max(0, total - (performance.now() - startedAt))}ms` } : undefined;
   const showTotal = roll.dice.length > 1 || roll.modifier !== 0 || roll.dice[0]?.sign === -1;
 
   return (
@@ -337,13 +385,22 @@ export const DiceRollBody = memo(function DiceRollBody({ roll, id, createdAt, na
         />
         {roll.label && <span className="not-italic text-foreground"> — {roll.label}</span>}
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-x-1 gap-y-1">
+      <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-2">
         {roll.dice.map((die, i) => (
           <span key={i} className="inline-flex items-center gap-1">
             {(i > 0 || die.sign === -1) && (
               <span className="text-muted-foreground">{die.sign === -1 ? "−" : "+"}</span>
             )}
-            <Die sides={die.sides} value={die.value} seed={hash01(`${id}:${i}`)} tumble={tumble} tone={tone} />
+            <Die
+              sides={die.sides}
+              value={die.value}
+              seed={hash01(`${id}:${i}`)}
+              startedAt={startedAt}
+              duration={ROLL_MS + stagger * i}
+              tone={tone}
+              size={dieSize(count)}
+              onLand={onLand}
+            />
           </span>
         ))}
         {roll.modifier !== 0 && (
@@ -354,9 +411,10 @@ export const DiceRollBody = memo(function DiceRollBody({ roll, id, createdAt, na
         {showTotal && (
           <span
             className={cn(
-              "ml-1 text-2xl font-bold tabular-nums text-foreground",
-              tumble && "animate-in fade-in zoom-in-75 fill-mode-both delay-1000 duration-300",
+              "ml-1 text-3xl font-bold tabular-nums text-foreground",
+              tumble && "animate-in fade-in zoom-in-75 fill-mode-both duration-200",
             )}
+            style={reveal}
           >
             = {roll.total}
           </span>
@@ -366,8 +424,9 @@ export const DiceRollBody = memo(function DiceRollBody({ roll, id, createdAt, na
             className={cn(
               "ml-2 rounded-full px-2 py-0.5 text-xs font-bold uppercase tracking-wide",
               tone === "crit" ? "bg-amber-400/20 text-amber-500" : "bg-destructive/15 text-destructive",
-              tumble && "animate-in fade-in zoom-in-50 fill-mode-both delay-1000 duration-300",
+              tumble && "animate-in fade-in zoom-in-50 fill-mode-both duration-200",
             )}
+            style={reveal}
           >
             {tone === "crit" ? (
               <FormattedMessage id="diceRoll.critical" defaultMessage="Natural 20!" />
