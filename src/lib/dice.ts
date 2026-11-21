@@ -11,7 +11,7 @@ export const DICE_PREFIX = "\u200b🎲 ";
 
 export const MAX_DICE = 20;
 export const MAX_SIDES = 1000;
-const MAX_CONSTANT = 1000;
+export const MAX_CONSTANT = 1000;
 
 export type DiceTerm =
   | { sign: 1 | -1; count: number; sides: number }
@@ -39,8 +39,8 @@ export type DiceExpressionResult =
 
 const TERM = /([+-]?)(\d*)(?:(d)(\d+))?/iy;
 
-/** Parse `2d6+1d4-2` (spaces allowed). A lone number `N` means `1dN`. */
-export function parseDiceExpression(src: string): DiceExpressionResult {
+/** The signed terms of `2d6+1d4-2` (spaces allowed), each within the limits. */
+export function parseDiceTerms(src: string): DiceExpressionResult {
   const s = src.replace(/\s+/g, "").toLowerCase();
   if (!s) return { ok: false, reason: "invalid" };
   const terms: DiceTerm[] = [];
@@ -66,6 +66,14 @@ export function parseDiceExpression(src: string): DiceExpressionResult {
     }
     pos += m[0].length;
   }
+  return { ok: true, terms };
+}
+
+/** Parse `2d6+1d4-2` (spaces allowed). A lone number `N` means `1dN`. */
+export function parseDiceExpression(src: string): DiceExpressionResult {
+  const parsed = parseDiceTerms(src);
+  if (!parsed.ok) return parsed;
+  const { terms } = parsed;
   if (terms.length === 1 && "constant" in terms[0] && terms[0].sign === 1) {
     const sides = terms[0].constant;
     if (sides < 2) return { ok: false, reason: "invalid" };

@@ -113,6 +113,34 @@ describe("/roll", () => {
     expect(findSlashCommand("dice")).toBe(roll);
   });
 
+  const sent = (arg: string) => {
+    const result = roll.run(arg, ctx);
+    if (result.type !== "send") throw new Error(`${arg}: ${result.type}`);
+    return parseRollMessage(result.text)!;
+  };
+
+  it("reads a roll typed in the usage line's brackets", () => {
+    expect(sent("[2d6+3]").expression).toBe("2d6+3");
+    expect(sent("(2d4) sneak").label).toBe("sneak");
+  });
+
+  it("refuses dice it can't read rather than rolling a d20", () => {
+    expect(roll.run("[2d6", ctx).type).toBe("error");
+    expect(roll.run("{2d6}", ctx).type).toBe("error");
+    expect(sent("dragon breath").expression).toBe("1d20");
+  });
+
+  it("expands a preset, upcast and with extras", () => {
+    expect(sent("fireball")).toMatchObject({ expression: "8d6", label: "fireball" });
+    expect(sent("Fireball 5 the goblins")).toMatchObject({ expression: "10d6", label: "fireball the goblins" });
+    expect(sent("magic_missile 3").expression).toBe("5d4+5");
+    expect(sent("cure-wounds 2 +3").expression).toBe("2d8+3");
+    expect(sent("disintegrate 9").expression).toBe("19d6+40");
+    expect(roll.run("fireball 2", ctx).type).toBe("error");
+    expect(sent("finger-of-death 8").expression).toBe("7d8+30");
+    expect(roll.run("fireball 10", ctx).type).toBe("error");
+  });
+
   it("reports a bad roll instead of sending it", () => {
     expect(roll.run("2x6", ctx).type).toBe("error");
     expect(roll.run("50d6", ctx).type).toBe("error");

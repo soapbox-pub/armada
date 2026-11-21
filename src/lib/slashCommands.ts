@@ -9,6 +9,7 @@ import {
   rollDice,
   splitRollArgument,
 } from "@/lib/dice";
+import { presetRoll } from "@/lib/dicePresets";
 import type { NostrRumor } from "@/lib/nostrRumor";
 
 /**
@@ -170,13 +171,28 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     name: "roll",
     aliases: ["dice"],
     get description() {
-      return t({ id: "slashCommands.roll.description", defaultMessage: "Roll dice, e.g. 2d6+3 (a d20 by default)" });
+      return t({ id: "slashCommands.roll.description", defaultMessage: "Roll dice, e.g. 2d6+3 or fireball 5 (a d20 by default)" });
     },
-    usage: "/roll [2d6+3] [label]",
+    usage: "/roll 2d6+3 · /roll fireball 5",
     kind: "text",
-    run: (arg) => {
+    run: (rawArg) => {
+      // `[2d6+3]`, copied from a usage line's optional-argument brackets, is still the roll.
+      const arg = rawArg.replace(/^\s*[[(]\s*([^\])]*?)\s*[\])]/, "$1");
+      const preset = presetRoll(arg);
+      if (preset?.ok) return { type: "send", text: formatRollMessage(rollDice(preset.terms, preset.label)) };
+      if (preset?.reason === "level") {
+        return {
+          type: "error",
+          message: t(
+            { id: "slashCommands.roll.level", defaultMessage: "{name} can be cast with a spell slot of level {min} to 9." },
+            { name: preset.preset.name, min: preset.preset.level ?? 1 },
+          ),
+        };
+      }
       const { expression, label } = splitRollArgument(arg);
-      const parsed = parseDiceExpression(expression || "1d20");
+      // Dice we couldn't read are reported, never quietly turned into a d20's label.
+      const garbled = !expression && /^\S*\d*d\d/i.test(label);
+      const parsed = preset ?? (garbled ? { ok: false as const, reason: "invalid" as const } : parseDiceExpression(expression || "1d20"));
       if (parsed.ok) return { type: "send", text: formatRollMessage(rollDice(parsed.terms, label)) };
       if (parsed.reason === "limits") {
         return {
