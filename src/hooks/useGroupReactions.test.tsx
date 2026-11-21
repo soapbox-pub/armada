@@ -72,7 +72,7 @@ beforeEach(() => {
 
 describe("useGroupReactions", () => {
   it("fetches reactions for messages that join the timeline after the first paint", async () => {
-    h.relayEvents = [ev("r1", 7, [["e", "m1"]]), ev("r4", 7, [["e", "m4"]])];
+    h.relayEvents = [ev("r1", 7, [["e", "m1"], ["h", GROUP]]), ev("r4", 7, [["e", "m4"], ["h", GROUP]])];
 
     const view = renderHook(({ ids }) => useGroupReactions(RELAY, GROUP, ids), {
       wrapper,
