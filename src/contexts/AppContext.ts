@@ -7,6 +7,7 @@ import { getPreferredVoiceServer } from "@/lib/voiceDevices";
 import type { FloodSensitivity } from "@/concord/lib/floodPolicy";
 import type { MediaAutoload } from "@/concord/lib/mediaTrust";
 import type { BlossomServerMetadata } from "@/lib/blossom";
+import type { LevelRecords, MuteRecords } from "@/lib/notifRecords";
 import type { PaymentTargetType } from "@/lib/paymentTargets";
 import type { RailLayoutNode } from "@/lib/railLayout";
 import type { SendOnEnterPref } from "@/lib/sendOnEnter";
@@ -141,10 +142,15 @@ export interface AppConfig {
    *   - DM: `dm:${pubkey}`
    * Levels: `all`, `mentions` (DMs always count), `nothing` (legacy mutes
    * migrate here). Missing entries inherit channel → community → global prefs.
-   * Supersedes the mute sets (still written for older clients and the push
-   * gateway's `muted_groups`). Synced.
+   * Projected from {@link notifLevelRecords}/{@link notifMuteRecords} together
+   * with the mute sets (`lib/notifRecords.ts`) for older builds, which read and
+   * write them wholesale. Synced.
    */
   notifLevels: Record<string, "all" | "mentions" | "nothing">;
+  /** Per-scope level choices, merged per scope across devices. Synced. */
+  notifLevelRecords: LevelRecords;
+  /** Per-scope mutes, timed or until turned off, merged per scope across devices. Synced. */
+  notifMuteRecords: MuteRecords;
   /** Account-global notification categories, shared by every delivery path. */
   pushPrefs: PushPrefs;
   /**
@@ -394,6 +400,8 @@ export const RAIL_CONFIG_KEYS = ["railLayout"] as const satisfies ReadonlyArray<
 /** `${APP_ID}/notifications` — one entry per conversation the user has tuned. */
 export const NOTIF_CONFIG_KEYS = [
   "notifLevels",
+  "notifLevelRecords",
+  "notifMuteRecords",
   "mutedCommunities",
   "mutedChannels",
   "pushPrefs",
@@ -458,6 +466,8 @@ export const defaultConfig: AppConfig = {
   mutedCommunities: [],
   mutedChannels: [],
   notifLevels: {},
+  notifLevelRecords: {},
+  notifMuteRecords: {},
   // Account defaults must be pure: an origin-global mirror would leak between accounts.
   pushPrefs: { ...DEFAULT_PUSH_PREFS },
   dmProtocol: {},

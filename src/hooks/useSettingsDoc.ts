@@ -27,6 +27,7 @@ import {
 import type { DerivedDoc } from "@/lib/settingsKeys";
 import type { SelfStateClient, SettingsKeys } from "@/lib/settingsRootStore";
 
+import { mergeNotificationsDoc, notifFields, type NotifFields } from "@/lib/notifRecords";
 import type { MetadataDoc } from "@/lib/schemas";
 import { nowSecs } from "@/lib/relayClock";
 
@@ -241,8 +242,19 @@ export function nextSettingsDoc<N extends SettingsDocName>(
   name: N,
   previous: SettingsDocOf<N> | undefined,
   patch: Partial<SettingsDocOf<N>>,
+  previousEvent?: { id: string; created_at: number },
 ): SettingsDocOf<N> {
   const merged = { ...(previous ?? {}), ...patch } as SettingsDocOf<N>;
+  if (name === "notifications" && previous && previousEvent) {
+    // Per scope, so a version this device hasn't applied yet keeps its choices.
+    const fields = patch as Partial<NotifFields>;
+    const folded = mergeNotificationsDoc(
+      { levels: fields.notifLevelRecords ?? {}, mutes: fields.notifMuteRecords ?? {} },
+      previous as Partial<NotifFields>,
+      previousEvent,
+    ).merged;
+    return { ...merged, ...notifFields(folded) } as SettingsDocOf<N>;
+  }
   if (name !== "metadata") return merged;
   return {
     // Fields that moved into their own documents are dropped — see `stripMigratedKeys`.
@@ -378,7 +390,7 @@ export function useSettingsDoc<N extends SettingsDocName>(name: N): UseSettingsD
         { store, signer: user.signer, pubkey: user.pubkey, keys: writeKeys },
         name,
       );
-      const next = nextSettingsDoc(name, previous?.doc, patch);
+      const next = nextSettingsDoc(name, previous?.doc, patch, previous?.event);
       const event = await signDerivedSettingsDoc(keyring.settings[name], next, previous?.event.created_at);
 
       await publishSelfStateEvent(nostr, store, event, relays, {

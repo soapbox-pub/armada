@@ -8,7 +8,12 @@ import {
   markNotificationSettingsReady,
   useNotificationSettingsReady,
 } from "@/lib/notificationSettingsAuthority";
-import { configSnapshot, docToConfigPatch, type ConfigDocName } from "@/lib/syncedConfig";
+import {
+  configSnapshot,
+  docToConfigPatch,
+  notificationsDocFields,
+  type ConfigDocName,
+} from "@/lib/syncedConfig";
 
 import type { AppConfig } from "@/contexts/AppContext";
 
@@ -61,6 +66,8 @@ export function useConfigDocSync(name: ConfigDocName): void {
   const appliedCreatedAt = useRef<number | undefined>(undefined);
   // Slice last known to match the remote document (skips no-op publishes).
   const lastPublished = useRef<string | undefined>(undefined);
+  // Slice as the newest apply left it, for the notification readiness check.
+  const appliedSnapshot = useRef<string | undefined>(undefined);
   // Pending debounced publish: non-null means a local edit is newer than disk.
   // Clearing the timeout must clear the ref too.
   const publishTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -85,6 +92,7 @@ export function useConfigDocSync(name: ConfigDocName): void {
     appliedId.current = undefined;
     appliedCreatedAt.current = undefined;
     lastPublished.current = undefined;
+    appliedSnapshot.current = undefined;
     notificationApplyPending.current = undefined;
     // A debounced publish belongs to its account; cancel on switch (in-flight
     // completions are ignored via the generation).
@@ -138,11 +146,20 @@ export function useConfigDocSync(name: ConfigDocName): void {
     }
 
     updateConfig((current: AppConfig) => {
-      // Patch INSIDE the updater: the `dms` merge unions against `current`.
-      const patch = docToConfigPatch(name, resolved.doc as Record<string, unknown>, current);
+      // Patch INSIDE the updater: the `dms` and `notifications` merges fold against `current`.
+      const doc = resolved.doc as Record<string, unknown>;
+      const patch = docToConfigPatch(name, doc, current, resolved.event);
       const next = { ...current, ...patch };
-      // Mark as synced so it isn't echoed back out.
-      lastPublished.current = JSON.stringify(configSnapshot(next, name));
+      appliedSnapshot.current = JSON.stringify(configSnapshot(next, name));
+      // Mark as synced so it isn't echoed back out — except where the per-scope
+      // merge kept a notification choice the document lacks: the baseline is then
+      // what the document says, so the publish effect writes the merge back.
+      lastPublished.current = name === "notifications"
+        ? JSON.stringify(configSnapshot(
+          { ...next, ...notificationsDocFields(doc, current, resolved.event).remote },
+          name,
+        ))
+        : appliedSnapshot.current;
       return next;
     });
   }, [automaticSettingsSync, user?.pubkey, name, resolved, updateConfig]);
@@ -151,7 +168,7 @@ export function useConfigDocSync(name: ConfigDocName): void {
     if (name !== "notifications" || !user?.pubkey || !resolved) return;
     if (notificationApplyPending.current !== resolved.event.id) return;
     // Publish authority only once React has rendered the applied snapshot.
-    if (lastPublished.current !== JSON.stringify(configSnapshot(config, name))) return;
+    if (appliedSnapshot.current !== JSON.stringify(configSnapshot(config, name))) return;
     notificationApplyPending.current = undefined;
     markNotificationSettingsReady(user.pubkey);
   }, [config, name, resolved, user?.pubkey]);

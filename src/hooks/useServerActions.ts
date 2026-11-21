@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 
 import { useCurrentUser } from "@/hooks/useCurrentUser";
-import { useMutes } from "@/hooks/useMutes";
+import { communityMuteKey, useMutes } from "@/hooks/useMutes";
 import { toast } from "@/hooks/useToast";
 import { useUpdateUserGroupList } from "@/hooks/useUserGroupList";
 import { t } from "@/i18n";
@@ -11,10 +11,12 @@ import { isPublishQueuedError } from "@/lib/publishOutbox";
 import { shareOrigin } from "@/lib/shareOrigin";
 
 export interface UseServerActionsReturn {
-  serverMuted: boolean;
+  /** Until when the server is muted (`MUTE_FOREVER` for no end); undefined when it isn't. */
+  mutedUntil: number | undefined;
   /** Removal edits the user's kind 10009 list, so it needs a logged-in user. */
   isRemovable: boolean;
-  toggleMute: () => void;
+  mute: (until: number) => void;
+  unmute: () => void;
   copyLink: () => void;
   removeServer: () => void;
 }
@@ -24,13 +26,15 @@ export function useServerActions(relayUrl: string): UseServerActionsReturn {
   const navigate = useNavigate();
   const { user } = useCurrentUser();
   const { mutateAsync: updateList } = useUpdateUserGroupList();
-  const { isCommunityMuted, toggleCommunityMute } = useMutes();
+  const mutes = useMutes();
+  const muteKey = communityMuteKey(relayUrl);
 
-  const serverMuted = isCommunityMuted(relayUrl);
+  const mutedUntil = mutes.mutedUntil(muteKey);
   // Removal only edits the user's list, so offline relays are removable too.
   const isRemovable = Boolean(user);
 
-  const toggleMute = () => toggleCommunityMute(relayUrl);
+  const mute = (until: number) => mutes.mute(muteKey, until);
+  const unmute = () => mutes.unmute(muteKey);
 
   const copyLink = () => {
     const link = `${shareOrigin()}/s/${relayToRouteParam(relayUrl)}`;
@@ -77,5 +81,5 @@ export function useServerActions(relayUrl: string): UseServerActionsReturn {
     );
   };
 
-  return { serverMuted, isRemovable, toggleMute, copyLink, removeServer };
+  return { mutedUntil, isRemovable, mute, unmute, copyLink, removeServer };
 }

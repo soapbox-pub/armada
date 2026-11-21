@@ -215,7 +215,7 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
     mutedPeers: dmMutedPeers,
     configurationReady: dmPeersConfigReady,
   } = useKnownDmPeers();
-  const { channelLevel, concordChannelLevel } = useNotifLevels();
+  const { channelLevel, concordChannelLevel, levels } = useNotifLevels();
   // Part of the deduped payload, so a language switch re-words the native side.
   const locale = languageOf(useIntl().locale);
 
@@ -327,7 +327,7 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
   // Only explicit DM overrides; native falls back to the global pref. Group keys are exact
   // participant sets.
   const dmLevels = useMemo(() => {
-    const entries = Object.entries(config.notifLevels)
+    const entries = Object.entries(levels)
       .filter(([scope, level]) =>
         scope.startsWith("dm:") &&
         /^(?:[0-9a-f]{64})(?:,[0-9a-f]{64})*$/.test(scope.slice(3)) &&
@@ -336,7 +336,7 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
       .map(([scope, level]) => [scope.slice(3), level] as const)
       .sort(([a], [b]) => a.localeCompare(b));
     return Object.fromEntries(entries) as Record<string, "all" | "mentions" | "nothing">;
-  }, [config.notifLevels]);
+  }, [levels]);
 
   // Same avatar policy as the WebView.
   const mediaPolicy = useMediaPolicyConfig();
@@ -407,8 +407,8 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
     [allConcordSubs, concordChannelLevel],
   );
   const concordLevels = useMemo(
-    () => concordLevelPolicy(config.notifLevels, config.mutedCommunities, config.mutedChannels, prefs),
-    [config.notifLevels, config.mutedCommunities, config.mutedChannels, prefs],
+    () => concordLevelPolicy(levels, prefs),
+    [levels, prefs],
   );
   // The route stays local and is never copied into relay filters.
   const gitRepositories = useMemo<GitRepositoryWireInput[]>(() => {

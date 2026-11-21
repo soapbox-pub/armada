@@ -1,8 +1,8 @@
 import { useCallback, useMemo } from "react";
 
 import { channelReadKey } from "@/contexts/ReadStateContext";
-import { useAppContext } from "@/hooks/useAppContext";
 import { useNotifLevels } from "@/hooks/useNotifLevels";
+import { MUTE_FOREVER } from "@/lib/notifRecords";
 import { normalizeRelayUrl } from "@/lib/platform";
 
 /** Normalized relay URL for NIP-29, `c2:${communityId}` for Concord — the rail key scheme. */
@@ -28,7 +28,9 @@ export function concordChannelMuteKey(
 }
 
 export interface UseMutesReturn {
+  /** Community scope keys whose own level in force is `nothing`. */
   mutedCommunities: Set<string>;
+  /** Channel scope keys whose own level in force is `nothing`. */
   mutedChannels: Set<string>;
   isCommunityMuted: (railKey: string) => boolean;
   /** Individually or via its whole server. */
@@ -39,31 +41,32 @@ export interface UseMutesReturn {
     communityId: string,
     channelIdHex: string,
   ) => boolean;
-  toggleCommunityMute: (railKey: string) => void;
-  toggleChannelMute: (relayUrl: string, groupId: string) => void;
-  toggleConcordChannelMute: (
-    protocol: "c2",
-    communityId: string,
-    channelIdHex: string,
-  ) => void;
+  /**
+   * Until when the scope itself is silenced: a running mute's end, or `MUTE_FOREVER`
+   * for one with no end or a chosen `nothing` level. Undefined when it isn't.
+   */
+  mutedUntil: (scopeKey: string) => number | undefined;
+  /** Mute until `until` (epoch seconds, or `MUTE_FOREVER`). */
+  mute: (scopeKey: string, until: number) => void;
+  unmute: (scopeKey: string) => void;
 }
 
 /**
- * Compatibility facade over {@link useNotifLevels}: "muted" is the `nothing` level. `is*Muted`
- * reports an effective `nothing`; toggles flip between `nothing` and inherit.
+ * Mutes over {@link useNotifLevels}: "muted" is a level of `nothing` in force,
+ * whether from a running mute or a chosen level, and unmuting clears both.
  */
 export function useMutes(): UseMutesReturn {
-  const { config } = useAppContext();
-  const { getLevel, setLevel } = useNotifLevels();
+  const { levels, getLevel, muteUntil, setMute, unmute } = useNotifLevels();
 
-  const mutedCommunities = useMemo(
-    () => new Set(config.mutedCommunities.map(communityMuteKey)),
-    [config.mutedCommunities],
-  );
-  const mutedChannels = useMemo(
-    () => new Set(config.mutedChannels),
-    [config.mutedChannels],
-  );
+  const { mutedCommunities, mutedChannels } = useMemo(() => {
+    const communities = new Set<string>();
+    const channels = new Set<string>();
+    for (const [scope, level] of Object.entries(levels)) {
+      if (level !== "nothing" || scope.startsWith("dm:")) continue;
+      (scope.includes("::") ? channels : communities).add(scope);
+    }
+    return { mutedCommunities: communities, mutedChannels: channels };
+  }, [levels]);
 
   // Explicit `nothing` at the scope or inherited from the community — NOT the global-prefs
   // fallback, so turning off a global toggle never silences every badge.
@@ -86,28 +89,10 @@ export function useMutes(): UseMutesReturn {
     [getLevel],
   );
 
-  const toggleCommunityMute = useCallback(
-    (railKey: string) => {
-      const key = communityMuteKey(railKey);
-      setLevel(key, getLevel(key) === "nothing" ? undefined : "nothing");
-    },
-    [setLevel, getLevel],
-  );
-
-  const toggleChannelMute = useCallback(
-    (relayUrl: string, groupId: string) => {
-      const key = channelMuteKey(relayUrl, groupId);
-      setLevel(key, getLevel(key) === "nothing" ? undefined : "nothing");
-    },
-    [setLevel, getLevel],
-  );
-
-  const toggleConcordChannelMute = useCallback(
-    (protocol: "c2", communityId: string, channelIdHex: string) => {
-      const key = concordChannelMuteKey(protocol, communityId, channelIdHex);
-      setLevel(key, getLevel(key) === "nothing" ? undefined : "nothing");
-    },
-    [setLevel, getLevel],
+  const mutedUntil = useCallback(
+    (scopeKey: string) =>
+      muteUntil(scopeKey) ?? (getLevel(scopeKey) === "nothing" ? MUTE_FOREVER : undefined),
+    [muteUntil, getLevel],
   );
 
   return {
@@ -116,8 +101,8 @@ export function useMutes(): UseMutesReturn {
     isCommunityMuted,
     isChannelMuted,
     isConcordChannelMuted,
-    toggleCommunityMute,
-    toggleChannelMute,
-    toggleConcordChannelMute,
+    mutedUntil,
+    mute: setMute,
+    unmute,
   };
 }

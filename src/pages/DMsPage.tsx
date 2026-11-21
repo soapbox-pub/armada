@@ -104,6 +104,8 @@ import { useFollowSearch, useSearchProfiles, type SearchProfile } from "@/hooks/
 import { dmReadKey, useReadState } from "@/hooks/useReadState";
 import { usePageCovered } from "@/lib/settingsOverlay";
 import { useNotifLevels, dmScopeKey, type NotifLevel } from "@/hooks/useNotifLevels";
+import { MuteDropdownItems } from "@/components/MuteMenu";
+import { useMuteStatus } from "@/hooks/useMuteStatus";
 import { usePinnedDms } from "@/hooks/usePinnedDms";
 import { useRailDms } from "@/hooks/useRailDms";
 import { useAcceptedDms } from "@/hooks/useAcceptedDms";
@@ -708,7 +710,8 @@ const Conversation = memo(function Conversation({
   const settingsCovered = usePageCovered();
   const listCovered = useContext(PaneCoveredContext);
   const covered = settingsCovered || listCovered;
-  const { dmLevel, setLevel: setNotifLevel } = useNotifLevels();
+  const { chosen, setLevel: setNotifLevel, muteUntil, setMute, unmute } = useNotifLevels();
+  const muteStatus = useMuteStatus();
   const { toast } = useToast();
   const { activeCall } = useCall();
   const { voiceRoomPubkeys } = useVoiceActivity();
@@ -1059,7 +1062,9 @@ const Conversation = memo(function Conversation({
             <DropdownMenuSub>
               <DropdownMenuSubTrigger
                 value={(() => {
-                  const lvl = dmLevel(conversation);
+                  const until = muteUntil(dmScopeKey(conversation));
+                  if (until !== undefined) return muteStatus(until);
+                  const lvl = chosen.dmLevel(conversation);
                   return lvl === "nothing"
                     ? intl.formatMessage({ id: "dmsPage.notifications.nothing", defaultMessage: "Nothing" })
                     : lvl === "mentions"
@@ -1068,15 +1073,15 @@ const Conversation = memo(function Conversation({
                 })()}
               >
                 {(() => {
-                  const lvl = dmLevel(conversation);
+                  const lvl = muteUntil(dmScopeKey(conversation)) !== undefined ? "nothing" : chosen.dmLevel(conversation);
                   const Icon = lvl === "nothing" ? BellOff : lvl === "mentions" ? AtSign : Bell;
                   return <Icon className="mr-2 size-4" />;
                 })()}
                 <FormattedMessage id="dmsPage.notifications" defaultMessage="Notifications" />
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-48">
+              <DropdownMenuSubContent className="w-56">
                 <DropdownMenuRadioGroup
-                  value={dmLevel(conversation)}
+                  value={chosen.dmLevel(conversation)}
                   onValueChange={(v) => setNotifLevel(dmScopeKey(conversation), v as NotifLevel)}
                 >
                   <DropdownMenuRadioItem value="all">
@@ -1092,6 +1097,11 @@ const Conversation = memo(function Conversation({
                     <FormattedMessage id="dmsPage.notifications.nothing" defaultMessage="Nothing" />
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
+                <MuteDropdownItems
+                  until={muteUntil(dmScopeKey(conversation))}
+                  onMute={(until) => setMute(dmScopeKey(conversation), until)}
+                  onUnmute={() => unmute(dmScopeKey(conversation))}
+                />
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             {!group && (

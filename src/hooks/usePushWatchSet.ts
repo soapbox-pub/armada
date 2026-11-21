@@ -135,7 +135,7 @@ export function usePushWatchSet(prefs: PushPrefs): PushWatchSet {
     configurationReady: dmPeersConfigReady,
   } = useKnownDmPeers();
   const { logins } = useNostrLogin();
-  const { channelLevel, concordChannelLevel } = useNotifLevels();
+  const { channelLevel, concordChannelLevel, levels } = useNotifLevels();
   const {
     relays: publishedDmRelays,
     isReady: dmRelayListReady,
@@ -152,8 +152,8 @@ export function usePushWatchSet(prefs: PushPrefs): PushWatchSet {
   );
 
   const dmLevels = useMemo<Record<string, NotifLevel>>(
-    () => explicitDmNotificationLevels(config.notifLevels),
-    [config.notifLevels],
+    () => explicitDmNotificationLevels(levels),
+    [levels],
   );
 
   const nip29Groups = useMemo(() => {

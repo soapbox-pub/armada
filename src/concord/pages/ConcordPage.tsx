@@ -1,6 +1,6 @@
 import { observedAuthors } from "@/concord/lib/observedAuthors";
 import { useCommunityRumors } from "@/concord/hooks/useCommunityRumors";
-import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Bell, BellOff, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, Gem, MessageSquareText, MessagesSquare, Pause, Pencil, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
+import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, Gem, MessageSquareText, MessagesSquare, Pause, Pencil, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
 import { createRef, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Navigate, useLocation, useNavigationType, useSearchParams } from "react-router-dom";
 
@@ -161,6 +161,7 @@ import { useIsBlocked } from "@/lib/blocklistStore";
 import { rememberLastChannel, useLastChannels } from "@/lib/lastChannel";
 import { homeSkippedOf, type HomeLandingState } from "@/lib/railLayout";
 import { usePageCovered } from "@/lib/settingsOverlay";
+import { MuteDropdownItem, MutePanelItems } from "@/components/MuteMenu";
 import { NotifLevelMenu } from "@/components/NotifLevelMenu";
 import { toast } from "@/hooks/useToast";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
@@ -556,10 +557,11 @@ export const ChannelRow = memo(function ChannelRow({
   const fold = useVoicePresence(community, channel);
   const { voiceRoomPubkeys, streamingPubkeys } = useVoiceActivity();
   const { isConcordChannelMuted } = useMutes();
-  const { concordChannelLevel, setLevel: setNotifLevel } = useNotifLevels();
+  const { chosen, setLevel: setNotifLevel, muteUntil, setMute, unmute } = useNotifLevels();
   const notificationLevel = community
-    ? concordChannelLevel("c2", community.idHex, channel.idHex)
+    ? chosen.concordChannelLevel("c2", community.idHex, channel.idHex)
     : "all";
+  const scopeKey = community ? concordChannelScopeKey("c2", community.idHex, channel.idHex) : undefined;
   const muted = community
     ? isConcordChannelMuted("c2", community.idHex, channel.idHex)
     : false;
@@ -758,13 +760,16 @@ export const ChannelRow = memo(function ChannelRow({
             <FormattedMessage id="concordPage.channelRow.move" defaultMessage="Move" />
           </ContextMenuItem>
         )}
-        {community && (
+        {scopeKey && (
           <NotifLevelMenu
             label={intl.formatMessage({ id: "concordPage.channelRow.notifications", defaultMessage: "Channel notifications" })}
             level={notificationLevel}
-            onChange={(lvl) =>
-              setNotifLevel(concordChannelScopeKey("c2", community.idHex, channel.idHex), lvl)
-            }
+            onChange={(lvl) => setNotifLevel(scopeKey, lvl)}
+            mute={{
+              until: muteUntil(scopeKey),
+              onMute: (until) => setMute(scopeKey, until),
+              onUnmute: () => unmute(scopeKey),
+            }}
           />
         )}
         {onEdit && (
@@ -1260,7 +1265,7 @@ function ConcordCommunityPage() {
   const covered = usePageCovered();
   const composerBoundsRef = useRef<HTMLElement | null>(null);
   const { config, updateConfig } = useAppContext();
-  const { mutedChannels, isCommunityMuted, isConcordChannelMuted, toggleCommunityMute, toggleConcordChannelMute } = useMutes();
+  const { mutedUntil, isConcordChannelMuted, mute, unmute } = useMutes();
   const lastChannelKey = communityId ? `c2:${communityId}` : "";
 
   // Navigating in makes this community "live" for the session (see wire/activation).
@@ -1631,11 +1636,12 @@ function ConcordCommunityPage() {
   }, [appScope, refreshScope]);
 
   // Channel/community mute items each reflect only their own scope (like GroupPage).
-  const channelMuted = Boolean(
-    community && channel &&
-    mutedChannels.has(concordChannelMuteKey("c2", community.idHex, channel.idHex)),
-  );
-  const communityMuted = Boolean(community && isCommunityMuted(`c2:${community.idHex}`));
+  const channelMuteKey = community && channel
+    ? concordChannelMuteKey("c2", community.idHex, channel.idHex)
+    : undefined;
+  const communityMuteKey = community ? `c2:${community.idHex}` : undefined;
+  const channelMutedUntil = channelMuteKey ? mutedUntil(channelMuteKey) : undefined;
+  const communityMutedUntil = communityMuteKey ? mutedUntil(communityMuteKey) : undefined;
 
   // Remember the channel once settled (a write re-renders this page). Leaving the
   // community flushes the pending write.
@@ -3283,14 +3289,6 @@ function ConcordCommunityPage() {
                       setChannelsOpen(false);
                     },
                   },
-                  {
-                    show: true,
-                    icon: communityMuted ? <Bell className="size-4" /> : <BellOff className="size-4" />,
-                    label: communityMuted
-                      ? intl.formatMessage({ id: "concordPage.communityMenu.unmute", defaultMessage: "Unmute community" })
-                      : intl.formatMessage({ id: "concordPage.communityMenu.mute", defaultMessage: "Mute community" }),
-                    onClick: () => toggleCommunityMute(`c2:${community.idHex}`),
-                  },
                 ]
                   .filter((i) => i.show)
                   .map((i) => (
@@ -3307,6 +3305,16 @@ function ConcordCommunityPage() {
                       {i.label}
                     </button>
                   ))}
+                {communityMuteKey && (
+                  <MutePanelItems
+                    until={communityMutedUntil}
+                    muteLabel={intl.formatMessage({ id: "concordPage.communityMenu.mute", defaultMessage: "Mute community" })}
+                    unmuteLabel={intl.formatMessage({ id: "concordPage.communityMenu.unmute", defaultMessage: "Unmute community" })}
+                    onMute={(until) => mute(communityMuteKey, until)}
+                    onUnmute={() => unmute(communityMuteKey)}
+                    onDone={() => setCommunityMenuOpen(false)}
+                  />
+                )}
                 {user && (
                   <>
                     <div className="mx-1 my-1 h-px bg-border" />
@@ -3717,16 +3725,14 @@ function ConcordCommunityPage() {
                         : intl.formatMessage({ id: "concordPage.menu.viewAsChat", defaultMessage: "View as chat" })}
                     </DropdownMenuItem>
                   )}
-                  {user && community && channel && (
-                    <DropdownMenuItem
-                     
-                      onClick={() => toggleConcordChannelMute("c2", community.idHex, channel.idHex)}
-                    >
-                      {channelMuted ? <Bell className="size-4" /> : <BellOff className="size-4" />}
-                      {channelMuted
-                        ? intl.formatMessage({ id: "concordPage.menu.unmuteChannel", defaultMessage: "Unmute channel" })
-                        : intl.formatMessage({ id: "concordPage.menu.muteChannel", defaultMessage: "Mute channel" })}
-                    </DropdownMenuItem>
+                  {user && channelMuteKey && (
+                    <MuteDropdownItem
+                      until={channelMutedUntil}
+                      muteLabel={intl.formatMessage({ id: "concordPage.menu.muteChannel", defaultMessage: "Mute channel" })}
+                      unmuteLabel={intl.formatMessage({ id: "concordPage.menu.unmuteChannel", defaultMessage: "Unmute channel" })}
+                      onMute={(until) => mute(channelMuteKey, until)}
+                      onUnmute={() => unmute(channelMuteKey)}
+                    />
                   )}
                   {canManageChannels && community && !dissolved && (
                     communityPause ? (

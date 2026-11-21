@@ -2,18 +2,33 @@ import { useCallback, useMemo } from "react";
 
 import { channelReadKey } from "@/contexts/ReadStateContext";
 import { useAppContext } from "@/hooks/useAppContext";
+import { useMuteNow } from "@/hooks/useMuteNow";
 import { DEFAULT_PUSH_PREFS, type PushPrefs } from "@/lib/pushPrefs";
+import {
+  effectiveLevels,
+  isMuteActive,
+  MUTE_OFF,
+  nextStamp,
+  notifFields,
+  recordsOf,
+  type NotifLevel,
+  type NotifRecords,
+} from "@/lib/notifRecords";
 import { normalizeRelayUrl } from "@/lib/platform";
+import { clockNowMs } from "@/lib/relayClock";
+
+import type { AppConfig } from "@/contexts/AppContext";
 
 /**
- * Per-conversation notification levels (Discord model): all / mentions / nothing.
- * Channel cascade: channel → community → global prefs (`allGroupMessages` ⇒ all, else `mentions`
- * ⇒ mentions, else nothing). DMs (`mentions` ≡ `all`) fall back to `directMessages`.
- * Stored in `AppConfig.notifLevels` under the mute scope keys; legacy
- * `mutedCommunities`/`mutedChannels` read as `nothing`.
+ * Per-conversation notification levels (Discord model): all / mentions / nothing,
+ * plus mutes, timed or until turned off, which read as `nothing` while they run.
+ * Channel cascade: channel → community → global prefs (`allGroupMessages` ⇒ all,
+ * else `mentions` ⇒ mentions, else nothing). DMs (`mentions` ≡ `all`) fall back to
+ * `directMessages`. Stored as per-scope records (`lib/notifRecords.ts`) under the
+ * scope keys below.
  */
 
-export type NotifLevel = "all" | "mentions" | "nothing";
+export type { NotifLevel };
 
 // Stable scope keys (same scheme as useMutes).
 
@@ -50,10 +65,8 @@ function globalDmLevel(prefs: PushPrefs): NotifLevel {
   return prefs.directMessages ? "all" : "nothing";
 }
 
-export interface UseNotifLevelsReturn {
-  /** Explicit level, or undefined (inherit). */
-  getLevel: (scopeKey: string) => NotifLevel | undefined;
-  setLevel: (scopeKey: string, level: NotifLevel | undefined) => void;
+/** Resolvers over one level map; the same cascade with or without mutes. */
+export interface NotifLevelResolvers {
   /** Resolved via channel → server → global. */
   channelLevel: (relayUrl: string, groupId: string) => NotifLevel;
   /** Channel → community → global. */
@@ -66,17 +79,35 @@ export interface UseNotifLevelsReturn {
   dmLevel: (pubkey: string) => NotifLevel;
 }
 
-function effectiveMap(
-  levels: Record<string, NotifLevel>,
-  mutedCommunities: string[],
-  mutedChannels: string[],
-): Map<string, NotifLevel> {
-  const m = new Map<string, NotifLevel>();
-  // Legacy mutes first (lowest precedence).
-  for (const key of mutedCommunities) m.set(communityScopeKey(key), "nothing");
-  for (const key of mutedChannels) m.set(key, "nothing");
-  for (const [key, level] of Object.entries(levels)) m.set(key, level);
-  return m;
+export interface UseNotifLevelsReturn extends NotifLevelResolvers {
+  /** Explicit level in force (a running mute reads as `nothing`), or undefined (inherit). */
+  getLevel: (scopeKey: string) => NotifLevel | undefined;
+  setLevel: (scopeKey: string, level: NotifLevel | undefined) => void;
+  /** Every explicit level in force, mutes included: what delivery paths act on. */
+  levels: Record<string, NotifLevel>;
+  /** The levels chosen, ignoring mutes: what a level menu ticks. */
+  chosen: NotifLevelResolvers;
+  /** The scope's own running mute: epoch seconds, or `MUTE_FOREVER`; undefined when not muted. */
+  muteUntil: (scopeKey: string) => number | undefined;
+  /** Mute until `until` (epoch seconds, or `MUTE_FOREVER`). */
+  setMute: (scopeKey: string, until: number) => void;
+  /** End the scope's mute, and a `nothing` level chosen for it. */
+  unmute: (scopeKey: string) => void;
+}
+
+function resolvers(map: ReadonlyMap<string, NotifLevel>, prefs: PushPrefs): NotifLevelResolvers {
+  return {
+    communityLevel: (railKey) => map.get(communityScopeKey(railKey)) ?? globalChannelLevel(prefs),
+    channelLevel: (relayUrl, groupId) =>
+      map.get(channelScopeKey(relayUrl, groupId))
+      ?? map.get(communityScopeKey(relayUrl))
+      ?? globalChannelLevel(prefs),
+    concordChannelLevel: (protocol, communityId, channelIdHex) =>
+      map.get(concordChannelScopeKey(protocol, communityId, channelIdHex))
+      ?? map.get(`${protocol}:${communityId}`)
+      ?? globalChannelLevel(prefs),
+    dmLevel: (pubkey) => map.get(dmScopeKey(pubkey)) ?? globalDmLevel(prefs),
+  };
 }
 
 /**
@@ -92,14 +123,12 @@ export interface ConcordLevelPolicy {
 
 export function concordLevelPolicy(
   levels: Record<string, NotifLevel>,
-  mutedCommunities: string[],
-  mutedChannels: string[],
   prefs: PushPrefs,
 ): ConcordLevelPolicy {
   const communities: Record<string, NotifLevel> = {};
   const channels: Record<string, NotifLevel> = {};
   // Sorted, so an unrelated reorder doesn't change the native config.
-  const entries = [...effectiveMap(levels, mutedCommunities, mutedChannels)]
+  const entries = Object.entries(levels)
     .filter(([key]) => key.startsWith("c2:"))
     .sort(([a], [b]) => a.localeCompare(b));
   for (const [key, level] of entries) {
@@ -111,95 +140,73 @@ export function concordLevelPolicy(
   return { default: globalChannelLevel(prefs), communities, channels };
 }
 
+function randomOp(): string {
+  return crypto.randomUUID();
+}
+
 export function useNotifLevels(): UseNotifLevelsReturn {
   const { config, updateConfig } = useAppContext();
   // Account-scoped AppConfig only; never another account's legacy localStorage mirror.
   const pushPrefs = config.pushPrefs ?? DEFAULT_PUSH_PREFS;
 
-  const map = useMemo(
-    () => effectiveMap(config.notifLevels, config.mutedCommunities, config.mutedChannels),
-    [config.notifLevels, config.mutedCommunities, config.mutedChannels],
+  const { notifLevelRecords, notifMuteRecords, notifLevels, mutedCommunities, mutedChannels } = config;
+  const records = useMemo(
+    () => recordsOf({ notifLevelRecords, notifMuteRecords, notifLevels, mutedCommunities, mutedChannels }),
+    [notifLevelRecords, notifMuteRecords, notifLevels, mutedCommunities, mutedChannels],
   );
+  const now = useMuteNow(records.mutes);
+  const effective = useMemo(() => effectiveLevels(records, now, true), [records, now]);
+  const chosenMap = useMemo(() => effectiveLevels(records, now, false), [records, now]);
+  const levels = useMemo(() => Object.fromEntries(effective), [effective]);
+  const resolved = useMemo(() => resolvers(effective, pushPrefs), [effective, pushPrefs]);
+  const chosen = useMemo(() => resolvers(chosenMap, pushPrefs), [chosenMap, pushPrefs]);
 
-  const getLevel = useCallback((scopeKey: string) => map.get(scopeKey), [map]);
+  const getLevel = useCallback((scopeKey: string) => effective.get(scopeKey), [effective]);
 
-  const setLevel = useCallback(
-    (scopeKey: string, level: NotifLevel | undefined) => {
-      updateConfig((current) => {
-        const nextLevels = { ...current.notifLevels };
-        if (level === undefined) delete nextLevels[scopeKey];
-        else nextLevels[scopeKey] = level;
+  const muteUntil = useCallback((scopeKey: string) => {
+    const mute = records.mutes[scopeKey];
+    return isMuteActive(mute, now) ? mute!.until : undefined;
+  }, [records, now]);
 
-        // Keep legacy mute sets in lock-step for older clients and the push gateway (`muted_groups`).
-        // Channel keys contain `::`; `dm:` keys belong to neither set.
-        const isChannel = scopeKey.includes("::");
-        const isDm = scopeKey.startsWith("dm:");
-        const muteSetKey: "mutedCommunities" | "mutedChannels" | null = isDm
-          ? null
-          : isChannel
-            ? "mutedChannels"
-            : "mutedCommunities";
+  // Every edit stamps a record from what is stored NOW, so two quick edits can't share a base.
+  const edit = useCallback((change: (current: NotifRecords, at: number, op: string) => NotifRecords) => {
+    updateConfig((current: AppConfig) => {
+      const base = recordsOf(current);
+      return { ...current, ...notifFields(change(base, nextStamp(base, clockNowMs()), randomOp())) };
+    });
+  }, [updateConfig]);
 
-        if (muteSetKey) {
-          const muteSet = new Set(current[muteSetKey]);
-          if (level === "nothing") muteSet.add(scopeKey);
-          else muteSet.delete(scopeKey);
-          return {
-            ...current,
-            notifLevels: nextLevels,
-            [muteSetKey]: [...muteSet].sort(),
-          };
-        }
-        return { ...current, notifLevels: nextLevels };
-      });
-    },
-    [updateConfig],
-  );
+  const setLevel = useCallback((scopeKey: string, level: NotifLevel | undefined) => {
+    edit((current, at, op) => ({
+      ...current,
+      levels: { ...current.levels, [scopeKey]: level ? { v: level, at, op } : { at, op } },
+    }));
+  }, [edit]);
 
-  const communityLevel = useCallback(
-    (railKey: string): NotifLevel => {
-      const explicit = map.get(communityScopeKey(railKey));
-      return explicit ?? globalChannelLevel(pushPrefs);
-    },
-    [map, pushPrefs],
-  );
+  const setMute = useCallback((scopeKey: string, until: number) => {
+    edit((current, at, op) => ({
+      ...current,
+      mutes: { ...current.mutes, [scopeKey]: { until, at, op } },
+    }));
+  }, [edit]);
 
-  const channelLevel = useCallback(
-    (relayUrl: string, groupId: string): NotifLevel => {
-      const own = map.get(channelScopeKey(relayUrl, groupId));
-      if (own) return own;
-      const server = map.get(communityScopeKey(relayUrl));
-      if (server) return server;
-      return globalChannelLevel(pushPrefs);
-    },
-    [map, pushPrefs],
-  );
+  const unmute = useCallback((scopeKey: string) => {
+    edit((current, at, op) => ({
+      levels: current.levels[scopeKey]?.v === "nothing"
+        ? { ...current.levels, [scopeKey]: { at, op } }
+        : current.levels,
+      mutes: { ...current.mutes, [scopeKey]: { until: MUTE_OFF, at, op } },
+    }));
+  }, [edit]);
 
-  const concordChannelLevel = useCallback(
-    (protocol: "c2", communityId: string, channelIdHex: string): NotifLevel => {
-      const own = map.get(concordChannelScopeKey(protocol, communityId, channelIdHex));
-      if (own) return own;
-      const community = map.get(`${protocol}:${communityId}`);
-      if (community) return community;
-      return globalChannelLevel(pushPrefs);
-    },
-    [map, pushPrefs],
-  );
-
-  const dmLevel = useCallback(
-    (pubkey: string): NotifLevel => {
-      const own = map.get(dmScopeKey(pubkey));
-      return own ?? globalDmLevel(pushPrefs);
-    },
-    [map, pushPrefs],
-  );
-
-  return {
+  return useMemo(() => ({
+    ...resolved,
     getLevel,
     setLevel,
-    channelLevel,
-    concordChannelLevel,
-    communityLevel,
-    dmLevel,
-  };
+    levels,
+    chosen,
+    muteUntil,
+    setMute,
+    unmute,
+  }), [resolved, getLevel, setLevel, levels, chosen, muteUntil, setMute, unmute]);
 }

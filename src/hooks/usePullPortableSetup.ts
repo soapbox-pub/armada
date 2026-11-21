@@ -496,9 +496,9 @@ export function usePullPortableSetup() {
             },
           };
         }
-        for (const { name, doc } of settingsDocs) {
+        for (const { name, doc, event } of settingsDocs) {
           if (!(name in CONFIG_KEYS_BY_DOC)) continue;
-          next = { ...next, ...docToConfigPatch(name as ConfigDocName, doc, next) };
+          next = { ...next, ...docToConfigPatch(name as ConfigDocName, doc, next, event) };
         }
         // Not a user edit, so the publish watcher must not echo it.
         markConfigSynced(next);

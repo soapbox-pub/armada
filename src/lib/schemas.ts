@@ -79,6 +79,34 @@ export const PushPrefsSchema = z.object({
   dmRequests: z.enum(["off", "generic", "full"]),
 });
 
+const NotifLevelSchema = z.enum(["all", "mentions", "nothing"]);
+
+/** Records keyed by scope; an entry that doesn't parse drops alone, not the map. */
+function recordMapSchema<T extends z.ZodType>(entry: T) {
+  return z.record(z.string(), z.unknown()).transform((raw) => {
+    const out: Record<string, z.output<T>> = {};
+    for (const [scope, value] of Object.entries(raw)) {
+      const parsed = entry.safeParse(value);
+      if (parsed.success) out[scope] = parsed.data;
+    }
+    return out;
+  });
+}
+
+/** Per-scope notification level registers (`lib/notifRecords.ts`). */
+const LevelRecordsSchema = recordMapSchema(z.looseObject({
+  v: NotifLevelSchema.optional(),
+  at: z.number(),
+  op: z.string(),
+}));
+
+/** Per-scope mute registers (`lib/notifRecords.ts`). */
+const MuteRecordsSchema = recordMapSchema(z.looseObject({
+  until: z.number().int(),
+  at: z.number(),
+  op: z.string(),
+}));
+
 /** A rail layout node: an item or a folder. See lib/railLayout.ts. */
 export const RailLayoutNodeSchema: z.ZodType<RailLayoutNode> = z.union([
   z.object({ type: z.literal("item"), key: z.string() }),
@@ -137,6 +165,8 @@ export const AppConfigSchema = z.object({
   mutedCommunities: z.array(z.string()).catch([]),
   mutedChannels: z.array(z.string()).catch([]),
   notifLevels: z.record(z.string(), z.enum(["all", "mentions", "nothing"])).catch({}),
+  notifLevelRecords: LevelRecordsSchema.catch({}),
+  notifMuteRecords: MuteRecordsSchema.catch({}),
   pushPrefs: PushPrefsSchema.catch(defaultConfig.pushPrefs),
   dmProtocol: z.record(z.string(), z.enum(["auto", "nip17", "nip04"])).catch({}),
   dmTypingIndicators: z.boolean().catch(defaultConfig.dmTypingIndicators),
@@ -295,11 +325,13 @@ export const ReadStateDocSchema = z.looseObject({
 });
 
 /**
- * `${APP_ID}/notifications`: per-conversation levels. Legacy `mutedCommunities`/
- * `mutedChannels` are written in lockstep for older clients and the push
- * gateway. Replaced wholesale so clearing propagates.
+ * `${APP_ID}/notifications`: per-conversation level and mute records, merged per
+ * scope (`lib/notifRecords.ts`). `notifLevels`/`mutedCommunities`/`mutedChannels`
+ * are their projection, written in lockstep for older builds; `pushPrefs` is wholesale.
  */
 export const NotificationsDocSchema = z.looseObject({
+  notifLevelRecords: LevelRecordsSchema.optional(),
+  notifMuteRecords: MuteRecordsSchema.optional(),
   notifLevels: NotifLevelsSchema.optional(),
   mutedCommunities: z.array(z.string()).optional(),
   mutedChannels: z.array(z.string()).optional(),

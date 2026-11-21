@@ -11,7 +11,7 @@ import * as publishOutbox from "@/lib/publishOutbox";
 import { settingsKeyring } from "@/lib/settingsKeys";
 import type { SettingsKeys } from "@/lib/settingsRootStore";
 
-import { readSettingsDoc, useSettingsDoc } from "./useSettingsDoc";
+import { nextSettingsDoc, readSettingsDoc, useSettingsDoc } from "./useSettingsDoc";
 
 const PUBKEY = "a".repeat(64);
 const KEYRING = settingsKeyring("01".repeat(32));
@@ -455,5 +455,28 @@ describe("useSettingsDoc", () => {
     ]) {
       expect(out).not.toHaveProperty(key);
     }
+  });
+});
+
+describe("nextSettingsDoc for notifications", () => {
+  it("folds a stored version this device hasn't applied in per scope, not wholesale", () => {
+    const stored = {
+      notifLevelRecords: { "c2:other": { v: "mentions" as const, at: 2_000, op: "b" } },
+      notifMuteRecords: {},
+      notifLevels: { "c2:other": "mentions" as const },
+      mutedCommunities: [],
+      mutedChannels: [],
+    };
+    const patch = {
+      notifLevelRecords: {},
+      notifMuteRecords: { "dm:peer": { until: -1, at: 1_000, op: "a" } },
+      notifLevels: { "dm:peer": "nothing" as const },
+      mutedCommunities: [],
+      mutedChannels: [],
+    };
+    const next = nextSettingsDoc("notifications", stored, patch, { id: "v1", created_at: 2 });
+    expect(next.notifLevelRecords).toEqual(stored.notifLevelRecords);
+    expect(next.notifMuteRecords).toEqual(patch.notifMuteRecords);
+    expect(next.notifLevels).toEqual({ "c2:other": "mentions", "dm:peer": "nothing" });
   });
 });

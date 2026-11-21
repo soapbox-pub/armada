@@ -902,6 +902,7 @@ export function usePublishPortableSetup() {
           name,
           base as never,
           portableConfigSnapshot(configKeys, base, config) as never,
+          stored?.event,
         );
         const settingsEvent = await signDerivedSettingsDoc(derived, next, floor);
         toPublish.push(settingsEvent);

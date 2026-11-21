@@ -42,7 +42,13 @@ vi.mock("@/hooks/useNotifLevels", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/hooks/useNotifLevels")>();
   return {
     ...actual,
-    useNotifLevels: () => ({ concordChannelLevel: () => "all", setLevel: () => {} }),
+    useNotifLevels: () => ({
+      chosen: { concordChannelLevel: () => "all" },
+      setLevel: () => {},
+      muteUntil: () => undefined,
+      setMute: () => {},
+      unmute: () => {},
+    }),
   };
 });
 

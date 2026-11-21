@@ -1,4 +1,4 @@
-import { Bell, BellOff, Hash, IdCard, Link2, MoreVertical, Trash2, Volume2 } from "lucide-react";
+import { Hash, IdCard, Link2, MoreVertical, Trash2, Volume2 } from "lucide-react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 
@@ -7,6 +7,7 @@ import { ServerRail } from "@/components/layout/ServerRail";
 import { ServerScopeProvider } from "@/components/ServerScopeProvider";
 import { ServerProfileDialog } from "@/components/dialogs/ServerProfileDialog";
 import { GroupBannerImage } from "@/components/GroupBannerImage";
+import { MuteDropdownItem } from "@/components/MuteMenu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,7 +41,7 @@ export function ServerPage() {
     if (relayUrl) activateScope(nip29Scope(relayUrl));
   }, [relayUrl]);
   // Called unconditionally (rules of hooks); actions only run once a server resolves.
-  const { serverMuted, isRemovable, toggleMute, copyLink, removeServer } =
+  const { mutedUntil, isRemovable, mute, unmute, copyLink, removeServer } =
     useServerActions(relayUrl ?? "");
 
   const { data: groups, isLoading, isError, relayInfo } = useRelayGroups(relayUrl);
@@ -113,15 +114,13 @@ export function ServerPage() {
                   </DropdownMenuItem>
                 )}
                 {user && (
-                  <DropdownMenuItem
-                   
-                    onClick={toggleMute}
-                  >
-                    {serverMuted ? <Bell className="size-4" /> : <BellOff className="size-4" />}
-                    {serverMuted
-                      ? <FormattedMessage id="serverPage.unmuteServer" defaultMessage="Unmute server" />
-                      : <FormattedMessage id="serverPage.muteServer" defaultMessage="Mute server" />}
-                  </DropdownMenuItem>
+                  <MuteDropdownItem
+                    until={mutedUntil}
+                    muteLabel={intl.formatMessage({ id: "serverPage.muteServer", defaultMessage: "Mute server" })}
+                    unmuteLabel={intl.formatMessage({ id: "serverPage.unmuteServer", defaultMessage: "Unmute server" })}
+                    onMute={mute}
+                    onUnmute={unmute}
+                  />
                 )}
                 <DropdownMenuItem onClick={copyLink}>
                   <Link2 className="size-4" />

@@ -174,6 +174,66 @@ describe("useConfigDocSync automatic delivery", () => {
     expect(next.closedDms).toEqual({ peerA: localMarker, peerB: remoteMarker });
   });
 
+  it("keeps a notification choice an incoming document lacks, and writes the merge back", async () => {
+    const mute = { until: -1, at: 5_000_000, op: "local" };
+    h.config = { ...h.config, notifMuteRecords: { "dm:peer": mute }, notifLevels: { "dm:peer": "nothing" } };
+    h.docs.notifications = {
+      doc: {
+        notifLevelRecords: { "c2:x": { v: "mentions", at: 1_000, op: "remote" } },
+        notifMuteRecords: {},
+        notifLevels: { "c2:x": "mentions" },
+        mutedCommunities: [],
+        mutedChannels: [],
+      },
+      event: { id: "notif-v1", created_at: 2 },
+      sources: [],
+      isFetched: true,
+      update: h.publish,
+      hasNip44Support: true,
+    };
+    h.publish.mockResolvedValue({});
+    const { rerender } = renderHook(() => useConfigDocSync("notifications"));
+
+    const updater = h.updateConfig.mock.calls[0]![0] as (c: AppConfig) => AppConfig;
+    h.config = updater(h.config);
+    expect(h.config.notifMuteRecords).toEqual({ "dm:peer": mute });
+    expect(h.config.notifLevels).toEqual({ "c2:x": "mentions", "dm:peer": "nothing" });
+
+    rerender();
+    await act(() => vi.advanceTimersByTimeAsync(800));
+    expect(h.publish).toHaveBeenCalledTimes(1);
+    expect(h.publish.mock.calls[0]![0]).toMatchObject({
+      notifMuteRecords: { "dm:peer": mute },
+      notifLevelRecords: { "c2:x": { v: "mentions", at: 1_000, op: "remote" } },
+    });
+  });
+
+  it("does not write back a notifications document that already holds everything", async () => {
+    const level = { v: "mentions" as const, at: 1_000, op: "remote" };
+    h.config = { ...h.config, notifLevelRecords: { "c2:x": level }, notifLevels: { "c2:x": "mentions" } };
+    h.docs.notifications = {
+      doc: {
+        notifLevelRecords: { "c2:x": level },
+        notifMuteRecords: {},
+        notifLevels: { "c2:x": "mentions" },
+        mutedCommunities: [],
+        mutedChannels: [],
+        pushPrefs: h.config.pushPrefs,
+      },
+      event: { id: "notif-v1", created_at: 2 },
+      sources: [],
+      isFetched: true,
+      update: h.publish,
+      hasNip44Support: true,
+    };
+    const { rerender } = renderHook(() => useConfigDocSync("notifications"));
+    const updater = h.updateConfig.mock.calls[0]![0] as (c: AppConfig) => AppConfig;
+    h.config = updater(h.config);
+    rerender();
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(h.publish).not.toHaveBeenCalled();
+  });
+
   it("does not publish a slice before its stored document has been read", async () => {
     h.docs.notifications = {
       doc: null,

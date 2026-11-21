@@ -172,12 +172,16 @@ describe("muting a Concord community, as the Android service is told", { timeout
     });
   });
 
-  it("the policy carries channel overrides and legacy mutes, lower-cased", async () => {
+  it("the policy carries community and channel levels, lower-cased", async () => {
     const { concordLevelPolicy } = await import("@/hooks/useNotifLevels");
     expect(concordLevelPolicy(
-      { [`c2:${OTHER.toUpperCase()}`]: "mentions", [`c2:${SOAPBOX}::${SOAPBOX_GENERAL}`]: "all", "wss://relay.example": "nothing" },
-      [`c2:${SOAPBOX}`],
-      [`c2:${OTHER}::${OTHER_GENERAL}`],
+      {
+        [`c2:${OTHER.toUpperCase()}`]: "mentions",
+        [`c2:${SOAPBOX}`]: "nothing",
+        [`c2:${SOAPBOX}::${SOAPBOX_GENERAL}`]: "all",
+        [`c2:${OTHER}::${OTHER_GENERAL}`]: "nothing",
+        "wss://relay.example": "nothing",
+      },
       { ...DEFAULT_PUSH_PREFS, allGroupMessages: false, mentions: true },
     )).toEqual({
       default: "mentions",

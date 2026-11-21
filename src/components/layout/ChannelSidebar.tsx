@@ -1,4 +1,4 @@
-import { Bell, BellOff, CheckCheck, ChevronDown, CircleAlert, FolderGit2, Hash, Headphones, IdCard, Inbox, Link as LinkIcon, Loader2, Lock, MessageSquareText, Plus, RefreshCw, Trash2, Volume2, X } from "lucide-react";
+import { CheckCheck, ChevronDown, CircleAlert, FolderGit2, Hash, Headphones, IdCard, Inbox, Link as LinkIcon, Loader2, Lock, MessageSquareText, Plus, RefreshCw, Trash2, Volume2, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 
@@ -21,6 +21,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { MenuSheetTile } from "@/components/ui/menu-sheet";
+import { MutePanelItems } from "@/components/MuteMenu";
 import { NotifLevelMenu } from "@/components/NotifLevelMenu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -67,9 +68,9 @@ function ChannelLink({
   const { activeCall } = useCall();
   const { speakingPubkeys, mutedPubkeys, streamingPubkeys, voiceRoomPubkeys } = useVoiceActivity();
   const { markRead } = useReadState();
-  const { channelLevel, setLevel } = useNotifLevels();
-  const notificationLevel = channelLevel(group.relay, group.id);
-  const muted = notificationLevel === "nothing";
+  const { channelLevel, chosen, setLevel, muteUntil, setMute, unmute } = useNotifLevels();
+  const muted = channelLevel(group.relay, group.id) === "nothing";
+  const scopeKey = channelScopeKey(group.relay, group.id);
   // A Buzz DM channel's title is its roster (kind 39002).
   const { data: dmDetails } = useGroup(buzzDm ? group.relay : undefined, buzzDm ? group.id : undefined);
   // Fall back to relay-level LiveKit support: Armada's relay29 doesn't emit the
@@ -161,8 +162,13 @@ function ChannelLink({
         </ContextMenuItem>
         <NotifLevelMenu
           label={intl.formatMessage({ id: "channelSidebar.notifications", defaultMessage: "Notifications" })}
-          level={notificationLevel}
-          onChange={(lvl) => setLevel(channelScopeKey(group.relay, group.id), lvl)}
+          level={chosen.channelLevel(group.relay, group.id)}
+          onChange={(lvl) => setLevel(scopeKey, lvl)}
+          mute={{
+            until: muteUntil(scopeKey),
+            onMute: (until) => setMute(scopeKey, until),
+            onUnmute: () => unmute(scopeKey),
+          }}
         />
         <ContextMenuItem
           onSelect={() => {
@@ -241,7 +247,7 @@ export function ChannelSidebar({ relayUrl, onNavigate, className }: ChannelSideb
   const [profileOpen, setProfileOpen] = useState(false);
   // The only place server actions are reachable on mobile (ServerPage is hidden there).
   const [serverMenuOpen, setServerMenuOpen] = useState(false);
-  const { serverMuted, isRemovable, toggleMute, copyLink, removeServer } =
+  const { mutedUntil, isRemovable, mute, unmute, copyLink, removeServer } =
     useServerActions(relayUrl);
   const { isBuzz } = useIsBuzzRelay(relayUrl);
   const hiddenDms = useBuzzHiddenDms(isBuzz ? relayUrl : undefined);
@@ -370,11 +376,18 @@ export function ChannelSidebar({ relayUrl, onNavigate, className }: ChannelSideb
                 },
                 {
                   show: !!user,
-                  icon: serverMuted ? <Bell className="size-4" /> : <BellOff className="size-4" />,
-                  label: serverMuted
-                    ? intl.formatMessage({ id: "channelSidebar.unmuteServer", defaultMessage: "Unmute server" })
-                    : intl.formatMessage({ id: "channelSidebar.muteServer", defaultMessage: "Mute server" }),
-                  onClick: toggleMute,
+                  label: "mute",
+                  node: (
+                    <MutePanelItems
+                      key="mute"
+                      until={mutedUntil}
+                      muteLabel={intl.formatMessage({ id: "channelSidebar.muteServer", defaultMessage: "Mute server" })}
+                      unmuteLabel={intl.formatMessage({ id: "channelSidebar.unmuteServer", defaultMessage: "Unmute server" })}
+                      onMute={mute}
+                      onUnmute={unmute}
+                      onDone={() => setServerMenuOpen(false)}
+                    />
+                  ),
                 },
                 {
                   show: true,
@@ -397,13 +410,15 @@ export function ChannelSidebar({ relayUrl, onNavigate, className }: ChannelSideb
                 },
               ] as Array<{
                 show: boolean;
-                icon: ReactNode;
+                icon?: ReactNode;
                 label: string;
-                onClick: () => void;
+                onClick?: () => void;
                 destructive?: boolean;
+                /** Rendered in place of a plain button. */
+                node?: ReactNode;
               }>)
                 .filter((i) => i.show)
-                .map((i) => (
+                .map((i) => i.node ?? (
                   <button
                     key={i.label}
                     type="button"
@@ -412,7 +427,7 @@ export function ChannelSidebar({ relayUrl, onNavigate, className }: ChannelSideb
                       i.destructive && "text-destructive",
                     )}
                     onClick={() => {
-                      i.onClick();
+                      i.onClick?.();
                       setServerMenuOpen(false);
                     }}
                   >

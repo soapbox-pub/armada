@@ -8,9 +8,10 @@
  */
 
 import { renderHook, act } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useNotifLevels } from "./useNotifLevels";
+import { MUTE_FOREVER } from "@/lib/notifRecords";
 
 import type { AppConfig } from "@/contexts/AppContext";
 
@@ -40,6 +41,8 @@ vi.mock("@/lib/platform", () => ({
 function baseConfig(over: Partial<AppConfig> = {}): AppConfig {
   return {
     notifLevels: {},
+    notifLevelRecords: {},
+    notifMuteRecords: {},
     mutedCommunities: [],
     mutedChannels: [],
     pushPrefs: {
@@ -136,5 +139,58 @@ describe("useNotifLevels setLevel", () => {
     expect(h.config.notifLevels["dm:abc"]).toBe("nothing");
     expect(h.config.mutedChannels).toHaveLength(0);
     expect(h.config.mutedCommunities).toHaveLength(0);
+  });
+
+  it("keeps the levels a pre-record config held when another scope is edited", () => {
+    h.config = baseConfig({ notifLevels: { [RELAY]: "mentions" }, mutedChannels: [`${RELAY}::x`] });
+    const { result } = renderHook(() => useNotifLevels());
+    act(() => result.current.setLevel("dm:abc", "all"));
+    expect(h.config.notifLevels).toEqual({ [RELAY]: "mentions", [`${RELAY}::x`]: "nothing", "dm:abc": "all" });
+  });
+});
+
+describe("useNotifLevels mutes", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("a timed mute reads as nothing, keeps the chosen level, and stays out of the legacy fields", () => {
+    h.config = baseConfig({ notifLevels: { [RELAY]: "mentions" } });
+    const { result, rerender } = renderHook(() => useNotifLevels());
+    const until = Math.floor(Date.now() / 1000) + 3600;
+    act(() => result.current.setMute(RELAY, until));
+    rerender();
+    expect(result.current.communityLevel(RELAY)).toBe("nothing");
+    expect(result.current.chosen.communityLevel(RELAY)).toBe("mentions");
+    expect(result.current.muteUntil(RELAY)).toBe(until);
+    expect(h.config.notifLevels[RELAY]).toBe("mentions");
+    expect(h.config.mutedCommunities).toHaveLength(0);
+  });
+
+  it("a mute with no end is mirrored into the legacy fields for older builds", () => {
+    const { result } = renderHook(() => useNotifLevels());
+    act(() => result.current.setMute(`${RELAY}::${GROUP}`, MUTE_FOREVER));
+    expect(h.config.notifLevels[`${RELAY}::${GROUP}`]).toBe("nothing");
+    expect(h.config.mutedChannels).toEqual([`${RELAY}::${GROUP}`]);
+  });
+
+  it("a timed mute ends on its own", async () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(() => useNotifLevels());
+    act(() => result.current.setMute(RELAY, Math.floor(Date.now() / 1000) + 60));
+    rerender();
+    expect(result.current.communityLevel(RELAY)).toBe("nothing");
+    await act(() => vi.advanceTimersByTimeAsync(61_000));
+    rerender();
+    expect(result.current.communityLevel(RELAY)).toBe("all");
+    expect(result.current.muteUntil(RELAY)).toBeUndefined();
+  });
+
+  it("unmuting also clears a chosen nothing level", () => {
+    h.config = baseConfig({ notifLevels: { [RELAY]: "nothing" }, mutedCommunities: [RELAY] });
+    const { result } = renderHook(() => useNotifLevels());
+    act(() => result.current.unmute(RELAY));
+    expect(h.config.notifLevels).toEqual({});
+    expect(h.config.mutedCommunities).toEqual([]);
   });
 });

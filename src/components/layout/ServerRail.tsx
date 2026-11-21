@@ -505,7 +505,7 @@ const ServerButton = memo(function ServerButton({
   const groupIds = useMemo(() => (groups ?? []).map((g) => g.id), [groups]);
   const { byGroup, anyUnread, anyMention } = useRelayUnread(user ? url : undefined, groupIds);
   const { markRead } = useReadState();
-  const { communityLevel, setLevel: setNotifLevel } = useNotifLevels();
+  const { chosen, setLevel: setNotifLevel, muteUntil, setMute, unmute } = useNotifLevels();
   const { isRemovable, removeServer } = useServerActions(url);
   const host = relayHost(url);
   const name = info?.name || host;
@@ -654,8 +654,13 @@ const ServerButton = memo(function ServerButton({
         </ContextMenuItem>
         <NotifLevelMenu
           label={intl.formatMessage({ id: "serverRail.serverNotifications", defaultMessage: "Server notifications" })}
-          level={communityLevel(url)}
+          level={chosen.communityLevel(url)}
           onChange={(lvl) => setNotifLevel(communityScopeKey(url), lvl)}
+          mute={{
+            until: muteUntil(communityScopeKey(url)),
+            onMute: (until) => setMute(communityScopeKey(url), until),
+            onUnmute: () => unmute(communityScopeKey(url)),
+          }}
         />
         {isRemovable && (
           <ContextMenuItem
@@ -708,7 +713,7 @@ const Concord2Button = memo(function Concord2Button({
   const channels = useChannels(community, false);
   const { byChannel, markRead: markC2Read } = useConcordUnread(community, channels);
   const { isConcordChannelMuted } = useMutes();
-  const { communityLevel, setLevel: setNotifLevel } = useNotifLevels();
+  const { chosen, setLevel: setNotifLevel, muteUntil, setMute, unmute } = useNotifLevels();
 
   const anyUnread = Object.keys(byChannel).some(
     (id) => !isConcordChannelMuted("c2", communityId, id),
@@ -851,8 +856,13 @@ const Concord2Button = memo(function Concord2Button({
         </ContextMenuItem>
         <NotifLevelMenu
           label={intl.formatMessage({ id: "serverRail.communityNotifications", defaultMessage: "Community notifications" })}
-          level={communityLevel(concordKey(communityId))}
+          level={chosen.communityLevel(concordKey(communityId))}
           onChange={(lvl) => setNotifLevel(concordKey(communityId), lvl)}
+          mute={{
+            until: muteUntil(concordKey(communityId)),
+            onMute: (until) => setMute(concordKey(communityId), until),
+            onUnmute: () => unmute(concordKey(communityId)),
+          }}
         />
         <ContextMenuItem
           className="gap-2 text-destructive focus:text-destructive"
@@ -899,7 +909,7 @@ const DmButton = memo(function DmButton({
   const name = noteToSelf ? intl.formatMessage(NOTE_TO_SELF_NAME) : getDisplayName(metadata, pubkey);
   const unread = useDmPeerUnread(pubkey);
   const displayedUnreadCount = unreadCount ?? (unread ? 1 : 0);
-  const { dmLevel, setLevel: setNotifLevel } = useNotifLevels();
+  const { chosen, setLevel: setNotifLevel, muteUntil, setMute, unmute } = useNotifLevels();
   const { removeFromRail } = useRailDms();
 
   const dimClass = (isActive: boolean) =>
@@ -1014,8 +1024,13 @@ const DmButton = memo(function DmButton({
       >
         <NotifLevelMenu
           label={intl.formatMessage(RAIL_MESSAGES.messageNotifications)}
-          level={dmLevel(pubkey)}
+          level={chosen.dmLevel(pubkey)}
           onChange={(lvl) => setNotifLevel(dmScopeKey(pubkey), lvl)}
+          mute={{
+            until: muteUntil(dmScopeKey(pubkey)),
+            onMute: (until) => setMute(dmScopeKey(pubkey), until),
+            onUnmute: () => unmute(dmScopeKey(pubkey)),
+          }}
         />
         {/* Only removes the rail icon; the conversation is untouched. */}
         <ContextMenuItem className="gap-2" onSelect={() => removeFromRail(pubkey)}>
@@ -1044,7 +1059,7 @@ const RecentDmButton = memo(function RecentDmButton({
   const intl = useIntl();
   const { user } = useCurrentUser();
   const { name } = useDmConversationName(item.peers, user?.pubkey);
-  const { dmLevel, setLevel: setNotifLevel } = useNotifLevels();
+  const { chosen, setLevel: setNotifLevel, muteUntil, setMute, unmute } = useNotifLevels();
 
   const onMenuOpenChange = useContext(RailMenuOpenContext);
   return (
@@ -1118,8 +1133,13 @@ const RecentDmButton = memo(function RecentDmButton({
       >
         <NotifLevelMenu
           label={intl.formatMessage(RAIL_MESSAGES.messageNotifications)}
-          level={dmLevel(item.key)}
+          level={chosen.dmLevel(item.key)}
           onChange={(level) => setNotifLevel(dmScopeKey(item.key), level)}
+          mute={{
+            until: muteUntil(dmScopeKey(item.key)),
+            onMute: (until) => setMute(dmScopeKey(item.key), until),
+            onUnmute: () => unmute(dmScopeKey(item.key)),
+          }}
         />
       </ContextMenuContent>
     </ContextMenu>

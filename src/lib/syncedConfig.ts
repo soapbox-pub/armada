@@ -7,6 +7,7 @@ import {
   type ClosedDmMarker,
 } from "@/contexts/AppContext";
 
+import { mergeNotificationsDoc, notifFields, type NotifFields } from "@/lib/notifRecords";
 import { railLayoutOf, type SettingsDocName } from "@/lib/settingsDocs";
 
 import type { RailLayoutNode } from "@/lib/railLayout";
@@ -35,11 +36,15 @@ export function configSnapshot(config: AppConfig, name: ConfigDocName): Record<s
   return out;
 }
 
-/** AppConfig fields to apply from an incoming document; `current` is used only for `dms`. */
+/**
+ * AppConfig fields to apply from an incoming document; `current` is used only for
+ * `dms` and `notifications`, `event` (the document's) only for `notifications`.
+ */
 export function docToConfigPatch(
   name: ConfigDocName,
   doc: Record<string, unknown>,
   current: AppConfig,
+  event?: { id: string; created_at: number },
 ): Partial<AppConfig> {
   const out: Record<string, unknown> = {};
   for (const key of CONFIG_KEYS_BY_DOC[name]) {
@@ -52,7 +57,26 @@ export function docToConfigPatch(
     if (layout !== undefined) out.railLayout = layout;
   }
   if (name === "dms") mergeDmMaps(out, current);
+  if (name === "notifications" && event) Object.assign(out, notificationsDocFields(doc, current, event).merged);
   return out as Partial<AppConfig>;
+}
+
+/**
+ * The notification fields after folding `doc` into `current` per scope, and the
+ * ones `doc` alone stands for. Only records already in AppConfig take part:
+ * legacy fields that predate them were last-writer-wins, as the document is.
+ */
+export function notificationsDocFields(
+  doc: Record<string, unknown>,
+  current: AppConfig,
+  event: { id: string; created_at: number },
+): { merged: NotifFields; remote: NotifFields } {
+  const { merged, remote } = mergeNotificationsDoc(
+    { levels: current.notifLevelRecords, mutes: current.notifMuteRecords },
+    doc as Partial<NotifFields>,
+    event,
+  );
+  return { merged: notifFields(merged), remote: notifFields(remote) };
 }
 
 /**

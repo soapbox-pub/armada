@@ -1,4 +1,4 @@
-import { Bell, BellOff, CalendarClock, Crown, DoorOpen, Headphones, IdCard, Loader2, LogOut, MessageSquareText, Phone, Pin, ScrollText, Search, Settings2, Shield, ShieldOff, Trash2, UserMinus, UserPlus } from "lucide-react";
+import { CalendarClock, Crown, DoorOpen, Headphones, IdCard, Loader2, LogOut, MessageSquareText, Phone, Pin, ScrollText, Search, Settings2, Shield, ShieldOff, Trash2, UserMinus, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -65,7 +65,8 @@ import { useMobileMembersOverlay } from "@/hooks/useMobileMembersOverlay";
 import { useRelayLivekitSupport } from "@/hooks/useLivekit";
 import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { useRelayInfo } from "@/hooks/useRelayInfo";
-import { channelMuteKey, useMutes } from "@/hooks/useMutes";
+import { channelMuteKey, communityMuteKey, useMutes } from "@/hooks/useMutes";
+import { MuteDropdownItem } from "@/components/MuteMenu";
 import { useNip29CalendarTransport } from "@/hooks/useCalendarEvents";
 import { usePinnedMessages } from "@/hooks/usePinnedMessages";
 import { useUpdateUserGroupList, useUserGroupList } from "@/hooks/useUserGroupList";
@@ -198,11 +199,11 @@ export function GroupPage() {
   const { removeUser, putUser, deleteGroup } = useGroupModeration(relayUrl ?? "", groupId ?? "");
   const { mutateAsync: updateList } = useUpdateUserGroupList();
   const { data: userGroupList } = useUserGroupList();
-  const { mutedChannels, isCommunityMuted, toggleChannelMute, toggleCommunityMute } = useMutes();
+  const { mutedUntil, mute, unmute } = useMutes();
   // Individual (not cascaded) mute states: the menu shows channel and server
   // mute side by side, each reflecting only its own scope.
-  const channelMuted = Boolean(relayUrl && groupId && mutedChannels.has(channelMuteKey(relayUrl, groupId)));
-  const serverMuted = Boolean(relayUrl && isCommunityMuted(relayUrl));
+  const channelKey = relayUrl && groupId ? channelMuteKey(relayUrl, groupId) : undefined;
+  const serverKey = relayUrl ? communityMuteKey(relayUrl) : undefined;
   const { activeCall, joinCall } = useCall();
   const isTouchDevice = useIsTouch();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -541,30 +542,22 @@ export function GroupPage() {
                     {user && <DropdownMenuSeparator />}
                   </>
                 )}
-                {user && (
+                {user && channelKey && serverKey && (
                   <>
-                    <DropdownMenuItem
-                     
-                      onClick={() => toggleChannelMute(relayUrl, groupId)}
-                    >
-                      {channelMuted ? <Bell className="size-4" /> : <BellOff className="size-4" />}
-                      {channelMuted ? (
-                        <FormattedMessage id="groupPage.unmuteChannel" defaultMessage="Unmute channel" />
-                      ) : (
-                        <FormattedMessage id="groupPage.muteChannel" defaultMessage="Mute channel" />
-                      )}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                     
-                      onClick={() => toggleCommunityMute(relayUrl)}
-                    >
-                      {serverMuted ? <Bell className="size-4" /> : <BellOff className="size-4" />}
-                      {serverMuted ? (
-                        <FormattedMessage id="groupPage.unmuteServer" defaultMessage="Unmute server" />
-                      ) : (
-                        <FormattedMessage id="groupPage.muteServer" defaultMessage="Mute server" />
-                      )}
-                    </DropdownMenuItem>
+                    <MuteDropdownItem
+                      until={mutedUntil(channelKey)}
+                      muteLabel={intl.formatMessage({ id: "groupPage.muteChannel", defaultMessage: "Mute channel" })}
+                      unmuteLabel={intl.formatMessage({ id: "groupPage.unmuteChannel", defaultMessage: "Unmute channel" })}
+                      onMute={(until) => mute(channelKey, until)}
+                      onUnmute={() => unmute(channelKey)}
+                    />
+                    <MuteDropdownItem
+                      until={mutedUntil(serverKey)}
+                      muteLabel={intl.formatMessage({ id: "groupPage.muteServer", defaultMessage: "Mute server" })}
+                      unmuteLabel={intl.formatMessage({ id: "groupPage.unmuteServer", defaultMessage: "Unmute server" })}
+                      onMute={(until) => mute(serverKey, until)}
+                      onUnmute={() => unmute(serverKey)}
+                    />
                   </>
                 )}
                 {user && (
