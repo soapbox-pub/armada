@@ -163,6 +163,10 @@ struct PushConfig {
     /// Exact canonical participant-set room keys; group membership never
     /// widens a level into unrelated one-to-one conversations.
     let dmLevels: [String: DmNotificationLevel]
+    /// Running timed mutes by room key (`dm:<conversation>`) → epoch seconds
+    /// they end. A DM in one is dropped until then, as one at `nothing` is, and
+    /// notifies again after with no app run in between.
+    let roomMutes: [String: Int]
     /// The viewer's own pubkey (hex) — to drop self-sent copies.
     let selfPubkey: String
     /// follows ∪ accepted ∪ pinned (hex) — the "known" senders.
@@ -190,6 +194,7 @@ struct PushConfig {
         policy: DmRequestLevel,
         directMessages: Bool = true,
         dmLevels: [String: DmNotificationLevel] = [:],
+        roomMutes: [String: Int] = [:],
         selfPubkey: String,
         knownPeers: Set<String>,
         knownConversations: Set<String> = [],
@@ -203,6 +208,7 @@ struct PushConfig {
         self.policy = policy
         self.directMessages = directMessages
         self.dmLevels = dmLevels
+        self.roomMutes = roomMutes
         self.selfPubkey = selfPubkey
         self.knownPeers = knownPeers
         self.knownConversations = knownConversations
@@ -229,6 +235,12 @@ struct PushConfig {
         for (key, raw) in (object["dmLevels"] as? [String: String]) ?? [:] {
             if let level = DmNotificationLevel(rawValue: raw) {
                 dmLevels[key] = level
+            }
+        }
+        var roomMutes = [String: Int]()
+        for (key, raw) in (object["roomMutes"] as? [String: Any]) ?? [:] {
+            if let until = (raw as? NSNumber).map({ Int($0.doubleValue) }), until > 0 {
+                roomMutes[key] = until
             }
         }
         let knownPeers = Set((object["knownPeers"] as? [String]) ?? [])
@@ -295,6 +307,7 @@ struct PushConfig {
             policy: policy,
             directMessages: directMessages,
             dmLevels: dmLevels,
+            roomMutes: roomMutes,
             selfPubkey: selfPubkey,
             knownPeers: knownPeers,
             knownConversations: knownConversations,

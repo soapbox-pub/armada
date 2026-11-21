@@ -73,6 +73,11 @@ export interface IosPushConfig {
   directMessages: boolean;
   /** Exact canonical NIP-17 conversation levels (group keys stay intact). */
   dmLevels?: Record<string, "all" | "mentions" | "nothing">;
+  /**
+   * Running timed mutes on DMs by room key (`dm:<conversation>`) → epoch seconds
+   * they end; the extension drops a DM until then, as it does one at `nothing`.
+   */
+  roomMutes?: Record<string, number>;
   self: string;
   knownPeers: string[];
   /** Exact authored/pinned NIP-17 conversation keys (groups stay exact). */

@@ -215,7 +215,10 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
     mutedPeers: dmMutedPeers,
     configurationReady: dmPeersConfigReady,
   } = useKnownDmPeers();
-  const { channelLevel, concordChannelLevel, levels } = useNotifLevels();
+  // The service judges timed mutes itself (`roomMutes`), so it stays subscribed through
+  // one and the mute lifts with the app closed.
+  const { standing, roomMutes } = useNotifLevels();
+  const { channelLevel, concordChannelLevel, levels } = standing;
   // Part of the deduped payload, so a language switch re-words the native side.
   const locale = languageOf(useIntl().locale);
 
@@ -516,6 +519,7 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
           concordSubs,
           concordLevels,
           dmLevels,
+          roomMutes,
           dmRequests: prefs.dmRequests,
           gitSubs,
           mediaPolicy,
@@ -531,7 +535,7 @@ export function useNativeNotifications(): UseNativeNotificationsReturn {
     configureNative(payload, nativeNeedsRepair).catch((err) => {
       console.warn("[native-notif] configure failed:", err);
     });
-  }, [supported, enablement, user, notificationSettingsReady, selfDocs, relayUrls, groupIds, groupSubs, mentionOnlyGroupIds, prefsRecord, concordSubs, concordLevels, concordSubsReady, concordLeftCommunities, dmRelays, dmRelaysReady, dmFollows, dmKnownPeers, dmKnownConversations, dmLevels, dmMutedPeers, dmPeersConfigReady, prefs.dmRequests, selfRelays, signerCfg, gitSubs, mediaPolicy, groupList, gitRepositories.length, gitAnnouncements.data, health, locale]);
+  }, [supported, enablement, user, notificationSettingsReady, selfDocs, relayUrls, groupIds, groupSubs, mentionOnlyGroupIds, prefsRecord, concordSubs, concordLevels, concordSubsReady, concordLeftCommunities, dmRelays, dmRelaysReady, dmFollows, dmKnownPeers, dmKnownConversations, dmLevels, roomMutes, dmMutedPeers, dmPeersConfigReady, prefs.dmRequests, selfRelays, signerCfg, gitSubs, mediaPolicy, groupList, gitRepositories.length, gitAnnouncements.data, health, locale]);
 
   // Auto-enable on launch only if intended AND already granted; never prompts here (LoginSetup
   // and Settings do).

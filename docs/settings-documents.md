@@ -395,10 +395,17 @@ back. They are never pruned; there is one per scope ever touched.
 - **Expiry is not a write.** A running mute reads as level `nothing`; once
   `until` passes it simply doesn't, on every device, by the corrected clock.
   `useMuteNow` keeps one timer for the soonest end so the levels re-resolve then.
-  Every delivery path takes the resolved levels, so it is reconfigured too — but
-  only while the WebView runs: the Android service, the service worker and the
-  push gateways are handed a muted scope as `nothing` and learn it ended when the
-  app next resolves the levels.
+  The background notifiers judge it themselves, so a mute lifts with the app
+  closed: they are configured with the `standing` levels (only mutes with no end
+  applied), so a timed-muted room stays subscribed, plus `roomMutes` — each
+  running timed mute by room key (`c2:<channel|community>`, `h:<relay>[|<group>]`,
+  `dm:<conversation>`) with its end — and stay silent for a room under its own or
+  its parent's until then: the Android service at `enqueueRoomMessage` (and the
+  DM ring), the service worker in `preparePush`, the iOS extension for DMs. iOS
+  can't hide a push it was handed (it shows "Messages synced"), so its gateway
+  subscriptions still leave a timed-muted channel out, and that resumes when the
+  app next resolves the levels; its DM inbox is watched either way, so DMs lift
+  on their own there too.
 - **The legacy fields are a projection**, written in lockstep for older builds,
   which read and write them wholesale: a chosen level, and a mute with no end as
   `nothing`. A TIMED mute is left out, since an older build would keep it

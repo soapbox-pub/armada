@@ -11,6 +11,9 @@ import {
   notifFields,
   projectLegacy,
   recordsOf,
+  roomMutedAt,
+  roomMuteKey,
+  roomMutes,
   type NotifRecords,
 } from "./notifRecords";
 
@@ -47,7 +50,7 @@ describe("merging two devices' records", () => {
   it("does not let a stale copy bring back a mute that was ended", () => {
     const stale: NotifRecords = { levels: {}, mutes: { [CH]: { until: MUTE_FOREVER, at: 10, op: "a" } } };
     const unmuted: NotifRecords = { levels: {}, mutes: { [CH]: { until: MUTE_OFF, at: 12, op: "b" } } };
-    expect(effectiveLevels(mergeNotifRecords(unmuted, stale), 0, true).has(CH)).toBe(false);
+    expect(effectiveLevels(mergeNotifRecords(unmuted, stale), 0, "all").has(CH)).toBe(false);
   });
 
   it("stamps a local edit after everything this device has seen", () => {
@@ -68,16 +71,55 @@ describe("mutes in force", () => {
   };
 
   it("read as nothing while they run, and give the chosen level back after", () => {
-    expect(effectiveLevels(records, 999, true).get(CH)).toBe("nothing");
-    expect(effectiveLevels(records, 1_000, true).get(CH)).toBe("mentions");
-    expect(effectiveLevels(records, 999, false).get(CH)).toBe("mentions");
-    expect(effectiveLevels(records, 10 ** 12, true).get(DM)).toBe("nothing");
-    expect(effectiveLevels(records, 0, true).has(COMMUNITY)).toBe(false);
+    expect(effectiveLevels(records, 999, "all").get(CH)).toBe("nothing");
+    expect(effectiveLevels(records, 1_000, "all").get(CH)).toBe("mentions");
+    expect(effectiveLevels(records, 999, "none").get(CH)).toBe("mentions");
+    expect(effectiveLevels(records, 10 ** 12, "all").get(DM)).toBe("nothing");
+    expect(effectiveLevels(records, 0, "all").has(COMMUNITY)).toBe(false);
   });
 
   it("arm one timer for the soonest end still ahead", () => {
     expect(nextMuteExpiry(records.mutes, 0)).toBe(1_000);
     expect(nextMuteExpiry(records.mutes, 1_000)).toBeUndefined();
+  });
+});
+
+describe("timed mutes a background notifier judges itself", () => {
+  const records: NotifRecords = {
+    levels: { [CH]: { v: "mentions", at: 1, op: "a" } },
+    mutes: {
+      [CH]: { until: 1_000, at: 2, op: "b" },
+      [COMMUNITY]: { until: 2_000, at: 2, op: "b" },
+      [DM]: { until: MUTE_FOREVER, at: 3, op: "c" },
+      "wss://relay.example": { until: 3_000, at: 4, op: "d" },
+      "wss://relay.example::grp": { until: 500, at: 4, op: "d" },
+    },
+  };
+
+  it("leave a timed-muted room at its chosen level, and a mute with no end at nothing", () => {
+    const standing = effectiveLevels(records, 0, "standing");
+    expect(standing.get(CH)).toBe("mentions");
+    expect(standing.has(COMMUNITY)).toBe(false);
+    expect(standing.get(DM)).toBe("nothing");
+  });
+
+  it("are named by the keys the notifiers use, with their ends, running ones only", () => {
+    expect(roomMuteKey(CH)).toBe("c2:bb");
+    expect(roomMuteKey(COMMUNITY)).toBe("c2:aa");
+    expect(roomMuteKey("wss://relay.example::grp")).toBe("h:wss://relay.example|grp");
+    expect(roomMuteKey(DM)).toBe(DM);
+    expect(roomMutes(records, 600)).toEqual({
+      "c2:bb": 1_000,
+      "c2:aa": 2_000,
+      "h:wss://relay.example": 3_000,
+    });
+  });
+
+  it("silence a channel under its own or its community's, until the later ends", () => {
+    const mutes = roomMutes(records, 0);
+    expect(roomMutedAt(mutes, ["c2:bb", "c2:aa"], 1_500)).toBe(true);
+    expect(roomMutedAt(mutes, ["c2:bb", "c2:aa"], 2_000)).toBe(false);
+    expect(roomMutedAt(undefined, ["c2:bb"], 0)).toBe(false);
   });
 });
 
@@ -102,7 +144,7 @@ describe("the legacy fields older builds read", () => {
       notifLevelRecords: {},
       notifMuteRecords: {},
     });
-    expect(effectiveLevels(local, 0, true)).toEqual(new Map([[COMMUNITY, "nothing"], [CH, "nothing"]]));
+    expect(effectiveLevels(local, 0, "all")).toEqual(new Map([[COMMUNITY, "nothing"], [CH, "nothing"]]));
     expect(local.levels[CH]!.at).toBe(0);
   });
 
@@ -127,13 +169,13 @@ describe("an incoming notifications document", () => {
       mutedChannels: [],
     };
     const { merged } = mergeNotificationsDoc(local, doc, event);
-    expect(effectiveLevels(merged, 0, true).has(CH)).toBe(false);
+    expect(effectiveLevels(merged, 0, "all").has(CH)).toBe(false);
   });
 
   it("from an older build does not undo a later choice of this device", () => {
     const local: NotifRecords = { levels: {}, mutes: { [CH]: { until: MUTE_FOREVER, at: 200_000, op: "x" } } };
     const { merged } = mergeNotificationsDoc(local, { notifLevels: {}, mutedChannels: [], mutedCommunities: [] }, event);
-    expect(effectiveLevels(merged, 0, true).get(CH)).toBe("nothing");
+    expect(effectiveLevels(merged, 0, "all").get(CH)).toBe("nothing");
   });
 
   it("missing a choice this device holds is reported, so it can be written back", () => {

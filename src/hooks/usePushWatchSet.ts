@@ -44,6 +44,8 @@ export interface PushWatchSet {
   dmMutedPeers: string[];
   /** Keyed by canonical NIP-17 conversation key; group keys are never widened per participant. */
   dmLevels: Record<string, NotifLevel>;
+  /** The timed mutes the device judges itself (see {@link TimedMutesOnDevice}), by room key. */
+  roomMutes: Record<string, number>;
   /** nsec logins ONLY; bunker/extension keys stay off-device. */
   dmSk?: string;
   /**
@@ -121,7 +123,16 @@ export function readyPlanePushSpecs(
   });
 }
 
-export function usePushWatchSet(prefs: PushPrefs): PushWatchSet {
+/**
+ * Which timed mutes the device judges itself (`roomMutes`), staying subscribed so
+ * the mute lifts with the app closed. The web worker can drop a push outright, so
+ * `all`; iOS cannot hide one it was handed, so only DMs, whose inbox it watches
+ * either way — a muted room's subscription would show "Messages synced" through
+ * the mute, so it is left out until the app sees the mute end.
+ */
+export type TimedMutesOnDevice = "all" | "dms";
+
+export function usePushWatchSet(prefs: PushPrefs, onDevice: TimedMutesOnDevice): PushWatchSet {
   const { user } = useCurrentUser();
   const { config } = useAppContext();
   const groupListQuery = useUserGroupList();
@@ -135,7 +146,16 @@ export function usePushWatchSet(prefs: PushPrefs): PushWatchSet {
     configurationReady: dmPeersConfigReady,
   } = useKnownDmPeers();
   const { logins } = useNostrLogin();
-  const { channelLevel, concordChannelLevel, levels } = useNotifLevels();
+  const notifLevels = useNotifLevels();
+  const { channelLevel, concordChannelLevel } = onDevice === "all" ? notifLevels.standing : notifLevels;
+  const levels = notifLevels.standing.levels;
+  const allRoomMutes = notifLevels.roomMutes;
+  const roomMutes = useMemo(
+    () => (onDevice === "all"
+      ? allRoomMutes
+      : Object.fromEntries(Object.entries(allRoomMutes).filter(([key]) => key.startsWith("dm:")))),
+    [allRoomMutes, onDevice],
+  );
   const {
     relays: publishedDmRelays,
     isReady: dmRelayListReady,
@@ -288,6 +308,7 @@ export function usePushWatchSet(prefs: PushPrefs): PushWatchSet {
     dmKnownConversationKeys,
     dmMutedPeers,
     dmLevels,
+    roomMutes,
     dmSk,
     dmBunker,
     dmPeersLoading,

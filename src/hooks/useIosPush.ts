@@ -159,6 +159,7 @@ export function useIosPush(): UsePushNotificationsReturn {
     dmKnownConversationKeys,
     dmMutedPeers,
     dmLevels,
+    roomMutes,
     dmSk,
     dmBunker,
     configReady,
@@ -167,7 +168,7 @@ export function useIosPush(): UsePushNotificationsReturn {
     dmPlaneReady,
     concordPlaneReady,
     watchSetReady,
-  } = usePushWatchSet(prefs);
+  } = usePushWatchSet(prefs, "dms");
   const mediaPolicy = useMediaPolicyConfig();
   // The extension has no catalog of the app's choice; a language switch rewrites its config.
   const locale = languageOf(useIntl().locale);
@@ -206,6 +207,7 @@ export function useIosPush(): UsePushNotificationsReturn {
         policy: prefs.dmRequests,
         directMessages: prefs.directMessages,
         dmLevels,
+        roomMutes,
         self: user.pubkey,
         knownPeers: dmKnownPeers,
         knownConversations: [
@@ -267,6 +269,7 @@ export function useIosPush(): UsePushNotificationsReturn {
     dmKnownConversationKeys,
     dmMutedPeers,
     dmLevels,
+    roomMutes,
     dmSk,
     dmBunker,
     concord,

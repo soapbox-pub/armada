@@ -81,6 +81,12 @@ export interface SwPushConfig {
   directMessages?: boolean;
   /** Explicit per-conversation notification levels, keyed by canonical DM key. */
   dmLevels?: Record<string, "all" | "mentions" | "nothing">;
+  /**
+   * Running timed mutes by room key (`roomMuteKey`) → epoch seconds they end. Their
+   * rooms stay subscribed and are dropped here until then, so a mute lifts while
+   * no page is open.
+   */
+  roomMutes?: Record<string, number>;
   /** Whether the DM plane was authoritative; explicit `false` suppresses it, omission = legacy ready. */
   dmReady?: boolean;
   /** Same as `dmReady`, for the Concord stream set. */

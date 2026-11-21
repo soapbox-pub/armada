@@ -377,6 +377,22 @@ describe("openConcord", () => {
     expect(prepared?.line).toBe("New message");
   });
 
+  it("keeps a wrap silent while its channel or community is under a timed mute", async () => {
+    const until = Math.floor(Date.now() / 1000) + 600;
+    for (const key of [`c2:${CHANNEL}`, `c2:${stream.communityId}`]) {
+      const prepared = await preparePush(
+        { scope: "c2", event: unopenable() },
+        { ...cfg(), roomMutes: { [key]: until } },
+      );
+      expect(prepared?.drop).toBe(true);
+    }
+    const lapsed = await preparePush(
+      { scope: "c2", event: unopenable() },
+      { ...cfg(), roomMutes: { [`c2:${CHANNEL}`]: until - 1200 } },
+    );
+    expect(lapsed?.drop).not.toBe(true);
+  });
+
   it("keeps an unopenable wrap silent in a mentions-only channel", async () => {
     const prepared = await preparePush(
       { scope: "c2", event: unopenable() },
@@ -426,6 +442,29 @@ describe("preparePush — relay-scoped NIP-29 identity", () => {
     }, null);
 
     expect(prepared?.url).toBe(`/s/relay-a.example/general/t/${root}/m/${event.id}`);
+  });
+
+  it("drops a group message while its group or server is under a timed mute", async () => {
+    const until = Math.floor(Date.now() / 1000) + 600;
+    const event = finalizeEvent({
+      kind: 9,
+      content: "hello",
+      tags: [["h", "general"]],
+      created_at: now(),
+    }, generateSecretKey());
+    const base = { policy: "generic" as const, self: "f".repeat(64), knownPeers: [] };
+    for (const key of ["h:wss://relay-a.example|general", "h:wss://relay-a.example"]) {
+      const prepared = await preparePush(
+        { scope: "group", relays: ["wss://relay-a.example/"], event },
+        { ...base, roomMutes: { [key]: until } },
+      );
+      expect(prepared?.drop).toBe(true);
+    }
+    const other = await preparePush(
+      { scope: "group", relays: ["wss://relay-a.example"], event },
+      { ...base, roomMutes: { "h:wss://relay-b.example": until } },
+    );
+    expect(other?.drop).not.toBe(true);
   });
 });
 
@@ -496,6 +535,23 @@ describe("preparePush — DM request gating", () => {
       dmLevels: { [senderPk]: "nothing" },
     }));
     expect(p?.drop).toBe(true);
+  });
+
+  it("drops a DM under a running timed mute and shows it once the mute has ended", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const muted = await push(dmWrap(), cfg({
+      policy: "full",
+      knownPeers: [senderPk],
+      roomMutes: { [`dm:${senderPk}`]: now + 600 },
+    }));
+    expect(muted?.drop).toBe(true);
+    const lapsed = await push(dmWrap(), cfg({
+      policy: "full",
+      knownPeers: [senderPk],
+      roomMutes: { [`dm:${senderPk}`]: now - 1 },
+    }));
+    expect(lapsed?.drop).not.toBe(true);
+    expect(lapsed?.line).toContain("meet at 8");
   });
 
   it("uses the global DM fallback when the conversation has no explicit level", async () => {

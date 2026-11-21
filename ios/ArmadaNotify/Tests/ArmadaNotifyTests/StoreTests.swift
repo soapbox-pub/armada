@@ -776,6 +776,20 @@ final class SenderIdentityTests: XCTestCase {
         )
     }
 
+    func testATimedDmMuteSilencesItsConversationUntilItEnds() {
+        let parsed = PushConfig.parse(json: """
+        {"policy":"generic","self":"\(self_)","knownPeers":[],
+         "roomMutes":{"dm:\(peer)":1000,"dm:bad":"x"}}
+        """)!
+        XCTAssertEqual(parsed.roomMutes, ["dm:\(peer)": 1000])
+        XCTAssertTrue(PushProcessor.isTimedMutedDm(peers: [peer], config: parsed, now: 999))
+        XCTAssertFalse(PushProcessor.isTimedMutedDm(peers: [peer], config: parsed, now: 1000))
+        XCTAssertFalse(
+            PushProcessor.isTimedMutedDm(peers: [peer, String(repeating: "c", count: 64)], config: parsed, now: 0),
+            "a one-to-one mute must not silence a group the peer is in"
+        )
+    }
+
     func testANip29MessageNamesItsSender() {
         let processor = PushProcessor(store: nil, config: config(), now: 1_700_000_000)
         let bob = vectorString("bobPk")

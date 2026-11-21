@@ -489,6 +489,10 @@ public class NotificationRelayService extends Service {
     // equivalent to `all` for DMs because every message is directed at the
     // recipient. An absent key inherits prefs.directMessages.
     private final Map<String, String> dmLevels = new HashMap<>();
+    // Running timed mutes: room key (`c2:<channel|community>`, `h:<relay>[|<group>]`,
+    // `dm:<conversation>`) -> epoch seconds the mute ends. The levels leave these
+    // rooms subscribed, so the mute lifts on its own with the app closed.
+    private final Map<String, Long> roomMutes = new HashMap<>();
     // A muted participant suppresses their entire NIP-17 conversation, matching
     // the WebView's list semantics (including when another group member spoke).
     private final Set<String> dmMutedPeers = new LinkedHashSet<>();
@@ -1914,6 +1918,8 @@ public class NotificationRelayService extends Service {
         dmKnownConversations.clear();
         dmKnownConversations.addAll(parseStringArray(sp.getString("dmKnownConversations", null)));
         parseDmLevels(sp.getString("dmLevels", null));
+        roomMutes.clear();
+        roomMutes.putAll(parseRoomMutes(sp.getString("roomMutes", null)));
         dmMutedPeers.clear();
         dmMutedPeers.addAll(parseStringArray(sp.getString("dmMutedPeers", null)));
         dmRequests = sp.getString("dmRequests", "generic");
@@ -2098,6 +2104,56 @@ public class NotificationRelayService extends Service {
         } catch (JSONException e) {
             recordHealthError("dm_levels_config");
         }
+    }
+
+    /** Timed mutes by room key; an entry that isn't a positive number is dropped. */
+    static Map<String, Long> parseRoomMutes(String raw) {
+        Map<String, Long> out = new HashMap<>();
+        if (raw == null) return out;
+        try {
+            JSONObject mutes = new JSONObject(raw);
+            java.util.Iterator<String> keys = mutes.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                long until = mutes.optLong(key, 0);
+                if (until > 0) out.put(key, until);
+            }
+        } catch (JSONException ignored) {
+            // No timed mutes rather than a guess: their rooms notify, as before one was set.
+        }
+        return out;
+    }
+
+    /**
+     * Whether a room is under a running timed mute, its own or its parent's:
+     * a Concord channel's community ({@code communityId}, when known) or a
+     * NIP-29 group's relay. Mirrors {@code roomMutedAt} in `notifRecords.ts`.
+     */
+    static boolean roomMuted(Map<String, Long> mutes, String roomKey, String communityId, long nowSecs) {
+        if (roomKey == null || mutes.isEmpty()) return false;
+        if (mutedAt(mutes, roomKey, nowSecs)) return true;
+        if (roomKey.startsWith("c2:") && communityId != null) {
+            return mutedAt(mutes, "c2:" + communityId.toLowerCase(java.util.Locale.ROOT), nowSecs);
+        }
+        if (roomKey.startsWith("h:")) {
+            int bar = roomKey.indexOf('|');
+            return bar > 0 && mutedAt(mutes, roomKey.substring(0, bar), nowSecs);
+        }
+        return false;
+    }
+
+    private static boolean mutedAt(Map<String, Long> mutes, String key, long nowSecs) {
+        Long until = mutes.get(key);
+        return until != null && until > nowSecs;
+    }
+
+    private boolean roomMutedNow(String roomKey) {
+        String communityId = null;
+        if (roomKey != null && roomKey.startsWith("c2:")) {
+            ConcordStream stream = streamForChannel(roomKey.substring(3));
+            if (stream != null) communityId = stream.communityId;
+        }
+        return roomMuted(roomMutes, roomKey, communityId, System.currentTimeMillis() / 1000L);
     }
 
     /**
@@ -2853,7 +2909,8 @@ public class NotificationRelayService extends Service {
                 if (dmWatchRelays.contains(relayUrl) && !dmFollows.isEmpty()) {
                     JSONArray dmAuthors = new JSONArray();
                     for (String pk : dmFollows) {
-                        if (dmNotificationEnabled(pk)) dmAuthors.put(pk);
+                        // The level only: a timed mute keeps its peer subscribed (roomMutes).
+                        if (dmNotificationEnabled(pk, prefs, dmLevels)) dmAuthors.put(pk);
                     }
                     // Exact `nothing` entries are omitted at the relay filter;
                     // global-off peers with an exact `all`/`mentions` override
@@ -6131,7 +6188,7 @@ public class NotificationRelayService extends Service {
                 // {kinds:[4], authors:dmFollows, "#p":[me]} on the DM relays.
                 return dmRelays.contains(relayUrl)
                         && dmFollows.contains(event.optString("pubkey"))
-                        && dmNotificationEnabled(event.optString("pubkey"))
+                        && dmNotificationEnabled(event.optString("pubkey"), prefs, dmLevels)
                         && pTags(event).contains(userPubkey);
             case 1059: {
                 // Two filters carry kind 1059: the Concord wrap sub is
@@ -6211,6 +6268,7 @@ public class NotificationRelayService extends Service {
 
     /** Exact DM level first, then the account-global directMessages fallback. */
     private boolean dmNotificationEnabled(String conversationKey) {
+        if (conversationKey != null && roomMutedNow("dm:" + conversationKey)) return false;
         return dmNotificationEnabled(conversationKey, prefs, dmLevels);
     }
 
@@ -6283,6 +6341,8 @@ public class NotificationRelayService extends Service {
         if (!mention && roomKey != null && freshActiveRoomKeys().contains(roomKey)) {
             return;
         }
+        // A timed mute reads as level `nothing`: a mention doesn't break through either.
+        if (roomMutedNow(roomKey)) return;
         if (alertPolicy.holding(SystemClock.elapsedRealtime())) {
             if (heldMessages.size() >= MAX_HELD_MESSAGES) heldMessages.remove(0);
             heldMessages.add(new HeldMessage(community, roomKey, roomTitle, url, senderPubkey,

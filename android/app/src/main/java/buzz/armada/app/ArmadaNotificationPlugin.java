@@ -816,6 +816,15 @@ public class ArmadaNotificationPlugin extends Plugin {
         } catch (Exception e) {
             Log.w(TAG, "Failed to read DM notification levels", e);
         }
+        // Running timed mutes by room key; the subscriptions above stay through one.
+        String roomMutesRaw = null;
+        try {
+            if (call.getObject("roomMutes") != null) {
+                roomMutesRaw = call.getObject("roomMutes").toString();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to read room mutes", e);
+        }
         String dmMutedPeersRaw = arrayToString(call.getArray("dmMutedPeers"));
         String dmRequestsRaw = call.getString("dmRequests");
         // Where the service may fetch an avatar from (see MediaPolicy). Stored
@@ -985,6 +994,7 @@ public class ArmadaNotificationPlugin extends Plugin {
             // fresh account) before that authority exists.
             if (policyPlaneReady) {
                 putOrRemove(editor, "dmLevels", dmLevelsRaw);
+                putOrRemove(editor, "roomMutes", roomMutesRaw);
                 putOrRemove(editor, "dmRequests", dmRequestsRaw);
                 putOrRemove(editor, "prefs", prefsRaw);
                 putOrRemove(editor, "mediaPolicy", mediaPolicyRaw);

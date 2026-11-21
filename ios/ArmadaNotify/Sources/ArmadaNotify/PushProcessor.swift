@@ -256,6 +256,11 @@ struct PushProcessor {
         return config.dmLevels[key] ?? (config.directMessages ? .all : .nothing)
     }
 
+    /// Whether the conversation is under a running timed mute (`roomMutes`).
+    static func isTimedMutedDm(peers: [String], config: PushConfig, now: Int) -> Bool {
+        (config.roomMutes["dm:\(dmConversationKey(peers: peers))"] ?? 0) > now
+    }
+
     /// The `/dm/<peers>` route a tap on this notification opens.
     ///
     /// Participants are NPUBS, not the hex the conversation key is made of —
@@ -308,7 +313,8 @@ struct PushProcessor {
         // global switch OR one exact room is enabled. Enforce the actual
         // fallback after decrypt so that broad subscription cannot wake an
         // unrelated room. For a DM, `mentions` is equivalent to `all`.
-        if Self.dmNotificationLevel(peers: opened.peers, config: config) == .nothing {
+        if Self.dmNotificationLevel(peers: opened.peers, config: config) == .nothing
+            || Self.isTimedMutedDm(peers: opened.peers, config: config, now: now) {
             return dropped
         }
 

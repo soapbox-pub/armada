@@ -195,6 +195,13 @@ export interface ArmadaNotificationPlugin {
     /** Exact NIP-17 conversation keys pinned/authored; a group key trusts only that participant set. */
     dmKnownConversations?: string[];
     dmLevels?: Record<string, "all" | "mentions" | "nothing">;
+    /**
+     * Running timed mutes by room key (`roomMuteKey`: `c2:<channel|community>`,
+     * `h:<relay>[|<group>]`, `dm:<conversation>`) → epoch seconds they end. The
+     * levels above leave those rooms subscribed; the service stays silent for them
+     * until then. Gated on `policyPlaneReady`.
+     */
+    roomMutes?: Record<string, number>;
     /** Muted pubkeys; a NIP-17 notification is suppressed if any participant is muted. */
     dmMutedPeers?: string[];
     /** Unknown-conversation mode: `"off"`, `"generic"` (default), or `"full"`. */

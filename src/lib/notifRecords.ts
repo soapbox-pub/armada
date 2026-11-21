@@ -158,22 +158,69 @@ export function reconcileLegacy(
   return { levels: mergeRecordMaps(levels), mutes: mergeRecordMaps(mutes) };
 }
 
-/** Levels as they apply now: an explicit level, overridden by a running mute when `withMutes`. */
+/**
+ * Levels as they apply now: an explicit level, overridden by the running mutes
+ * `mutes` names. `standing` counts only mutes with no end — what a background
+ * notifier that judges timed mutes itself (`roomMutes`) is configured with.
+ */
 export function effectiveLevels(
   records: NotifRecords,
   nowSecs: number,
-  withMutes: boolean,
+  mutes: "all" | "standing" | "none",
 ): Map<string, NotifLevel> {
   const map = new Map<string, NotifLevel>();
   for (const [scope, record] of Object.entries(records.levels)) {
     if (record.v) map.set(scope, record.v);
   }
-  if (withMutes) {
+  if (mutes !== "none") {
     for (const [scope, mute] of Object.entries(records.mutes)) {
-      if (isMuteActive(mute, nowSecs)) map.set(scope, "nothing");
+      if (mutes === "standing" ? mute.until === MUTE_FOREVER : isMuteActive(mute, nowSecs)) {
+        map.set(scope, "nothing");
+      }
     }
   }
   return map;
+}
+
+/**
+ * A scope key as the background notifiers name rooms: `c2:<channel>` and
+ * `c2:<community>`, `h:<relay>|<group>` and `h:<relay>`, `dm:<conversation>`.
+ */
+export function roomMuteKey(scope: string): string {
+  if (scope.startsWith("dm:")) return scope;
+  if (scope.startsWith("c2:")) {
+    const [community, channel] = scope.slice(3).split("::");
+    return `c2:${(channel ?? community)!.toLowerCase()}`;
+  }
+  const [relay, group] = scope.split("::");
+  return group === undefined ? `h:${relay}` : `h:${relay}|${group}`;
+}
+
+/**
+ * The running TIMED mutes, by background room key, with when each ends: a
+ * notifier holding these stays subscribed and stays silent until then, so the
+ * mute lifts with the app closed. A room under both its own and its parent's
+ * mute is muted until the later of the two, which the notifier works out by
+ * checking both keys.
+ */
+export function roomMutes(records: NotifRecords, nowSecs: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const scope of Object.keys(records.mutes).sort()) {
+    const { until } = records.mutes[scope]!;
+    if (until === MUTE_FOREVER || until <= nowSecs) continue;
+    const key = roomMuteKey(scope);
+    out[key] = Math.max(out[key] ?? 0, until);
+  }
+  return out;
+}
+
+/** Whether any of `keys` is under a timed mute in `mutes` at `nowSecs`. */
+export function roomMutedAt(
+  mutes: Readonly<Record<string, number>> | undefined,
+  keys: readonly string[],
+  nowSecs: number,
+): boolean {
+  return !!mutes && keys.some((key) => (mutes[key] ?? 0) > nowSecs);
 }
 
 /** The notification fields as AppConfig and the `notifications` document carry them. */

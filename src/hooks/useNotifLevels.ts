@@ -11,6 +11,7 @@ import {
   nextStamp,
   notifFields,
   recordsOf,
+  roomMutes,
   type NotifLevel,
   type NotifRecords,
 } from "@/lib/notifRecords";
@@ -87,6 +88,14 @@ export interface UseNotifLevelsReturn extends NotifLevelResolvers {
   levels: Record<string, NotifLevel>;
   /** The levels chosen, ignoring mutes: what a level menu ticks. */
   chosen: NotifLevelResolvers;
+  /**
+   * The levels with only mutes that have no end applied, for a background
+   * notifier handed {@link roomMutes}: it stays subscribed through a timed mute
+   * and judges its end itself, so the mute lifts while the app is closed.
+   */
+  standing: NotifLevelResolvers & { levels: Record<string, NotifLevel> };
+  /** The running timed mutes by background room key (`roomMuteKey`), with their ends. */
+  roomMutes: Record<string, number>;
   /** The scope's own running mute: epoch seconds, or `MUTE_FOREVER`; undefined when not muted. */
   muteUntil: (scopeKey: string) => number | undefined;
   /** Mute until `until` (epoch seconds, or `MUTE_FOREVER`). */
@@ -155,11 +164,17 @@ export function useNotifLevels(): UseNotifLevelsReturn {
     [notifLevelRecords, notifMuteRecords, notifLevels, mutedCommunities, mutedChannels],
   );
   const now = useMuteNow(records.mutes);
-  const effective = useMemo(() => effectiveLevels(records, now, true), [records, now]);
-  const chosenMap = useMemo(() => effectiveLevels(records, now, false), [records, now]);
+  const effective = useMemo(() => effectiveLevels(records, now, "all"), [records, now]);
+  const chosenMap = useMemo(() => effectiveLevels(records, now, "none"), [records, now]);
+  const standingMap = useMemo(() => effectiveLevels(records, now, "standing"), [records, now]);
   const levels = useMemo(() => Object.fromEntries(effective), [effective]);
   const resolved = useMemo(() => resolvers(effective, pushPrefs), [effective, pushPrefs]);
   const chosen = useMemo(() => resolvers(chosenMap, pushPrefs), [chosenMap, pushPrefs]);
+  const standing = useMemo(
+    () => ({ ...resolvers(standingMap, pushPrefs), levels: Object.fromEntries(standingMap) }),
+    [standingMap, pushPrefs],
+  );
+  const timedRoomMutes = useMemo(() => roomMutes(records, now), [records, now]);
 
   const getLevel = useCallback((scopeKey: string) => effective.get(scopeKey), [effective]);
 
@@ -205,8 +220,10 @@ export function useNotifLevels(): UseNotifLevelsReturn {
     setLevel,
     levels,
     chosen,
+    standing,
+    roomMutes: timedRoomMutes,
     muteUntil,
     setMute,
     unmute,
-  }), [resolved, getLevel, setLevel, levels, chosen, muteUntil, setMute, unmute]);
+  }), [resolved, getLevel, setLevel, levels, chosen, standing, timedRoomMutes, muteUntil, setMute, unmute]);
 }

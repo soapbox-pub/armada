@@ -51,6 +51,8 @@ import {
   type NotificationMessage,
 } from "@/lib/notificationPreview";
 import { concordRoomIdentity, nip29RoomIdentity } from "@/lib/notificationRoom";
+import { roomMutedAt } from "@/lib/notifRecords";
+import { normalizeRelayUrl } from "@/lib/platform";
 import { openSealedConfig } from "@/lib/swSecretVault";
 import { fetchProfiles } from "@/sw/profileFetch";
 
@@ -429,6 +431,7 @@ async function prepareDm(
   // conversation); both `all` and `mentions` admit DMs.
   const dmLevel = cfg.dmLevels?.[conversation];
   if (dmLevel === "nothing" || (!dmLevel && cfg.directMessages === false)) return DROP;
+  if (roomMutedAt(cfg.roomMutes, [roomKey], nowSecs())) return DROP;
 
   // Non-message rumors still need something shown on iOS: the request ping.
   if (opened.kind !== KIND_DM_CHAT && opened.kind !== KIND_DM_FILE) {
@@ -477,6 +480,7 @@ async function prepareConcord(
   if (result === "malformed") return DROP;
   if (!result) {
     const addressed = streams.find((s) => s.pk === wrap.pubkey);
+    if (addressed && concordRoomMuted(addressed, cfg)) return DROP;
     return addressed ? opaqueConcord(addressed, policyOf(cfg)) : undefined;
   }
   const { opened, stream } = result;
@@ -491,7 +495,8 @@ async function prepareConcord(
   if (cfg?.self && opened.author === cfg.self) return DROP;
 
   // Muted (level `nothing`): stored, never announced — silences a lingering gateway sub.
-  if (stream.muted) return DROP;
+  // A timed mute leaves the sub in place and is silenced here until it ends.
+  if (stream.muted || concordRoomMuted(stream, cfg)) return DROP;
 
   // Banned (CORD-04): stored, never announced.
   if (stream.banned?.includes(opened.author)) return DROP;
@@ -563,6 +568,19 @@ async function prepareConcord(
   );
 }
 
+function concordRoomMuted(stream: SwConcordStream, cfg: SwPushConfig | null): boolean {
+  const nowMs = Date.now() + (stream.clockOffsetMs ?? 0);
+  return roomMutedAt(
+    cfg?.roomMutes,
+    [`c2:${stream.channelId.toLowerCase()}`, `c2:${stream.communityId.toLowerCase()}`],
+    Math.floor(nowMs / 1000),
+  );
+}
+
+function nowSecs(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
 /**
  * A wrap from one of our streams that would not open (an epoch whose key we
  * lack, a splice). Nothing inside is known, but the room is, as on native.
@@ -600,6 +618,11 @@ async function prepareGroup(
   const groupId = uniqueTag(ev.tags, "h");
   if (!groupId || typeof ev.content !== "string") return undefined;
   if (cfg?.self && ev.pubkey === cfg.self) return DROP; // our own, from another device
+  const muteKeys = relays.flatMap((relay) => {
+    const normalized = normalizeRelayUrl(relay) ?? relay;
+    return [`h:${normalized}|${groupId}`, `h:${normalized}`];
+  });
+  if (roomMutedAt(cfg?.roomMutes, muteKeys, nowSecs())) return DROP;
 
   // Name the room only if exactly ONE relay tenant knows this group id.
   const identities = await Promise.all(

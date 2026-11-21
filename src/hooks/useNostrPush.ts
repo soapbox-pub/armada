@@ -335,6 +335,7 @@ export function useNostrPush(): UsePushNotificationsReturn {
     dmKnownConversationKeys,
     dmMutedPeers,
     dmLevels,
+    roomMutes,
     dmSk,
     notificationSettingsReady,
     dmConfigReady,
@@ -343,7 +344,7 @@ export function useNostrPush(): UsePushNotificationsReturn {
     dmPlaneReady,
     concordPlaneReady,
     watchSetReady,
-  } = usePushWatchSet(prefs);
+  } = usePushWatchSet(prefs, "all");
   const mediaPolicy = useMediaPolicyConfig();
   const { locale } = useIntl();
   const profileRelaysKey = generalReadRelays(config, user?.pubkey).join(",");
@@ -406,6 +407,7 @@ export function useNostrPush(): UsePushNotificationsReturn {
         dmReady: dmConfigReady,
         directMessages: prefs.directMessages,
         dmLevels,
+        roomMutes,
         concordReady: concordConfigReady,
         concord: concord.flatMap((sub) =>
           sub.streams.map((s) => ({
@@ -448,6 +450,7 @@ export function useNostrPush(): UsePushNotificationsReturn {
     dmMutedPeers,
     dmConfigReady,
     dmLevels,
+    roomMutes,
     concord,
     concordConfigReady,
     dmSk,
