@@ -154,6 +154,7 @@ export function useFrameCss(id: AvatarFrameId | undefined, rim = false): CSSProp
   return hidden || !shown ? undefined : frameCss(id, rim);
 }
 
+/** Whether {@link useFrameCss} draws this profile's frame, so a caller can drop a ring the frame replaces. */
 export function useWearsFrame(metadata: { [key: string]: unknown } | undefined): boolean {
   return !!useFrameCss(useUltra(metadata)?.frame);
 }

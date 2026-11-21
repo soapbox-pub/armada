@@ -105,6 +105,6 @@ function UserAvatarView({
     </Avatar>
   );
   if (!wrapped) return avatar;
-  const filter = frameStyle?.filter ?? (speaking ? shapedAvatarSpeakingStyle.filter : undefined);
-  return <span className={cn("flex h-10 w-10 shrink-0", layout)} style={filter ? { filter } : undefined}>{avatar}</span>;
+  const style = frameStyle ?? (speaking ? shapedAvatarSpeakingStyle : undefined);
+  return <span className={cn("flex h-10 w-10 shrink-0", layout)} style={style}>{avatar}</span>;
 }
