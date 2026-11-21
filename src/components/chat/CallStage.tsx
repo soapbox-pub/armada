@@ -72,10 +72,8 @@ import { useVoiceIdentity } from "@/contexts/VoiceIdentityContext";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { playScreenShareEndSound, playScreenShareSound } from "@/lib/callSounds";
 import { pickVisible, type CallActivity } from "@/lib/callRanking";
-import {
-  getAvatarShape,
-  shapedAvatarSpeakingStyle,
-} from "@/lib/avatarShape";
+import { getAvatarShape } from "@/lib/avatarShape";
+import { useWearsFrame } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
 import { isHevcScreenShareParticipant } from "@/lib/hevcScreenShare";
@@ -1046,16 +1044,13 @@ function AvatarTile({
   const { pubkey, displayName, verified, metadata, imeta } = useTileDisplayName(participant);
   const shape = getAvatarShape(metadata);
   const hasCustomShape = !!shape;
+  const wearsFrame = useWearsFrame(metadata);
   const isLocal = participant.isLocal;
   const muted = !participant.isMicrophoneEnabled;
   const { streamingPubkeys } = useVoiceActivity();
   const streaming = verified && streamingPubkeys.has(pubkey);
   const { watch } = useScreenShareWatch();
   useApplyPlaybackVolumes(participant, pubkey);
-
-  // Emoji-shaped avatars get a silhouette drop-shadow (a box ring would clip).
-  const ringStyle: CSSProperties | undefined =
-    hasCustomShape && isSpeaking ? { filter: shapedAvatarSpeakingStyle.filter } : undefined;
 
   const nameplate = (
     <>
@@ -1079,15 +1074,15 @@ function AvatarTile({
       <div
         className={cn(
           "relative rounded-full transition-shadow",
-          !hasCustomShape && isSpeaking && "ring-2 ring-success shadow-[0_0_0_4px_hsl(var(--success)/0.35)]",
+          !hasCustomShape && !wearsFrame && isSpeaking && "ring-2 ring-success shadow-[0_0_0_4px_hsl(var(--success)/0.35)]",
         )}
-        style={ringStyle}
       >
         <UserAvatar
           pubkey={pubkey}
           metadata={metadata}
           imeta={imeta?.picture}
           name={displayName}
+          speaking={isSpeaking}
           className={large ? "size-28" : "size-16"}
           fallbackClassName="text-xl"
           // The speaking filter would trace the frame's glow as well as the shape.
@@ -1335,6 +1330,7 @@ function HeroAvatarView({
 }) {
   const shape = getAvatarShape(metadata);
   const hasCustomShape = !!shape;
+  const wearsFrame = useWearsFrame(metadata);
   const s = HERO_SIZES[size];
   const intl = useIntl();
   return (
@@ -1344,16 +1340,15 @@ function HeroAvatarView({
           className={cn(
             "rounded-full transition-[box-shadow,transform] duration-100",
             speaking && "scale-105",
-            !hasCustomShape && speaking &&
+            !hasCustomShape && !wearsFrame && speaking &&
               "ring-[3px] ring-success shadow-[0_0_28px_6px_hsl(var(--success)/0.45)]",
           )}
-          // A mask clips box rings, so a custom shape glows as a silhouette.
-          style={hasCustomShape && speaking ? { filter: shapedAvatarSpeakingStyle.filter } : undefined}
         >
           <UserAvatar
             pubkey={pubkey}
             metadata={metadata}
             name={name}
+            speaking={speaking}
             className={cn("shadow-xl", s.avatar, pending && "opacity-80")}
             fallbackClassName={s.initial}
             frame={!(hasCustomShape && speaking)}
