@@ -910,18 +910,34 @@ export function bridgedTransports(fold: VoicePresenceFold): Set<string> {
   return new Set(fold.present.flatMap((p) => (p.bridge ? [p.bridge] : [])));
 }
 
-/** How a roster row is in the call beyond the SFU (CORD-07 §4 Transports). */
-export type VoiceRowTransport = "other" | "bridged" | "both" | "bridge" | "linked";
+/**
+ * How a member is connected to the call, as their roster row and tile show it (CORD-07 §4
+ * Transports). LiveKit wins: a member on the SFU reads `sfu` (or `bridge`, relaying another
+ * transport into it) whatever else they announce. Off it, peer to peer alone: `linked` to this
+ * client, heard here through a bridge (`bridged`), or out of reach (`other`).
+ */
+export type VoiceRowTransport = "sfu" | "bridge" | "linked" | "bridged" | "other";
+
+/** The connection a marker shows: the LiveKit server, or peer to peer. */
+export function connectionOf(transport: VoiceRowTransport): "sfu" | "p2p" {
+  return transport === "sfu" || transport === "bridge" ? "sfu" : "p2p";
+}
 
 /**
- * Per author, the transport marker their roster row carries; members on the SFU alone have none.
- * `linked`: the members on peer to peer alone this client holds a link with, heard here.
+ * Per author, the marker their roster row carries. `linked`: the members on peer to peer alone
+ * this client holds a link with. `onSfu`: who the live LiveKit room holds, for a participant
+ * whose presence hasn't arrived yet.
  */
-export function voiceRowTransports(fold: VoicePresenceFold, linked: ReadonlySet<string> = new Set()): Map<string, VoiceRowTransport> {
+export function voiceRowTransports(
+  fold: VoicePresenceFold,
+  linked: ReadonlySet<string> = new Set(),
+  onSfu: Iterable<string> = [],
+): Map<string, VoiceRowTransport> {
   const bridged = bridgedTransports(fold);
   const out = new Map<string, VoiceRowTransport>();
   for (const p of fold.otherTransport) out.set(p.author, linked.has(p.author) ? "linked" : bridged.has(p.transport) ? "bridged" : "other");
-  for (const p of fold.present) if (p.alsoOn) out.set(p.author, p.bridge ? "bridge" : "both");
+  for (const p of fold.present) out.set(p.author, p.alsoOn && p.bridge ? "bridge" : "sfu");
+  for (const author of onSfu) if (!out.has(author)) out.set(author, "sfu");
   return out;
 }
 

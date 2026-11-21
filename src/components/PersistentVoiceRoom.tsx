@@ -1218,6 +1218,7 @@ function ConcordVoiceRoom({
   });
   const p2pView = useMemo<P2pCallView>(
     () => ({
+      connections: true,
       peers: iroh.peers,
       ...(sfuFailed && me
         ? { self: { pubkey: me, speaking: iroh.selfSpeaking, muted: p2pMuted, ...ownVideo.sources } }

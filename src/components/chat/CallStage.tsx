@@ -52,7 +52,7 @@ import { ParticipantRecordingFlags, RecordingIndicator } from "@/components/chat
 import { RecordingFlagIcons } from "@/components/RecordingFlagIcons";
 import { VoiceRejoiningContext } from "@/contexts/VoiceRejoiningContext";
 import { streamOwnerKey, useScreenShareWatch } from "@/contexts/ScreenShareWatchContext";
-import { LiveBadge } from "@/components/VoicePresence";
+import { ConnectionIcon, LiveBadge } from "@/components/VoicePresence";
 import { useAndroidBack } from "@/hooks/useAndroidBack";
 import { useIsDesktop } from "@/hooks/useIsDesktop";
 import { useSpeakers } from "@/hooks/useSpeakers";
@@ -575,6 +575,7 @@ function VideoTile({
 }) {
   const participant = trackRef.participant;
   const { pubkey, displayName, verified, metadata, imeta } = useTileDisplayName(participant);
+  const { connections } = useIrohPeers();
   const intl = useIntl();
   const isScreenShare = trackRef.source === Track.Source.ScreenShare;
   const { enabled: endToEndEncrypted } = useCallSignals();
@@ -640,6 +641,7 @@ function VideoTile({
         {isScreenShare && "'s screen"}
         {isLocal && " (you)"}
       </span>
+      {connections && !isScreenShare && <ConnectionIcon via="sfu" className="size-3" />}
     </>
   );
 
@@ -988,6 +990,7 @@ function AvatarTile({
   onToggleFocus: () => void;
 }) {
   const { pubkey, displayName, verified, metadata, imeta } = useTileDisplayName(participant);
+  const { connections } = useIrohPeers();
   const shape = getAvatarShape(metadata);
   const hasCustomShape = !!shape;
   const isLocal = participant.isLocal;
@@ -1009,6 +1012,7 @@ function AvatarTile({
         <DisplayName pubkey={verified ? pubkey : undefined} name={displayName} />
         {isLocal && " (you)"}
       </span>
+      {connections && <ConnectionIcon via="sfu" className="size-3" />}
     </>
   );
 
@@ -1116,6 +1120,7 @@ export function P2pTile({
         {isScreen && "'s screen"}
         {self && " (you)"}
       </span>
+      {!isScreen && <ConnectionIcon via="p2p" className="size-3" />}
     </>
   );
   const tile = (
@@ -1198,6 +1203,7 @@ export function HeroP2pPerson({
         muted={muted}
         handRaised={raisedHands.has(pubkey)}
         streaming={streaming}
+        via="p2p"
         size={size}
         theater={theater}
       />
@@ -1394,6 +1400,7 @@ function HeroAvatarView({
   streaming,
   onWatch,
   pending,
+  via,
   size,
   theater,
 }: {
@@ -1411,6 +1418,8 @@ function HeroAvatarView({
   onWatch?: () => void;
   /** Not in the room yet (a DM still ringing). */
   pending?: boolean;
+  /** How they're connected, shown beside the name in a Concord call. */
+  via?: "sfu" | "p2p";
   size: HeroSize;
   theater: boolean;
 }) {
@@ -1476,8 +1485,9 @@ function HeroAvatarView({
           <LiveBadge className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 shadow" onWatch={onWatch} />
         )}
       </div>
-      <span className={cn("max-w-28 truncate text-muted-foreground", theater ? "text-sm" : "text-xs")}>
-        {caption === name ? <DisplayName pubkey={pubkey} name={name} ultra="hero" /> : caption}
+      <span className={cn("flex max-w-32 items-center gap-1 text-muted-foreground", theater ? "text-sm" : "text-xs")}>
+        <span className="truncate">{caption === name ? <DisplayName pubkey={pubkey} name={name} ultra="hero" /> : caption}</span>
+        {via && <ConnectionIcon via={via} />}
       </span>
     </div>
   );
@@ -1498,6 +1508,7 @@ function HeroParticipant({
   const intl = useIntl();
   const { raisedHands, streamingPubkeys } = useVoiceActivity();
   const { watch } = useScreenShareWatch();
+  const { connections } = useIrohPeers();
   const recordingSignals = useCallSignals().recording;
   const streaming = verified && streamingPubkeys.has(pubkey);
   const view = (
@@ -1514,6 +1525,7 @@ function HeroParticipant({
         refusing={verified && Boolean(recordingSignals?.refusing.has(pubkey))}
         streaming={streaming}
         onWatch={participant.isLocal ? undefined : () => watch(pubkey)}
+        via={connections ? "sfu" : undefined}
         size={size}
         theater={theater}
       />

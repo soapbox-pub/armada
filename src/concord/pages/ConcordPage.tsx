@@ -585,11 +585,14 @@ export const ChannelRow = memo(function ChannelRow({
     () => new Set(fold.present.filter((p) => p.noRecord).map((p) => p.author)),
     [fold],
   );
-  // In the call, the live roster holds exactly the peer-to-peer members we're linked to.
-  const voiceTransports = useMemo(
-    () => voiceRowTransports(fold, new Set(inCall && voiceRoomPubkeys ? voiceRoomPubkeys : [])),
-    [fold, inCall, voiceRoomPubkeys],
-  );
+  // In the call, the live roster holds the LiveKit room and the peer-to-peer members we're linked
+  // to (and us, who are never linked to ourselves).
+  const { user: viewer } = useCurrentUser();
+  const voiceTransports = useMemo(() => {
+    const live = inCall && voiceRoomPubkeys ? voiceRoomPubkeys.filter((pk) => pk !== viewer?.pubkey) : [];
+    const offSfu = new Set(fold.otherTransport.map((p) => p.author));
+    return voiceRowTransports(fold, new Set(live), live.filter((pk) => !offSfu.has(pk)));
+  }, [fold, inCall, voiceRoomPubkeys, viewer?.pubkey]);
   // A moderator acts on a call's participants from the roster too, joined or not (CORD-07 §7).
   const voiceMembers = useMemo(() => [...fold.present, ...fold.otherTransport], [fold]);
   const voiceActionsFor = useVoiceActionsFor(community, channel, voiceMembers);
@@ -623,10 +626,8 @@ export const ChannelRow = memo(function ChannelRow({
     const offSfu = new Set(fold.otherTransport.map((p) => p.author));
     return voiceRoomPubkeys.filter((pk) => !offSfu.has(pk)).length;
   }, [inCall, voiceRoomPubkeys, fold]);
-  const p2pCount = useMemo(
-    () => fold.otherTransport.length + fold.present.filter((p) => p.alsoOn).length,
-    [fold],
-  );
+  // Peer to peer alone: a member on LiveKit counts there, whatever else they announce.
+  const p2pCount = fold.otherTransport.length;
 
   const hasUnread = Boolean(unread);
   const hasMention = Boolean(unread?.mention);

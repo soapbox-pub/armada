@@ -171,11 +171,21 @@ describe("the call's topology", () => {
   });
 });
 
-describe("a peer-to-peer member's roster marker", () => {
-  it("reads connected for a member this client is linked to, peer to peer only for the rest", async () => {
-    const { voiceRowTransports } = await import("@/concord/lib/voice");
-    const f = fold([{ author: pk("b"), alsoOn: "iroh" }], [{ author: pk("v") }, { author: pk("w") }]);
-    const rows = voiceRowTransports(f, new Set([pk("v"), pk("b")]));
-    expect([rows.get(pk("v")), rows.get(pk("w")), rows.get(pk("b"))]).toEqual(["linked", "other", "both"]);
+describe("a member's connection marker", () => {
+  it("reads LiveKit for anyone on the SFU, peer to peer only for members off it", async () => {
+    const { connectionOf, voiceRowTransports } = await import("@/concord/lib/voice");
+    const sfuOnly = { author: pk("s") };
+    const both = { author: pk("b"), alsoOn: "iroh" };
+    const f = fold([sfuOnly, both], [{ author: pk("v") }, { author: pk("w") }]);
+    const rows = voiceRowTransports(f, new Set([pk("v"), pk("b")]), [pk("late")]);
+    expect(Object.fromEntries(rows)).toEqual({ [pk("s")]: "sfu", [pk("b")]: "sfu", [pk("v")]: "linked", [pk("w")]: "other", [pk("late")]: "sfu" });
+    expect([...rows.values()].map(connectionOf)).toEqual(["p2p", "p2p", "sfu", "sfu", "sfu"]);
+  });
+
+  it("keeps the LiveKit marker for a member bridging iroh into the SFU", async () => {
+    const { connectionOf, voiceRowTransports } = await import("@/concord/lib/voice");
+    const rows = voiceRowTransports(fold([{ author: pk("e"), alsoOn: "iroh", bridge: "iroh" }], [{ author: pk("v") }]));
+    expect([rows.get(pk("e")), rows.get(pk("v"))]).toEqual(["bridge", "bridged"]);
+    expect(connectionOf("bridge")).toBe("sfu");
   });
 });

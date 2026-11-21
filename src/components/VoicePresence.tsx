@@ -11,8 +11,8 @@ import { useCall } from "@/hooks/useCall";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { getAvatarShape, shapedAvatarSpeakingStyle } from "@/lib/avatarShape";
 import { getDisplayName } from "@/lib/getDisplayName";
-import { defineMessage, FormattedMessage, useIntl, type MessageDescriptor } from "@/i18n";
-import type { VoiceRowTransport } from "@/concord/lib/voice";
+import { defineMessage, defineMessages, FormattedMessage, useIntl, type MessageDescriptor } from "@/i18n";
+import { connectionOf, type VoiceRowTransport } from "@/concord/lib/voice";
 import { cn } from "@/lib/utils";
 import { HiveIcon, HubIcon } from "@/components/icons/TransportIcons";
 
@@ -204,40 +204,75 @@ function VoiceParticipantRow({
   );
 }
 
+const CONNECTION_LABELS = defineMessages({
+  sfu: { id: "voicePresence.viaSfu", defaultMessage: "Connected over the LiveKit server" },
+  p2p: { id: "voicePresence.viaP2p", defaultMessage: "Connected peer to peer" },
+});
+
 const TRANSPORT_LABELS = {
-  other: defineMessage({
-    id: "voicePresence.otherTransport",
-    defaultMessage: "In the call peer to peer only",
-  }),
-  bridged: defineMessage({
-    id: "voicePresence.bridgedTransport",
-    defaultMessage: "In the call peer to peer, heard here through a bridge",
-  }),
-  both: defineMessage({
-    id: "voicePresence.bothTransports",
-    defaultMessage: "In the call on the LiveKit server and peer to peer",
+  sfu: CONNECTION_LABELS.sfu,
+  bridge: defineMessage({
+    id: "voicePresence.bridge",
+    defaultMessage: "Connected over the LiveKit server, bridging the peer-to-peer call into it",
   }),
   linked: defineMessage({
     id: "voicePresence.linkedTransport",
     defaultMessage: "In the call peer to peer, connected to you",
   }),
-  bridge: defineMessage({
-    id: "voicePresence.bridge",
-    defaultMessage: "Bridging the peer-to-peer call into this one",
+  bridged: defineMessage({
+    id: "voicePresence.bridgedTransport",
+    defaultMessage: "In the call peer to peer, heard here through a bridge",
+  }),
+  other: defineMessage({
+    id: "voicePresence.otherTransport",
+    defaultMessage: "In the call peer to peer only",
   }),
 } satisfies Record<VoiceRowTransport, MessageDescriptor>;
 
-/** A roster row's peer-to-peer marker, dimmed for a member who is on peer to peer only. */
+/**
+ * How someone is connected to the call: the LiveKit server, or peer to peer alone. The roster
+ * row and the call stage show the same icon; LiveKit wins for a member on both.
+ */
+export function ConnectionIcon({
+  via,
+  label,
+  dimmed = false,
+  tooltip = true,
+  className,
+}: {
+  via: "sfu" | "p2p";
+  /** A fuller description than the plain "Connected over…". */
+  label?: string;
+  /** Peer to peer, but out of this client's reach. */
+  dimmed?: boolean;
+  /** The browser's own tooltip; off where a richer one wraps the icon. */
+  tooltip?: boolean;
+  className?: string;
+}) {
+  const intl = useIntl();
+  const text = label ?? intl.formatMessage(CONNECTION_LABELS[via]);
+  const Icon = via === "sfu" ? HubIcon : HiveIcon;
+  return (
+    <span className="inline-flex shrink-0" title={tooltip ? text : undefined} data-connection={via}>
+      <Icon
+        className={cn("size-3.5 shrink-0", dimmed ? "text-muted-foreground" : via === "sfu" ? "text-warning" : "text-success", className)}
+        role="img"
+        aria-label={text}
+      />
+    </span>
+  );
+}
+
+/** A roster row's connection marker (`ConnectionIcon`), with the row's fuller description. */
 function TransportMarker({ transport }: { transport: VoiceRowTransport }) {
   const intl = useIntl();
   const label = intl.formatMessage(TRANSPORT_LABELS[transport]);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <HiveIcon
-          className={cn("size-3.5 shrink-0", transport === "other" ? "text-muted-foreground" : "text-success")}
-          aria-label={label}
-        />
+        <span className="inline-flex shrink-0">
+          <ConnectionIcon via={connectionOf(transport)} label={label} dimmed={transport === "other"} tooltip={false} />
+        </span>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
@@ -246,7 +281,7 @@ function TransportMarker({ transport }: { transport: VoiceRowTransport }) {
 
 /**
  * How many are in a call on each transport: the SFU (LiveKit) and peer to peer
- * (iroh, which Vector uses). A member on both counts on both.
+ * (iroh, which Vector uses). A member on both counts on LiveKit.
  */
 export function CallTransportCounts({
   sfu,
