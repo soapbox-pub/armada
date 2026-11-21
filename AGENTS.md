@@ -41,7 +41,7 @@ needs no Armada-specific server at all: any NIP-29 relay serves it.
 | `src/npanel/` | The link-preview script an npanel gateway runs for crawlers: profiles (`/npub1…`, `/nprofile1…`, `/name@domain`, `/domain`) and Concord invites, each with a drawn Armada card. Built to `/.well-known/npanel/preview.js` by the `npanelPreview()` plugin in `vite.config.ts`. An invite's community is sealed under the link's `#fragment`, which never reaches a server, so its card is the same for every invite |
 | `src/lib/db/` | ArmadaDB — the one local storage interface (tenants of rumors + a KV), its IndexedDB adapter, the Android bridge adapter, and the migrations |
 | `android/`   | Capacitor Android project (signed APK/AAB built in CI)          |
-| `crates/webxdc-rt/` | Rust: the iroh-gossip transport for Mini App multiplayer, compiled to wasm. The only Rust in the repo |
+| `crates/webxdc-rt/` | Rust: the iroh transport, compiled to wasm — gossip for Mini App multiplayer, and a voice Channel's peer-to-peer call (`VoiceNode`). The only Rust in the repo |
 | `android/…/app/db/` | ArmadaDB in Kotlin: the SQLite engine the Android build actually runs, shared by the WebView and the notification service |
 | `ios/`       | Capacitor iOS project (SwiftPM, no CocoaPods; built manually on a Mac — no CI) |
 | `ios/ArmadaDB/` | ArmadaDB in Swift: the SQLite engine the iOS build runs, with SQLite vendored. A SwiftPM package so it builds on **Linux**, where its conformance suite runs without a Mac |
@@ -241,6 +241,18 @@ target wasm32, which surfaces as a `ring` build failure.
 The wire formats the two clients share live in `src/lib/webxdcRealtime.ts`, not
 in the crate, and are tested against Vector's Rust. The crate moves opaque
 bytes; keep it that way, or the interop surface straddles a language boundary.
+
+The same crate carries a voice Channel's peer-to-peer call (CORD-07 §8), the
+network half of Vector's `calls/voice.rs`: a fresh endpoint per call on ALPN
+`concord/voice/1`, one QUIC connection per peer, 20 ms Opus frames in datagrams
+behind Vector's 8-byte header. Which members to link, who dials and the header
+are `src/concord/lib/irohVoice.ts`; the audio (WebCodecs Opus, the call's own
+mic track with its RNNoise) is `src/lib/irohVoice/`. Armada stays on LiveKit
+whenever a broker answers, so a pair links only when at least one side is off
+the SFU — Vector, or an Armada member whose LiveKit failed — and the link drops
+once that member's SFU presence arrives. Our `joined` names the SFU identity
+and the iroh endpoint in ONE rumor: Vector folds presence latest-wins per
+author, so two rumors would make it drop and re-dial us every heartbeat.
 
 ## How the client reaches backends (no build-time coupling)
 

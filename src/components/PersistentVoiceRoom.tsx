@@ -1896,21 +1896,19 @@ function ConcordVoiceRoom({
   );
 
   if (sfuFailed && iroh.status !== "unavailable") {
-    return (
-      <>
-        {placeBar(
-          <IrohCallBar
-            label={<ConcordCallLabel community={community.name} channel={channel.name} onFocus={goToChannel} />}
-            connecting={iroh.status !== "on"}
-            linked={iroh.linked.length}
-            muted={p2pMuted}
-            canSpeak={!me || (gate?.(me).speak ?? true)}
-            onToggleMute={() => setP2pMuted((m) => !m)}
-            onLeave={onLeave}
-          />,
-        )}
-      </>
+    const p2pBar = (stacked: boolean) => (
+      <IrohCallBar
+        label={<ConcordCallLabel community={community.name} channel={channel.name} onFocus={goToChannel} />}
+        connecting={iroh.status !== "on"}
+        linked={iroh.linked.length}
+        muted={p2pMuted}
+        canSpeak={!me || (gate?.(me).speak ?? true)}
+        onToggleMute={() => setP2pMuted((m) => !m)}
+        onLeave={onLeave}
+        stacked={stacked}
+      />
     );
+    return <>{placeBar(p2pBar(false), p2pBar(true))}</>;
   }
   if (isLoading) return <>{<LoadingBar placeBar={placeBar} label={<FormattedMessage id="persistentVoiceRoom.requestingAccess" defaultMessage="Requesting voice access…" />} />}</>;
   if (error || !tokenData) return <>{<ErrorBar placeBar={placeBar} error={error} onLeave={onLeave} />}</>;

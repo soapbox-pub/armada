@@ -1,12 +1,18 @@
 # webxdc-rt
 
-Browser-side iroh-gossip transport for webxdc realtime channels, so Armada and
-Vector can play the same Mini App session.
+Browser-side iroh transport, shared by two things so the bundle carries one iroh:
+
+- iroh-gossip for webxdc realtime channels, so Armada and Vector can play the
+  same Mini App session (`RealtimeNode`);
+- a Concord voice Channel's peer-to-peer call, interoperable with Vector's
+  (`VoiceNode`, `src/voice.rs`): a fresh endpoint per call on ALPN
+  `concord/voice/1`, datagrams in and out, links reported as they come and go.
 
 Deliberately dumb: everything the two clients must agree on byte for byte — the
 topic id, the 36-byte frame trailer, the base32 of a node address — lives in
-`src/lib/webxdcRealtime.ts`, tested against Vector's own Rust. This crate moves
-opaque bytes and nothing else.
+`src/lib/webxdcRealtime.ts`, tested against Vector's own Rust; the voice
+datagram header and who links to whom live in `src/concord/lib/irohVoice.ts`.
+This crate moves opaque bytes and nothing else.
 
 ## Build
 

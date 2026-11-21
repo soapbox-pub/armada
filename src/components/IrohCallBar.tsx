@@ -3,6 +3,7 @@ import { Loader2, Mic, MicOff, PhoneOff } from "lucide-react";
 import { HiveIcon } from "@/components/icons/TransportIcons";
 import { Button } from "@/components/ui/button";
 import { FormattedMessage, useIntl } from "@/i18n";
+import { cn } from "@/lib/utils";
 
 /**
  * The call bar of a voice Channel joined peer to peer only, because no LiveKit
@@ -16,6 +17,7 @@ export function IrohCallBar({
   canSpeak,
   onToggleMute,
   onLeave,
+  stacked = false,
 }: {
   label: React.ReactNode;
   connecting: boolean;
@@ -24,6 +26,8 @@ export function IrohCallBar({
   canSpeak: boolean;
   onToggleMute: () => void;
   onLeave: () => void;
+  /** The desktop sidebar's narrow slot: the controls go under the text. */
+  stacked?: boolean;
 }) {
   const intl = useIntl();
   const micLabel = muted
@@ -31,7 +35,10 @@ export function IrohCallBar({
     : intl.formatMessage({ id: "callControls.muteMic", defaultMessage: "Mute microphone" });
   const leaveLabel = intl.formatMessage({ id: "callControls.leave", defaultMessage: "Leave call" });
   return (
-    <div className="flex items-center gap-2 px-3 py-2 clip-corner-lg bg-chrome-deep min-h-12 shadow-lg" data-testid="iroh-call-bar">
+    <div
+      className={cn("flex gap-2 px-3 py-2 clip-corner-lg bg-chrome-deep min-h-12 shadow-lg", stacked ? "flex-col" : "items-center")}
+      data-testid="iroh-call-bar"
+    >
       <div className="flex-1 min-w-0 text-sm">
         <div className="truncate">{label}</div>
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -49,6 +56,7 @@ export function IrohCallBar({
           </span>
         </div>
       </div>
+      <div className={cn("flex items-center gap-2 shrink-0", stacked && "justify-end")}>
       <Button
         size="icon"
         variant={muted ? "secondary" : "ghost"}
@@ -64,6 +72,7 @@ export function IrohCallBar({
       <Button size="icon" variant="destructive" className="size-9 touch:size-11 shrink-0" onClick={onLeave} aria-label={leaveLabel} title={leaveLabel}>
         <PhoneOff className="size-4" />
       </Button>
+      </div>
     </div>
   );
 }
