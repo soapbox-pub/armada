@@ -30,12 +30,39 @@ async function offline(page: Page) {
 }
 
 /** The shown timeline's scroller: the one whose box isn't skipped. */
-function scrollTop(page: Page) {
+function shownScroller(page: Page) {
   return page.evaluate(() => {
-    const shown = [...document.querySelectorAll<HTMLElement>('[class*="overflow-anchor"]')].find(
-      (el) => !el.closest('[class*="content-visibility:hidden"]'),
+    const el = [...document.querySelectorAll<HTMLElement>('[class*="overflow-anchor"]')].find(
+      (e) => !e.closest('[class*="content-visibility:hidden"]'),
     );
-    return shown?.scrollTop ?? -1;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 3, y: r.y + r.height / 2, top: el.scrollTop, height: el.scrollHeight };
+  });
+}
+
+/** Wait out the opening's scroll to the newest row and its growing window. */
+async function settledScroller(page: Page) {
+  let last = "";
+  let point = await shownScroller(page);
+  await expect.poll(async () => {
+    await page.waitForTimeout(300);
+    point = await shownScroller(page);
+    const key = JSON.stringify(point);
+    const stable = point !== null && point.top > 0 && key === last;
+    last = key;
+    return stable;
+  }, { timeout: 30_000 }).toBe(true);
+  return point!;
+}
+
+/** How far the shown timeline's reader is above its bottom: older rows prepended on a scroll up move `scrollTop`, not this. */
+function fromBottom(page: Page) {
+  return page.evaluate(() => {
+    const el = [...document.querySelectorAll<HTMLElement>('[class*="overflow-anchor"]')].find(
+      (e) => !e.closest('[class*="content-visibility:hidden"]'),
+    );
+    return el ? el.scrollHeight - el.clientHeight - el.scrollTop : -1;
   });
 }
 
@@ -83,15 +110,63 @@ test("a hidden kept timeline doesn't take the shown one's scrolls and presses", 
   );
   expect(hit).toContain(`${second} message ${count - 1}`);
 
-  // Let the opening scroll to the newest row land first.
-  let before = -1;
-  await expect.poll(async () => {
-    const prev = before;
-    await page.waitForTimeout(300);
-    before = await scrollTop(page);
-    return before > 0 && before === prev;
-  }).toBe(true);
+  await settledScroller(page);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.wheel(0, -600);
-  await expect.poll(() => scrollTop(page)).toBeLessThan(before - 200);
+  await expect.poll(() => fromBottom(page)).toBeGreaterThan(200);
+});
+
+test("every channel of a category takes scrolls and presses while switching between them", async ({ page }) => {
+  test.setTimeout(300_000);
+  const me = makePerson("viewer", "", 286);
+  const ana = makePerson("ana", "", 20);
+  await offline(page);
+  await loginAs(page, me);
+  await page.goto("/e2e/screenshotSeed.html");
+  await page.waitForFunction(() => Boolean(window.__armadaSeed));
+  await page.evaluate((p) => window.__armadaSeed!(p), { self: me.pubkey, profiles: profilesOf([me, ana], now - 86400 * 10), messages: [] });
+
+  const names = ["general", "armada", "memes", "ditto-relay"];
+  const count = 60;
+  const messages: ScriptedMessage[] = names.flatMap((name, channel) =>
+    Array.from({ length: count }, (_, i) => ({
+      channel,
+      author: i % 2 ? ana.pubkey : me.pubkey,
+      agoSec: (count - i) * 600 + 60,
+      content: `${name} message ${i}`,
+    })),
+  );
+  await page.goto("/e2e/concordSeed.html");
+  await page.waitForFunction(() => Boolean(window.__armadaSeedConcordScript));
+  const seeded = await page.evaluate((p) => window.__armadaSeedConcordScript!(p), {
+    sk: Buffer.from(me.sk).toString("hex"),
+    communities: [{ name: "M", channels: names.map((name) => ({ name, category: "Talk" })), messages }],
+  });
+  const { communityId, channelIds } = seeded.communities[0];
+  await page.goto(`/c/${communityId}/${channelIds[0]}`);
+  await settle(page, () => page.getByText(`general message ${count - 1}`, { exact: true }).isVisible().catch(() => false));
+
+  // Back and forth with the channel second in the category, then through the rest, so
+  // the shown timeline has hidden ones on both sides of it in the kept order.
+  for (const name of ["armada", "general", "armada", "memes", "armada", "ditto-relay", "memes", "general"]) {
+    await page.getByRole("button", { name, exact: true }).first().click();
+    await settle(page, () => page.getByText(`${name} message ${count - 1}`, { exact: true }).isVisible().catch(() => false));
+    const at = await settledScroller(page);
+
+    const hit = await page.evaluate(([x, y]) => {
+      const el = document.elementFromPoint(x, y);
+      return { hidden: Boolean(el?.closest('[class*="content-visibility:hidden"]')), text: el?.closest(".timeline-row")?.textContent ?? "" };
+    }, [at.x, at.y]);
+    expect(hit, name).toEqual({ hidden: false, text: expect.stringContaining(`${name} message`) });
+
+    await page.mouse.click(at.x, at.y, { button: "right" });
+    await expect(page.getByRole("menu"), name).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+
+    await page.mouse.move(at.x, at.y);
+    const before = await fromBottom(page);
+    await page.mouse.wheel(0, -400);
+    await expect.poll(() => fromBottom(page), { message: name }).toBeGreaterThan(before + 150);
+  }
 });

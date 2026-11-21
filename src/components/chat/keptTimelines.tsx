@@ -58,7 +58,8 @@ export function useKeptTimelines(
  * paint, not a style and layout pass over every row. In a FIXED order: moving a
  * mounted timeline in the DOM would cost what keeping it saves. The shown one is
  * stacked above the rest: a skipped box still takes hits on its own area, so a hidden
- * one later in that order would catch every wheel, touch and press meant for it.
+ * one later in that order would catch every wheel, touch and press meant for it. The
+ * stack is isolated, so that order never reaches what lies around the timeline.
  */
 export function KeptTimelines({
   active,
@@ -89,7 +90,7 @@ export function KeptTimelines({
     else boxes.current.delete(id);
   };
   return (
-    <div className="relative flex-1 min-h-0">
+    <div className="relative isolate flex-1 min-h-0">
       {[...kept.keys()].sort().map((id) =>
         id === active ? (
           <div key={id} ref={ref(id)} className="absolute inset-0 z-[1] flex flex-col">
