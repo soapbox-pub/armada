@@ -168,7 +168,6 @@ function VoiceParticipantRow({
             speaking={isSpeaking}
             className="size-6"
             fallbackClassName="bg-success/20 text-success text-3xs"
-            frame={!wrapperStyle}
           />
         </div>
         <span className={cn("truncate flex-1 min-w-0", isSpeaking && "text-success")}>

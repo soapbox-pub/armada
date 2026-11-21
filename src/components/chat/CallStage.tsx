@@ -1085,8 +1085,6 @@ function AvatarTile({
           speaking={isSpeaking}
           className={large ? "size-28" : "size-16"}
           fallbackClassName="text-xl"
-          // The speaking filter would trace the frame's glow as well as the shape.
-          frame={!ringStyle}
         />
       </div>
       <FocusButton focused={focused} onClick={onToggleFocus} />
@@ -1351,7 +1349,6 @@ function HeroAvatarView({
             speaking={speaking}
             className={cn("shadow-xl", s.avatar, pending && "opacity-80")}
             fallbackClassName={s.initial}
-            frame={!(hasCustomShape && speaking)}
           />
         </div>
         {muted && (
