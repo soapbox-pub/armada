@@ -72,7 +72,6 @@ contextBridge.exposeInMainWorld("armadaDesktop", {
   // Feature detection keeps web updates compatible with older desktop shells.
   ...(process.platform === "darwin" ? {
     showNotification: (input) => ipcRenderer.invoke("armada:show-notification", input),
-    openNotification: (path) => ipcRenderer.invoke("armada:open-notification", path),
     openNotificationSettings: () => ipcRenderer.invoke("armada:open-notification-settings"),
     clearNotifications: () => ipcRenderer.invoke("armada:clear-notifications"),
   } : {}),

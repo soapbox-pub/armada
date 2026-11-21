@@ -240,6 +240,8 @@ export async function desktopSafeNotificationIcon(
   icon: string | undefined,
 ): Promise<string | undefined> {
   if (!icon || !isDesktop()) return icon;
+  // The macOS native presenter takes no icon; don't fetch one from the sender's host.
+  if (desktop()?.showNotification) return undefined;
   if (!/^https:\/\//i.test(icon) || !/\.gif(\?|#|$)/i.test(icon)) return icon;
   return await rasterizeFirstFrame(icon);
 }

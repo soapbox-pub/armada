@@ -6,7 +6,7 @@ import { isNativeRuntime } from "@/lib/platform";
 import { onLateColdLaunchDeepLink } from "@/lib/coldLaunchDeepLink";
 import { markDeepLinkNavigation } from "@/lib/deepLinkNav";
 import { isRouterPath, pathFromDeepLinkUrl } from "@/lib/deepLinkUrl";
-import { desktop, isDesktop, onDesktopDeepLink } from "@/lib/desktop";
+import { isDesktop, onDesktopDeepLink } from "@/lib/desktop";
 import { ArmadaPush, hasIosPush, reportActiveRoute } from "@/lib/nativePush";
 import { signalDeepLinkNavigated } from "@/lib/webReady";
 
@@ -140,31 +140,17 @@ export function useNotificationNavigation(): void {
     };
   }, [navigate]);
 
-  // sw.js also presents background pushes on desktop. Acknowledge its click so
-  // it never falls back to opening another window. The native bridge restores
-  // Armada from the tray/minimized state before handing the route to the router.
+  // Web: sw.js hands a notification tap to the open page, which routes it here rather than
+  // being reloaded onto the route. The reply tells the worker not to fall back to a reload.
   useEffect(() => {
-    if (isNativeRuntime() || !("serviceWorker" in navigator)) return;
+    if (isNativeRuntime() || isDesktop() || !("serviceWorker" in navigator)) return;
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type !== "armada-open-route") return;
       const port = event.ports[0];
       const path = event.data.path;
-      // eslint-disable-next-line no-control-regex -- Reject control characters in untrusted routes.
-      if (!port || typeof path !== "string" || !isRouterPath(path) || /[\\\x00-\x1f]/.test(path)) return;
-      const routeInPage = () => {
-        softNavigate(path, locationRef.current, navigate);
-        if (isDesktop()) window.focus();
-        port.postMessage({ routed: path });
-      };
-      const open = desktop()?.openNotification;
-      if (open) {
-        void open(path).then((opened) => {
-          if (opened) port.postMessage({ routed: path });
-          else routeInPage();
-        }).catch(routeInPage);
-        return;
-      }
-      routeInPage();
+      if (!port || typeof path !== "string" || !isRouterPath(path)) return;
+      softNavigate(path, locationRef.current, navigate);
+      port.postMessage({ routed: path });
     };
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);

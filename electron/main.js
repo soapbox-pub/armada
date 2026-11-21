@@ -1932,7 +1932,6 @@ function installIpc() {
   });
   if (process.platform === "darwin") {
     handleFromMainWindow("armada:show-notification", (_event, input) => desktopNotifications.show(input));
-    handleFromMainWindow("armada:open-notification", (_event, path) => dispatchInternalDeepLink(path));
     handleFromMainWindow("armada:clear-notifications", () => {
       desktopNotifications.clear();
       notificationNavigation.clearPending();

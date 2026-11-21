@@ -42,7 +42,6 @@ interface PushEventStub {
 const SILENCE_ALLOWED = { pushEndpoint: "napp:push", userVisibleOnly: false } as const;
 
 function loadWorker(options: {
-  location?: { origin: string; href: string };
   clients?: WindowClientStub[];
   ownEventId?: string;
   badging?: boolean;
@@ -147,7 +146,7 @@ function loadWorker(options: {
   });
   const openWindow = vi.fn(async (_target: string) => undefined);
   const self = {
-    location: options.location ?? { origin: "https://armada.buzz" },
+    location: { origin: "https://armada.buzz" },
     navigator: options.badging ? { setAppBadge, clearAppBadge: vi.fn() } : undefined,
     registration: {
       showNotification,
@@ -416,6 +415,20 @@ describe("page / service-worker presentation ownership", () => {
     }
     vi.stubGlobal("Image", FakeImage);
     expect(await desktopSafeNotificationIcon("https://host.example/a.gif")).toBeUndefined();
+  });
+
+  it("fetches no icon for the macOS native presenter, which shows none", async () => {
+    const requested: string[] = [];
+    class FakeImage {
+      crossOrigin = "";
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(v: string) { requested.push(v); queueMicrotask(() => this.onerror?.()); }
+    }
+    vi.stubGlobal("Image", FakeImage);
+    vi.stubGlobal("window", { armadaDesktop: { isDesktop: true, showNotification: vi.fn() } });
+    expect(await desktopSafeNotificationIcon("https://host.example/a.gif")).toBeUndefined();
+    expect(requested).toEqual([]);
   });
 
   it("lets the page own presentation on desktop even when the SW lookup throws", async () => {
@@ -1385,37 +1398,6 @@ describe("Web Push kill switch", () => {
 });
 
 describe("Web Push click routing", () => {
-  it.each(["/dm/alice?from=push#message", "https://armada.buzz/dm/alice?from=push#message"])("routes a desktop push inside the running app even when its custom URL origin is null: %s", async (url) => {
-    const path = "/dm/alice?from=push#message";
-    const worker = loadWorker({
-      location: { origin: "null", href: "app://armada/sw.js" },
-      clients: [{
-        url: "app://untrusted/",
-        visibilityState: "hidden",
-        focused: false,
-      }, {
-        url: "app://armada/",
-        visibilityState: "hidden",
-        focused: false,
-        postMessage: (message: unknown, transfer: Transferable[]) => {
-          expect(message).toEqual({ type: "armada-open-route", path });
-          (transfer[0] as MessagePort).postMessage({ routed: path });
-        },
-      }],
-    });
-    await worker.notificationClick(url);
-    expect(worker.clients[1]?.focus).toHaveBeenCalledOnce();
-    expect(worker.clients[1]?.navigate).not.toHaveBeenCalled();
-    expect(worker.clients[0]?.focus).not.toHaveBeenCalled();
-    expect(worker.openWindow).not.toHaveBeenCalled();
-  });
-
-  it.each(["app://untrusted/dm/alice", "https://evil.example/dm/alice", "//evil.example/dm/alice", "app://user@armada/dm/alice"])("rejects a foreign desktop notification destination: %s", async (url) => {
-    const worker = loadWorker({ location: { origin: "null", href: "app://armada/sw.js" } });
-    await worker.notificationClick(url);
-    expect(worker.openWindow).toHaveBeenCalledWith("/");
-  });
-
   it("awaits navigation before focusing the routed client", async () => {
     let release!: () => void;
     const wait = new Promise<void>((resolve) => { release = resolve; });

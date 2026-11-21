@@ -43,11 +43,9 @@ describe("desktop database preload bridge", () => {
     const { api, ipcRenderer } = loadPreload({ platform: "darwin" });
     const input = { title: "Alice", body: "hello", tag: "dm-a", url: "/dm/a" };
     api.showNotification(input);
-    api.openNotification("/dm/a");
     api.openNotificationSettings();
     api.clearNotifications();
     expect(ipcRenderer.invoke).toHaveBeenCalledWith("armada:show-notification", input);
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith("armada:open-notification", "/dm/a");
     expect(ipcRenderer.invoke).toHaveBeenCalledWith("armada:open-notification-settings");
     expect(ipcRenderer.invoke).toHaveBeenCalledWith("armada:clear-notifications");
   });

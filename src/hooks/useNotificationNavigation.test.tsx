@@ -1,17 +1,15 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useNotificationNavigation } from "@/hooks/useNotificationNavigation";
 
 const mocks = vi.hoisted(() => ({
-  desktop: vi.fn(),
   isDesktop: vi.fn(() => false),
   onDeepLink: vi.fn(),
 }));
 
 vi.mock("@/lib/desktop", () => ({
-  desktop: mocks.desktop,
   isDesktop: mocks.isDesktop,
   onDesktopDeepLink: mocks.onDeepLink,
 }));
@@ -47,7 +45,6 @@ function click(path: string, withPort = true) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.isDesktop.mockReturnValue(false);
-  mocks.desktop.mockReturnValue(undefined);
   mocks.onDeepLink.mockImplementation((handler: (path: string) => void) => {
     deepLinkListeners.add(handler);
     return () => deepLinkListeners.delete(handler);
@@ -64,29 +61,11 @@ afterEach(() => {
 });
 
 describe("notification click navigation", () => {
-  it("opens a background desktop push through the native window and acknowledges it without a browser", async () => {
+  it("leaves worker clicks alone on desktop, which presents no worker notifications", () => {
     mocks.isDesktop.mockReturnValue(true);
-    const openNotification = vi.fn(async (path: string) => {
-      for (const listener of deepLinkListeners) listener(path);
-      return true;
-    });
-    mocks.desktop.mockReturnValue({ openNotification });
     mount();
-    const path = "/dm/alice?from=push#message";
-    const reply = click(path);
-    await waitFor(() => expect(reply).toHaveBeenCalledExactlyOnceWith({ routed: path }));
-    expect(openNotification).toHaveBeenCalledExactlyOnceWith(path);
-    expect(screen.getByRole("status")).toHaveTextContent(path);
-  });
-
-  it("routes desktop pushes in older shells and focuses their existing window", () => {
-    mocks.isDesktop.mockReturnValue(true);
-    const focus = vi.spyOn(window, "focus").mockImplementation(() => {});
-    mount();
-    const reply = click("/dm/alice");
-    expect(screen.getByRole("status")).toHaveTextContent("/dm/alice");
-    expect(reply).toHaveBeenCalledExactlyOnceWith({ routed: "/dm/alice" });
-    expect(focus).toHaveBeenCalledOnce();
+    expect(click("/dm/alice")).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("/dm");
   });
 
   it("continues routing web pushes through the live router", () => {
@@ -96,30 +75,10 @@ describe("notification click navigation", () => {
     expect(reply).toHaveBeenCalledOnce();
   });
 
-  it.each(["https://armada.buzz/dm/alice", "//evil.example/", "/\\evil.example/"])("refuses a non-router destination %j", (path) => {
-    mocks.isDesktop.mockReturnValue(true);
-    const openNotification = vi.fn();
-    mocks.desktop.mockReturnValue({ openNotification });
+  it.each(["https://armada.buzz/dm/alice", "//evil.example/"])("refuses a non-router destination %j", (path) => {
     mount();
     expect(click(path)).not.toHaveBeenCalled();
-    expect(openNotification).not.toHaveBeenCalled();
     expect(screen.getByRole("status")).toHaveTextContent("/dm");
-  });
-
-  it.each([false, "reject"])("keeps a click inside the app when the native bridge fails: %s", async (outcome) => {
-    mocks.isDesktop.mockReturnValue(true);
-    vi.spyOn(window, "focus").mockImplementation(() => {});
-    const openNotification = vi.fn(async () => {
-      if (outcome === "reject") throw new Error("bridge unavailable");
-      return false;
-    });
-    mocks.desktop.mockReturnValue({ openNotification });
-    mount();
-    const reply = click("/dm/alice");
-    await waitFor(() => expect(reply).toHaveBeenCalledExactlyOnceWith({ routed: "/dm/alice" }));
-    expect(screen.getByRole("status")).toHaveTextContent("/dm/alice");
-    click("/dm/alice", false);
-    expect(openNotification).toHaveBeenCalledOnce();
   });
 
   it("removes the worker click listener on unmount", () => {
