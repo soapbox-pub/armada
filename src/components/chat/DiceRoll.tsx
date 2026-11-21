@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { FormattedMessage, useIntl } from "@/i18n";
 import { type DiceRoll as Roll } from "@/lib/dice";
@@ -64,42 +64,41 @@ function restingPose(poly: Polyhedron, value: number, seed: number): Quat {
   return qMul(tilt, qMul(spin, align));
 }
 
-function primaryHue(): { h: number; s: number } {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim();
-  const [h, s] = raw.split(/\s+/).map((part) => parseFloat(part));
-  return { h: Number.isFinite(h) ? h : 270, s: Number.isFinite(s) ? s : 60 };
+/** Face colours per tone; `plain` follows the theme, live, through its CSS variable. */
+const TONE_FILL: Record<Tone, string> = {
+  plain: "hsl(var(--primary))",
+  crit: "hsl(43 90% 50%)",
+  fumble: "hsl(0 75% 50%)",
+};
+
+const LIGHT: V3 = [0.32, 0.62, 0.72];
+const LIGHT_LEN = Math.hypot(...LIGHT);
+
+interface Facet {
+  label: number;
+  /** Polygon in a 100×100 box. */
+  points: [number, number][];
+  /** Black laid over the face colour: the shading. */
+  shadow: number;
+  lit: boolean;
+  /** Label opacity, 0 when the face is too oblique to read. */
+  ink: number;
+  at: [number, number];
+  fontSize: number;
+  /** 6 and 9 are told apart by an underline, as on a real die. */
+  underline: boolean;
 }
 
-interface DrawOpts {
-  poly: Polyhedron;
-  pose: Quat;
-  size: number;
-  /** Vertical hop, as a fraction of the size. */
-  lift: number;
-  /** Face label to light up, once settled. */
-  lit: number | null;
-  tone: Tone;
-  font: string;
-}
-
-function draw(ctx: CanvasRenderingContext2D, { poly, pose, size, lift, lit, tone, font }: DrawOpts) {
-  const dpr = window.devicePixelRatio || 1;
-  const px = size * dpr;
-  const cx = px / 2;
-  const cy = px / 2 - lift * px;
-  const scale = px * 0.4;
+/** The visible faces of `poly` in `pose`, back to front. */
+function facets(poly: Polyhedron, pose: Quat, lift: number, lit: number | null): Facet[] {
   const fov = 5;
+  const scale = 40;
   const project = (v: V3): [number, number] => {
     const f = fov / (fov - v[2]);
-    return [cx + v[0] * scale * f, cy - v[1] * scale * f];
+    return [50 + v[0] * scale * f, 50 - lift * 100 - v[1] * scale * f];
   };
-  const { h, s } = tone === "crit" ? { h: 43, s: 90 } : tone === "fumble" ? { h: 0, s: 75 } : primaryHue();
-  const light: V3 = [0.32, 0.62, 0.72];
-  const ll = Math.hypot(...light);
-
-  ctx.clearRect(0, 0, px, px);
   const verts = poly.vertices.map((v) => rotate(pose, v));
-  const faces = poly.faces
+  return poly.faces
     .map((face) => {
       const n = rotate(pose, face.normal);
       const pts = face.vertices.map((i) => verts[i]);
@@ -107,41 +106,52 @@ function draw(ctx: CanvasRenderingContext2D, { poly, pose, size, lift, lit, tone
       return { face, n, pts, centre };
     })
     .filter(({ n }) => n[2] > 0)
-    .sort((a, b) => a.centre[2] - b.centre[2]);
-
-  for (const { face, n, pts, centre } of faces) {
-    const hl = lit !== null && face.label === lit;
-    const b = 0.3 + 0.7 * Math.max(0, (n[0] * light[0] + n[1] * light[1] + n[2] * light[2]) / ll);
-    const fill = hl ? 30 + b * 26 : 12 + b * 24;
-    ctx.beginPath();
-    pts.forEach((p, i) => {
-      const [x, y] = project(p);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    .sort((a, b) => a.centre[2] - b.centre[2])
+    .map(({ face, n, pts, centre }) => {
+      const isLit = lit !== null && face.label === lit;
+      const b = 0.3 + 0.7 * Math.max(0, (n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]) / LIGHT_LEN);
+      const digits = String(face.label).length;
+      return {
+        label: face.label,
+        points: pts.map(project),
+        shadow: isLit ? 0.45 * (1 - b) : 0.4 + 0.45 * (1 - b),
+        lit: isLit,
+        ink: n[2] > 0.3 ? (isLit ? 0.5 + n[2] * 0.5 : 0.15 + n[2] * 0.4) : 0,
+        at: project(centre),
+        fontSize: (scale * (poly.faces.length > 12 ? 0.3 : 0.4)) / Math.max(1, digits * 0.55),
+        underline: poly.faces.length > 8 && (face.label === 6 || face.label === 9),
+      };
     });
-    ctx.closePath();
-    ctx.fillStyle = `hsl(${h} ${hl ? s : s * 0.55}% ${fill.toFixed(0)}%)`;
-    ctx.fill();
-    ctx.strokeStyle = `hsl(${h} ${s * 0.7}% ${(hl ? 70 : 45 + b * 15).toFixed(0)}% / ${hl ? 0.9 : 0.6})`;
-    ctx.lineWidth = Math.max(1, size / 40) * dpr;
-    ctx.lineJoin = "round";
-    ctx.stroke();
+}
 
-    if (n[2] > 0.3) {
-      const [lx, ly] = project(centre);
-      const text = String(face.label);
-      const fs = (scale * (poly.faces.length > 12 ? 0.3 : 0.4)) / Math.max(1, text.length * 0.55);
-      ctx.font = `700 ${fs.toFixed(1)}px ${font}`;
+function paint(ctx: CanvasRenderingContext2D, faces: Facet[], fill: string, px: number, font: string) {
+  const k = px / 100;
+  ctx.clearRect(0, 0, px, px);
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 1.5 * k;
+  for (const f of faces) {
+    ctx.beginPath();
+    f.points.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x * k, y * k) : ctx.lineTo(x * k, y * k)));
+    ctx.closePath();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.globalAlpha = f.shadow;
+    ctx.fillStyle = "#000";
+    ctx.fill();
+    ctx.globalAlpha = f.lit ? 0.55 : 0.18;
+    ctx.strokeStyle = "#fff";
+    ctx.stroke();
+    if (f.ink > 0) {
+      ctx.globalAlpha = f.ink;
+      ctx.fillStyle = "#fff";
+      ctx.font = `700 ${(f.fontSize * k).toFixed(1)}px ${font}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillStyle = hl ? `hsl(${h} 90% 94% / ${0.5 + n[2] * 0.5})` : `hsl(${h} 35% 85% / ${0.15 + n[2] * 0.45})`;
-      ctx.fillText(text, lx, ly + fs * 0.04);
-      // 6 and 9 are told apart by an underline, as on a real die.
-      if (poly.faces.length > 8 && (face.label === 6 || face.label === 9)) {
-        ctx.fillRect(lx - fs * 0.22, ly + fs * 0.42, fs * 0.44, Math.max(1, fs * 0.07));
-      }
+      ctx.fillText(String(f.label), f.at[0] * k, f.at[1] * k);
     }
   }
+  ctx.globalAlpha = 1;
 }
 
 interface DieProps {
@@ -153,24 +163,28 @@ interface DieProps {
   size?: number;
 }
 
-/** One die: tumbles into place once when `tumble`, otherwise draws its resting frame. */
+/**
+ * One die. At rest it is static SVG coloured by CSS variables, so a timeline of
+ * rolls holds no canvases and follows theme changes. A `tumble` draws on a
+ * canvas for its second of motion, then swaps to the same SVG.
+ */
 const Die = memo(function Die({ sides, value, seed, tumble, tone, size = DIE_SIZE }: DieProps) {
   const intl = useIntl();
   const ref = useRef<HTMLCanvasElement>(null);
   const poly = getPolyhedron(sides);
+  const [rolling, setRolling] = useState(tumble && !!poly);
+  const rest = useMemo(() => (poly ? restingPose(poly, value, seed) : undefined), [poly, value, seed]);
+  const still = useMemo(() => (poly && rest && !rolling ? facets(poly, rest, 0, value) : undefined), [poly, rest, rolling, value]);
 
   useEffect(() => {
     const canvas = ref.current;
     const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx || !poly) return;
-    const font = getComputedStyle(canvas).fontFamily || "sans-serif";
-    const rest = restingPose(poly, value, seed);
-    const frame = (pose: Quat, lift: number, settled: boolean) =>
-      draw(ctx, { poly, pose, size, lift, lit: settled ? value : null, tone, font });
-    if (!tumble) {
-      frame(rest, 0, true);
-      return;
-    }
+    if (!rolling || !canvas || !ctx || !poly || !rest) return;
+    // Resolved once per tumble: a style read per frame would force a recalc each time.
+    const style = getComputedStyle(canvas);
+    const fill = tone === "plain" ? `hsl(${style.getPropertyValue("--primary").trim() || "270 60% 50%"})` : TONE_FILL[tone];
+    const font = style.fontFamily || "sans-serif";
+    const px = canvas.width;
     // Wind the rest pose backwards about a random axis and ease it home, so the
     // tumble lands exactly on the result with no correcting snap.
     const axis: V3 = [Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5];
@@ -180,14 +194,18 @@ const Die = memo(function Die({ sides, value, seed, tumble, tone, size = DIE_SIZ
     let raf = 0;
     const step = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
+      if (t >= 1) {
+        setRolling(false);
+        return;
+      }
       const e = 1 - (1 - t) ** 3;
       const lift = 0.12 * Math.abs(Math.sin(t * Math.PI * 2.5)) * (1 - t) ** 1.5;
-      frame(qMul(rest, qAxis(axis, turns * (1 - e))), lift, t >= 1);
-      if (t < 1) raf = requestAnimationFrame(step);
+      paint(ctx, facets(poly, qMul(rest, qAxis(axis, turns * (1 - e))), lift, null), fill, px, font);
+      raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [poly, value, seed, tumble, tone, size]);
+  }, [rolling, poly, rest, tone]);
 
   const label = intl.formatMessage({ id: "diceRoll.die", defaultMessage: "d{sides}: {value}" }, { sides, value });
   if (!poly) {
@@ -205,17 +223,64 @@ const Die = memo(function Die({ sides, value, seed, tumble, tone, size = DIE_SIZ
       </span>
     );
   }
-  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  if (rolling) {
+    const dpr = window.devicePixelRatio || 1;
+    return (
+      <canvas
+        ref={ref}
+        role="img"
+        aria-label={label}
+        width={Math.round(size * dpr)}
+        height={Math.round(size * dpr)}
+        style={{ width: size, height: size }}
+        className="shrink-0"
+      />
+    );
+  }
   return (
-    <canvas
-      ref={ref}
-      role="img"
-      aria-label={label}
-      width={size * dpr}
-      height={size * dpr}
-      style={{ width: size, height: size }}
-      className="shrink-0"
-    />
+    <svg role="img" aria-label={label} viewBox="0 0 100 100" width={size} height={size} className="shrink-0">
+      {still?.map((f) => {
+        const points = f.points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+        return (
+          <g key={f.label}>
+            <polygon points={points} style={{ fill: TONE_FILL[tone] }} />
+            <polygon
+              points={points}
+              fill="#000"
+              fillOpacity={f.shadow}
+              stroke="#fff"
+              strokeOpacity={f.lit ? 0.55 : 0.18}
+              strokeWidth={1.5}
+              strokeLinejoin="round"
+            />
+            {f.ink > 0 && (
+              <text
+                x={f.at[0]}
+                y={f.at[1]}
+                fontSize={f.fontSize}
+                fontWeight={700}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fill="#fff"
+                fillOpacity={f.ink}
+              >
+                {f.label}
+              </text>
+            )}
+            {f.ink > 0 && f.underline && (
+              <rect
+                x={f.at[0] - f.fontSize * 0.22}
+                y={f.at[1] + f.fontSize * 0.42}
+                width={f.fontSize * 0.44}
+                height={f.fontSize * 0.07}
+                fill="#fff"
+                fillOpacity={f.ink}
+              />
+            )}
+          </g>
+        );
+      })}
+    </svg>
   );
 });
 
