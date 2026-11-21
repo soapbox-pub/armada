@@ -255,6 +255,14 @@ the SFU — Vector, or an Armada member whose LiveKit failed — and the link dr
 once that member's SFU presence arrives. Our `joined` names the SFU identity
 and the iroh endpoint in ONE rumor: Vector folds presence latest-wins per
 author, so two rumors would make it drop and re-dial us every heartbeat.
+Cameras and screens ride the same links in Vector's format (`irohVideo.ts`,
+`src/lib/irohVoice/video.ts`): one unidirectional stream per frame behind a
+16-byte header (H.264 Annex B or VP8 through WebCodecs), JSON `watch`/`key`/
+`unsupported` controls on streams of their own, and a picture is sent only to a
+member who asked for it. Linked members reach the call's UI through
+`IrohPeersContext` (`src/lib/irohVoice/peers.ts`): the LiveKit stage and its
+roster reporters add them beside LiveKit participants, and a call that is peer
+to peer alone gets `IrohCallStage`.
 
 ## How the client reaches backends (no build-time coupling)
 

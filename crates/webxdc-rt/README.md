@@ -6,7 +6,8 @@ Browser-side iroh transport, shared by two things so the bundle carries one iroh
   same Mini App session (`RealtimeNode`);
 - a Concord voice Channel's peer-to-peer call, interoperable with Vector's
   (`VoiceNode`, `src/voice.rs`): a fresh endpoint per call on ALPN
-  `concord/voice/1`, datagrams in and out, links reported as they come and go.
+  `concord/voice/1`: datagrams (audio) and whole unidirectional streams (video
+  frames and controls) in and out, links reported as they come and go.
 
 Deliberately dumb: everything the two clients must agree on byte for byte — the
 topic id, the 36-byte frame trailer, the base32 of a node address — lives in
