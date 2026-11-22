@@ -5154,7 +5154,7 @@
   "voicePresence.muted": "Muted",
   "voicePresence.otherTransport": "In the call peer to peer only",
   "voicePresence.streaming": "Streaming",
-  "voicePresence.transport.p2p": "{count, plural, one {# member} other {# members}} peer to peer, as Vector calls",
+  "voicePresence.transport.p2p": "{count, plural, one {# member} other {# members}} peer to peer over Iroh",
   "voicePresence.transport.sfu": "{count, plural, one {# member} other {# members}} on the LiveKit server",
   "voicePresence.viaP2p": "Connected peer to peer",
   "voicePresence.viaSfu": "Connected over the LiveKit server",
