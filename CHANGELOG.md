@@ -4,6 +4,33 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.12] - 2026-11-21
+
+Roll dice in chat with /roll, drawn as 3D dice with spell presets. Mutes can now
+last for a set time and sync across your devices, and a new setting adjusts
+vibration strength. macOS gets native notifications, and switching between
+channels and DM ordering are more reliable.
+
+### Added
+- A /roll command that rolls 3D dice in the message, with built-in spell presets (including upcasting) suggested in the command menu
+- Timed mutes for communities, channels and conversations that end on their own, even for notifications while the app is closed
+- A vibration intensity setting, shown on devices that can vibrate
+
+### Changed
+- Notification levels and mutes sync across your devices
+- An Ultra avatar frame's full glow shows while its wearer speaks in a call
+- Long-press selection on touch browsers behaves like the app
+- Empty community categories are shown only to members who can manage channels
+- On macOS, notifications are shown natively and clicking one opens it inside Armada
+
+### Fixed
+- Scrolling, tapping and swiping a channel no longer get stuck after switching back and forth between channels
+- Messages in a direct message no longer appear above earlier messages from the same sender
+- Following a link to a message that can't be found now says so instead of doing nothing
+- The touch channel rail keeps its scroll position when the layout changes
+- Emoji-shaped avatars keep their frame and outline in the right place
+- Reactions in relay-hosted servers show up reliably
+
 ## [0.69.11] - 2026-11-20
 
 The sticker picker gets a pack bar for jumping between packs and a grid that

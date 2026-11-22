@@ -22,7 +22,7 @@ import { decryptNotificationIcon } from "@/concord/lib/image";
 import { sentDuringMembership } from "@/concord/lib/membershipFloor";
 import { FUTURE_HOLD_MS, FUTURE_HORIZON_MS } from "@/concord/lib/stream";
 import { isRoomActive } from "@/lib/activeRooms";
-import { isDesktop, requestDesktopAttention } from "@/lib/desktop";
+import { desktop, isDesktop, requestDesktopAttention } from "@/lib/desktop";
 import { desktopNotificationTag } from "@/lib/desktopNotificationTag";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { mediaSrc } from "@/lib/mediaPolicy";
@@ -150,6 +150,18 @@ export async function showPageOsNotification(
   };
 
   if (abort()) return null;
+  const nativeShow = desktop()?.showNotification;
+  if (nativeShow) {
+    beginPresentation();
+    await nativeShow({
+      title,
+      body: options.body ?? "",
+      tag: options.tag || "armada",
+      url: typeof options.data?.url === "string" ? options.data.url : "/",
+    });
+    if (isDesktop()) requestDesktopAttention();
+    return undefined;
+  }
   // Electron's `registration.showNotification()` draws nothing; the page constructor does
   // reach the OS, so desktop takes that path.
   const preferPageConstructor = isDesktop();
@@ -228,6 +240,8 @@ export async function desktopSafeNotificationIcon(
   icon: string | undefined,
 ): Promise<string | undefined> {
   if (!icon || !isDesktop()) return icon;
+  // The macOS native presenter takes no icon; don't fetch one from the sender's host.
+  if (desktop()?.showNotification) return undefined;
   if (!/^https:\/\//i.test(icon) || !/\.gif(\?|#|$)/i.test(icon)) return icon;
   return await rasterizeFirstFrame(icon);
 }
@@ -1027,6 +1041,7 @@ export function useForegroundNotifications(): void {
 
     return () => {
       mounted = false;
+      void desktop()?.clearNotifications?.().catch(() => {});
       for (const t of heldTimers.values()) clearTimeout(t);
       unregister();
       removeTabAttentionHandlers();

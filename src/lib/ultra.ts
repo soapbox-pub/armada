@@ -91,11 +91,16 @@ const NAME_STYLE_CSS = Object.fromEntries(
   } satisfies CSSProperties]),
 ) as Record<NameStyleId, CSSProperties>;
 
+// drop-shadow follows a shaped avatar's mask, where a ring would be clipped away.
+const frameFilter = (color: string, bloom: boolean) =>
+  `drop-shadow(0 0 1.5px ${color}) drop-shadow(0 0 1.5px ${color})${bloom ? ` drop-shadow(0 0 5px ${color})` : ""}`;
+
 const FRAME_CSS = Object.fromEntries(
-  Object.entries(AVATAR_FRAMES).map(([id, color]) => [id, {
-    // drop-shadow follows a shaped avatar's mask, where a ring would be clipped away.
-    filter: `drop-shadow(0 0 1.5px ${color}) drop-shadow(0 0 1.5px ${color}) drop-shadow(0 0 5px ${color})`,
-  } satisfies CSSProperties]),
+  Object.entries(AVATAR_FRAMES).map(([id, color]) => [id, { filter: frameFilter(color, true) } satisfies CSSProperties]),
+) as Record<AvatarFrameId, CSSProperties>;
+
+const FRAME_RIM_CSS = Object.fromEntries(
+  Object.entries(AVATAR_FRAMES).map(([id, color]) => [id, { filter: frameFilter(color, false) } satisfies CSSProperties]),
 ) as Record<AvatarFrameId, CSSProperties>;
 
 /** Class for a styled name shown on its own; pair with {@link nameStyleCss}. */
@@ -112,8 +117,8 @@ export function nameStyleCss(id: NameStyleId | undefined): CSSProperties | undef
   return id ? NAME_STYLE_CSS[id] : undefined;
 }
 
-export function frameCss(id: AvatarFrameId | undefined): CSSProperties | undefined {
-  return id ? FRAME_CSS[id] : undefined;
+export function frameCss(id: AvatarFrameId | undefined, rim = false): CSSProperties | undefined {
+  return id ? (rim ? FRAME_RIM_CSS : FRAME_CSS)[id] : undefined;
 }
 
 // The viewer's `showUltra` setting, mirrored here so rows outside an AppProvider can read it.
@@ -143,10 +148,15 @@ export function useUltra(metadata: { [key: string]: unknown } | undefined): Ultr
 }
 
 /** {@link frameCss}, unless the viewer hides Ultra flair on this device or Ultra altogether. */
-export function useFrameCss(id: AvatarFrameId | undefined): CSSProperties | undefined {
+export function useFrameCss(id: AvatarFrameId | undefined, rim = false): CSSProperties | undefined {
   const hidden = useHiddenFlair();
   const shown = useUltraShown();
-  return hidden || !shown ? undefined : frameCss(id);
+  return hidden || !shown ? undefined : frameCss(id, rim);
+}
+
+/** Whether {@link useFrameCss} draws this profile's frame, so a caller can drop a ring the frame replaces. */
+export function useWearsFrame(metadata: { [key: string]: unknown } | undefined): boolean {
+  return !!useFrameCss(useUltra(metadata)?.frame);
 }
 
 /** Themes only the Ultra page offers. Applied locally, like any preset. */

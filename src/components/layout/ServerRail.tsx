@@ -45,6 +45,7 @@ import { useNotifLevels, communityScopeKey, dmScopeKey } from "@/hooks/useNotifL
 import { useRailDms } from "@/hooks/useRailDms";
 import { NotifLevelMenu } from "@/components/NotifLevelMenu";
 import { useSwipeLayout } from "@/components/layout/SwipeReveal";
+import { restoreRailScroll, trackRailScroll } from "@/components/layout/railScroll";
 import { channelReadKey, useReadState } from "@/hooks/useReadState";
 import { useRelayGroups } from "@/hooks/useRelayGroups";
 import { useRelayInfo } from "@/hooks/useRelayInfo";
@@ -1335,6 +1336,7 @@ function getRailPortalNode(): HTMLDivElement {
     railPortalNode = document.createElement("div");
     // `display: contents` on both so the rail lays out as if inline.
     railPortalNode.style.display = "contents";
+    trackRailScroll(railPortalNode);
   }
   return railPortalNode;
 }
@@ -1347,6 +1349,7 @@ function RailSlot() {
     const node = getRailPortalNode();
     // appendChild MOVES the node; the outgoing slot's cleanup already ran, so no railless frame.
     slot.appendChild(node);
+    restoreRailScroll(node);
     return () => {
       if (node.parentNode === slot) slot.removeChild(node);
     };
@@ -1791,6 +1794,7 @@ function ServerRailInner({
       <nav
         ref={railDrag.attachContainer}
         aria-label={intl.formatMessage({ id: "serverRail.servers", defaultMessage: "Servers" })}
+        data-rail-scroller=""
         // Suppress native HTML5 drag, which hijacks the custom reorder gesture.
         onDragStart={(e) => e.preventDefault()}
         // Entries start their own press.

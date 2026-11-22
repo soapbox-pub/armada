@@ -161,10 +161,25 @@ verifies its own registration before allowing close-to-tray; without a usable
 host the close button exits instead of leaving calls running in an invisible
 process. Non-GNOME X11 desktops may use Electron's legacy tray fallback.
 
-Native notifications come from the renderer's own `new Notification()` — the
-foreground notifier and the push runtime both post through the Web Notifications
-API, and Electron backs it with the OS notifier (libnotify on Linux, the Action
-Center on Windows, `NSUserNotification`/`UNUserNotification` on macOS). Two
+On macOS, foreground notifications use the optional `showNotification` preload
+bridge and Electron's main-process `Notification`. The shell retains each
+notification, replaces it by conversation, restores the window on click, and
+acknowledges delivery only after the native `show` event. It rejects `failed`
+events and timeouts: Chromium's `Notification.permission` can report `granted`
+while macOS refuses delivery. Settings includes a test banner and a shortcut to
+macOS notification settings. macOS still controls permissions, Focus, banner
+style and previews; native acceptance alone cannot prove a banner was visible.
+The signed bundle supplies the icon, avoiding failures creating avatar
+attachments. Logout and renderer teardown clear retained plaintext notifications.
+
+A native notification click restores Armada and routes inside its existing
+window. The shell waits until the router's `onDeepLink` listener subscribes
+before delivering a pending click, so a reload does not lose the conversation.
+There is no service-worker path to route: `app://` is not registered with
+`allowServiceWorkers`, so `sw.js` never runs in the shell.
+
+Other desktops and older shells use the renderer's `new Notification()`, backed
+by libnotify on Linux and the Action Center on Windows. Two
 platforms need an identity set before `ready` for those toasts to appear and
 be attributed correctly: Linux via `app.setDesktopName("buzz.armada.app.desktop")`
 (matching the installed `.desktop` entry the Flatpak's

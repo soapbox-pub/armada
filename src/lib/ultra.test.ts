@@ -35,6 +35,8 @@ describe("styles", () => {
   it("hands rows the same object every time", () => {
     expect(nameStyleCss("aurora")).toBe(nameStyleCss("aurora"));
     expect(frameCss("gold")).toBe(frameCss("gold"));
+    expect(frameCss("gold", true)).toBe(frameCss("gold", true));
+    expect(frameCss("gold", true)).not.toBe(frameCss("gold"));
     expect(nameStyleCss(undefined)).toBeUndefined();
   });
 });

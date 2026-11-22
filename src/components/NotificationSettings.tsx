@@ -3,6 +3,7 @@ import { AlertTriangle, Play } from "lucide-react";
 
 import { BravePushServiceNotice } from "@/components/BravePushNotice";
 import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
+import { DesktopNotificationTest } from "@/components/DesktopNotificationTest";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useForegroundNotificationSettings } from "@/hooks/useForegroundNotificationSettings";
 import {
@@ -575,6 +576,7 @@ function ForegroundOnlySettings() {
   }
 
   return (
+    <>
     <NotificationToggles
       title={intl.formatMessage({ id: "notificationSettings.foreground", defaultMessage: "Notifications while Armada is open" })}
       description={desktop
@@ -599,6 +601,8 @@ function ForegroundOnlySettings() {
       onToggle={(v) => setEnabled(v).catch(() => {})}
       onSetPrefs={setPrefs}
     />
+    <DesktopNotificationTest />
+    </>
   );
 }
 

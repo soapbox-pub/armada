@@ -5,7 +5,7 @@ import vm from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
-function loadPreload({ dbAvailable = true } = {}) {
+function loadPreload({ dbAvailable = true, platform = "linux" } = {}) {
   let api;
   const listeners = new Map();
   const windowObject = { postMessage: vi.fn() };
@@ -27,6 +27,7 @@ function loadPreload({ dbAvailable = true } = {}) {
   };
   const source = fs.readFileSync(new URL("./preload.js", import.meta.url), "utf8");
   vm.runInNewContext(source, {
+    process: { platform },
     window: windowObject,
     require: (specifier) => {
       if (specifier === "electron") return { contextBridge, ipcRenderer };
@@ -37,6 +38,17 @@ function loadPreload({ dbAvailable = true } = {}) {
 }
 
 describe("desktop database preload bridge", () => {
+  it("exposes native notification presentation only on macOS", () => {
+    expect(loadPreload().api.showNotification).toBeUndefined();
+    const { api, ipcRenderer } = loadPreload({ platform: "darwin" });
+    const input = { title: "Alice", body: "hello", tag: "dm-a", url: "/dm/a" };
+    api.showNotification(input);
+    api.openNotificationSettings();
+    api.clearNotifications();
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith("armada:show-notification", input);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith("armada:open-notification-settings");
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith("armada:clear-notifications");
+  });
   it("selects the native adapter synchronously and forwards database calls", () => {
     const { api, ipcRenderer } = loadPreload({ dbAvailable: true });
 
@@ -56,6 +68,18 @@ describe("desktop database preload bridge", () => {
 });
 
 describe("notification attention preload bridge", () => {
+  it("announces readiness after subscribing and withdraws it on cleanup", () => {
+    const { api, ipcRenderer, listeners } = loadPreload();
+    const handler = vi.fn();
+    const off = api.onDeepLink(handler);
+    expect(ipcRenderer.on.mock.invocationCallOrder.at(-1)).toBeLessThan(ipcRenderer.send.mock.invocationCallOrder.at(-1));
+    expect(ipcRenderer.send).toHaveBeenLastCalledWith("armada:deep-link-ready", true);
+    listeners.get("armada:deep-link")({}, "/dm/alice");
+    expect(handler).toHaveBeenCalledWith("/dm/alice");
+    off();
+    expect(ipcRenderer.send).toHaveBeenLastCalledWith("armada:deep-link-ready", false);
+    expect(listeners.has("armada:deep-link")).toBe(false);
+  });
   it("forwards a taskbar-attention request to the main process", () => {
     const { api, ipcRenderer } = loadPreload();
     api.requestAttention();

@@ -62,6 +62,7 @@ files:
   - youtubeEmbedIdentity.js
   # Required by main.js at startup; unlisted, the shell cannot boot.
   - permissionPolicy.js
+  - desktopNotifications.js
   - hevcScreenShare.js
   - linuxGlobalShortcuts.js
   - linuxStatusNotifier.js
@@ -224,6 +225,7 @@ mac:
   # macOS TCC requires these usage strings in Info.plist; without them the
   # process is killed the first time getUserMedia touches the mic/camera.
   extendInfo:
+    NSUserNotificationAlertStyle: banner
     NSMicrophoneUsageDescription: Armada uses the microphone for voice calls.
     NSCameraUsageDescription: Armada uses the camera for video calls.
     NSAudioCaptureUsageDescription: Armada shares system audio when you choose it while sharing your screen.

@@ -417,6 +417,20 @@ describe("page / service-worker presentation ownership", () => {
     expect(await desktopSafeNotificationIcon("https://host.example/a.gif")).toBeUndefined();
   });
 
+  it("fetches no icon for the macOS native presenter, which shows none", async () => {
+    const requested: string[] = [];
+    class FakeImage {
+      crossOrigin = "";
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(v: string) { requested.push(v); queueMicrotask(() => this.onerror?.()); }
+    }
+    vi.stubGlobal("Image", FakeImage);
+    vi.stubGlobal("window", { armadaDesktop: { isDesktop: true, showNotification: vi.fn() } });
+    expect(await desktopSafeNotificationIcon("https://host.example/a.gif")).toBeUndefined();
+    expect(requested).toEqual([]);
+  });
+
   it("lets the page own presentation on desktop even when the SW lookup throws", async () => {
     // Electron serves from app://armada, where getRegistration() throws a
     // SecurityError. Desktop has no Web Push worker to defer to, so the page
@@ -478,6 +492,24 @@ describe("page / service-worker presentation ownership", () => {
     // only appears through the renderer's Notification constructor.
     expect(showNotification).not.toHaveBeenCalled();
     expect(pageConstructor).toHaveBeenCalledWith("Alice", { body: "hello" });
+  });
+
+  it("awaits the macOS native presenter without creating a second browser notification", async () => {
+    const showNotification = vi.fn(async () => undefined);
+    vi.stubGlobal("window", { armadaDesktop: { isDesktop: true, showNotification } });
+    const pageConstructor = vi.fn();
+    vi.stubGlobal("Notification", pageConstructor);
+    await expect(showPageOsNotification("Alice", { body: "hello", tag: "dm-a", data: { url: "/dm/alice" } })).resolves.toBeUndefined();
+    expect(showNotification).toHaveBeenCalledWith({ title: "Alice", body: "hello", tag: "dm-a", url: "/dm/alice" });
+    expect(pageConstructor).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to a duplicate browser notification after native rejection", async () => {
+    vi.stubGlobal("window", { armadaDesktop: { isDesktop: true, showNotification: vi.fn(async () => { throw new Error("denied"); }) } });
+    const pageConstructor = vi.fn();
+    vi.stubGlobal("Notification", pageConstructor);
+    await expect(showPageOsNotification("Alice", { body: "hello" })).rejects.toThrow("denied");
+    expect(pageConstructor).not.toHaveBeenCalled();
   });
 
   it("re-checks ownership at presentation and never races an active PushEvent", async () => {

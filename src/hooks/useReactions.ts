@@ -10,6 +10,7 @@ import { recordAskedIds, useRefetchOnNewIds } from "@/hooks/useRefetchOnNewIds";
 import { KIND_DELETE, KIND_REACTION } from "@/lib/nip29";
 
 import type { MessageReactions } from "@/components/chat/transport";
+import type { NostrFilter } from "@nostrify/nostrify";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { nowSecs } from "@/lib/relayClock";
 
@@ -109,6 +110,11 @@ function reactionsKey(relayUrl: string | undefined, groupId: string | undefined)
   return ["nip29", "reactions", relayUrl, groupId] as const;
 }
 
+function reactionFilters(ids: string[], groupId: string, window: Pick<NostrFilter, "since" | "limit">): NostrFilter[] {
+  // `#h` is REQUIRED: relay29 serves no filter with an `#e` alone.
+  return [{ kinds: [KIND_REACTION], "#e": ids, "#h": [groupId], ...window }];
+}
+
 /**
  * NIP-25 reactions for a whole NIP-29 group in ONE batched `#e` query over the visible ids
  * (like Concord's `useConcordReactions`), with `reactionsFor(id)` per row. Local-first from the
@@ -145,14 +151,15 @@ export function useGroupReactions(
       // Cap so each per-id index cursor stops early (scan cost scales with the window).
       const limit = ids.length * 20;
 
-      const cached = await store.query([{ kinds: [KIND_REACTION], "#e": ids, limit }]);
+      // `h`-tagged, so stored in the relay's tenant, not `main`.
+      const cached = await store.query(reactionFilters(ids, groupId, { limit }), { relay: relayUrl });
 
       // Not awaited — never gates render.
       void (async () => {
         if (signal.aborted) return;
         try {
           const fresh = await nostr.relay(relayUrl).query(
-            [{ kinds: [KIND_REACTION], "#e": ids, limit }],
+            reactionFilters(ids, groupId, { limit }),
             { signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) },
           );
           if (signal.aborted || fresh.length === 0) return;
@@ -193,7 +200,7 @@ export function useGroupReactions(
     (async () => {
       try {
         for await (const msg of nostr.relay(relayUrl).req(
-          [{ kinds: [KIND_REACTION], "#e": ids, since: nowSecs() - 5 }],
+          reactionFilters(ids, groupId, { since: nowSecs() - 5 }),
           { signal: controller.signal },
         )) {
           if (msg[0] !== "EVENT") continue;

@@ -229,6 +229,16 @@ interface ArmadaDesktopBridge {
   onDeepLink?: (handler: (path: string) => void) => () => void;
   armadaDb?: ArmadaDesktopDb;
   requestAttention?: () => void;
+  showNotification?: (input: DesktopNotification) => Promise<void>;
+  openNotificationSettings?: () => Promise<boolean>;
+  clearNotifications?: () => Promise<void>;
+}
+
+export interface DesktopNotification {
+  title: string;
+  body: string;
+  tag: string;
+  url: string;
 }
 
 declare global {
