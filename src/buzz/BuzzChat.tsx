@@ -29,6 +29,7 @@ import { ChatContent } from "@/components/chat/ChatContent";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { DisplayName } from "@/components/DisplayName";
 import { UserAvatar } from "@/components/UserAvatar";
+import { MentionRosterContext, useMentionRoster } from "@/components/chat/mentionRoster";
 import { MessageTimeline, type MessageTimelineHandle } from "@/components/chat/MessageTimeline";
 import { ThreadPanel } from "@/components/chat/ThreadPanel";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
@@ -825,8 +826,12 @@ export function BuzzChat({
     ],
   );
 
+  // In-place edits offer the composer's mention candidates.
+  const mentionRoster = useMentionRoster(relayUrl, channelId, timeline);
+
   return (
     <div className="relative flex flex-1 min-h-0 min-w-0">
+      <MentionRosterContext.Provider value={mentionRoster}>
       <ComposerBoundsProvider value={composerBoundsRef}>
       <div className={cn(
         "relative flex flex-col flex-1 min-h-0 min-w-0",
@@ -962,6 +967,7 @@ export function BuzzChat({
           )}
         </div>
       </div>
+      </MentionRosterContext.Provider>
     </div>
   );
 }

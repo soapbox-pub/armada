@@ -33,6 +33,7 @@ import { EmojiShortcodeAutocomplete } from "@/components/chat/EmojiShortcodeAuto
 import { GifPicker } from "@/components/chat/GifPicker";
 import { Lightbox } from "@/components/chat/Lightbox";
 import { MentionAutocomplete, type MentionRole } from "@/components/chat/MentionAutocomplete";
+import { useMentionRoster } from "@/components/chat/mentionRoster";
 import { roleMentionTags } from "@/concord/lib/roleMentions";
 import { RichTextarea } from "@/components/chat/RichTextarea";
 import { useRichText } from "@/components/chat/useRichText";
@@ -58,7 +59,6 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useBotManifests } from "@/hooks/useBotManifests";
 import { useCommandRequests } from "@/hooks/useCommandBus";
 import { useCustomEmojis } from "@/hooks/useCustomEmojis";
-import { useGroup } from "@/hooks/useGroup";
 import { useGlobalImagePaste } from "@/hooks/useGlobalImagePaste";
 import { useMentionInsertions } from "@/hooks/useMentionBus";
 import { useIsMobile, useIsTouch } from "@/hooks/useIsMobile";
@@ -537,17 +537,7 @@ function ChatComposerBody({ relayUrl, groupId, messages, replyTo, onCancelReply,
 
   // Mentions scoped to the room; disabled in plain DMs unless `mentionPubkeys` is given.
   const isDM = relayUrl === "dm";
-  const { data: groupDetails } = useGroup(isDM ? undefined : relayUrl, isDM ? undefined : groupId);
-  const memberPubkeys = useMemo(() => {
-    if (mentionPubkeys) return mentionPubkeys;
-    if (isDM) return undefined;
-    const set = new Set<string>();
-    for (const a of groupDetails?.admins ?? []) set.add(a.pubkey);
-    for (const m of groupDetails?.members ?? []) set.add(m);
-    for (const m of messages) set.add(m.pubkey);
-    if (user) set.add(user.pubkey);
-    return [...set];
-  }, [mentionPubkeys, isDM, groupDetails?.admins, groupDetails?.members, messages, user]);
+  const memberPubkeys = useMentionRoster(relayUrl, groupId, messages, mentionPubkeys);
   const mentionsEnabled = memberPubkeys !== undefined;
 
   // Group-only commands (/poll, /thread, /kick, /ban) need the group publish path;

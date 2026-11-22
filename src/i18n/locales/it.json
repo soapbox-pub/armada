@@ -4604,7 +4604,6 @@
   "threadPanel.commentCount": "{count, plural, one {# commento} other {# commenti}}",
   "threadPanel.deleteDialog.description": "L’operazione non può essere annullata. Relay e client che lo hanno già potrebbero conservarne una copia.",
   "threadPanel.deleteDialog.title": "Eliminare il messaggio?",
-  "threadPanel.editHint": "esc per annullare · invio per salvare",
   "threadPanel.expand": "Espandi thread",
   "threadPanel.joinToReply": "Unisciti a questo canale per rispondere.",
   "threadPanel.json.rumor": "Il rumor grezzo e non firmato di questo messaggio.",

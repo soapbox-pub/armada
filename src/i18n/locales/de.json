@@ -4604,7 +4604,6 @@
   "threadPanel.commentCount": "{count, plural, one {# Kommentar} other {# Kommentare}}",
   "threadPanel.deleteDialog.description": "Das kann nicht rückgängig gemacht werden. Relays und Clients, die sie bereits haben, behalten möglicherweise ihre Kopie.",
   "threadPanel.deleteDialog.title": "Nachricht löschen?",
-  "threadPanel.editHint": "Escape zum Abbrechen · Enter zum Speichern",
   "threadPanel.expand": "Thread ausklappen",
   "threadPanel.joinToReply": "Tritt diesem Kanal bei, um zu antworten.",
   "threadPanel.json.rumor": "Das rohe, unsignierte Rumor dieser Nachricht.",

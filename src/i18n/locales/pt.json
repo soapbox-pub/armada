@@ -4604,7 +4604,6 @@
   "threadPanel.commentCount": "{count, plural, one {# comentário} other {# comentários}}",
   "threadPanel.deleteDialog.description": "Isso não pode ser desfeito. Relays e clientes que já têm a mensagem podem manter a cópia deles.",
   "threadPanel.deleteDialog.title": "Excluir mensagem?",
-  "threadPanel.editHint": "esc para cancelar · enter para salvar",
   "threadPanel.expand": "Expandir thread",
   "threadPanel.joinToReply": "Entre neste canal para responder.",
   "threadPanel.json.rumor": "O rumor bruto e não assinado desta mensagem.",

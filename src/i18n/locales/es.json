@@ -4604,7 +4604,6 @@
   "threadPanel.commentCount": "{count, plural, one {# comentario} other {# comentarios}}",
   "threadPanel.deleteDialog.description": "Esto no se puede deshacer. Los relays y clientes que ya lo tengan pueden conservar su copia.",
   "threadPanel.deleteDialog.title": "¿Eliminar mensaje?",
-  "threadPanel.editHint": "escape para cancelar · enter para guardar",
   "threadPanel.expand": "Expandir hilo",
   "threadPanel.joinToReply": "Únete a este canal para responder.",
   "threadPanel.json.rumor": "El rumor sin firmar y sin procesar de este mensaje.",

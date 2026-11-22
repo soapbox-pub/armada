@@ -4604,7 +4604,6 @@
   "threadPanel.commentCount": "{count, plural, other {# 件のコメント}}",
   "threadPanel.deleteDialog.description": "この操作は取り消せません。すでに受信しているリレーやクライアントにはコピーが残る場合があります。",
   "threadPanel.deleteDialog.title": "メッセージを削除しますか？",
-  "threadPanel.editHint": "Esc でキャンセル · Enter で保存",
   "threadPanel.expand": "スレッドを展開",
   "threadPanel.joinToReply": "返信するにはこのチャンネルに参加してください。",
   "threadPanel.json.rumor": "このメッセージの未署名の生の rumor です。",

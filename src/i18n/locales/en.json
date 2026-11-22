@@ -4604,7 +4604,6 @@
   "threadPanel.commentCount": "{count, plural, one {# comment} other {# comments}}",
   "threadPanel.deleteDialog.description": "This can't be undone. Relays and clients that already have it may keep their copy.",
   "threadPanel.deleteDialog.title": "Delete message?",
-  "threadPanel.editHint": "escape to cancel · enter to save",
   "threadPanel.expand": "Expand thread",
   "threadPanel.joinToReply": "Join this channel to reply.",
   "threadPanel.json.rumor": "The raw, unsigned rumor for this message.",

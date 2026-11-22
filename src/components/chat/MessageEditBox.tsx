@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
+import { MentionAutocomplete } from "@/components/chat/MentionAutocomplete";
+import { MentionRosterContext } from "@/components/chat/mentionRoster";
 import { RichTextarea } from "@/components/chat/RichTextarea";
 import { useRichText } from "@/components/chat/useRichText";
 import { useAutosizeTextarea } from "@/hooks/useAutosizeTextarea";
@@ -16,7 +18,7 @@ interface MessageEditBoxProps {
   onCancel: () => void;
 }
 
-/** In-place edit of a sent message: the composer's mention and markdown rendering, nothing else. */
+/** In-place edit of a sent message: the composer's mention rendering and autocomplete, and its markdown. */
 export function MessageEditBox({ content, tags, sendOnEnter, onSubmit, onCancel }: MessageEditBoxProps) {
   const [text, setText] = useState(content);
   useEffect(() => setText(content), [content]);
@@ -29,6 +31,13 @@ export function MessageEditBox({ content, tags, sendOnEnter, onSubmit, onCancel 
     return (shortcode: string) => urls.get(shortcode);
   }, [emojis, tags]);
   const rich = useRichText({ value: text, onValueChange: setText, textareaRef, emojiUrl });
+  const { replaceRange } = rich.handle;
+  const insertMention = useCallback(
+    ({ start, end, replacement }: { start: number; end: number; replacement: string }) => replaceRange(start, end, replacement),
+    [replaceRange],
+  );
+  // An edit carries content only, so it offers profiles but no @everyone or roles (nothing would notify).
+  const mentionRoster = useContext(MentionRosterContext);
   const autosizeRef = useAutosizeTextarea(rich.display);
   // Place the caret at the end when an edit opens (autoFocus puts it at the start).
   const caretPlacedRef = useRef(false);
@@ -54,6 +63,8 @@ export function MessageEditBox({ content, tags, sendOnEnter, onSubmit, onCancel 
         rich={rich}
         ref={setRef}
         onKeyDown={(e) => {
+          // The mention menu claims Enter/Tab/Escape while open; Enter may also be confirming an IME composition.
+          if (e.defaultPrevented || e.nativeEvent.isComposing) return;
           const saveKey = sendOnEnter
             ? e.key === "Enter" && !e.shiftKey
             : e.key === "Enter" && (e.ctrlKey || e.metaKey);
@@ -68,6 +79,15 @@ export function MessageEditBox({ content, tags, sendOnEnter, onSubmit, onCancel 
         rows={1}
         className="block w-full resize-none rounded-md bg-background border border-input px-2 py-1.5 text-chat max-h-40 overflow-y-auto focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
+      {mentionRoster && (
+        <MentionAutocomplete
+          textareaRef={textareaRef}
+          content={rich.display}
+          isMentionStart={rich.handle.isMentionStart}
+          onInsertMention={insertMention}
+          restrictToPubkeys={mentionRoster}
+        />
+      )}
       <div className="flex items-center gap-2 touch:gap-4 mt-1 text-2xs text-muted-foreground">
         <button
           type="button"
