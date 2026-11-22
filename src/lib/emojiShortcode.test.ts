@@ -1,6 +1,13 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { completedShortcodeAt, findEmojiShortcodeColon, nativeEmojiForShortcode } from "@/lib/emojiShortcode";
+import { emojiData } from "@/lib/emojiData";
+import {
+  completedShortcodeAt,
+  emojisForEmoticon,
+  emoticonCandidateAt,
+  findEmojiShortcodeColon,
+  nativeEmojiForShortcode,
+} from "@/lib/emojiShortcode";
 
 describe("before the emoji dataset has loaded", () => {
   it("converts nothing, and an opening colon starts the load", async () => {
@@ -94,5 +101,31 @@ describe("completedShortcodeAt", () => {
 
   it("leaves a custom emoji's shortcode as text", () => {
     expect(at(":smile:", new Set(["smile"]))).toBeNull();
+  });
+});
+
+describe("emoticons", () => {
+  it("takes the whole word before the caret as a candidate", () => {
+    expect(emoticonCandidateAt(":-)", 3)).toEqual({ start: 0, token: ":-)" });
+    expect(emoticonCandidateAt("ok ;)", 5)).toEqual({ start: 3, token: ";)" });
+    expect(emoticonCandidateAt("love <3", 7)).toEqual({ start: 5, token: "<3" });
+    expect(emoticonCandidateAt("a\n:D", 4)).toEqual({ start: 2, token: ":D" });
+  });
+
+  it("ignores words that can't be one", () => {
+    expect(emoticonCandidateAt("hello", 5)).toBeNull();
+    expect(emoticonCandidateAt("hi :", 4)).toBeNull();
+    expect(emoticonCandidateAt(":smile", 6)).toBeNull();
+    expect(emoticonCandidateAt("hi ", 3)).toBeNull();
+  });
+
+  it("names the emoji emoji-mart lists for an exact emoticon", () => {
+    const data = emojiData()!;
+    expect(emojisForEmoticon(":-)", data).map((e) => e.native)).toEqual(["🙂"]);
+    expect(emojisForEmoticon(";)", data).map((e) => e.native)).toEqual(["😉"]);
+    expect(emojisForEmoticon(":)", data).map((e) => e.native)).toContain("🙂");
+    expect(emojisForEmoticon(":P", data).map((e) => e.native)).toEqual(["😛"]);
+    expect(emojisForEmoticon(":sm", data)).toEqual([]);
+    expect(emojisForEmoticon("ok:)", data)).toEqual([]);
   });
 });

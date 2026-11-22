@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CustomEmojiImg } from "@/components/chat/CustomEmoji";
 import { getCaretCoordinates } from "@/lib/caretCoordinates";
 import { useEmojiData, type EmojiMartData } from "@/lib/emojiData";
-import { findEmojiShortcodeColon } from "@/lib/emojiShortcode";
+import { emojisForEmoticon, emoticonCandidateAt, findEmojiShortcodeColon } from "@/lib/emojiShortcode";
 import { usePortalDropdown } from "@/hooks/usePortalDropdown";
 import { useCustomEmojis, type CustomEmoji } from "@/hooks/useCustomEmojis";
 import { menuPickHandlers } from "@/lib/menuPick";
@@ -99,9 +99,16 @@ function searchEmojis(query: string, customEmojis: CustomEmoji[], data: EmojiMar
   return results.slice(0, MAX_RESULTS);
 }
 
+function emoticonResults(token: string, data: EmojiMartData | undefined): EmojiResult[] {
+  if (!data) return [];
+  return emojisForEmoticon(token, data).slice(0, MAX_RESULTS).map((e) => ({ ...e, score: 0 }));
+}
+
 /**
  * `:shortcode` autocomplete at the caret; inserts the native character or
- * `:shortcode:` for custom emojis.
+ * `:shortcode:` for custom emojis. A word that is exactly an emoticon (`:-)`,
+ * `;)`, `<3`) offers its emoji too, but leaves Enter to send unless a row was
+ * arrowed to, so a message ending in one is not rewritten.
  */
 export function EmojiShortcodeAutocomplete({
   textareaRef,
@@ -113,6 +120,9 @@ export function EmojiShortcodeAutocomplete({
 
   const [query, setQuery] = useState("");
   const [colonStart, setColonStart] = useState(-1);
+  const [emoticon, setEmoticon] = useState(false);
+  const [wantData, setWantData] = useState(false);
+  const [navigated, setNavigated] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState<{ bottom: number; left: number } | null>(null);
@@ -127,8 +137,11 @@ export function EmojiShortcodeAutocomplete({
   });
 
   // Loaded once a shortcode is being typed; custom emoji match before then.
-  const data = useEmojiData(query.length > 0);
-  const results = useMemo(() => searchEmojis(query, customEmojis, data), [query, customEmojis, data]);
+  const data = useEmojiData(wantData || query.length > 0);
+  const results = useMemo(
+    () => (emoticon ? emoticonResults(query, data) : searchEmojis(query, customEmojis, data)),
+    [emoticon, query, customEmojis, data],
+  );
 
   const detectShortcode = useCallback((text?: string, cursorPos?: number | null) => {
     const textarea = textareaRef.current;
@@ -136,6 +149,21 @@ export function EmojiShortcodeAutocomplete({
 
     const value = text ?? textarea.value;
     const cursor = cursorPos ?? textarea.selectionStart ?? value.length;
+
+    const candidate = emoticonCandidateAt(value, cursor);
+    if (candidate && !data) setWantData(true);
+    if (candidate && data && emojisForEmoticon(candidate.token, data).length > 0) {
+      setQuery(candidate.token);
+      setColonStart(candidate.start);
+      setEmoticon(true);
+      setIsOpen(true);
+      setNavigated(false);
+      setSelectedIndex(0);
+      setDropdownPos(computeBottomPosition(getCaretCoordinates(textarea, candidate.start)));
+      return;
+    }
+    setEmoticon(false);
+
     const colonPos = findEmojiShortcodeColon(value, cursor);
 
     if (colonPos === -1) {
@@ -157,11 +185,12 @@ export function EmojiShortcodeAutocomplete({
     setQuery(q);
     setColonStart(colonPos);
     setIsOpen(true);
+    setNavigated(false);
     setSelectedIndex(0);
 
     const coords = getCaretCoordinates(textarea, colonPos);
     setDropdownPos(computeBottomPosition(coords));
-  }, [textareaRef, computeBottomPosition]);
+  }, [textareaRef, computeBottomPosition, data]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -197,7 +226,7 @@ export function EmojiShortcodeAutocomplete({
   const selectEmoji = useCallback((emoji: EmojiResult) => {
     // Derived from the tracked colon, not selectionStart: tapping the portal
     // dropdown can collapse the selection on touch.
-    const cursor = colonStart + query.length + 1;
+    const cursor = colonStart + query.length + (emoticon ? 0 : 1);
 
     if (emoji.customUrl) {
       const shortcode = emoji.name;
@@ -221,7 +250,7 @@ export function EmojiShortcodeAutocomplete({
     setIsOpen(false);
     setQuery("");
     setColonStart(-1);
-  }, [colonStart, query, onInsertEmoji, onCustomEmojiInsert, customEmojis]);
+  }, [colonStart, query, emoticon, onInsertEmoji, onCustomEmojiInsert, customEmojis]);
 
   useEffect(() => {
     if (!isOpen || results.length === 0) return;
@@ -233,14 +262,17 @@ export function EmojiShortcodeAutocomplete({
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
+          setNavigated(true);
           setSelectedIndex((prev) => (prev < results.length - 1 ? prev + 1 : 0));
           break;
         case "ArrowUp":
           e.preventDefault();
+          setNavigated(true);
           setSelectedIndex((prev) => (prev > 0 ? prev - 1 : results.length - 1));
           break;
         case "Enter":
         case "Tab":
+          if (e.key === "Enter" && emoticon && !navigated) break;
           if (results.length > 0) {
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -256,7 +288,7 @@ export function EmojiShortcodeAutocomplete({
 
     textarea.addEventListener("keydown", handleKeyDown);
     return () => textarea.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, results, selectedIndex, textareaRef, selectEmoji]);
+  }, [isOpen, results, selectedIndex, textareaRef, selectEmoji, emoticon, navigated]);
 
   useEffect(() => {
     if (selectedIndex >= 0 && listRef.current) {
@@ -299,6 +331,7 @@ export function EmojiShortcodeAutocomplete({
               )}
               <span className="text-sm truncate">
                 :{emoji.id.replace("custom:", "")}:
+                {emoticon && <span className="ml-2 text-muted-foreground">{query}</span>}
               </span>
             </button>
           ))}

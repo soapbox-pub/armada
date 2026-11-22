@@ -110,6 +110,28 @@ test("a custom emoji shows as its image and is sent as its shortcode", async ({ 
   await expect(sent.locator("img[alt=':blob:']")).toBeVisible();
 });
 
+test("an emoticon offers its emoji, and Enter still sends it as typed", async ({ page }) => {
+  test.setTimeout(120_000);
+  await bootChannel(page);
+  const field = page.getByRole("textbox").last();
+  await field.click();
+
+  await page.keyboard.type("ok :-)");
+  await expect(page.locator("[data-emoji-item]").first()).toContainText("🙂");
+  await page.keyboard.press("Tab");
+  await expect(field).toHaveValue("ok 🙂");
+
+  await page.keyboard.type(" :smi");
+  await expect(page.locator("[data-emoji-item]").first()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await field.fill("");
+
+  await page.keyboard.type("thanks ;)");
+  await expect(page.locator("[data-emoji-item]").first()).toContainText("😉");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-event-id]").filter({ hasText: "thanks ;)" })).toBeVisible();
+});
+
 // Reduce motion is on whenever the OS asks for it. Its stylesheet once gave
 // every element a 0.01ms transition, so the overlay read back its pre-write
 // font size, divided it out as a text zoom, and drew the text smaller than the
