@@ -62,21 +62,31 @@ function getEmojiIndex(data: EmojiMartData | undefined) {
   return emojiIndex;
 }
 
+function searchCustomEmojis(q: string, customEmojis: CustomEmoji[], prefixOnly: boolean): EmojiResult[] {
+  const results: EmojiResult[] = [];
+  for (const emoji of customEmojis) {
+    const sc = emoji.shortcode.toLowerCase();
+    const score = sc === q ? -1 : sc.startsWith(q) ? 0 : !prefixOnly && sc.includes(q) ? 1 : undefined;
+    if (score !== undefined) {
+      results.push({ id: `custom:${emoji.shortcode}`, name: emoji.shortcode, customUrl: emoji.url, score });
+    }
+  }
+  return results;
+}
+
 function searchEmojis(query: string, customEmojis: CustomEmoji[], data: EmojiMartData | undefined): EmojiResult[] {
   if (!query) return [];
   const q = query.toLowerCase();
-  const results: EmojiResult[] = [];
-
-  for (const emoji of customEmojis) {
-    const sc = emoji.shortcode.toLowerCase();
-    if (sc === q) {
-      results.push({ id: `custom:${emoji.shortcode}`, name: emoji.shortcode, customUrl: emoji.url, score: -1 });
-    } else if (sc.startsWith(q)) {
-      results.push({ id: `custom:${emoji.shortcode}`, name: emoji.shortcode, customUrl: emoji.url, score: 0 });
-    } else if (sc.includes(q)) {
-      results.push({ id: `custom:${emoji.shortcode}`, name: emoji.shortcode, customUrl: emoji.url, score: 1 });
+  // One letter only narrows by prefix, custom emoji first: `:b` → `:blob:`.
+  if (q.length === 1) {
+    const results = searchCustomEmojis(q, customEmojis, true);
+    for (const emoji of getEmojiIndex(data)) {
+      if (results.length >= MAX_RESULTS) break;
+      if (emoji.id.startsWith(q)) results.push({ id: emoji.id, name: emoji.name, native: emoji.native, score: 3 });
     }
+    return results.slice(0, MAX_RESULTS);
   }
+  const results = searchCustomEmojis(q, customEmojis, false);
 
   const index = getEmojiIndex(data);
   for (const emoji of index) {
@@ -99,16 +109,19 @@ function searchEmojis(query: string, customEmojis: CustomEmoji[], data: EmojiMar
   return results.slice(0, MAX_RESULTS);
 }
 
-function emoticonResults(token: string, data: EmojiMartData | undefined): EmojiResult[] {
-  if (!data) return [];
-  return emojisForEmoticon(token, data).slice(0, MAX_RESULTS).map((e) => ({ ...e, score: 0 }));
+/** An emoticon's emoji, then the custom emoji a colon-led one also spells (`:b` → `:blob:`). */
+function emoticonResults(token: string, customEmojis: CustomEmoji[], data: EmojiMartData | undefined): EmojiResult[] {
+  const results: EmojiResult[] = data ? emojisForEmoticon(token, data).map((e) => ({ ...e, score: 0 })) : [];
+  const rest = token.slice(1).toLowerCase();
+  if (token.startsWith(":") && /^[a-z0-9_+-]+$/.test(rest)) results.push(...searchCustomEmojis(rest, customEmojis, true));
+  return results.slice(0, MAX_RESULTS);
 }
 
 /**
  * `:shortcode` autocomplete at the caret; inserts the native character or
  * `:shortcode:` for custom emojis. A word that is exactly an emoticon (`:-)`,
- * `;)`, `<3`) offers its emoji too, but leaves Enter to send unless a row was
- * arrowed to, so a message ending in one is not rewritten.
+ * `;)`, `<3`) offers its emoji too. Those and one-letter queries leave Enter to
+ * send unless a row was arrowed to, so a message ending in `:)` or `:x` is not rewritten.
  */
 export function EmojiShortcodeAutocomplete({
   textareaRef,
@@ -139,7 +152,7 @@ export function EmojiShortcodeAutocomplete({
   // Loaded once a shortcode is being typed; custom emoji match before then.
   const data = useEmojiData(wantData || query.length > 0);
   const results = useMemo(
-    () => (emoticon ? emoticonResults(query, data) : searchEmojis(query, customEmojis, data)),
+    () => (emoticon ? emoticonResults(query, customEmojis, data) : searchEmojis(query, customEmojis, data)),
     [emoticon, query, customEmojis, data],
   );
 
@@ -175,7 +188,7 @@ export function EmojiShortcodeAutocomplete({
 
     const q = value.slice(colonPos + 1, cursor);
 
-    if (q.length < 2 || q.length > 32 || q.includes(":")) {
+    if (q.length < 1 || q.length > 32 || q.includes(":")) {
       setIsOpen(false);
       setQuery("");
       setColonStart(-1);
@@ -272,7 +285,7 @@ export function EmojiShortcodeAutocomplete({
           break;
         case "Enter":
         case "Tab":
-          if (e.key === "Enter" && emoticon && !navigated) break;
+          if (e.key === "Enter" && (emoticon || query.length < 2) && !navigated) break;
           if (results.length > 0) {
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -288,7 +301,7 @@ export function EmojiShortcodeAutocomplete({
 
     textarea.addEventListener("keydown", handleKeyDown);
     return () => textarea.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, results, selectedIndex, textareaRef, selectEmoji, emoticon, navigated]);
+  }, [isOpen, results, selectedIndex, textareaRef, selectEmoji, emoticon, navigated, query]);
 
   useEffect(() => {
     if (selectedIndex >= 0 && listRef.current) {
@@ -331,7 +344,7 @@ export function EmojiShortcodeAutocomplete({
               )}
               <span className="text-sm truncate">
                 :{emoji.id.replace("custom:", "")}:
-                {emoticon && <span className="ml-2 text-muted-foreground">{query}</span>}
+                {emoticon && !emoji.customUrl && <span className="ml-2 text-muted-foreground">{query}</span>}
               </span>
             </button>
           ))}
