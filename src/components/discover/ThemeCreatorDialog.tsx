@@ -83,16 +83,49 @@ function ThemeCreatorForm({ editing, initial, onDone }: { editing?: UserTheme; i
       ? intl.formatMessage({ id: "themeCreatorDialog.uploadingBackground", defaultMessage: "Uploading background…" })
       : !named
         ? intl.formatMessage({ id: "themeCreatorDialog.giveName", defaultMessage: "Give the theme a name." })
-        : intl.formatMessage({ id: "themeCreatorDialog.publicHint", defaultMessage: "Anyone will be able to find and apply this theme." });
+        : editing
+          ? intl.formatMessage({ id: "themeCreatorDialog.publicHint", defaultMessage: "Anyone will be able to find and apply this theme." })
+          : intl.formatMessage({
+            id: "themeCreatorDialog.publishOrSaveHint",
+            defaultMessage: "Publishing lets anyone find and apply this theme. Save without publishing to keep it private, as your theme.",
+          });
 
-  const publish = async () => {
-    if (!canPublish) return;
-    const title = name.trim();
-    // A credited copy stays credited only while it is still the creator's work.
+  /** The theme as it would be worn. A credited copy stays credited only while it is still the creator's work. */
+  const ownLook = () => {
     const unchanged = !!seed && JSON.stringify([colors, background, font, titleFont])
       === JSON.stringify([seed.colors, seed.background, seed.font, seed.titleFont]);
     const ownFont = unchanged ? font : claimedThemeFont(font, seed);
     const ownTitleFont = unchanged ? titleFont : claimedThemeFont(titleFont, seed);
+    const config: ThemeConfig = {
+      title: name.trim(),
+      colors,
+      ...(ownFont && { font: ownFont }),
+      ...(ownTitleFont && { titleFont: ownTitleFont }),
+      ...(background && { background }),
+      ...(unchanged && seed?.source && { source: seed.source }),
+    };
+    return { unchanged, ownFont, ownTitleFont, config };
+  };
+
+  /** Wear the theme without a kind-36767 event: it lives only in the encrypted settings. */
+  const savePrivately = () => {
+    if (!canPublish) return;
+    const { config } = ownLook();
+    applyCustomTheme(config);
+    toast({
+      title: t({ id: "themeCreatorDialog.themeSavedPrivately", defaultMessage: "Theme saved" }),
+      description: t(
+        { id: "themeCreatorDialog.savedPrivatelyDescription", defaultMessage: "{title}, applied as your theme. It isn't published." },
+        { title: config.title },
+      ),
+    });
+    onDone();
+  };
+
+  const publish = async () => {
+    if (!canPublish) return;
+    const title = name.trim();
+    const { unchanged, ownFont, ownTitleFont, config } = ownLook();
 
     let result: Awaited<ReturnType<typeof publishTheme>>;
     try {
@@ -117,16 +150,7 @@ function ThemeCreatorForm({ editing, initial, onDone }: { editing?: UserTheme; i
       return;
     }
 
-    if (applyToMine) {
-      applyCustomTheme({
-        title,
-        colors,
-        ...(ownFont && { font: ownFont }),
-        ...(ownTitleFont && { titleFont: ownTitleFont }),
-        ...(background && { background }),
-        ...(unchanged && seed?.source && { source: seed.source }),
-      });
-    }
+    if (applyToMine) applyCustomTheme(config);
 
     const copyLink = copyLinkFor(result.event);
     toast({
@@ -212,6 +236,11 @@ function ThemeCreatorForm({ editing, initial, onDone }: { editing?: UserTheme; i
           {publishing && <Loader2 className="size-4 animate-spin" />}
           {editing ? <FormattedMessage id="themeCreatorDialog.saveChanges" defaultMessage="Save changes" /> : <FormattedMessage id="themeCreatorDialog.publishTheme" defaultMessage="Publish theme" />}
         </Button>
+        {!editing && (
+          <Button variant="secondary" className="w-full clip-corner-lg" onClick={savePrivately} disabled={!canPublish}>
+            <FormattedMessage id="themeCreatorDialog.saveWithoutPublishing" defaultMessage="Save without publishing" />
+          </Button>
+        )}
         <p className="text-center text-xs text-muted-foreground">{hint}</p>
         {editing && (
           <Button
