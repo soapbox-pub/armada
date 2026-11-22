@@ -46,6 +46,7 @@
     <string name="notif_mark_read">Mark read</string>
     <string name="notif_not_sent">⚠️ Not sent: %1$s</string>
     <string name="notif_connected">Connected for instant notifications</string>
+    <string name="notif_offline">Offline, waiting for a network connection</string>
 
     <string name="channel_service_name">Background connection</string>
     <string name="channel_service_description">Keeps Armada connected for instant notifications</string>
