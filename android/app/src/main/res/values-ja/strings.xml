@@ -38,7 +38,7 @@
     <string name="notif_reply">返信</string>
     <string name="notif_mark_read">既読にする</string>
     <string name="notif_not_sent">⚠️ 送信されませんでした: %1$s</string>
-    <string name="notif_connected">即時通知のために接続しています</string>
+    <string name="notif_connected">バックグラウンド接続が有効です</string>
     <string name="notif_offline">オフライン：ネットワーク接続を待っています</string>
     <string name="channel_service_name">バックグラウンド接続</string>
     <string name="channel_service_description">即時通知のために Armada の接続を維持します</string>

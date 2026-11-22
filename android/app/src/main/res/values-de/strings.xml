@@ -38,7 +38,7 @@
     <string name="notif_reply">Antworten</string>
     <string name="notif_mark_read">Als gelesen markieren</string>
     <string name="notif_not_sent">⚠️ Nicht gesendet: %1$s</string>
-    <string name="notif_connected">Verbunden für sofortige Benachrichtigungen</string>
+    <string name="notif_connected">Hintergrundverbindung aktiv</string>
     <string name="notif_offline">Offline, warte auf eine Netzwerkverbindung</string>
     <string name="channel_service_name">Hintergrundverbindung</string>
     <string name="channel_service_description">Hält Armada für sofortige Benachrichtigungen verbunden</string>
