@@ -63,6 +63,22 @@ export function DirectMessageSettings() {
             </SettingsRow>
           </SettingsGroup>
 
+          {/* Only request-tier strangers are screened; follows and anyone written to always get through. */}
+          <SettingsGroup
+            title={intl.formatMessage({ id: "directMessageSettings.whoCanMessage", defaultMessage: "Who can message you" })}
+            footer={intl.formatMessage({ id: "directMessageSettings.linkFilterFooter", defaultMessage: "A stranger outside your communities whose first message is a link is always filtered out. Filtered conversations stay at the bottom of Message requests." })}
+          >
+            <SettingsRow
+              label={intl.formatMessage({ id: "directMessageSettings.blockNonMembers", defaultMessage: "Only people in my communities" })}
+              description={intl.formatMessage({ id: "directMessageSettings.blockNonMembersDescription", defaultMessage: "Silently filter out DMs from strangers who aren't in any of your communities. People you follow or have written to still get through." })}
+            >
+              <Switch
+                checked={config.blockNonMemberDms}
+                onCheckedChange={(blockNonMemberDms) => updateConfig((current) => ({ ...current, blockNonMemberDms }))}
+              />
+            </SettingsRow>
+          </SettingsGroup>
+
           <SettingsGroup footer={intl.formatMessage({ id: "directMessageSettings.relaysFooter", defaultMessage: "Where messages from other Nostr apps arrive." })}>
             <SettingsRow
               icon={Waypoints}

@@ -115,6 +115,8 @@ import { useOpenProfile } from "@/hooks/useOpenProfile";
 import { usePrefetchProfile } from "@/hooks/usePrefetchProfile";
 import { useStartedDms } from "@/hooks/useStartedDms";
 import { useSharedCommunities } from "@/hooks/useSharedCommunities";
+import { useDmOpeners, useStrangerFilterPolicy } from "@/hooks/useDmStrangerFilter";
+import { strangerDmFiltered } from "@/lib/dmStrangerFilter";
 import { useStableNavigate } from "@/hooks/useStableNavigate";
 import { useToast } from "@/hooks/useToast";
 import { ComposerBoundsProvider } from "@/contexts/ComposerBoundsContext";
@@ -2095,10 +2097,13 @@ function RequestsEntryRow({ count, onClick }: { count: number; onClick: () => vo
   );
 }
 
+const NO_ROWS: DmListRow[] = [];
+
 /** Exported for DMsPage.list.test.tsx, which renders it directly. */
 export function ConversationList({
   rows,
   requestRows,
+  filteredRows = NO_ROWS,
   view,
   onViewChange,
   previews,
@@ -2120,6 +2125,8 @@ export function ConversationList({
 }: {
   rows: DmListRow[];
   requestRows: DmListRow[];
+  /** Strangers screened out of the requests (`dmStrangerFilter.ts`), listed only on demand. */
+  filteredRows?: DmListRow[];
   view: DmListView;
   onViewChange: (view: DmListView) => void;
   previews: Record<string, string>;
@@ -2153,6 +2160,7 @@ export function ConversationList({
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const requesting = view === "requests";
+  const [showFiltered, setShowFiltered] = useState(false);
 
   // Tier-2 hint, only while the request list shows; 1:1 requests only.
   const requestPeers = useMemo(
@@ -2466,6 +2474,22 @@ export function ConversationList({
               </div>
             )}
             {requestRows.map((c, i) => renderRow(c, i, true))}
+            {filteredRows.length > 0 && (
+              <div className="flex justify-center px-1 py-2">
+                <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setShowFiltered((shown) => !shown)}>
+                  {showFiltered ? (
+                    <FormattedMessage id="dmsPage.requests.hideFiltered" defaultMessage="Hide filtered messages" />
+                  ) : (
+                    <FormattedMessage
+                      id="dmsPage.requests.showFiltered"
+                      defaultMessage="{count, plural, one {Show # filtered conversation} other {Show # filtered conversations}}"
+                      values={{ count: filteredRows.length }}
+                    />
+                  )}
+                </Button>
+              </div>
+            )}
+            {showFiltered && filteredRows.map((c, i) => renderRow(c, requestRows.length + i, true))}
             {/* Sync only moves forward, so older-only senders need explicit backfill (useDm17Backfill). */}
             <div className="flex flex-col items-center gap-1 py-3">
               {backfill.hasMore ? (
@@ -2799,8 +2823,22 @@ export function DMsPage() {
     [self, isDmClosed],
   );
 
+  // Strangers screened out of the requests entirely: listed only behind the requests view's footer.
+  const filterPolicy = useStrangerFilterPolicy();
+  const openers = useDmOpeners(requestRows, filterPolicy !== undefined);
+  const [screenedRequestRows, filteredRequestRows] = useMemo(() => {
+    const screened: DmListRow[] = [];
+    const filtered: DmListRow[] = [];
+    for (const row of requestRows) {
+      if (strangerDmFiltered(openers.get(row.conversation), filterPolicy)) filtered.push(row);
+      else screened.push(row);
+    }
+    return [screened, filtered];
+  }, [requestRows, openers, filterPolicy]);
+
   const visibleRows = useMemo(() => rows.filter((row) => !isHidden(row)), [rows, isHidden]);
-  const visibleRequestRows = useMemo(() => requestRows.filter((row) => !isHidden(row)), [requestRows, isHidden]);
+  const visibleRequestRows = useMemo(() => screenedRequestRows.filter((row) => !isHidden(row)), [screenedRequestRows, isHidden]);
+  const visibleFilteredRows = useMemo(() => filteredRequestRows.filter((row) => !isHidden(row)), [filteredRequestRows, isHidden]);
 
   const dismissRequests = useCallback(() => {
     closeManyDms(visibleRequestRows.map((row) => ({ peer: row.conversation, latest: dmListRowLatestMarker(row) })));
@@ -3023,6 +3061,7 @@ export function DMsPage() {
           <ConversationList
             rows={displayRows}
             requestRows={visibleRequestRows}
+            filteredRows={visibleFilteredRows}
             view={listView}
             onViewChange={setListView}
             previews={previews}

@@ -235,6 +235,17 @@ describe("ConversationList viewport gating", () => {
     expect(placeholderCount(container)).toBe(18);
   });
 
+  it("lists filtered strangers only once asked, below the requests", () => {
+    const [request, ...filtered] = conversations(3);
+    const view = render(list([], { requestRows: [request], filteredRows: filtered, view: "requests" }));
+
+    expect(rowCount(view.container)).toBe(1);
+    fireEvent.click(view.getByRole("button", { name: "Show 2 filtered conversations" }));
+    expect(rowCount(view.container)).toBe(3);
+    fireEvent.click(view.getByRole("button", { name: "Hide filtered messages" }));
+    expect(rowCount(view.container)).toBe(1);
+  });
+
   it("renders an index-only row without fabricating a preview or unread marker", () => {
     const peer = getPublicKey(generateSecretKey());
     const indexed = [{

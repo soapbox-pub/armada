@@ -7,12 +7,14 @@ import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useDmRelayList } from "@/hooks/useDmRelayList";
 import { useKnownDmPeers } from "@/hooks/useKnownDmPeers";
+import { useStrangerFilterPolicy } from "@/hooks/useDmStrangerFilter";
 import { useNotifLevels, type NotifLevel } from "@/hooks/useNotifLevels";
 import { useUserGroupList } from "@/hooks/useUserGroupList";
 import { effectiveDmRelays } from "@/contexts/AppContext";
 import { useConcordSubsState } from "@/concord/hooks/useConcordSubs";
 import { normalizeRelayUrl } from "@/lib/platform";
 import type { PushPrefs } from "@/lib/pushPrefs";
+import type { SwStrangerFilter } from "@/lib/swPushConfig";
 import {
   buildPushSubscriptions,
   type PushSubscriptionSpec,
@@ -42,6 +44,8 @@ export interface PushWatchSet {
   dmKnownConversationKeys: string[];
   /** Peers whose presence suppresses their whole DM conversation. */
   dmMutedPeers: string[];
+  /** The stranger filter (`dmStrangerFilter.ts`); undefined (off) while memberships load. */
+  dmStrangerFilter?: SwStrangerFilter;
   /** Keyed by canonical NIP-17 conversation key; group keys are never widened per participant. */
   dmLevels: Record<string, NotifLevel>;
   /** The timed mutes the device judges itself (see {@link TimedMutesOnDevice}), by room key. */
@@ -145,6 +149,14 @@ export function usePushWatchSet(prefs: PushPrefs, onDevice: TimedMutesOnDevice):
     authoritativeReady: dmPeersReady,
     configurationReady: dmPeersConfigReady,
   } = useKnownDmPeers();
+  const strangerPolicy = useStrangerFilterPolicy();
+  const dmStrangerFilter = useMemo<SwStrangerFilter | undefined>(
+    () => strangerPolicy && {
+      communityPeers: [...strangerPolicy.communityPeers].sort(),
+      blockNonMembers: strangerPolicy.blockNonMembers,
+    },
+    [strangerPolicy],
+  );
   const { logins } = useNostrLogin();
   const notifLevels = useNotifLevels();
   const { channelLevel, concordChannelLevel } = onDevice === "all" ? notifLevels.standing : notifLevels;
@@ -307,6 +319,7 @@ export function usePushWatchSet(prefs: PushPrefs, onDevice: TimedMutesOnDevice):
     dmKnownPeers,
     dmKnownConversationKeys,
     dmMutedPeers,
+    dmStrangerFilter,
     dmLevels,
     roomMutes,
     dmSk,

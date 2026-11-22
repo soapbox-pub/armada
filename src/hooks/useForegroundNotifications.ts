@@ -9,6 +9,7 @@ import { useAppContext } from "@/hooks/useAppContext";
 import { useEventStore } from "@/hooks/useEventStore";
 import { useBlossomServers } from "@/hooks/useBlossomServers";
 import { useKnownDmPeers } from "@/hooks/useKnownDmPeers";
+import { useStrangerFilterPolicy } from "@/hooks/useDmStrangerFilter";
 import { useMediaPolicy } from "@/hooks/useMediaPolicy";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { useNotifLevels, type NotifLevel } from "@/hooks/useNotifLevels";
@@ -27,7 +28,8 @@ import { desktopNotificationTag } from "@/lib/desktopNotificationTag";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { mediaSrc } from "@/lib/mediaPolicy";
 import { backgroundPushActive } from "@/lib/nappPush";
-import { queryDm17Conversations } from "@/lib/nip17/dm17Store";
+import { peekDm17Opener, queryDm17Conversations } from "@/lib/nip17/dm17Store";
+import { dmOpenerOf, strangerDmFiltered } from "@/lib/dmStrangerFilter";
 import { dmConvPeers } from "@/lib/nip17/conversation";
 import {
   attributedLine,
@@ -318,6 +320,7 @@ export function useForegroundNotifications(): void {
   const { readState } = useReadState();
   const { channelLevel, concordChannelLevel, dmLevel } = useNotifLevels();
   const { isKnown, knownConversationKeys } = useKnownDmPeers();
+  const strangerFilter = useStrangerFilterPolicy();
   const knownConversationSet = useMemo(
     () => new Set(knownConversationKeys),
     [knownConversationKeys],
@@ -378,6 +381,7 @@ export function useForegroundNotifications(): void {
     eventStore,
     nostr,
     dmRequestPolicy: config.pushPrefs.dmRequests,
+    strangerFilter,
     mediaPolicy,
     blossomServers,
     joinedAtByCommunity,
@@ -395,6 +399,7 @@ export function useForegroundNotifications(): void {
     eventStore,
     nostr,
     dmRequestPolicy: config.pushPrefs.dmRequests,
+    strangerFilter,
     mediaPolicy,
     blossomServers,
     joinedAtByCommunity,
@@ -841,6 +846,17 @@ export function useForegroundNotifications(): void {
           if (cand.peer && !conversationKnown) {
             // The viewer may have written to them since the set was loaded.
             refreshMineConversationKeys();
+            // Screened strangers raise nothing at all. Until the list has read this
+            // conversation's first message, this one stands in for it.
+            const opener = peekDm17Opener(user.pubkey, cand.peer) ?? dmOpenerOf({
+              author: cand.author,
+              kind: cand.kind,
+              content: cand.content ?? "",
+            });
+            if (strangerDmFiltered(opener, c.strangerFilter)) {
+              suppress(roomKey);
+              continue;
+            }
             const policy = c.dmRequestPolicy;
             if (policy === "off") {
               suppress(roomKey);

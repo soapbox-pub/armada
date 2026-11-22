@@ -635,6 +635,62 @@ describe("preparePush — DM request gating", () => {
     expect(p?.line).toContain("meet at 8");
   });
 
+  describe("stranger filter", () => {
+    // A fresh sender per case: the store persists across tests, and the opener is the conversation's first message.
+    function strangerWrap(content: string, created_at = now()) {
+      const strangerSk = generateSecretKey();
+      const strangerPk = getPublicKey(strangerSk);
+      const send = (text: string, at: number) => wrap(seal({
+        pubkey: strangerPk,
+        kind: 14,
+        content: text,
+        tags: [["p", recipientPk]],
+        created_at: at,
+      }, strangerSk, recipientPk), recipientPk);
+      return { strangerPk, first: send(content, created_at), send };
+    }
+
+    it("drops a non-member stranger whose first message is a link", async () => {
+      const { first } = strangerWrap("claim your prize https://spam.example/x");
+      const p = await push(first, cfg({ strangerFilter: { communityPeers: [], blockNonMembers: false } }));
+      expect(p?.drop).toBe(true);
+    });
+
+    it("keeps judging the conversation by its first message", async () => {
+      const at = now();
+      const linked = strangerWrap("https://spam.example/x", at - 60);
+      const filter = { strangerFilter: { communityPeers: [], blockNonMembers: false } };
+      expect((await push(linked.first, cfg(filter)))?.drop).toBe(true);
+      expect((await push(linked.send("hello?", at), cfg(filter)))?.drop).toBe(true);
+
+      const plain = strangerWrap("hi, we met at the meetup", at - 60);
+      expect((await push(plain.first, cfg(filter)))?.title).toBe("Message requests");
+      expect((await push(plain.send("slides: https://talk.example/s", at), cfg(filter)))?.title).toBe("Message requests");
+    });
+
+    it("lets a community member's link through as a request", async () => {
+      const { strangerPk, first } = strangerWrap("https://docs.example/agenda");
+      const p = await push(first, cfg({ strangerFilter: { communityPeers: [strangerPk], blockNonMembers: false } }));
+      expect(p?.title).toBe("Message requests");
+    });
+
+    it("drops every non-member stranger when non-members are blocked", async () => {
+      const { first } = strangerWrap("hello there");
+      expect((await push(first, cfg({ strangerFilter: { communityPeers: [], blockNonMembers: true } })))?.drop).toBe(true);
+    });
+
+    it("never filters a known sender, and is off without a filter config", async () => {
+      const { strangerPk, first } = strangerWrap("https://spam.example/x");
+      const known = await push(first, cfg({
+        knownPeers: [strangerPk],
+        strangerFilter: { communityPeers: [], blockNonMembers: true },
+      }));
+      expect(known?.line).toContain("spam.example");
+      const unset = strangerWrap("https://spam.example/x");
+      expect((await push(unset.first, cfg()))?.title).toBe("Message requests");
+    });
+  });
+
   it("treats a non-message rumor (reaction/delete) as a quiet request", async () => {
     const p = await push(dmWrap({ kind: 7, content: "+" }), cfg({ knownPeers: [senderPk] }));
     expect(p?.title).toBe("Message requests");

@@ -13,19 +13,21 @@ import { canActOnMember, Permissions } from "@/concord/lib/roles";
 import { queryPlane } from "@/concord/lib/rumorStore";
 import type { Community } from "@/concord/lib/types";
 
+export interface CommunityMembership {
+  name: string;
+  members: ReadonlySet<string>;
+}
+
 /**
- * Per peer, a community the viewer shares with them ("Also in Foo") for DM requests. Purely
- * local (decrypted Guestbook Plane in the rumor store). Concord only, so coverage is partial — safe
- * only as a positive label, never a gate; absence means no information.
+ * The members of each of the viewer's communities, from the decrypted Guestbook Plane in
+ * the rumor store (purely local, Concord only). Undefined until the community list and
+ * every guestbook are read; `[]` for an account in no community.
  */
-export function useSharedCommunities(
-  peers: string[],
-  enabled = true,
-): Map<string, string> {
+export function useCommunityMemberships(enabled = true): CommunityMembership[] | undefined {
   const { data: listData } = useCommunityList();
 
   const communities = useMemo(() => {
-    if (!listData) return [];
+    if (!listData) return undefined;
     const out: Community[] = [];
     for (const entry of liveEntries(listData.list)) {
       const community = rehydrateCommunity(entry);
@@ -34,28 +36,26 @@ export function useSharedCommunities(
     return out;
   }, [listData]);
 
-  // Keyed on content: `peers` is rebuilt every render.
-  const peerKey = useMemo(() => [...peers].sort().join(","), [peers]);
   const communityKey = useMemo(
     () =>
-      communities
+      (communities ?? [])
         .map((c) => `${c.idHex}:${c.heldRoots.map((r) => r.epoch).join("-")}`)
         .sort()
         .join(","),
     [communities],
   );
 
-  const { data } = useQuery<Record<string, string>>({
-    queryKey: ["dm-shared-communities", communityKey, peerKey],
-    enabled: enabled && peers.length > 0 && communities.length > 0,
+  const { data } = useQuery<CommunityMembership[]>({
+    queryKey: ["dm-community-memberships", communityKey],
+    enabled: enabled && communities !== undefined,
     staleTime: 60_000,
-    queryFn: async () => {
-      const out: Record<string, string> = {};
-      for (const community of communities) {
-        // One read per community: each guestbook is in its own tenant.
+    refetchOnWindowFocus: false,
+    // Independent per-tenant reads, issued concurrently: each is a bridge crossing on native.
+    queryFn: () => Promise.all((communities ?? []).map(async (community) => {
+      try {
         const events = await queryPlane(community.idHex, "guestbook");
-        if (!events.length) continue;
-        // Without a fold nobody is kicked or banned, so it can only over-include — fine for a hint.
+        if (!events.length) return { name: community.name, members: new Set<string>() };
+        // Without a fold nobody is kicked or banned, so it can only over-include.
         const folded = await readControlFold(community.idHex);
         const coalesced = coalesceGuestbook(events, {
           nowMs: Date.now(),
@@ -69,21 +69,54 @@ export function useSharedCommunities(
           snapshotAuthorities: snapshotAuthorities(community),
           banned: folded?.banned,
         });
-        // No `observed` healing: the Guestbook alone is enough for a hint.
+        // No `observed` healing: the Guestbook alone is enough here.
         const members = completeMemberlist(
           coalesced,
           new Map(),
           folded?.banned ?? new Set(),
           folded?.bannedAt,
         );
-        // First community wins — the label has room for one.
-        for (const peer of peers) {
-          if (!out[peer] && members.has(peer)) out[peer] = community.name;
-        }
+        return { name: community.name, members };
+      } catch {
+        // An unreadable guestbook contributes nobody.
+        return { name: community.name, members: new Set<string>() };
       }
-      return out;
-    },
+    })),
   });
 
-  return useMemo(() => new Map(Object.entries(data ?? {})), [data]);
+  return enabled ? data : undefined;
+}
+
+/** Everyone sharing at least one community with the viewer; undefined while loading. */
+export function useCommunityPeers(enabled = true): ReadonlySet<string> | undefined {
+  const memberships = useCommunityMemberships(enabled);
+  return useMemo(() => {
+    if (!memberships) return undefined;
+    const peers = new Set<string>();
+    for (const { members } of memberships) for (const peer of members) peers.add(peer);
+    return peers;
+  }, [memberships]);
+}
+
+/**
+ * Per peer, a community the viewer shares with them ("Also in Foo") for DM requests.
+ * Concord only, so coverage is partial.
+ */
+export function useSharedCommunities(
+  peers: string[],
+  enabled = true,
+): Map<string, string> {
+  const memberships = useCommunityMemberships(enabled && peers.length > 0);
+  // Keyed on content: `peers` is rebuilt every render.
+  const peerKey = [...peers].sort().join(",");
+  return useMemo(() => {
+    const out = new Map<string, string>();
+    if (!memberships) return out;
+    // First community wins — the label has room for one.
+    for (const peer of peerKey ? peerKey.split(",") : []) {
+      const shared = memberships.find(({ members }) => members.has(peer));
+      if (shared) out.set(peer, shared.name);
+    }
+    return out;
+  }, [memberships, peerKey]);
 }

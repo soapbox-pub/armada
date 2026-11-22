@@ -66,6 +66,12 @@ export interface SwConcordStream {
   muted?: boolean;
 }
 
+export interface SwStrangerFilter {
+  /** Everyone sharing a community with the viewer. */
+  communityPeers: string[];
+  blockNonMembers: boolean;
+}
+
 export interface SwPushConfig {
   /** How to notify for DMs from unknown senders. */
   policy: DmRequestLevel;
@@ -77,6 +83,11 @@ export interface SwPushConfig {
   knownConversations?: string[];
   /** Peers whose presence suppresses their whole DM conversation. */
   mutedPeers?: string[];
+  /**
+   * The stranger filter (`dmStrangerFilter.ts`): unknown conversations it screens are
+   * dropped. Absent = off, as while the page has not read community memberships.
+   */
+  strangerFilter?: SwStrangerFilter;
   /** Global DM fallback when a conversation has no explicit level. */
   directMessages?: boolean;
   /** Explicit per-conversation notification levels, keyed by canonical DM key. */

@@ -43,6 +43,7 @@ import {
 } from "@/lib/nip17/protocol";
 import { dmThreadScope, emitWireScopes, onWireScopes } from "@/wire/bus";
 import { nowSecs } from "@/lib/relayClock";
+import { dmOpenerOf, type DmOpener } from "@/lib/dmStrangerFilter";
 
 /**
  * The opened-DM store for one account, bound to its conversation term policy
@@ -173,6 +174,52 @@ export async function queryDm17Thread(
   return withDm17Arrivals(self, events
     .filter((ev) => !isExpired(ev.tags) && dmConvKeyOf(ev, self) === key)
     .map((ev) => storedToDm17(ev, self)));
+}
+
+/** Openers by `self|conversation|latest rumor id`: a conversation's head moving re-reads it. */
+const openers = new Map<string, DmOpener>();
+/** The last opener read per `self|conversation`, for synchronous callers (the foreground notifier). */
+const latestOpeners = new Map<string, DmOpener>();
+/** Past this many messages the window's oldest stands in for the first: no request is that long. */
+const OPENER_WINDOW = 200;
+
+/**
+ * The first chat/file message of a conversation (`createdAt` order), for the
+ * stranger filter. `latestId` (the conversation's head) keys the memo; undefined when
+ * nothing is stored yet.
+ */
+export async function queryDm17Opener(
+  self: string,
+  peers: readonly string[],
+  latestId: string,
+  opts: { signal?: AbortSignal } = {},
+): Promise<DmOpener | undefined> {
+  const key = dmConvKey(peers);
+  const memoKey = `${self}|${key}|${latestId}`;
+  const held = openers.get(memoKey);
+  if (held) return held;
+  const others = peers.filter((peer) => peer !== self);
+  const events = await dm17Store(self).query(
+    [{ kinds: [...DM_MESSAGE_KINDS], search: dmConvTerm(others.length > 0 ? others : [self]), limit: OPENER_WINDOW }],
+    { signal: opts.signal },
+  );
+  let first: NostrRumor | undefined;
+  for (const ev of events) {
+    if (isExpired(ev.tags) || dmConvKeyOf(ev, self) !== key) continue;
+    if (!first || ev.created_at < first.created_at || (ev.created_at === first.created_at && ev.id < first.id)) first = ev;
+  }
+  // A miss isn't held: the head may be a fresh message still on its way to the store.
+  if (!first) return undefined;
+  const opener = dmOpenerOf({ author: first.pubkey, kind: first.kind, content: first.content });
+  if (openers.size >= 2048) openers.clear();
+  openers.set(memoKey, opener);
+  latestOpeners.set(`${self}|${key}`, opener);
+  return opener;
+}
+
+/** The opener last read by {@link queryDm17Opener} for this conversation, without a store read. */
+export function peekDm17Opener(self: string, conversation: string): DmOpener | undefined {
+  return latestOpeners.get(`${self}|${conversation}`);
 }
 
 /**
@@ -438,6 +485,8 @@ export function onFreshDm17(self: string, listener: (fresh: OpenedDm[]) => void)
 export function clearPendingDm17(): void {
   pendingDms.clear();
   conversationReads.clear();
+  openers.clear();
+  latestOpeners.clear();
   forgetDm17Arrivals();
   liveWrapArrivals.clear();
 }

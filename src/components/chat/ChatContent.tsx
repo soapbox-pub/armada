@@ -52,6 +52,7 @@ import { KIND_DM_FILE } from "@/lib/nip17/protocol";
 import { isIcannHost, parseInlineRun, splitInlineCode, splitMarkdownBlocks, splitMarkdownLinks } from "@/lib/markdown";
 import { filenameFromUrl } from "@/lib/fileBytes";
 import { AUDIO_EXTS, EMBED_MEDIA_URL_REGEX, IMAGE_URL_REGEX, isGifLikeUrl, isTorrentAttachment, isUnplayableVideo, mimeFromExt } from "@/lib/mediaUrls";
+import { LINK_TOKEN_PATTERN } from "@/lib/linkPattern";
 import { KIND_GROUP_METADATA, nip29GroupPath, parseGroupAddress, type GroupAddress } from "@/lib/nip29";
 import { normalizeRelayUrl, relayToRouteParam } from "@/lib/platform";
 import { displayHost, isMagnetUri, sanitizeUrl } from "@/lib/sanitizeUrl";
@@ -484,12 +485,7 @@ const SEGMENT_RE = new RegExp(
   "|(?:lightning:)?(ln(?:bc|tb|bcrt|tbs)\\d*[munp]?1[023456789acdefghjklmnpqrstuvwxyz]+)" +
   // Scheme OR bare `domain.tld/path` (so a bech32 id inside a scheme-less link
   // can't split it into a mention); normalized to `https://` at use.
-  // Repetitions are BOUNDED (DNS limits) to keep the scan linear: unbounded
-  // is O(n²) on attacker-controlled content.
-  // `<`, `>` and `|` are never literal in a URL (RFC 3986), so `<https://…>`
-  // ends at the `>` and `||https://…||` at the spoiler's closing bars; nor is
-  // `"`, so a quoted URL ends at its closing quote.
-  "|((?:(?:https?|wss?):\\/\\/|(?:[\\w-]{1,63}\\.){1,10}[a-z]{2,24}\\/)[^\\s<>|\"]+)" +
+  `|(${LINK_TOKEN_PATTERN})` +
   "|nostr:(npub1|note1|nprofile1|nevent1|naddr1)([023456789acdefghjklmnpqrstuvwxyz]+)" +
   "|@?(npub1|note1|nprofile1|nevent1|naddr1)([023456789acdefghjklmnpqrstuvwxyz]+)" +
   `|(${HASHTAG_PATTERN})` +
