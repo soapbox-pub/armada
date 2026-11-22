@@ -299,7 +299,7 @@ export function CallTransportCounts({
   const p2pLabel = intl.formatMessage(
     {
       id: "voicePresence.transport.p2p",
-      defaultMessage: "{count, plural, one {# member} other {# members}} peer to peer, as Vector calls",
+      defaultMessage: "{count, plural, one {# member} other {# members}} peer to peer over Iroh",
     },
     { count: p2p },
   );
