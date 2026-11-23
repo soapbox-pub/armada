@@ -16,7 +16,7 @@ import {
 import { ownAvServers } from "@/concord/hooks/useVoice";
 import { probeAvBroker } from "@/concord/lib/voice";
 import { deploymentIrohRelays } from "@/concord/lib/irohVoice";
-import { IrohWordmark, LiveKitMark } from "@/components/icons/BrandMarks";
+import { HiveIcon, HubIcon, TransportName } from "@/components/icons/TransportIcons";
 import { useAppContext } from "@/hooks/useAppContext";
 import { FormattedMessage, t, useIntl } from "@/i18n";
 import {
@@ -635,10 +635,11 @@ export function VoiceDeviceSettings() {
       {/* Only used where no community sets its own (Settings → Network), and for DM calls. */}
       <div className="space-y-2.5">
         <div className="flex items-center gap-2">
-          <LiveKitMark className="size-4" />
+          <HubIcon className="size-4 text-muted-foreground shrink-0" aria-hidden />
           <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             <FormattedMessage id="voiceDeviceSettings.voiceServer" defaultMessage="Voice server" />
           </label>
+          <TransportName via="sfu" icon={false} />
           <InfoTip label={intl.formatMessage({ id: "voiceDeviceSettings.aboutVoiceServer", defaultMessage: "About the voice server" })}>
             <FormattedMessage
               id="voiceDeviceSettings.voiceServerHelp"
@@ -715,10 +716,11 @@ function PeerToPeerRelays() {
   return (
     <div className="space-y-2.5">
       <div className="flex items-center gap-2">
-        <IrohWordmark className="h-4 w-auto" />
+        <HiveIcon className="size-4 text-muted-foreground shrink-0" aria-hidden />
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <FormattedMessage id="voiceDeviceSettings.p2pRelays" defaultMessage="Peer-to-peer relays" />
         </span>
+        <TransportName via="p2p" icon={false} />
         <InfoTip label={intl.formatMessage({ id: "voiceDeviceSettings.aboutP2pRelays", defaultMessage: "About peer-to-peer relays" })}>
           <FormattedMessage
             id="voiceDeviceSettings.p2pRelaysHelp"

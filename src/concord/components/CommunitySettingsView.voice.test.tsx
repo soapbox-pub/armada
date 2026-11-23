@@ -30,15 +30,15 @@ describe("a Community's call servers say what they are", () => {
     h.probed = [];
   });
 
-  it("heads the voice servers with LiveKit's mark and the relays with iroh's", () => {
+  it("names the voice servers LiveKit and the relays iroh", () => {
     mount(
       <>
         <VoiceServersSection community={community} brokers={["https://voice.example"]} canManage={false} />
         <VoiceRelaysSection community={community} relays={["https://relay.example"]} canManage={false} />
       </>,
     );
-    expect(screen.getByRole("img", { name: "LiveKit" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "iroh" })).toBeInTheDocument();
+    expect(screen.getByText("LiveKit")).toHaveAttribute("data-transport", "sfu");
+    expect(screen.getByText("iroh")).toHaveAttribute("data-transport", "p2p");
     expect(screen.getByText(/on a LiveKit server/)).toBeInTheDocument();
     expect(screen.getByText(/to each other over iroh/)).toBeInTheDocument();
   });

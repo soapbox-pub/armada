@@ -88,7 +88,7 @@ import { encryptedUploadFailureReason } from "@/lib/blossomPreflight";
 import { COMMUNITY_BANNER_EDGE, COMMUNITY_ICON_EDGE, encryptImageBlob } from "@/concord/lib/image";
 import { mirrorHistoryToRelays, type MirrorProgress } from "@/concord/lib/relayMirror";
 import { canonicalOrigin, communityAvBrokers, probeAvBroker } from "@/concord/lib/voice";
-import { IrohWordmark, LiveKitMark } from "@/components/icons/BrandMarks";
+import { TransportName } from "@/components/icons/TransportIcons";
 import { communityVoiceRelays, MAX_VOICE_RELAYS, probeVoiceRelay, voiceRelayUrl } from "@/concord/lib/irohVoice";
 import {
   MAX_COMMUNITY_AV_BROKERS,
@@ -1637,7 +1637,7 @@ export function VoiceServersSection({ community, brokers, canManage }: { communi
       max={MAX_COMMUNITY_AV_BROKERS}
       placeholder="https://voice.example.com"
       messages={VOICE_SERVER_MESSAGES}
-      brand={<LiveKitMark className="size-3.5" />}
+      via="sfu"
       // Non-https refused: the token grant is a bearer credential (CORD-07 §2).
       normalize={(raw) => canonicalOrigin(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`)}
       probe={probeAvBroker}
@@ -1659,7 +1659,7 @@ export function VoiceRelaysSection({ community, relays, canManage }: { community
       max={MAX_VOICE_RELAYS}
       placeholder="https://relay.example.com"
       messages={VOICE_RELAY_MESSAGES}
-      brand={<IrohWordmark className="h-3.5 w-auto" />}
+      via="p2p"
       normalize={voiceRelayUrl}
       probe={probeVoiceRelay}
       save={(list) => updateMetadata({ voice_relays: list })}
@@ -1674,7 +1674,7 @@ function ServerListSection({
   max,
   placeholder,
   messages,
-  brand,
+  via,
   normalize,
   probe,
   save,
@@ -1684,8 +1684,8 @@ function ServerListSection({
   max: number;
   placeholder: string;
   messages: ServerListMessages;
-  /** The mark of what these servers are, beside the title. */
-  brand: React.ReactNode;
+  /** What these servers carry: LiveKit calls, or iroh's peer-to-peer ones. */
+  via: "sfu" | "p2p";
   normalize: (raw: string) => string | null;
   probe: (url: string) => Promise<boolean>;
   save: (list: string[]) => Promise<void>;
@@ -1757,8 +1757,8 @@ function ServerListSection({
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          {brand}
           <FormattedMessage {...messages.title} />
+          <TransportName via={via} />
         </span>
         {canManage && !editing && (
           <Button

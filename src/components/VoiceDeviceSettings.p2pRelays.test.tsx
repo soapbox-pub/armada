@@ -29,11 +29,11 @@ describe("Settings › Voice says which servers carry which calls", () => {
     });
   });
 
-  it("marks the voice server as LiveKit and lists this build's iroh relays", async () => {
+  it("names the voice server LiveKit and lists this build's iroh relays", async () => {
     h.relays = ["https://euc1-1.relay.n0.iroh.link/"];
     mount();
-    expect(screen.getByRole("img", { name: "LiveKit" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "iroh" })).toBeInTheDocument();
+    expect(screen.getByText("LiveKit")).toHaveAttribute("data-transport", "sfu");
+    expect(screen.getByText("iroh")).toHaveAttribute("data-transport", "p2p");
     expect(await screen.findByText("https://euc1-1.relay.n0.iroh.link/")).toBeInTheDocument();
   });
 
