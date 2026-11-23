@@ -74,6 +74,32 @@ describe("nip46Transport lifecycle", () => {
     expect(getNip46Transport(BUNKER, ["wss://a.example"])).not.toBe(a);
   });
 
+  it("remembers a bounded window of response ids for deduping", async () => {
+    const { Nip46Transport } = await import("@/lib/nip46Transport");
+    const t = new Nip46Transport(["wss://dedupe.example"]);
+    await Promise.resolve();
+    const ws = sockets("dedupe.")[0];
+    const controller = new AbortController();
+    const got: string[] = [];
+    const iter = t.req([{ kinds: [24133] }], { signal: controller.signal });
+    const subId = (t as unknown as { subs: Map<string, unknown> }).subs.keys().next().value as string;
+    const pump = (async () => {
+      for await (const msg of iter) if (msg[0] === "EVENT") got.push((msg[2] as NostrEvent).id);
+    })();
+    const send = (id: string) => ws.onmessage?.({ data: JSON.stringify(["EVENT", subId, { id }]) });
+    send("first");
+    send("first");
+    for (let i = 0; i < 1100; i++) send(`id${i}`);
+    send("first");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    await pump;
+    // A copy within the window is dropped; the oldest id has left it.
+    expect(got.filter((id) => id === "first")).toHaveLength(2);
+    expect(got).toHaveLength(1102);
+    t.close();
+  });
+
   it("close() rejects publishes still waiting on an OK", async () => {
     const { Nip46Transport } = await import("@/lib/nip46Transport");
     const t = new Nip46Transport(["wss://silent.example"]);

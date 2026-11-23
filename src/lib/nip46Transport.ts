@@ -15,6 +15,9 @@ import { logSync } from "@/lib/syncLog";
 
 type RelayMsg = ["EVENT", string, NostrEvent] | ["EOSE", string] | ["CLOSED", string, string];
 
+/** Response ids a subscription remembers, oldest dropped first. */
+const SEEN_MAX = 1024;
+
 interface ActiveSub {
   filters: NostrFilter[];
   push: (msg: RelayMsg) => void;
@@ -185,6 +188,9 @@ export class Nip46Transport {
         const [, subId, event] = msg as ["EVENT", string, NostrEvent];
         const sub = this.subs.get(subId);
         if (!sub || sub.seen.has(event.id)) return;
+        // Dedupes the copies relays send within moments; the signer's subscription
+        // lives all session, and one id per signature would otherwise pile up.
+        if (sub.seen.size >= SEEN_MAX) sub.seen.delete(sub.seen.values().next().value!);
         sub.seen.add(event.id);
         sub.push(["EVENT", subId, event]);
         return;
