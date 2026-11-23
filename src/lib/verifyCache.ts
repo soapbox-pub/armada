@@ -132,6 +132,9 @@ export function idIsHash(event: NostrEvent): boolean {
 }
 
 function rememberHashed(event: NostrEvent): void {
+  // NIP-01 ephemeral events are never served again (typing, call presence): remembering
+  // one only evicts a stored wrap the next plane pass re-checks.
+  if (event.kind >= 20000 && event.kind < 30000) return;
   if (hashed.size >= HASHED_MAX) hashed.delete(hashed.keys().next().value!);
   // A snapshot: a caller may go on to mutate the object it passed.
   const { pubkey, created_at, kind, content } = event;
