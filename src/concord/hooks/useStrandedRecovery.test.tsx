@@ -13,13 +13,14 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure
 import { getConversationKey, decrypt as nip44Decrypt, encrypt as nip44Encrypt } from "nostr-tools/nip44";
 import { describe, expect, it, vi } from "vitest";
 
-import { useStrandedRecovery } from "./useCommunityActions";
+import { useAdoptListedKeys, useStrandedRecovery } from "./useCommunityActions";
 import { mintCommunity } from "@/concord/lib/community";
 import { bytesToHex, random32 } from "@/concord/lib/derive";
 import {
   buildBundleEvent,
   bundleNaddr,
   encodeFragment,
+  parseInviteLink,
   mintLinkSigner,
   mintToken,
   type InviteBundle,
@@ -141,7 +142,7 @@ async function setup(bundleEpoch: number) {
     added_at: Date.now(),
     invite_ref: inviteRef,
   };
-  return { held, relay, inviteRef };
+  return { held, relay, inviteRef, bundle };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -190,5 +191,26 @@ describe("useStrandedRecovery (stranded self-heal, CORD-05 §2)", () => {
     const { wrapper } = makeWrapper();
     const { result } = renderHook(() => useStrandedRecovery(held, true), { wrapper });
     expect(result.current.canRecover).toBe(false);
+  });
+});
+
+describe("useAdoptListedKeys (Discover's Update keys)", () => {
+  it("leaves a member on its keys when the listed link is no newer", async () => {
+    const { held, inviteRef, bundle } = await setup(1);
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useAdoptListedKeys(), { wrapper });
+    const moved = await result.current.mutateAsync({ invite: parseInviteLink(inviteRef)!, bundle, heldEpoch: held.rootEpoch });
+    expect(moved).toBe(false);
+    expect(h.updateList).not.toHaveBeenCalled();
+  });
+
+  it("refuses to move a member onto an epoch whose bans it can't read", async () => {
+    const { held, inviteRef, bundle } = await setup(2);
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useAdoptListedKeys(), { wrapper });
+    await expect(
+      result.current.mutateAsync({ invite: parseInviteLink(inviteRef)!, bundle, heldEpoch: held.rootEpoch }),
+    ).rejects.toThrow();
+    expect(h.updateList).not.toHaveBeenCalled();
   });
 });

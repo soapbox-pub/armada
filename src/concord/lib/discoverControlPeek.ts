@@ -211,7 +211,21 @@ async function refoundedPast(
   } catch {
     return false;
   }
-  const epoch = BigInt(bundle.root_epoch);
+  return refoundedPastEpoch(nostr, relays, { communityId, root, epoch: BigInt(bundle.root_epoch) }, folded, signal);
+}
+
+/**
+ * Whether an honored, complete Refounding moved the community off `epoch`, judged
+ * by that epoch's own fold (CORD-06 §2). A member asks this of the keys it holds.
+ */
+export async function refoundedPastEpoch(
+  nostr: PeekNostr,
+  relays: readonly string[],
+  held: { communityId: Uint8Array; root: Uint8Array; epoch: bigint },
+  folded: Pick<FoldedControl, "banned" | "ownerHex" | "roster" | "heads">,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const { communityId, root, epoch } = held;
   const address = baseRekeyGroupKey(root, communityId, epoch + 1n);
   const reads = await Promise.allSettled(
     relays.map((url) =>

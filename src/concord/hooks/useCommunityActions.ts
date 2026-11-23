@@ -1726,3 +1726,29 @@ export function useStrandedRecovery(
 
   return { canRecover, checking, checkNow };
 }
+
+/**
+ * Move a member left behind by a Refounding onto a listed link's newer epoch,
+ * through the epoch-monotonic `add` (as {@link useStrandedRecovery} does for the
+ * member's own link). Nothing binds a bundle's root to the held one (CORD-02 §1),
+ * so offer this only once the member's own fold has honored a rotation past its epoch.
+ */
+export function useAdoptListedKeys() {
+  const { nostr } = useNostr();
+  const { user } = useCurrentUser();
+  const { mutateAsync: updateList } = useUpdateCommunityList();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ invite, bundle, heldEpoch }: { invite: ParsedInviteLink; bundle: InviteBundle; heldEpoch: bigint }) => {
+      if (!user) throw new Error(t({ id: "useCommunityActions.signInToJoin", defaultMessage: "Sign in to join an encrypted community." }));
+      if (BigInt(bundle.root_epoch) <= heldEpoch) return false;
+      const fresh = bundleToEntry(bundle, { inviteRef: inviteRefOf(invite) });
+      const community = rehydrateCommunity(fresh);
+      if (!community) return false;
+      await assertNotBanned(nostr, community, user.pubkey);
+      await updateList({ type: "add", entry: fresh });
+      queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
+      return true;
+    },
+  });
+}

@@ -7,9 +7,10 @@ import {
   peekDiscoverControl,
   summarizeDiscoverChannels,
   readCachedControlPeek,
+  refoundedPastEpoch,
 } from "@/concord/lib/discoverControlPeek";
 import { KIND_WRAP } from "@/concord/lib/kinds";
-import { buildChannelEdition, buildMetadataEdition, buildRegistryEdition, sealEdition } from "@/concord/lib/control";
+import { buildChannelEdition, buildMetadataEdition, buildRegistryEdition, foldControlState, sealEdition } from "@/concord/lib/control";
 import { buildRekeyRumors } from "@/concord/lib/rekey";
 import { sealRumor, wrapSeal } from "@/concord/lib/stream";
 import { KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
@@ -380,6 +381,33 @@ describe("peekDiscoverControl refounding probe", () => {
     const events = sorted([await c.metadataWrap(), ...(await rotation(c, signer()))]);
     const peek = await peekDiscoverControl(fakeNostr({ "wss://one": { events, calls: [] } }), c.bundle);
     expect(peek?.rotated).toBe(false);
+  });
+
+  // A member asks of the keys it holds, judged by its own epoch's fold.
+  const held = (c: Awaited<ReturnType<typeof realCommunity>>) => ({
+    communityId: c.communityId,
+    root: hex32(c.bundle.community_root),
+    epoch: 0n,
+  });
+  const fold = (c: Awaited<ReturnType<typeof realCommunity>>) => foldControlState([], c.communityId, c.owner.pubkey);
+
+  it("tells a member an honored Refounding moved past the keys it holds", async () => {
+    const c = await realCommunity([]);
+    const events = sorted(await rotation(c, c.owner));
+    await expect(
+      refoundedPastEpoch(fakeNostr({ "wss://one": { events, calls: [] } }), ["wss://one"], held(c), fold(c)),
+    ).resolves.toBe(true);
+  });
+
+  it("tells a member nothing from a rotation its fold doesn't honor, or none at all", async () => {
+    const c = await realCommunity([]);
+    const forged = sorted(await rotation(c, signer()));
+    await expect(
+      refoundedPastEpoch(fakeNostr({ "wss://one": { events: forged, calls: [] } }), ["wss://one"], held(c), fold(c)),
+    ).resolves.toBe(false);
+    await expect(
+      refoundedPastEpoch(fakeNostr({ "wss://one": { events: [], calls: [] } }), ["wss://one"], held(c), fold(c)),
+    ).resolves.toBe(false);
   });
 });
 

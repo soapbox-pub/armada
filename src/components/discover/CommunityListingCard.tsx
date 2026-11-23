@@ -1,6 +1,6 @@
 import { useNostr } from "@nostrify/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, BadgeCheck, Check, Copy, Loader2, MoreHorizontal, ShieldCheck, Skull, Trash2, Waypoints } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, Copy, Loader2, MoreHorizontal, RefreshCw, ShieldCheck, Skull, Trash2, Waypoints } from "lucide-react";
 import { Fragment, memo, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { readCachedBundle, resolveBundle } from "@/concord/hooks/useCommunityActions";
+import { readCachedBundle, resolveBundle, useAdoptListedKeys } from "@/concord/hooks/useCommunityActions";
 import { useCommunity, useCommunityEntry } from "@/concord/hooks/useCommunityList";
 import { probeCommunityDissolved, useControlFold } from "@/concord/hooks/useControlPlane";
 import { useUnlistAnnouncements } from "@/concord/hooks/useDiscoverListings";
@@ -34,6 +34,7 @@ import {
   enqueueDiscoverControlPeek,
   peekDiscoverControl,
   readCachedControlPeek,
+  refoundedPastEpoch,
 } from "@/concord/lib/discoverControlPeek";
 import {
   entryListingIds,
@@ -357,6 +358,24 @@ const ListingCard = memo(function ListingCard({
   const memberEpoch = memberCommunity?.rootEpoch;
   const peek = controlPeek && controlPeek.epoch === bundleEpoch ? controlPeek : undefined;
   const retired = bundleEpoch !== undefined && (memberEpoch !== undefined ? BigInt(bundleEpoch) < memberEpoch : !!peek?.rotated);
+  // The link is on newer keys than ours. Its epoch is only the link creator's claim,
+  // so a Refounding past ours must be honored by our own epoch's fold (CORD-06 §2).
+  const linkAhead = bundleEpoch !== undefined && memberEpoch !== undefined && BigInt(bundleEpoch) > memberEpoch;
+  const { data: keysBehind = false } = useQuery({
+    queryKey: ["discover", "keys-behind", memberCommunity?.idHex, memberEpoch?.toString()],
+    enabled: linkAhead && !!memberCommunity && !!folded && onScreen,
+    staleTime: 5 * 60_000,
+    retry: false,
+    queryFn: ({ signal }) =>
+      refoundedPastEpoch(
+        nostr,
+        memberCommunity!.relays,
+        { communityId: memberCommunity!.id, root: memberCommunity!.root, epoch: memberCommunity!.rootEpoch },
+        folded!,
+        AbortSignal.any([AbortSignal.timeout(KEYS_BEHIND_TIMEOUT_MS), signal]),
+      ),
+  });
+  const adoptKeys = useAdoptListedKeys();
   const sharerRank = !bundle
     ? 2
     : rankedSharer === bundle.owner
@@ -412,6 +431,20 @@ const ListingCard = memo(function ListingCard({
 
   const onJoin = () => navigate(inviteUrlToLocalRoute(entry.inviteUrl));
   const onOpen = () => navigate(`/c/${encodeURIComponent(bundle!.community_id)}`);
+  const onUpdateKeys = async () => {
+    try {
+      const moved = await adoptKeys.mutateAsync({ invite: parsed!, bundle: bundle!, heldEpoch: memberEpoch! });
+      if (!moved) return;
+      toast({ title: t({ id: "communityListingCard.keysUpdated", defaultMessage: "Keys updated" }) });
+      onOpen();
+    } catch (e) {
+      toast({
+        title: t({ id: "communityListingCard.keysUpdateFailed", defaultMessage: "Couldn't update your keys" }),
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
   const onRemove = async () => {
     setRemoving(true);
     try {
@@ -574,11 +607,25 @@ const ListingCard = memo(function ListingCard({
 
         {boosts.length > 0 && <BoostedBy boosts={boosts} named={vouched} />}
 
+        {isMember && keysBehind && !husk && (
+          <p className="text-2xs leading-snug text-warning">
+            <FormattedMessage
+              id="communityListingCard.keysBehind"
+              defaultMessage="The community rotated its keys without reaching you, so you can't read new messages. This link is on newer keys."
+            />
+          </p>
+        )}
+
         <div className="mt-auto flex gap-2">
           {husk ? (
             <Button variant="secondary" className="min-w-0 flex-1 clip-corner-lg" disabled>
               <Skull className="size-4" />
               <FormattedMessage id="communityListingCard.dissolved" defaultMessage="Dissolved" />
+            </Button>
+          ) : isMember && keysBehind ? (
+            <Button className="min-w-0 flex-1 clip-corner-lg" onClick={() => void onUpdateKeys()} disabled={adoptKeys.isPending}>
+              {adoptKeys.isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              <FormattedMessage id="communityListingCard.updateKeys" defaultMessage="Update keys" />
             </Button>
           ) : isMember ? (
             <Button variant="secondary" className="min-w-0 flex-1 clip-corner-lg" onClick={onOpen}>
@@ -719,3 +766,6 @@ function useSeenOnScreen(el: Element | null): boolean {
 }
 
 const NO_BOOSTS: Boost[] = [];
+
+/** How long the keys-behind check waits on the member's relays. */
+const KEYS_BEHIND_TIMEOUT_MS = 8_000;
