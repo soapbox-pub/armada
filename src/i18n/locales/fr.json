@@ -2281,6 +2281,8 @@
   "historyExport.tag.reply": "réponse",
   "historyExport.title": "Export Concord de {community}",
   "imageCropDialog.apply": "Appliquer le recadrage",
+  "imageCropDialog.canvasBlocked": "Ce navigateur bloque le canvas utilisé pour recadrer les images : seuls les GIF sont recadrés ici. Les autres images sont utilisées telles quelles.",
+  "imageCropDialog.canvasBlockedUnsupported": "Cette image ne peut pas être utilisée dans ce navigateur. Essayez un JPEG, PNG, WebP ou GIF.",
   "imageCropDialog.hint": "Faites glisser pour repositionner · Pincez ou faites défiler pour zoomer",
   "imageCropDialog.processing": "Traitement…",
   "imageCropDialog.reset": "Réinitialiser",

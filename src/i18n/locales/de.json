@@ -2281,6 +2281,8 @@
   "historyExport.tag.reply": "Antwort",
   "historyExport.title": "{community} – Concord-Export",
   "imageCropDialog.apply": "Zuschneiden",
+  "imageCropDialog.canvasBlocked": "Dieser Browser blockiert das Canvas zum Zuschneiden von Bildern, daher werden hier nur GIFs zugeschnitten. Andere Bilder werden unverändert verwendet.",
+  "imageCropDialog.canvasBlockedUnsupported": "Dieses Bild kann in diesem Browser nicht verwendet werden. Versuche ein JPEG, PNG, WebP oder GIF.",
   "imageCropDialog.hint": "Ziehen zum Verschieben · Pinch oder Scrollen zum Zoomen",
   "imageCropDialog.processing": "Wird verarbeitet…",
   "imageCropDialog.reset": "Zurücksetzen",

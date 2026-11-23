@@ -2281,6 +2281,8 @@
   "historyExport.tag.reply": "antwoord",
   "historyExport.title": "Concord-export van {community}",
   "imageCropDialog.apply": "Bijsnijden toepassen",
+  "imageCropDialog.canvasBlocked": "Deze browser blokkeert het canvas waarmee afbeeldingen worden bijgesneden, dus hier worden alleen GIF's bijgesneden. Andere afbeeldingen worden gebruikt zoals ze zijn.",
+  "imageCropDialog.canvasBlockedUnsupported": "Deze afbeelding kan in deze browser niet worden gebruikt. Probeer een JPEG, PNG, WebP of GIF.",
   "imageCropDialog.hint": "Sleep om te verplaatsen · Knijp of scrol om te zoomen",
   "imageCropDialog.processing": "Bezig met verwerken…",
   "imageCropDialog.reset": "Herstellen",

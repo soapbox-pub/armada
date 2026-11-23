@@ -263,3 +263,13 @@ export function stripAnimatedMetadata(b: Uint8Array): Uint8Array<ArrayBuffer> | 
 
   return null;
 }
+
+/**
+ * The image with its metadata cut out of the container, for where a canvas
+ * can't re-encode it; null when that can't be done (HEIC/AVIF, a layout that
+ * can't be walked).
+ */
+export function stripMetadataWithoutCanvas(b: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> | null {
+  if (!needsMetadataStrip(b)) return b;
+  return stripJpegMetadata(b) ?? stripAnimatedMetadata(b);
+}

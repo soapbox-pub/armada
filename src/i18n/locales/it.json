@@ -2281,6 +2281,8 @@
   "historyExport.tag.reply": "risposta",
   "historyExport.title": "Esportazione Concord di {community}",
   "imageCropDialog.apply": "Applica ritaglio",
+  "imageCropDialog.canvasBlocked": "Questo browser blocca il canvas usato per ritagliare le immagini, quindi qui vengono ritagliate solo le GIF. Le altre immagini vengono usate così come sono.",
+  "imageCropDialog.canvasBlockedUnsupported": "Questa immagine non può essere usata in questo browser. Prova con un JPEG, PNG, WebP o GIF.",
   "imageCropDialog.hint": "Trascina per riposizionare · Pizzica o scorri per lo zoom",
   "imageCropDialog.processing": "Elaborazione…",
   "imageCropDialog.reset": "Ripristina",

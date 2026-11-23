@@ -2281,6 +2281,8 @@
   "historyExport.tag.reply": "reply",
   "historyExport.title": "{community} Concord export",
   "imageCropDialog.apply": "Apply crop",
+  "imageCropDialog.canvasBlocked": "This browser blocks the canvas used to crop images, so only GIFs are cropped here. Other images are used as they are.",
+  "imageCropDialog.canvasBlockedUnsupported": "This image can't be used in this browser. Try a JPEG, PNG, WebP or GIF.",
   "imageCropDialog.hint": "Drag to reposition · Pinch or scroll to zoom",
   "imageCropDialog.processing": "Processing…",
   "imageCropDialog.reset": "Reset",

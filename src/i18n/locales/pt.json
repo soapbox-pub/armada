@@ -2281,6 +2281,8 @@
   "historyExport.tag.reply": "resposta",
   "historyExport.title": "Exportação Concord de {community}",
   "imageCropDialog.apply": "Aplicar corte",
+  "imageCropDialog.canvasBlocked": "Este navegador bloqueia o canvas usado para recortar imagens, então aqui só GIFs são recortados. As outras imagens são usadas como estão.",
+  "imageCropDialog.canvasBlockedUnsupported": "Esta imagem não pode ser usada neste navegador. Tente um JPEG, PNG, WebP ou GIF.",
   "imageCropDialog.hint": "Arraste para reposicionar · Faça pinça ou role para dar zoom",
   "imageCropDialog.processing": "Processando…",
   "imageCropDialog.reset": "Redefinir",

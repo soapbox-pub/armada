@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Crop, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { hasTransparency } from '@/lib/canvasAlpha';
+import { canvasReadbackIntact } from '@/lib/canvasProbe';
+import { stripMetadataWithoutCanvas } from '@/lib/imageMetadataStrip';
 import { isGifBytes, runGifCrop } from '@/lib/runGifCrop';
 import { FormattedMessage, common, useIntl } from '@/i18n';
 
@@ -20,10 +22,19 @@ interface ImageCropDialogProps {
   onCrop: (croppedBlob: Blob) => void;
 }
 
+class CanvasBlockedError extends Error {}
+
 async function getCroppedBlob(imageSrc: string, pixelCrop: Area, maxEdge?: number): Promise<Blob> {
   const source = await (await fetch(imageSrc)).blob();
   if (isGifBytes(new Uint8Array(await source.slice(0, 4).arrayBuffer()))) {
     return (await runGifCrop(source, pixelCrop, maxEdge)) ?? source;
+  }
+  // A fingerprint blocker (Tor Browser, resistFingerprinting) hands back noise
+  // from toBlob: the picked image goes up uncropped instead.
+  if (!canvasReadbackIntact()) {
+    const stripped = stripMetadataWithoutCanvas(new Uint8Array(await source.arrayBuffer()));
+    if (!stripped) throw new CanvasBlockedError();
+    return new Blob([stripped], { type: source.type });
   }
   const image = await createImageBitmap(source);
   const scale = maxEdge ? Math.min(1, maxEdge / Math.max(pixelCrop.width, pixelCrop.height)) : 1;
@@ -61,6 +72,8 @@ export function ImageCropDialog({ open, imageSrc, aspect, title: titleProp, maxE
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [canvasBlocked] = useState(() => !canvasReadbackIntact());
+  const [blockedError, setBlockedError] = useState(false);
 
   const onCropComplete = useCallback((_: Area, areaPixels: Area) => {
     setCroppedAreaPixels(areaPixels);
@@ -77,6 +90,9 @@ export function ImageCropDialog({ open, imageSrc, aspect, title: titleProp, maxE
     try {
       const blob = await getCroppedBlob(imageSrc, croppedAreaPixels, maxEdge);
       onCrop(blob);
+    } catch (error) {
+      if (!(error instanceof CanvasBlockedError)) throw error;
+      setBlockedError(true);
     } finally {
       setIsProcessing(false);
     }
@@ -126,6 +142,23 @@ export function ImageCropDialog({ open, imageSrc, aspect, title: titleProp, maxE
             </p>
           </div>
         </div>
+
+        {canvasBlocked && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            <FormattedMessage
+              id="imageCropDialog.canvasBlocked"
+              defaultMessage="This browser blocks the canvas used to crop images, so only GIFs are cropped here. Other images are used as they are."
+            />
+          </p>
+        )}
+        {blockedError && (
+          <p role="alert" className="mt-2 text-xs text-destructive">
+            <FormattedMessage
+              id="imageCropDialog.canvasBlockedUnsupported"
+              defaultMessage="This image can't be used in this browser. Try a JPEG, PNG, WebP or GIF."
+            />
+          </p>
+        )}
 
         <ChromeDialogFooter>
           <Button variant="secondary" onClick={onCancel} disabled={isProcessing}>
