@@ -69,7 +69,7 @@ const openConnectQr = async () => {
 };
 
 /** The URI as the app built it, perms included. */
-const CONNECT_URI = `${h.connectUri}&perms=${encodeURIComponent(NOSTR_CONNECT_PERMS)}`;
+const CONNECT_URI = `${h.connectUri}&perms=${NOSTR_CONNECT_PERMS}`;
 
 const renderLogin = () =>
   render(<LoginScreen isOpen onClose={vi.fn()} onLogin={vi.fn()} />);

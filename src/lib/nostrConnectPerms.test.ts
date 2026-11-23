@@ -17,4 +17,10 @@ describe("withConnectPerms", () => {
     expect(params.get("name")).toBe("Armada");
     expect(params.get("perms")).toBe(NOSTR_CONNECT_PERMS);
   });
+
+  it("keeps the perms unescaped so the login QR stays scannable", () => {
+    const uri = withConnectPerms("nostrconnect://abc?secret=s");
+    expect(uri).toBe(`nostrconnect://abc?secret=s&perms=${NOSTR_CONNECT_PERMS}`);
+    expect(uri).not.toMatch(/%2C|%3A/);
+  });
 });

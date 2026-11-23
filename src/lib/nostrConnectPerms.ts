@@ -29,7 +29,11 @@ export const NOSTR_CONNECT_PERMS = [
   ...SIGNED_KINDS.map((k) => `sign_event:${k}`),
 ].join(",");
 
-/** `uri` with Armada's requested permissions appended. */
+/**
+ * `uri` with Armada's requested permissions appended. Left unescaped: `,` and
+ * `:` are legal in a query (RFC 3986) and decode the same, while escaping
+ * them makes the login QR markedly denser.
+ */
 export function withConnectPerms(uri: string): string {
-  return `${uri}${uri.includes("?") ? "&" : "?"}perms=${encodeURIComponent(NOSTR_CONNECT_PERMS)}`;
+  return `${uri}${uri.includes("?") ? "&" : "?"}perms=${NOSTR_CONNECT_PERMS}`;
 }

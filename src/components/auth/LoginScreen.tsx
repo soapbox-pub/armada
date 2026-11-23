@@ -420,10 +420,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ isOpen, onClose, onLogin, onS
             <div className='flex flex-col items-center space-y-4'>
               {nostrConnectUri ? (
                 <div className='p-4 bg-white dark:bg-white clip-corner-lg'>
-                  <QRCodeCanvas value={nostrConnectUri} size={180} level='M' />
+                  {/* Level L: a screen isn't smudged or torn, and M pushes the code past ~80 modules. */}
+                  <QRCodeCanvas value={nostrConnectUri} size={256} level='L' />
                 </div>
               ) : (
-                <div className='flex items-center justify-center h-[180px]'>
+                <div className='flex items-center justify-center h-[256px]'>
                   <Loader2 className='w-8 h-8 animate-spin text-muted-foreground' />
                 </div>
               )}
