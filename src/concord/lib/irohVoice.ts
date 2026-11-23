@@ -8,7 +8,7 @@
  * a member the SFU doesn't carry to us: a pair links when either side is off the
  * SFU, and never when both are on it.
  */
-import type { IrohAddress, VoicePresenceFold } from "@/concord/lib/voice";
+import { canonicalOrigin, type IrohAddress, type VoicePresenceFold } from "@/concord/lib/voice";
 import type { CommunityMetadata } from "@/concord/lib/types";
 
 /** Vector's datagram header (`vector-calls` `wire.rs`): seq u16, sender ms u32, flags u16, big-endian. */
@@ -19,16 +19,9 @@ export const FLAG_MUTED = 1;
 export const FLAG_SHARE = 2;
 /** Others in a call besides us: a full mesh carries voice to about fifteen (CORD-07 §8). */
 export const MAX_PEERS = 14;
-/** Vector's `MAX_VOICE_RELAYS`. */
-const MAX_VOICE_RELAYS = 8;
-
-/** iroh's default relays (`iroh::defaults::prod`), which any presence may name. */
-export const DEFAULT_IROH_RELAY_HOSTS: readonly string[] = [
-  "use1-1.relay.n0.iroh.link",
-  "usw1-1.relay.n0.iroh.link",
-  "euc1-1.relay.n0.iroh.link",
-  "aps1-1.relay.n0.iroh.link",
-];
+/** Vector's `MAX_VOICE_RELAYS` (CORD-02 §6). */
+export const MAX_VOICE_RELAYS = 8;
+const MAX_VOICE_RELAY_LEN = 256;
 
 export interface Frame {
   seq: number;
@@ -63,7 +56,7 @@ export function communityVoiceRelays(metadata: CommunityMetadata | undefined): s
   const raw = metadata?.voice_relays;
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((u): u is string => typeof u === "string" && u.startsWith("https://") && u.length <= 256)
+    .filter((u): u is string => typeof u === "string" && u.startsWith("https://") && u.length <= MAX_VOICE_RELAY_LEN)
     .slice(0, MAX_VOICE_RELAYS);
 }
 
@@ -75,15 +68,49 @@ function hostOf(url: string): string | undefined {
   }
 }
 
+/** A typed relay address in the form `voice_relays` stores: an https origin, bare host accepted. */
+export function voiceRelayUrl(input: string): string | null {
+  const raw = input.trim();
+  const origin = canonicalOrigin(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
+  return origin && origin.length <= MAX_VOICE_RELAY_LEN ? origin : null;
+}
+
+/** Whether an iroh relay answers its probe (`iroh-relay`'s `/ping`, served with CORS `*`). */
+export async function probeVoiceRelay(url: string, signal?: AbortSignal): Promise<boolean> {
+  try {
+    const res = await fetch(new URL("/ping", url), {
+      signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(5000)]),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Where a call's endpoint homes, and which relays it dials peers through (CORD-07 §8). */
+export interface IrohRelayPlan {
+  home: string[];
+  trusted: string[];
+}
+
 /**
- * A relay a peer may be dialled through: iroh's defaults, or one the Community lists
- * (Vector `allowed_relay`). Anything else would let a member point us at a host of
- * their choosing.
+ * As a Community's AV brokers replace members' own (CORD-07 §5), its `voice_relays` are
+ * where its calls home when it lists any. `defaults` are this deployment's: the shipped
+ * iroh release's unless `CONCORD_IROH_RELAYS` replaces them. Both stay dialable, since a
+ * member on another client may still home on iroh's defaults.
  */
-export function allowedRelay(url: string, communityRelays: readonly string[]): boolean {
+export function irohRelayPlan(community: readonly string[], defaults: readonly string[]): IrohRelayPlan {
+  return { home: [...(community.length > 0 ? community : defaults)], trusted: [...defaults, ...community] };
+}
+
+/**
+ * A relay a peer may be dialled through: one of `trusted` by host (Vector `allowed_relay`).
+ * Anything else would let a member point us at a host of their choosing.
+ */
+export function allowedRelay(url: string, trusted: readonly string[]): boolean {
   const host = hostOf(url);
   if (!host) return false;
-  return DEFAULT_IROH_RELAY_HOSTS.includes(host) || communityRelays.some((r) => hostOf(r) === host);
+  return trusted.some((r) => hostOf(r) === host);
 }
 
 /** A member this client keeps a peer-to-peer link with. */
@@ -98,7 +125,8 @@ export interface P2pTopology {
   onSfu: boolean;
   /** Our own endpoint, hex. */
   endpoint: string;
-  communityRelays: readonly string[];
+  /** The relays we dial through (`irohRelayPlan`). */
+  trustedRelays: readonly string[];
   /** Whether a member may be in this Channel's call at all (CONNECT, CORD-07 §7). */
   mayConnect?: (author: string) => boolean;
 }
@@ -129,7 +157,7 @@ export function p2pTargets(fold: VoicePresenceFold, me: string, topo: P2pTopolog
       author: c.author,
       endpoint: c.iroh.endpoint,
       ...(relay ? { relay } : {}),
-      dial: dials(mine, c.iroh.endpoint) && relay !== undefined && allowedRelay(relay, topo.communityRelays),
+      dial: dials(mine, c.iroh.endpoint) && relay !== undefined && allowedRelay(relay, topo.trustedRelays),
     });
     if (out.length >= MAX_PEERS) break;
   }

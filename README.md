@@ -113,6 +113,13 @@ in `index.html`, which link-preview crawlers read without running scripts.
   can be turned off entirely with the "Use app media servers" toggle.
 - `CONCORD_AV_SERVERS` — fallback Concord voice (CORD-07) token brokers
   (default `https://av.armada.buzz`).
+- `CONCORD_IROH_RELAYS` — fallback iroh relays for peer-to-peer Concord calls
+  (CORD-07 §8), comma-separated `https` URLs, used where a Community lists no
+  `voice_relays` of its own. Unset, Armada uses the defaults of the iroh release
+  it ships (n0's public relays); set empty, no peer-to-peer call starts outside
+  a Community that lists relays. Replacing the defaults also stops Armada
+  dialling peers homed on them, so it reaches clients on iroh's defaults (such
+  as Vector) only through relays their Community lists.
 - `BRIDGE_PORTAL_URL` — origin of a Discord bridge portal
   (`armada-discord-bridge`), e.g. `https://bridge.armada.buzz`. **Empty by
   default**, which hides every Discord affordance in the client; set it and the

@@ -1,23 +1,25 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type { CallAllowance } from "@/concord/lib/callGate";
-import { p2pTargets } from "@/concord/lib/irohVoice";
+import { irohRelayPlan, p2pTargets, type IrohRelayPlan } from "@/concord/lib/irohVoice";
 import type { IrohAddress, VoicePresenceFold } from "@/concord/lib/voice";
 import { IrohVoiceAudio, irohAudioSupported } from "@/lib/irohVoice/audio";
 import { IrohVoiceCall, type LinkedPeer } from "@/lib/irohVoice/call";
 import { peerViews, SPEAKING_LEVEL, wantedFrom, type P2pPeerView } from "@/lib/irohVoice/peers";
 import { IrohVideo } from "@/lib/irohVoice/video";
 import type { VideoKind } from "@/concord/lib/irohVideo";
-import { voiceNodeBinder } from "@/lib/realtimeTransport";
+import { CONCORD_IROH_RELAYS } from "@/lib/platform";
+import { irohDefaultRelays, voiceNodeBinder } from "@/lib/realtimeTransport";
 import { getPreferredSpeakerId, getUserVolume, subscribeUserVolumes, subscribeVoiceDevices } from "@/lib/voiceDevices";
 
 export type IrohVoiceStatus = "off" | "starting" | "on" | "unavailable";
 
 /**
  * Why peer to peer is off: this build has no iroh module (`npm run build:wasm` didn't run or
- * failed), this browser has no WebCodecs Opus, or the endpoint wouldn't bind.
+ * failed), this browser has no WebCodecs Opus, neither the Community nor the deployment names
+ * a relay to home on, or the endpoint wouldn't bind or no relay answered it.
  */
-export type IrohUnavailable = "build" | "browser" | "start";
+export type IrohUnavailable = "build" | "browser" | "relays" | "start";
 
 export interface IrohVoiceOptions {
   /** In the call: binds an endpoint for as long as this holds. */
@@ -26,8 +28,8 @@ export interface IrohVoiceOptions {
   onSfu: boolean;
   fold: VoicePresenceFold;
   me: string | undefined;
-  /** The Community's iroh relays (`communityVoiceRelays`). */
-  relays: readonly string[];
+  /** The Community's iroh relays (`communityVoiceRelays`), which replace the deployment's when listed. */
+  communityRelays: readonly string[];
   /** The microphone the call sends, already through its processing. */
   micTrack: MediaStreamTrack | undefined;
   muted: boolean;
@@ -53,9 +55,21 @@ export interface IrohVoice {
 
 const NONE: LinkedPeer[] = [];
 
-/** Whether this build and browser can hold a peer-to-peer call: the iroh module, and WebCodecs Opus. */
-export async function peerToPeerAvailable(): Promise<boolean> {
-  return irohAudioSupported() && Boolean(await voiceNodeBinder());
+/** This deployment's iroh relays: `CONCORD_IROH_RELAYS`, else the shipped iroh release's; undefined without iroh. */
+async function deploymentIrohRelays(): Promise<string[] | undefined> {
+  const shipped = await irohDefaultRelays();
+  if (!shipped) return undefined;
+  return CONCORD_IROH_RELAYS ?? shipped;
+}
+
+/**
+ * Whether a call can run peer to peer here: the iroh module, WebCodecs Opus, and a relay to
+ * home on, the Community's or the deployment's.
+ */
+export async function peerToPeerAvailable(communityRelays: readonly string[]): Promise<boolean> {
+  if (!irohAudioSupported() || !(await voiceNodeBinder())) return false;
+  const defaults = await deploymentIrohRelays();
+  return Boolean(defaults) && irohRelayPlan(communityRelays, defaults!).home.length > 0;
 }
 const noop = () => () => undefined;
 
@@ -76,12 +90,12 @@ function videoTick(video: IrohVideo): number {
  * an Armada member whose LiveKit failed — until they join it.
  */
 export function useIrohVoice(opts: IrohVoiceOptions): IrohVoice {
-  const { enabled, onSfu, fold, me, relays, micTrack, muted, gate } = opts;
-  const [call, setCall] = useState<{ call: IrohVoiceCall; audio: IrohVoiceAudio; video: IrohVideo } | undefined>();
+  const { enabled, onSfu, fold, me, communityRelays, micTrack, muted, gate } = opts;
+  const [call, setCall] = useState<{ call: IrohVoiceCall; audio: IrohVoiceAudio; video: IrohVideo; relays: IrohRelayPlan } | undefined>();
   const [status, setStatus] = useState<IrohVoiceStatus>("off");
   const [unavailable, setUnavailable] = useState<IrohUnavailable | undefined>();
   const [address, setAddress] = useState<IrohAddress | undefined>();
-  const relaysKey = relays.join(",");
+  const relaysKey = communityRelays.join(",");
 
   useEffect(() => {
     if (!enabled) return;
@@ -98,10 +112,14 @@ export function useIrohVoice(opts: IrohVoiceOptions): IrohVoice {
       if (!irohAudioSupported()) return off("browser", "no WebCodecs AudioEncoder/AudioDecoder or AudioWorklet");
       const bind = await voiceNodeBinder();
       if (cancelled) return;
-      if (!bind) return off("build", "the iroh wasm module (crates/webxdc-rt) isn't in this build, or predates VoiceNode");
+      const defaults = await deploymentIrohRelays();
+      if (cancelled) return;
+      if (!bind || !defaults) return off("build", "the iroh wasm module (crates/webxdc-rt) isn't in this build, or predates VoiceNode");
+      const relays = irohRelayPlan(relaysKey ? relaysKey.split(",") : [], defaults);
+      if (relays.home.length === 0) return off("relays", "CONCORD_IROH_RELAYS is empty and the Community lists no voice_relays");
       let audio: IrohVoiceAudio | undefined;
       try {
-        held = await IrohVoiceCall.start(bind, relaysKey ? relaysKey.split(",") : [], (send) => (audio = new IrohVoiceAudio(send)));
+        held = await IrohVoiceCall.start(bind, relays.home, (send) => (audio = new IrohVoiceAudio(send)));
       } catch (e) {
         if (!cancelled) off("start", e);
         return;
@@ -115,7 +133,7 @@ export function useIrohVoice(opts: IrohVoiceOptions): IrohVoice {
         (id, bytes) => v.onStream(id, bytes),
         (id, up) => (up ? v.relinked(id) : v.removePeer(id)),
       );
-      setCall({ call: held, audio: audio!, video: v });
+      setCall({ call: held, audio: audio!, video: v, relays });
       setAddress(held.address());
       setStatus("on");
     })();
@@ -147,9 +165,9 @@ export function useIrohVoice(opts: IrohVoiceOptions): IrohVoice {
   useEffect(() => {
     if (!call || !me || !mine) return;
     const mayConnect = (author: string) => gateRef.current?.(author).connect !== false;
-    call.call.setTargets(p2pTargets(fold, me, { onSfu, endpoint: mine, communityRelays: relays, mayConnect }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [call, fold, me, mine, onSfu, relaysKey, gate]);
+    call.call.setTargets(p2pTargets(fold, me, { onSfu, endpoint: mine, trustedRelays: call.relays.trusted, mayConnect }));
+  }, [call, fold, me, mine, onSfu, gate]);
+
   useEffect(() => {
     if (!call) return;
     const apply = () =>

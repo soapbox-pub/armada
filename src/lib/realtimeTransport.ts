@@ -47,6 +47,7 @@ interface WasmModule {
   default: (input?: unknown) => Promise<unknown>;
   RealtimeNode: new () => Promise<RealtimeTransport>;
   VoiceNode: { bind: VoiceNodeBinder };
+  defaultVoiceRelays?: () => string[];
 }
 
 /** Where `npm run build:wasm` puts the package. */
@@ -88,6 +89,15 @@ export async function voiceNodeBinder(): Promise<VoiceNodeBinder | undefined> {
   // An older build of the module, from before the voice half.
   if (!mod?.VoiceNode) return undefined;
   return (relays, onLink, onDatagram, onClosed, onStream) => mod.VoiceNode.bind(relays, onLink, onDatagram, onClosed, onStream);
+}
+
+/**
+ * The relays of the iroh release this build ships (CORD-07 §8 "iroh's defaults"), or
+ * undefined where this build has no iroh, or one from before the export.
+ */
+export async function irohDefaultRelays(): Promise<string[] | undefined> {
+  const mod = await wasmModule();
+  return mod?.VoiceNode && mod.defaultVoiceRelays ? mod.defaultVoiceRelays() : undefined;
 }
 
 /**

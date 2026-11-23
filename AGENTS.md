@@ -255,6 +255,13 @@ the SFU — Vector, or an Armada member whose LiveKit failed — and the link dr
 once that member's SFU presence arrives. Our `joined` names the SFU identity
 and the iroh endpoint in ONE rumor: Vector folds presence latest-wins per
 author, so two rumors would make it drop and re-dial us every heartbeat.
+Its relays are chosen the way LiveKit brokers are: a Community's
+`voice_relays` (edited in Community settings, beside its AV brokers) replace
+the deployment's `CONCORD_IROH_RELAYS`, which defaults to the shipped iroh
+release's own (`defaultVoiceRelays()` in the crate, so no list is kept in
+TS), and a call dials peers through either (`irohRelayPlan`). A bind that no
+relay answers is refused rather than left looking connected, since a presence
+naming no relay is dialled by nobody.
 Cameras and screens ride the same links in Vector's format (`irohVideo.ts`,
 `src/lib/irohVoice/video.ts`): one unidirectional stream per frame behind a
 16-byte header (H.264 Annex B or VP8 through WebCodecs), JSON `watch`/`key`/

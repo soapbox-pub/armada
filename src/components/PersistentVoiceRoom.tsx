@@ -1211,7 +1211,7 @@ function ConcordVoiceRoom({
     onSfu,
     fold,
     me,
-    relays: voiceRelays,
+    communityRelays: voiceRelays,
     micTrack,
     muted: onSfu ? localMedia.muted : p2pMuted,
     gate,
@@ -1360,7 +1360,7 @@ function ConcordVoiceRoom({
       const to = channelsView(o.ctx.community, o.folded).find((c) => c.idHex === d.to && c.view === "voice");
       void (async () => {
         const broker = to?.voice.room.pk ? await resolveVoiceBroker(to.voice.room.pk, o.communityBrokers) : null;
-        if (!to || (!broker && !(await peerToPeerAvailable()))) {
+        if (!to || (!broker && !(await peerToPeerAvailable(communityVoiceRelays(o.folded?.metadata))))) {
           toast({ title: t({ id: "persistentVoiceRoom.directive.disconnected", defaultMessage: "A moderator disconnected you from the call" }) });
           o.onLeave();
           return;
@@ -1943,10 +1943,15 @@ function ConcordVoiceRoom({
                 id: "persistentVoiceRoom.otherTransport.startFailed",
                 defaultMessage: "Peer-to-peer calling couldn't start, so you won't hear each other.",
               })
-            : t({
-                id: "persistentVoiceRoom.otherTransport.description",
-                defaultMessage: "This browser can't join peer-to-peer calls, so you won't hear each other.",
-              }),
+            : iroh.unavailable === "relays"
+              ? t({
+                  id: "persistentVoiceRoom.otherTransport.noRelays",
+                  defaultMessage: "No peer-to-peer relay is set up for this community, so you won't hear each other.",
+                })
+              : t({
+                  id: "persistentVoiceRoom.otherTransport.description",
+                  defaultMessage: "This browser can't join peer-to-peer calls, so you won't hear each other.",
+                }),
     });
   }, [tokenData, otherTransportCount, iroh.status, iroh.unavailable]);
 

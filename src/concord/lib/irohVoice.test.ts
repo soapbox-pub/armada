@@ -7,6 +7,8 @@ import {
   allowedRelay,
   communityVoiceRelays,
   dials,
+  irohRelayPlan,
+  voiceRelayUrl,
   FLAG_MUTED,
   MAX_PEERS,
   p2pTargets,
@@ -26,6 +28,8 @@ const now = 10_000_000;
 const pk = (c: string) => c.repeat(64);
 const ep = (c: string) => c.repeat(64);
 const RELAY = "https://euc1-1.relay.n0.iroh.link./";
+/** iroh 1.0.3's defaults as the wasm build reports them (`defaultVoiceRelays`). */
+const DEFAULTS = ["use1-1", "usw1-1", "euc1-1", "aps1-1"].map((r) => `https://${r}.relay.n0.iroh.link/`);
 
 function opened(tags: string[][], author = pk("a")): OpenedEvent {
   return {
@@ -66,18 +70,34 @@ describe("who dials (Vector `dials`)", () => {
 });
 
 describe("relays a peer may be dialled through (Vector `allowed_relay`)", () => {
-  it("allows iroh's defaults, with or without the trailing dot, and the Community's own", () => {
-    expect(allowedRelay(RELAY, [])).toBe(true);
-    expect(allowedRelay("https://USE1-1.relay.n0.iroh.link/", [])).toBe(true);
-    expect(allowedRelay("https://relay.example/", [])).toBe(false);
+  it("allows a trusted relay by host, with or without the trailing dot, and nothing else", () => {
+    expect(allowedRelay(RELAY, DEFAULTS)).toBe(true);
+    expect(allowedRelay("https://USE1-1.relay.n0.iroh.link/", DEFAULTS)).toBe(true);
+    expect(allowedRelay("https://relay.example/", DEFAULTS)).toBe(false);
     expect(allowedRelay("https://relay.example/", ["https://relay.example"])).toBe(true);
-    expect(allowedRelay("not a url", [])).toBe(false);
+    expect(allowedRelay("not a url", DEFAULTS)).toBe(false);
+    expect(allowedRelay(RELAY, []), "a deployment that replaced iroh's defaults").toBe(false);
   });
 
   it("reads the Community's voice relays as Vector does: https, bounded, at most eight", () => {
     const many = Array.from({ length: 10 }, (_, i) => `https://r${i}.example`);
     expect(communityVoiceRelays({ name: "", relays: [], voice_relays: ["http://plain.example", 3, ...many] })).toEqual(many.slice(0, 8));
     expect(communityVoiceRelays(undefined)).toEqual([]);
+  });
+
+  it("homes on the Community's relays when it lists any, as its AV brokers replace members' own, and dials through both", () => {
+    const own = ["https://relay.community.example"];
+    expect(irohRelayPlan(own, DEFAULTS)).toEqual({ home: own, trusted: [...DEFAULTS, ...own] });
+    expect(irohRelayPlan([], DEFAULTS)).toEqual({ home: DEFAULTS, trusted: DEFAULTS });
+    expect(irohRelayPlan([], []), "an empty CONCORD_IROH_RELAYS and no Community list").toEqual({ home: [], trusted: [] });
+    expect(irohRelayPlan(own, []).home).toEqual(own);
+  });
+
+  it("stores a typed relay as an https origin, a bare host accepted", () => {
+    expect(voiceRelayUrl("Relay.Example.com")).toBe("https://relay.example.com");
+    expect(voiceRelayUrl(" https://relay.example.com:443/ ")).toBe("https://relay.example.com");
+    expect(voiceRelayUrl("http://relay.example.com")).toBeNull();
+    expect(voiceRelayUrl(`${"a".repeat(260)}.example`)).toBeNull();
   });
 });
 
@@ -126,26 +146,26 @@ describe("the call's topology", () => {
   const armadaOnSfu = { author: pk("b"), alsoOn: "iroh", iroh: { endpoint: ep("1"), relay: RELAY } };
 
   it("on the SFU: links to members on iroh alone, never to another member on the SFU", () => {
-    const targets = p2pTargets(fold([armadaOnSfu], [vector]), me, { onSfu: true, endpoint: mine, communityRelays: [] });
+    const targets = p2pTargets(fold([armadaOnSfu], [vector]), me, { onSfu: true, endpoint: mine, trustedRelays: DEFAULTS });
     expect(targets.map((t) => t.author)).toEqual([pk("v")]);
     expect(targets[0].dial).toBe(true);
   });
 
   it("off the SFU: links to everyone with an endpoint, the SFU's members included", () => {
-    const targets = p2pTargets(fold([armadaOnSfu], [vector]), me, { onSfu: false, endpoint: mine, communityRelays: [] });
+    const targets = p2pTargets(fold([armadaOnSfu], [vector]), me, { onSfu: false, endpoint: mine, trustedRelays: DEFAULTS });
     expect(targets.map((t) => [t.author, t.dial])).toEqual([[pk("v"), true], [pk("b"), false]]);
   });
 
   it("drops a peer's link once their SFU presence arrives", () => {
     const joined = { ...vector, alsoOn: "iroh" };
-    expect(p2pTargets(fold([joined], []), me, { onSfu: true, endpoint: mine, communityRelays: [] })).toEqual([]);
+    expect(p2pTargets(fold([joined], []), me, { onSfu: true, endpoint: mine, trustedRelays: DEFAULTS })).toEqual([]);
   });
 
   it("dials only through a relay it may use, and leaves the lower endpoint to dial", () => {
     const stranger = { author: pk("s"), iroh: { endpoint: ep("8"), relay: "https://evil.example/" } };
     const noRelay = { author: pk("n"), iroh: { endpoint: ep("7") } };
     const lower = { author: pk("l"), iroh: { endpoint: ep("2"), relay: RELAY } };
-    const targets = p2pTargets(fold([], [stranger, noRelay, lower]), me, { onSfu: true, endpoint: mine, communityRelays: [] });
+    const targets = p2pTargets(fold([], [stranger, noRelay, lower]), me, { onSfu: true, endpoint: mine, trustedRelays: DEFAULTS });
     expect(targets.map((t) => [t.author, t.dial])).toEqual([[pk("s"), false], [pk("n"), false], [pk("l"), false]]);
     expect(acceptsInbound(targets, ep("2"), mine)?.author).toBe(pk("l"));
     expect(acceptsInbound(targets, ep("8"), mine), "they should have waited for us to dial").toBeUndefined();
@@ -156,24 +176,24 @@ describe("the call's topology", () => {
     const a = { author: pk("c"), iroh: { endpoint: ep("9"), relay: RELAY } };
     const b = { author: pk("d"), iroh: { endpoint: ep("9"), relay: RELAY } };
     const self = { author: me, iroh: { endpoint: mine, relay: RELAY } };
-    expect(p2pTargets(fold([], [a, b, self]), me, { onSfu: false, endpoint: mine, communityRelays: [] })).toEqual([]);
+    expect(p2pTargets(fold([], [a, b, self]), me, { onSfu: false, endpoint: mine, trustedRelays: DEFAULTS })).toEqual([]);
   });
 
   it("leaves iroh to a bridge while on the SFU, so no voice arrives twice", () => {
     const bridge = { author: pk("e"), alsoOn: "iroh", bridge: "iroh", iroh: { endpoint: ep("6"), relay: RELAY } };
-    expect(p2pTargets(fold([bridge], [vector]), me, { onSfu: true, endpoint: mine, communityRelays: [] })).toEqual([]);
-    expect(p2pTargets(fold([bridge], [vector]), me, { onSfu: false, endpoint: mine, communityRelays: [] })).toHaveLength(2);
+    expect(p2pTargets(fold([bridge], [vector]), me, { onSfu: true, endpoint: mine, trustedRelays: DEFAULTS })).toEqual([]);
+    expect(p2pTargets(fold([bridge], [vector]), me, { onSfu: false, endpoint: mine, trustedRelays: DEFAULTS })).toHaveLength(2);
   });
 
   it("links no member who may not connect to the Channel", () => {
     const mayConnect = (author: string) => author !== pk("v");
-    expect(p2pTargets(fold([], [vector]), me, { onSfu: true, endpoint: mine, communityRelays: [], mayConnect })).toEqual([]);
-    expect(p2pTargets(fold([armadaOnSfu], [vector]), me, { onSfu: false, endpoint: mine, communityRelays: [], mayConnect }).map((t) => t.author)).toEqual([pk("b")]);
+    expect(p2pTargets(fold([], [vector]), me, { onSfu: true, endpoint: mine, trustedRelays: DEFAULTS, mayConnect })).toEqual([]);
+    expect(p2pTargets(fold([armadaOnSfu], [vector]), me, { onSfu: false, endpoint: mine, trustedRelays: DEFAULTS, mayConnect }).map((t) => t.author)).toEqual([pk("b")]);
   });
 
   it("holds the mesh to its cap", () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ author: pk(i.toString(16).padStart(2, "0").slice(-1)) + i, iroh: { endpoint: (i + 100).toString(16).padStart(64, "f"), relay: RELAY } }));
-    expect(p2pTargets(fold([], many), me, { onSfu: true, endpoint: mine, communityRelays: [] })).toHaveLength(MAX_PEERS);
+    expect(p2pTargets(fold([], many), me, { onSfu: true, endpoint: mine, trustedRelays: DEFAULTS })).toHaveLength(MAX_PEERS);
   });
 });
 

@@ -212,6 +212,7 @@ import { useConcordThreads, type ConcordThread } from "@/concord/hooks/useConcor
 import { useTyping, useTypingPublisher } from "@/concord/hooks/useTyping";
 import { resolveVoiceBroker, useVoiceBroker, useVoicePresence } from "@/concord/hooks/useVoice";
 import { peerToPeerAvailable } from "@/concord/hooks/useIrohVoice";
+import { communityVoiceRelays } from "@/concord/lib/irohVoice";
 import { communityAvBrokers, voiceRowTransports } from "@/concord/lib/voice";
 import { useRegisterChannelStreamKeys } from "@/concord/hooks/useStreamAuth";
 import { completeMemberlist, timeoutRunning } from "@/concord/lib/guestbook";
@@ -2100,6 +2101,7 @@ function ConcordCommunityPage() {
   const { speakingPubkeys, mutedPubkeys } = useVoiceActivity();
   // Community brokers (CORD-02 §6) from the fold already held.
   const avBrokers = useMemo(() => communityAvBrokers(folded?.metadata), [folded?.metadata]);
+  const voiceRelays = useMemo(() => communityVoiceRelays(folded?.metadata), [folded?.metadata]);
   const { data: activeBroker } = useVoiceBroker(channel, avBrokers);
   const inThisVoice = Boolean(
     activeCall?.concord && channel && activeCall.concord.channel.idHex === channel.idHex,
@@ -2119,7 +2121,7 @@ function ConcordCommunityPage() {
         const roomHex = ch.voice.room.pk;
         resolved = roomHex ? await resolveVoiceBroker(roomHex, avBrokers) : null;
       }
-      if (!resolved && (await peerToPeerAvailable())) {
+      if (!resolved && (await peerToPeerAvailable(voiceRelays))) {
         // No LiveKit server to be on: the call goes ahead peer to peer (CORD-07 §8).
         joinConcordCall({ community, channel: ch, broker: null });
         return;
@@ -2145,7 +2147,7 @@ function ConcordCommunityPage() {
       // Members on another broker are reported by the room (it knows the real origin).
       joinConcordCall({ community, channel: ch, broker: resolved });
     },
-    [community, user, activeCall, joinConcordCall, avBrokers, folded],
+    [community, user, activeCall, joinConcordCall, avBrokers, voiceRelays, folded],
   );
   // What every sidebar row gets: stable, reading the latest through a ref.
   const joinVoiceRef = useRef(handleJoinVoice);

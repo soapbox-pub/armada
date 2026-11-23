@@ -34,6 +34,17 @@ const STREAM_TIMEOUT_MS: i32 = 2_000;
 
 type Links = Rc<RefCell<HashMap<[u8; 32], Connection>>>;
 
+/// The relays of the iroh release this build ships, as a browser dials them: what CORD-07 §8
+/// calls iroh's defaults, so the page's list can't drift from the crate's.
+#[wasm_bindgen(js_name = defaultVoiceRelays)]
+pub fn default_voice_relays() -> Vec<String> {
+    default_relays().iter().map(|u| browser_relay(u).to_string()).collect()
+}
+
+fn default_relays() -> Vec<RelayUrl> {
+    iroh::defaults::prod::default_relay_map().urls::<Vec<RelayUrl>>()
+}
+
 #[wasm_bindgen]
 pub struct VoiceNode {
     endpoint: Endpoint,
@@ -46,9 +57,9 @@ pub struct VoiceNode {
 
 #[wasm_bindgen]
 impl VoiceNode {
-    /// Bind a call's endpoint. `relays` are the Community's voice relays (empty:
-    /// iroh's defaults), as Vector's `bind` takes them. A browser has no UDP, so
-    /// every path is through one of them.
+    /// Bind a call's endpoint, homed on `relays` (empty: iroh's defaults), as Vector's
+    /// `bind` takes them. A browser has no UDP, so every path is through one of them, and
+    /// a bind no relay answers within the bound is refused: nobody could dial it.
     ///
     /// `on_link(idHex, inbound)` fires for every connection that lands, before any
     /// of its datagrams; `on_datagram(idHex, bytes)` per datagram; `on_closed(idHex)`
@@ -62,7 +73,7 @@ impl VoiceNode {
         on_stream: js_sys::Function,
     ) -> Result<VoiceNode, JsError> {
         let urls: Vec<RelayUrl> = if relays.is_empty() {
-            iroh::defaults::prod::default_relay_map().urls::<Vec<RelayUrl>>()
+            default_relays()
         } else {
             relays.iter().filter_map(|r| r.parse::<RelayUrl>().ok()).collect()
         };
@@ -93,11 +104,14 @@ impl VoiceNode {
             .await
             .map_err(err)?;
         // Bounded, as in `RealtimeNode::new`: an unreachable relay never resolves.
-        futures_util::future::select(
-            std::pin::pin!(endpoint.online()),
-            std::pin::pin!(wasm_sleep(8_000)),
-        )
-        .await;
+        let homed = matches!(
+            futures_util::future::select(std::pin::pin!(endpoint.online()), std::pin::pin!(wasm_sleep(8_000))).await,
+            futures_util::future::Either::Left(_)
+        );
+        if !homed {
+            endpoint.close().await;
+            return Err(JsError::new("no voice relay answered"));
+        }
 
         let node = VoiceNode {
             endpoint: endpoint.clone(),
@@ -323,6 +337,14 @@ mod tests {
         assert_eq!(parse_id(&hex(&id).to_uppercase()), Some(id));
         assert!(parse_id(&hex(&id)[..62]).is_none());
         assert!(parse_id(&format!("{}zz", &hex(&id)[..62])).is_none());
+    }
+
+    #[test]
+    fn the_default_relays_are_the_iroh_releases_without_the_trailing_dot() {
+        let relays = default_voice_relays();
+        assert!(!relays.is_empty());
+        assert!(relays.iter().all(|r| r.starts_with("https://") && !r.contains(".iroh.link./")));
+        assert!(relays.contains(&"https://euc1-1.relay.n0.iroh.link/".to_string()));
     }
 
     #[test]
