@@ -120,7 +120,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     setExiting(false);
     setStageOpen(true);
     // Room name + token derive inside ConcordVoiceRoom from the channel.
-    setActiveCall({ relayUrl: ctx.broker, groupId: ctx.channel.idHex, concord: ctx });
+    setActiveCall({ relayUrl: ctx.broker ?? "", groupId: ctx.channel.idHex, concord: ctx });
   }, []);
 
   // Keep the room mounted for the slide-out, then unmount (disconnects). The

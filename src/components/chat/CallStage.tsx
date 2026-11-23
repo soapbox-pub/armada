@@ -52,7 +52,7 @@ import { ParticipantRecordingFlags, RecordingIndicator } from "@/components/chat
 import { RecordingFlagIcons } from "@/components/RecordingFlagIcons";
 import { VoiceRejoiningContext } from "@/contexts/VoiceRejoiningContext";
 import { streamOwnerKey, useScreenShareWatch } from "@/contexts/ScreenShareWatchContext";
-import { LiveBadge } from "@/components/VoicePresence";
+import { ConnectionIcon, LiveBadge } from "@/components/VoicePresence";
 import { useAndroidBack } from "@/hooks/useAndroidBack";
 import { useIsDesktop } from "@/hooks/useIsDesktop";
 import { useSpeakers } from "@/hooks/useSpeakers";
@@ -69,10 +69,12 @@ import { useScreenShareVolume, useUserVolume } from "@/hooks/useUserVolume";
 import { useCallSignals } from "@/contexts/CallSignalsContext";
 import type { VoiceReactionEntry } from "@/concord/lib/voice";
 import { useVoiceIdentity } from "@/contexts/VoiceIdentityContext";
+import { useIrohPeers, type P2pPeerView } from "@/lib/irohVoice/peers";
+import { fitGrid, heroSize, useElementSize, type HeroSize } from "@/components/chat/callStageLayout";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { playScreenShareEndSound, playScreenShareSound } from "@/lib/callSounds";
 import { pickVisible, type CallActivity } from "@/lib/callRanking";
-import { getAvatarShape } from "@/lib/avatarShape";
+import { getAvatarShape, shapedAvatarSpeakingStyle } from "@/lib/avatarShape";
 import { useWearsFrame } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
@@ -82,64 +84,6 @@ import type { ImetaEntry } from "@/lib/imeta";
 import type { ProfileImeta } from "@/lib/profileImeta";
 import { FallbackImage } from "@/components/ui/FallbackImage";
 import { PortalContainerProvider, usePortalContainer } from "@/hooks/usePortalContainer";
-
-const TILE_ASPECT = 16 / 9;
-
-/**
- * Column count + tile size that fits `count` 16:9 tiles in the box with the
- * largest tiles (tiles shrink rather than scroll).
- */
-function fitGrid(
-  count: number,
-  width: number,
-  height: number,
-  gap: number,
-): { cols: number; tileW: number; tileH: number } {
-  if (count <= 0 || width <= 0 || height <= 0) {
-    return { cols: 1, tileW: 0, tileH: 0 };
-  }
-  let best = { cols: 1, tileW: 0, tileH: 0 };
-  for (let cols = 1; cols <= count; cols++) {
-    const rows = Math.ceil(count / cols);
-    const cellW = (width - gap * (cols - 1)) / cols;
-    const cellH = (height - gap * (rows - 1)) / rows;
-    if (cellW <= 0 || cellH <= 0) continue;
-    let tileW = cellW;
-    let tileH = tileW / TILE_ASPECT;
-    if (tileH > cellH) {
-      tileH = cellH;
-      tileW = tileH * TILE_ASPECT;
-    }
-    if (tileW > best.tileW) best = { cols, tileW, tileH };
-  }
-  return best;
-}
-
-/**
- * Element content-box size via ResizeObserver. A callback ref, since the grid
- * container remounts on focus/theater toggles.
- */
-function useElementSize<T extends HTMLElement>() {
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  const observerRef = useRef<ResizeObserver | null>(null);
-  const ref = useCallback((el: T | null) => {
-    observerRef.current?.disconnect();
-    if (!el) {
-      observerRef.current = null;
-      return;
-    }
-    // Seed synchronously; the ResizeObserver callback is async.
-    const rect = el.getBoundingClientRect();
-    setSize({ width: rect.width, height: rect.height });
-    const ro = new ResizeObserver(([entry]) => {
-      const box = entry.contentRect;
-      setSize({ width: box.width, height: box.height });
-    });
-    ro.observe(el);
-    observerRef.current = ro;
-  }, []);
-  return [ref, size] as const;
-}
 
 /** Stable key for a focusable tile (camera/screenshare track or avatar tile). */
 function trackTileKey(trackRef: TrackReference): string {
@@ -629,6 +573,7 @@ function VideoTile({
 }) {
   const participant = trackRef.participant;
   const { pubkey, displayName, verified, metadata, imeta } = useTileDisplayName(participant);
+  const { connections } = useIrohPeers();
   const intl = useIntl();
   const isScreenShare = trackRef.source === Track.Source.ScreenShare;
   const { enabled: endToEndEncrypted } = useCallSignals();
@@ -694,6 +639,7 @@ function VideoTile({
         {isScreenShare && "'s screen"}
         {isLocal && " (you)"}
       </span>
+      {connections && !isScreenShare && <ConnectionIcon via="sfu" className="size-3" />}
     </>
   );
 
@@ -1042,6 +988,7 @@ function AvatarTile({
   onToggleFocus: () => void;
 }) {
   const { pubkey, displayName, verified, metadata, imeta } = useTileDisplayName(participant);
+  const { connections } = useIrohPeers();
   const shape = getAvatarShape(metadata);
   const hasCustomShape = !!shape;
   const wearsFrame = useWearsFrame(metadata);
@@ -1060,6 +1007,7 @@ function AvatarTile({
         <DisplayName pubkey={verified ? pubkey : undefined} name={displayName} />
         {isLocal && " (you)"}
       </span>
+      {connections && <ConnectionIcon via="sfu" className="size-3" />}
     </>
   );
 
@@ -1111,6 +1059,155 @@ function AvatarTile({
     </VoiceUserContextMenu>
   ) : (
     tile
+  );
+}
+
+/**
+ * A member reached peer to peer (a Vector caller, or an Armada member off LiveKit), or us
+ * on a call that is peer to peer alone: their camera or screen when it arrives, else their
+ * avatar, with the name, mute and speaking ring an Armada participant's tile has.
+ */
+export function P2pTile({
+  pubkey,
+  self = false,
+  kind,
+  track,
+  speaking,
+  muted,
+  focused,
+  large = focused,
+  onToggleFocus,
+}: {
+  pubkey: string;
+  self?: boolean;
+  kind: "camera" | "screen";
+  track?: MediaStreamTrack;
+  speaking: boolean;
+  muted: boolean;
+  focused: boolean;
+  large?: boolean;
+  onToggleFocus: () => void;
+}) {
+  const { data: author } = useAuthor(pubkey);
+  const metadata = author?.metadata;
+  const displayName = useScopedDisplayName(pubkey, metadata);
+  const shape = getAvatarShape(metadata);
+  const isScreen = kind === "screen";
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !track) return;
+    video.srcObject = new MediaStream([track]);
+    void video.play().catch(() => undefined);
+    return () => {
+      video.srcObject = null;
+    };
+  }, [track]);
+  const ring = !isScreen && speaking;
+  const ringStyle: CSSProperties | undefined = !track && shape && ring ? { filter: shapedAvatarSpeakingStyle.filter } : undefined;
+  const nameplate = (
+    <>
+      {isScreen ? <ScreenShare className="size-3 shrink-0" /> : muted ? <MicOff className="size-3 shrink-0 text-destructive" /> : null}
+      <span className="truncate">
+        <DisplayName pubkey={pubkey} name={displayName} />
+        {isScreen && "'s screen"}
+        {self && " (you)"}
+      </span>
+      {!isScreen && <ConnectionIcon via="p2p" className="size-3" />}
+    </>
+  );
+  const tile = (
+    <div
+      className={cn(
+        "group relative flex items-center justify-center bg-black rounded-lg overflow-hidden ring-1 ring-white/10 h-full w-full transition-shadow",
+        track && ring && "ring-2 ring-success shadow-[0_0_0_4px_hsl(var(--success)/0.35)]",
+      )}
+      data-testid="p2p-tile"
+    >
+      {track ? (
+        <video
+          ref={videoRef}
+          muted
+          autoPlay
+          playsInline
+          className={cn("h-full w-full", isScreen || focused ? "object-contain" : "object-cover", self && !isScreen && "-scale-x-100")}
+        />
+      ) : (
+        <>
+          <BlurredAvatarBackdrop picture={metadata?.picture} />
+          <div
+            className={cn("relative rounded-full transition-shadow", !shape && ring && "ring-2 ring-success shadow-[0_0_0_4px_hsl(var(--success)/0.35)]")}
+            style={ringStyle}
+          >
+            <UserAvatar pubkey={pubkey} metadata={metadata} name={displayName} className={large ? "size-28" : "size-16"} fallbackClassName="text-xl" frame={!ringStyle} />
+          </div>
+        </>
+      )}
+      <FocusButton focused={focused} onClick={onToggleFocus} />
+      <RaisedHandBadge pubkey={pubkey} />
+      {self ? (
+        <div className={nameplateClass}>{nameplate}</div>
+      ) : (
+        <VolumeMenu pubkey={pubkey} displayName={displayName} verified>
+          {nameplate}
+        </VolumeMenu>
+      )}
+    </div>
+  );
+  return self ? (
+    tile
+  ) : (
+    <VoiceUserContextMenu pubkey={pubkey} displayName={displayName} verified>
+      {tile}
+    </VoiceUserContextMenu>
+  );
+}
+
+/** A peer-to-peer member in the hero cluster: large, in their own shape, glowing while they speak. */
+export function HeroP2pPerson({
+  pubkey,
+  self = false,
+  speaking,
+  muted,
+  streaming,
+  size,
+  theater,
+}: {
+  pubkey: string;
+  self?: boolean;
+  speaking: boolean;
+  muted: boolean;
+  streaming: boolean;
+  size: HeroSize;
+  theater: boolean;
+}) {
+  const metadata = useAuthor(pubkey).data?.metadata;
+  const name = useScopedDisplayName(pubkey, metadata);
+  const intl = useIntl();
+  const { raisedHands } = useVoiceActivity();
+  const view = (
+    <div>
+      <HeroAvatarView
+        pubkey={pubkey}
+        metadata={metadata}
+        name={name}
+        caption={self ? intl.formatMessage({ id: "callStage.you", defaultMessage: "You" }) : name}
+        speaking={speaking}
+        muted={muted}
+        handRaised={raisedHands.has(pubkey)}
+        streaming={streaming}
+        via="p2p"
+        size={size}
+        theater={theater}
+      />
+    </div>
+  );
+  return self ? (
+    view
+  ) : (
+    <VoiceUserContextMenu pubkey={pubkey} displayName={name} verified>
+      {view}
+    </VoiceUserContextMenu>
   );
 }
 
@@ -1268,7 +1365,6 @@ function CallStatus({ calling, since }: { calling: boolean; since: number }) {
   return <CallClock since={since} />;
 }
 
-type HeroSize = "xl" | "lg" | "md" | "sm" | "xs";
 
 const HERO_SIZES: Record<HeroSize, { avatar: string; initial: string; badge: string; icon: string }> = {
   xl: { avatar: "size-32", initial: "text-4xl", badge: "size-8", icon: "size-4" },
@@ -1278,15 +1374,6 @@ const HERO_SIZES: Record<HeroSize, { avatar: string; initial: string; badge: str
   xs: { avatar: "size-12", initial: "text-base", badge: "size-5", icon: "size-3" },
 };
 
-/**
- * Avatars shrink as the room fills, so a group call stays one compact cluster.
- * A desktop chat pane is wide enough to keep a group large.
- */
-function heroSize(count: number, theater: boolean, wide: boolean): HeroSize {
-  if (theater) return count <= 4 ? "xl" : count <= 9 ? "lg" : "md";
-  if (wide) return count <= 6 ? "lg" : "md";
-  return count <= 2 ? "md" : count <= 4 ? "sm" : "xs";
-}
 
 /** More than this many people and the rest collapse into a "+N". */
 const HERO_MAX_DOCKED = 8;
@@ -1306,6 +1393,7 @@ function HeroAvatarView({
   streaming,
   onWatch,
   pending,
+  via,
   size,
   theater,
 }: {
@@ -1323,6 +1411,8 @@ function HeroAvatarView({
   onWatch?: () => void;
   /** Not in the room yet (a DM still ringing). */
   pending?: boolean;
+  /** How they're connected, shown beside the name in a Concord call. */
+  via?: "sfu" | "p2p";
   size: HeroSize;
   theater: boolean;
 }) {
@@ -1387,8 +1477,9 @@ function HeroAvatarView({
           <LiveBadge className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 shadow" onWatch={onWatch} />
         )}
       </div>
-      <span className={cn("max-w-28 truncate text-muted-foreground", theater ? "text-sm" : "text-xs")}>
-        {caption === name ? <DisplayName pubkey={pubkey} name={name} ultra="hero" /> : caption}
+      <span className={cn("flex max-w-32 items-center gap-1 text-muted-foreground", theater ? "text-sm" : "text-xs")}>
+        <span className="truncate">{caption === name ? <DisplayName pubkey={pubkey} name={name} ultra="hero" /> : caption}</span>
+        {via && <ConnectionIcon via={via} />}
       </span>
     </div>
   );
@@ -1409,6 +1500,7 @@ function HeroParticipant({
   const intl = useIntl();
   const { raisedHands, streamingPubkeys } = useVoiceActivity();
   const { watch } = useScreenShareWatch();
+  const { connections } = useIrohPeers();
   const recordingSignals = useCallSignals().recording;
   const streaming = verified && streamingPubkeys.has(pubkey);
   const view = (
@@ -1425,6 +1517,7 @@ function HeroParticipant({
         refusing={verified && Boolean(recordingSignals?.refusing.has(pubkey))}
         streaming={streaming}
         onWatch={participant.isLocal ? undefined : () => watch(pubkey)}
+        via={connections ? "sfu" : undefined}
         size={size}
         theater={theater}
       />
@@ -1473,6 +1566,7 @@ function CallHero({
   callLabel,
   people,
   overflow,
+  p2p = [],
   pendingPubkey,
   backdropPubkey,
   speakingIds,
@@ -1490,6 +1584,8 @@ function CallHero({
   people: readonly Participant[];
   /** Others left off screen, shown as "+N". */
   overflow: number;
+  /** Members reached peer to peer, shown after the others. */
+  p2p?: readonly P2pPeerView[];
   /** A DM peer still ringing, shown ahead of `people`. */
   pendingPubkey?: string;
   backdropPubkey?: string;
@@ -1533,7 +1629,7 @@ function CallHero({
     </div>
   );
 
-  const count = people.length + (pendingPubkey ? 1 : 0);
+  const count = people.length + p2p.length + (pendingPubkey ? 1 : 0);
   const size = heroSize(count, theater, wide);
   const cluster = (
     <div
@@ -1548,6 +1644,17 @@ function CallHero({
           key={p.identity}
           participant={p}
           speaking={speakingIds.has(p.identity)}
+          size={size}
+          theater={theater}
+        />
+      ))}
+      {p2p.map((p) => (
+        <HeroP2pPerson
+          key={`p2p:${p.pubkey}`}
+          pubkey={p.pubkey}
+          speaking={p.speaking}
+          muted={p.muted}
+          streaming={p.sending.screen}
           size={size}
           theater={theater}
         />
@@ -1704,7 +1811,9 @@ export function CallStage({
   const connectionState = useConnectionState();
   const participants = useParticipants();
   const resolveIdentity = useVoiceIdentity();
-  const participantCount = uniqueParticipantCount(participants, resolveIdentity);
+  // Members reached peer to peer are participants like the rest (CORD-07 §8).
+  const { peers: p2pPeers } = useIrohPeers();
+  const participantCount = uniqueParticipantCount(participants, resolveIdentity) + p2pPeers.length;
   const speakers = useSpeakers();
   const speakingIds = useMemo(() => new Set(speakers), [speakers]);
   const { raisedHands, streamingPubkeys } = useVoiceActivity();
@@ -1818,9 +1927,10 @@ export function CallStage({
 
   // Auto-expand and spotlight only on a NEW visible share (ours, or one just
   // watched), so a user-closed stage stays closed.
-  const remoteScreenShareKeys = videoTracks
-    .filter((t) => t.source === Track.Source.ScreenShare)
-    .map(trackTileKey);
+  const remoteScreenShareKeys = [
+    ...videoTracks.filter((t) => t.source === Track.Source.ScreenShare).map(trackTileKey),
+    ...p2pPeers.filter((p) => p.screen).map((p) => `p2p:${p.pubkey}:screen`),
+  ];
   const screenShareKeys = localHevcPreview
     ? [...remoteScreenShareKeys, LOCAL_HEVC_SCREEN_SHARE_KEY]
     : remoteScreenShareKeys;
@@ -1839,7 +1949,7 @@ export function CallStage({
   // Auto-expand when video is already rolling on join. One-shot: the first video
   // sighting consumes it, so a later camera doesn't reopen a closed stage.
   const sawVideo = useRef(false);
-  const hasVideoTracks = videoTracks.length > 0 || Boolean(localHevcPreview);
+  const hasVideoTracks = videoTracks.length > 0 || Boolean(localHevcPreview) || p2pPeers.some((p) => p.camera || p.screen);
   useEffect(() => {
     if (!hasVideoTracks || sawVideo.current) return;
     sawVideo.current = true;
@@ -1888,6 +1998,29 @@ export function CallStage({
         render: () => <StreamInviteTile participant={p} owner={owner} />,
       });
     }
+    for (const peer of p2pPeers) {
+      for (const kind of ["camera", "screen"] as const) {
+        const track = peer[kind];
+        // Everyone has one camera-or-avatar tile; a screen is extra.
+        if (kind === "screen" && !track) continue;
+        const key = `p2p:${peer.pubkey}:${track ? kind : "avatar"}`;
+        list.push({
+          key,
+          render: (focused, large) => (
+            <P2pTile
+              pubkey={peer.pubkey}
+              kind={kind}
+              track={track}
+              speaking={peer.speaking}
+              muted={peer.muted}
+              focused={focused}
+              large={large}
+              onToggleFocus={() => setFocusKey((cur) => (cur === key ? null : key))}
+            />
+          ),
+        });
+      }
+    }
     for (const p of avatarOnly) {
       const key = participantTileKey(p);
       list.push({
@@ -1912,6 +2045,7 @@ export function CallStage({
     localHevcPreview,
     hevcScreenShare,
     endToEndEncrypted,
+    p2pPeers,
   ]);
 
   // Focused tile gone: back to the grid.
@@ -2217,12 +2351,13 @@ export function CallStage({
         callLabel={callLabel}
         people={self ? [...visible, self] : visible}
         overflow={others.length - visible.length}
+        p2p={p2pPeers}
         pendingPubkey={pendingPubkey}
         backdropPubkey={dmPeer}
         speakingIds={speakingIds}
         calling={calling}
         since={clockSince}
-        videoCount={videoTracks.length + (localHevcPreview ? 1 : 0)}
+        videoCount={videoTracks.length + (localHevcPreview ? 1 : 0) + p2pPeers.filter((p) => p.camera || p.screen).length}
         onShowVideo={() => setStageOpen(true)}
         onToggleTheater={() => {
           setStageOpen(true);

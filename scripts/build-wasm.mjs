@@ -16,7 +16,8 @@ import { dirname, join } from "node:path";
 
 /**
  * Set `WEBXDC_RT_REQUIRED=1` where the transport is not optional — a deploy
- * that silently shipped without it would turn Mini App multiplayer off for
+ * that silently shipped without it would turn Mini App multiplayer and
+ * peer-to-peer voice (the calls Vector makes) off for
  * everyone, and nothing downstream would report a fault.
  */
 const required = process.env.WEBXDC_RT_REQUIRED === "1";
@@ -34,7 +35,7 @@ if (!has("cargo") || !has("wasm-pack")) {
     process.exit(1);
   }
   note("cargo or wasm-pack not found — skipping.");
-  note("Mini App multiplayer will be off. To enable it:");
+  note("Mini App multiplayer and peer-to-peer voice calls will be off. To enable them:");
   note("  rustup target add wasm32-unknown-unknown && cargo install wasm-pack");
   process.exit(0);
 }
@@ -113,7 +114,7 @@ try {
   note(
     haveBuild
       ? "build FAILED — the previous build is still in place and will be used. It may be stale."
-      : "build failed — Mini App multiplayer will be off.",
+      : "build failed — Mini App multiplayer and peer-to-peer voice calls will be off (ring needs a clang that targets wasm32).",
   );
 }
 process.exit(0);

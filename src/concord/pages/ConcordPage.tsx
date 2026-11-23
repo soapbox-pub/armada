@@ -211,6 +211,8 @@ import { EMPTY_SEARCH_FILTERS, resolveTypedTokens, searchText, type SearchFilter
 import { useConcordThreads, type ConcordThread } from "@/concord/hooks/useConcordThreads";
 import { useTyping, useTypingPublisher } from "@/concord/hooks/useTyping";
 import { resolveVoiceBroker, useVoiceBroker, useVoicePresence } from "@/concord/hooks/useVoice";
+import { peerToPeerAvailable } from "@/concord/hooks/useIrohVoice";
+import { communityVoiceRelays } from "@/concord/lib/irohVoice";
 import { communityAvBrokers, voiceRowTransports } from "@/concord/lib/voice";
 import { useRegisterChannelStreamKeys } from "@/concord/hooks/useStreamAuth";
 import { completeMemberlist, timeoutRunning } from "@/concord/lib/guestbook";
@@ -584,7 +586,12 @@ export const ChannelRow = memo(function ChannelRow({
     () => new Set(fold.present.filter((p) => p.noRecord).map((p) => p.author)),
     [fold],
   );
-  const voiceTransports = useMemo(() => voiceRowTransports(fold), [fold]);
+  // In the call, the live roster holds the LiveKit room and the peer-to-peer members we're linked to.
+  const voiceTransports = useMemo(() => {
+    const live = inCall && voiceRoomPubkeys ? voiceRoomPubkeys : [];
+    const offSfu = new Set(fold.otherTransport.map((p) => p.author));
+    return voiceRowTransports(fold, new Set(live), live.filter((pk) => !offSfu.has(pk)));
+  }, [fold, inCall, voiceRoomPubkeys]);
   // A moderator acts on a call's participants from the roster too, joined or not (CORD-07 §7).
   const voiceMembers = useMemo(() => [...fold.present, ...fold.otherTransport], [fold]);
   const voiceActionsFor = useVoiceActionsFor(community, channel, voiceMembers);
@@ -612,11 +619,14 @@ export const ChannelRow = memo(function ChannelRow({
   }, [inCall, voiceRoomPubkeys, foldedParticipants, fold]);
 
   // Per transport: the live LiveKit roster while in this call, presence otherwise.
-  const sfuCount = inCall && voiceRoomPubkeys ? voiceRoomPubkeys.length : fold.present.length;
-  const p2pCount = useMemo(
-    () => fold.otherTransport.length + fold.present.filter((p) => p.alsoOn).length,
-    [fold],
-  );
+  // The live roster carries peer-to-peer members too; only the rest are on LiveKit.
+  const sfuCount = useMemo(() => {
+    if (!inCall || !voiceRoomPubkeys) return fold.present.length;
+    const offSfu = new Set(fold.otherTransport.map((p) => p.author));
+    return voiceRoomPubkeys.filter((pk) => !offSfu.has(pk)).length;
+  }, [inCall, voiceRoomPubkeys, fold]);
+  // Peer to peer alone: a member on LiveKit counts there, whatever else they announce.
+  const p2pCount = fold.otherTransport.length;
 
   const hasUnread = Boolean(unread);
   const hasMention = Boolean(unread?.mention);
@@ -2091,6 +2101,7 @@ function ConcordCommunityPage() {
   const { speakingPubkeys, mutedPubkeys } = useVoiceActivity();
   // Community brokers (CORD-02 §6) from the fold already held.
   const avBrokers = useMemo(() => communityAvBrokers(folded?.metadata), [folded?.metadata]);
+  const voiceRelays = useMemo(() => communityVoiceRelays(folded?.metadata), [folded?.metadata]);
   const { data: activeBroker } = useVoiceBroker(channel, avBrokers);
   const inThisVoice = Boolean(
     activeCall?.concord && channel && activeCall.concord.channel.idHex === channel.idHex,
@@ -2109,6 +2120,11 @@ function ConcordCommunityPage() {
         // Broker may be loading or a cached `null`; re-run the rendezvous live.
         const roomHex = ch.voice.room.pk;
         resolved = roomHex ? await resolveVoiceBroker(roomHex, avBrokers) : null;
+      }
+      if (!resolved && (await peerToPeerAvailable(voiceRelays))) {
+        // No LiveKit server to be on: the call goes ahead peer to peer (CORD-07 §8).
+        joinConcordCall({ community, channel: ch, broker: null });
+        return;
       }
       if (!resolved) {
         toast({
@@ -2131,7 +2147,7 @@ function ConcordCommunityPage() {
       // Members on another broker are reported by the room (it knows the real origin).
       joinConcordCall({ community, channel: ch, broker: resolved });
     },
-    [community, user, activeCall, joinConcordCall, avBrokers, folded],
+    [community, user, activeCall, joinConcordCall, avBrokers, voiceRelays, folded],
   );
   // What every sidebar row gets: stable, reading the latest through a ref.
   const joinVoiceRef = useRef(handleJoinVoice);

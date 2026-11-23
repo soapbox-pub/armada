@@ -88,6 +88,8 @@ import { encryptedUploadFailureReason } from "@/lib/blossomPreflight";
 import { COMMUNITY_BANNER_EDGE, COMMUNITY_ICON_EDGE, encryptImageBlob } from "@/concord/lib/image";
 import { mirrorHistoryToRelays, type MirrorProgress } from "@/concord/lib/relayMirror";
 import { canonicalOrigin, communityAvBrokers, probeAvBroker } from "@/concord/lib/voice";
+import { TransportName } from "@/components/icons/TransportIcons";
+import { communityVoiceRelays, MAX_VOICE_RELAYS, probeVoiceRelay, voiceRelayUrl } from "@/concord/lib/irohVoice";
 import {
   MAX_COMMUNITY_AV_BROKERS,
   MAX_COMMUNITY_RELAYS,
@@ -98,7 +100,7 @@ import {
 } from "@/concord/lib/types";
 import { scrollParentOf } from "@/lib/scrollParent";
 import { cn } from "@/lib/utils";
-import { common, defineMessages, FormattedMessage, t, useIntl } from "@/i18n";
+import { common, defineMessages, FormattedMessage, t, useIntl, type MessageDescriptor } from "@/i18n";
 import { ChannelGlyph } from "@/concord/components/ChannelGlyph";
 import { channelGitRepositoryAttachments } from "@/concord/lib/types";
 import { fetchGitRepositoryAnnouncement } from "@/lib/gitRepositoryResolver";
@@ -156,6 +158,7 @@ export function CommunitySettingsView({
   const relays = metadata?.relays ?? community.relays;
   // No `community` fallback: brokers aren't bootstrap material, so they live only in the fold (CORD-02 §6).
   const avBrokers = useMemo(() => communityAvBrokers(metadata), [metadata]);
+  const voiceRelays = useMemo(() => communityVoiceRelays(metadata), [metadata]);
 
   const bannerUrl = useDecryptedImage(metadata?.banner);
   const iconUrl = useDecryptedImage(metadata?.icon);
@@ -477,6 +480,12 @@ export function CommunitySettingsView({
           <VoiceServersSection
             community={community}
             brokers={avBrokers}
+            canManage={canManageMetadata}
+          />
+
+          <VoiceRelaysSection
+            community={community}
+            relays={voiceRelays}
             canManage={canManageMetadata}
           />
 
@@ -1576,22 +1585,112 @@ function DisappearingSection({
   );
 }
 
+const VOICE_SERVER_MESSAGES = defineMessages({
+  title: { id: "communitySettingsView.voice.title", defaultMessage: "Voice servers" },
+  about: { id: "communitySettingsView.voice.about", defaultMessage: "Calls run on a LiveKit server, reached through these Concord voice brokers. They carry only end-to-end encrypted media, but see members' IP addresses and when they call." },
+  edit: { id: "communitySettingsView.voice.edit", defaultMessage: "Edit voice servers" },
+  none: { id: "communitySettingsView.voice.none", defaultMessage: "None set, so calls use each member's own voice server. Setting them here makes every call in this community use these, and only these." },
+  invalid: { id: "communitySettingsView.voice.invalid", defaultMessage: "Enter an https address, like https://voice.example.com" },
+  unreachable: { id: "communitySettingsView.voice.unreachable", defaultMessage: "{host} didn't answer the voice-server probe. It stays in the list, but members will skip past it until it does." },
+  updated: { id: "communitySettingsView.voice.updated", defaultMessage: "Voice servers updated" },
+  cleared: { id: "communitySettingsView.voice.cleared", defaultMessage: "Voice servers cleared" },
+  clearedDescription: { id: "communitySettingsView.voice.clearedDescription", defaultMessage: "Members will use their own configured voice server." },
+  failed: { id: "communitySettingsView.voice.failed", defaultMessage: "Couldn't update the voice servers." },
+  remove: { id: "communitySettingsView.voice.remove", defaultMessage: "Remove {server}" },
+  add: { id: "communitySettingsView.voice.add", defaultMessage: "Add voice server" },
+  max: { id: "communitySettingsView.voice.max", defaultMessage: "Up to {max} voice servers; past that, clients trim the list." },
+  exclusiveHint: { id: "communitySettingsView.voice.exclusiveHint", defaultMessage: "Calls use only these, spread across them by channel. Members' own voice servers are ignored here, so if none of these answer, calls can't start. Leave it empty to let every member use their own." },
+  save: { id: "communitySettingsView.voice.save", defaultMessage: "Save voice servers" },
+});
+
+const VOICE_RELAY_MESSAGES = defineMessages({
+  title: { id: "communitySettingsView.voiceRelays.title", defaultMessage: "Peer-to-peer relays" },
+  about: { id: "communitySettingsView.voiceRelays.about", defaultMessage: "Calls that connect members to each other over iroh, the way Vector calls, pass through these relays. They carry only encrypted traffic, but see members' IP addresses and when they call." },
+  edit: { id: "communitySettingsView.voiceRelays.edit", defaultMessage: "Edit peer-to-peer relays" },
+  none: { id: "communitySettingsView.voiceRelays.none", defaultMessage: "None set, so peer-to-peer calls go through the app's default iroh relays. Setting them here makes this community's peer-to-peer calls use these." },
+  invalid: { id: "communitySettingsView.voiceRelays.invalid", defaultMessage: "Enter an https address, like https://relay.example.com" },
+  unreachable: { id: "communitySettingsView.voiceRelays.unreachable", defaultMessage: "{host} didn't answer the relay probe. It stays in the list, but calls can't connect through it until it does." },
+  updated: { id: "communitySettingsView.voiceRelays.updated", defaultMessage: "Peer-to-peer relays updated" },
+  cleared: { id: "communitySettingsView.voiceRelays.cleared", defaultMessage: "Peer-to-peer relays cleared" },
+  clearedDescription: { id: "communitySettingsView.voiceRelays.clearedDescription", defaultMessage: "Peer-to-peer calls will go through the app's default relays." },
+  failed: { id: "communitySettingsView.voiceRelays.failed", defaultMessage: "Couldn't update the peer-to-peer relays." },
+  remove: { id: "communitySettingsView.voiceRelays.remove", defaultMessage: "Remove {server}" },
+  add: { id: "communitySettingsView.voiceRelays.add", defaultMessage: "Add peer-to-peer relay" },
+  max: { id: "communitySettingsView.voiceRelays.max", defaultMessage: "Up to {max} relays; past that, clients trim the list." },
+  exclusiveHint: { id: "communitySettingsView.voiceRelays.exclusiveHint", defaultMessage: "Members' peer-to-peer calls connect through only these iroh relays, which see who calls whom and when, never what is said. If none of these answer, peer-to-peer calls can't start. Leave it empty for the app's defaults." },
+  save: { id: "communitySettingsView.voiceRelays.save", defaultMessage: "Save peer-to-peer relays" },
+});
+
+type ServerListMessages = Record<keyof typeof VOICE_SERVER_MESSAGES, MessageDescriptor>;
+
 /**
  * Community voice servers (CORD-02 §6 / CORD-07 §5). Empty: members use their
  * own. Non-empty is EXCLUSIVE, so all-down means no calls. Brokers hold no
  * secrets and see only E2EE media; the choice is who sees IPs and call timing.
  */
-function VoiceServersSection({
-  community,
-  brokers,
+export function VoiceServersSection({ community, brokers, canManage }: { community: Community; brokers: string[]; canManage: boolean }) {
+  const { updateMetadata } = useMetadataActions(community);
+  return (
+    <ServerListSection
+      items={brokers}
+      canManage={canManage}
+      max={MAX_COMMUNITY_AV_BROKERS}
+      placeholder="https://voice.example.com"
+      messages={VOICE_SERVER_MESSAGES}
+      via="sfu"
+      // Non-https refused: the token grant is a bearer credential (CORD-07 §2).
+      normalize={(raw) => canonicalOrigin(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`)}
+      probe={probeAvBroker}
+      save={(list) => updateMetadata({ av_brokers: list })}
+    />
+  );
+}
+
+/**
+ * Community iroh relays for peer-to-peer calls (CORD-02 §6 / CORD-07 §8): like the voice
+ * servers, they replace what members would otherwise use, here the app's default relays.
+ */
+export function VoiceRelaysSection({ community, relays, canManage }: { community: Community; relays: string[]; canManage: boolean }) {
+  const { updateMetadata } = useMetadataActions(community);
+  return (
+    <ServerListSection
+      items={relays}
+      canManage={canManage}
+      max={MAX_VOICE_RELAYS}
+      placeholder="https://relay.example.com"
+      messages={VOICE_RELAY_MESSAGES}
+      via="p2p"
+      normalize={voiceRelayUrl}
+      probe={probeVoiceRelay}
+      save={(list) => updateMetadata({ voice_relays: list })}
+    />
+  );
+}
+
+/** An editable list of a Community's https servers, probed as they're added but never gated on it. */
+function ServerListSection({
+  items,
   canManage,
+  max,
+  placeholder,
+  messages,
+  via,
+  normalize,
+  probe,
+  save,
 }: {
-  community: Community;
-  brokers: string[];
+  items: string[];
   canManage: boolean;
+  max: number;
+  placeholder: string;
+  messages: ServerListMessages;
+  /** What these servers carry: LiveKit calls, or iroh's peer-to-peer ones. */
+  via: "sfu" | "p2p";
+  normalize: (raw: string) => string | null;
+  probe: (url: string) => Promise<boolean>;
+  save: (list: string[]) => Promise<void>;
 }) {
   const intl = useIntl();
-  const { updateMetadata } = useMetadataActions(community);
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string[]>([]);
@@ -1601,68 +1700,54 @@ function VoiceServersSection({
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
 
-  if (brokers.length === 0 && !canManage) return null;
+  if (items.length === 0 && !canManage) return null;
 
   const startEditing = () => {
-    setDraft(brokers);
+    setDraft(items);
     setAddValue("");
     setError(null);
     setWarning(null);
     setEditing(true);
   };
 
-  const addBroker = async () => {
+  const addItem = async () => {
     setError(null);
     setWarning(null);
-    const raw = addValue.trim();
-    // Non-https refused: the token grant is a bearer credential (CORD-07 §2).
-    const origin = canonicalOrigin(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
-    if (!origin) {
-      setError(t({ id: "communitySettingsView.voice.invalid", defaultMessage: "Enter an https address, like https://voice.example.com" }));
+    const url = normalize(addValue.trim());
+    if (!url) {
+      setError(t(messages.invalid));
       return;
     }
-    if (draft.includes(origin)) {
+    if (draft.includes(url)) {
       setAddValue("");
       return;
     }
-    if (draft.length >= MAX_COMMUNITY_AV_BROKERS) return;
-    // Probed but not gating: a broker down today is still the intended one.
+    if (draft.length >= max) return;
+    // Probed but not gating: a server down today is still the intended one.
     setChecking(true);
-    const reachable = await probeAvBroker(origin).catch(() => false);
+    const reachable = await probe(url).catch(() => false);
     setChecking(false);
-    setDraft([...draft, origin]);
+    setDraft([...draft, url]);
     setAddValue("");
-    if (!reachable) {
-      setWarning(t(
-        {
-          id: "communitySettingsView.voice.unreachable",
-          defaultMessage: "{host} didn't answer the voice-server probe. It stays in the list, but members will skip past it until it does.",
-        },
-        { host: origin.replace(/^https:\/\//, "") },
-      ));
-    }
+    if (!reachable) setWarning(t(messages.unreachable, { host: url.replace(/^https:\/\//, "") }));
   };
 
   const handleSave = async () => {
     setError(null);
-    if (draft.length === brokers.length && draft.every((b, i) => b === brokers[i])) {
+    if (draft.length === items.length && draft.every((b, i) => b === items[i])) {
       setEditing(false);
       return;
     }
     try {
       setSaving(true);
-      await updateMetadata({ av_brokers: draft });
+      await save(draft);
       toast({
-        title: draft.length > 0
-          ? t({ id: "communitySettingsView.voice.updated", defaultMessage: "Voice servers updated" })
-          : t({ id: "communitySettingsView.voice.cleared", defaultMessage: "Voice servers cleared" }),
-        ...(draft.length === 0
-          ? { description: t({ id: "communitySettingsView.voice.clearedDescription", defaultMessage: "Members will use their own configured voice server." }) }
-          : {}),
+        title: draft.length > 0 ? t(messages.updated) : t(messages.cleared),
+        ...(draft.length === 0 ? { description: t(messages.clearedDescription) } : {}),
       });
       setEditing(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t({ id: "communitySettingsView.voice.failed", defaultMessage: "Couldn't update the voice servers." }));
+      setError(e instanceof Error ? e.message : t(messages.failed));
     } finally {
       setSaving(false);
     }
@@ -1671,8 +1756,9 @@ function VoiceServersSection({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          <FormattedMessage id="communitySettingsView.voice.title" defaultMessage="Voice servers" />
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <FormattedMessage {...messages.title} />
+          <TransportName via={via} />
         </span>
         {canManage && !editing && (
           <Button
@@ -1680,22 +1766,25 @@ function VoiceServersSection({
             size="icon"
             variant="ghost"
             className="size-6 touch:size-11 shrink-0 text-muted-foreground"
-            aria-label={intl.formatMessage({ id: "communitySettingsView.voice.edit", defaultMessage: "Edit voice servers" })}
+            aria-label={intl.formatMessage(messages.edit)}
             onClick={startEditing}
           >
             <Pencil className="size-3" />
           </Button>
         )}
       </div>
+      <p className="text-2xs text-muted-foreground">
+        <FormattedMessage {...messages.about} />
+      </p>
 
       {!editing ? (
-        brokers.length === 0 ? (
+        items.length === 0 ? (
           <p className="text-2xs text-muted-foreground">
-            <FormattedMessage id="communitySettingsView.voice.none" defaultMessage="None set, so calls use each member's own voice server. Setting them here makes every call in this community use these, and only these." />
+            <FormattedMessage {...messages.none} />
           </p>
         ) : (
           <ul className="space-y-1">
-            {brokers.map((b) => (
+            {items.map((b) => (
               <li key={b} className="truncate rounded-md bg-secondary/40 px-2 py-1 text-xs font-mono">
                 {b}
               </li>
@@ -1716,7 +1805,7 @@ function VoiceServersSection({
                   size="icon"
                   variant="ghost"
                   className="size-6 touch:size-11 shrink-0 text-muted-foreground hover:text-destructive"
-                  aria-label={intl.formatMessage({ id: "communitySettingsView.voice.remove", defaultMessage: "Remove {server}" }, { server: b })}
+                  aria-label={intl.formatMessage(messages.remove, { server: b })}
                   disabled={saving || checking}
                   onClick={() => setDraft(draft.filter((x) => x !== b))}
                 >
@@ -1726,18 +1815,18 @@ function VoiceServersSection({
             ))}
           </ul>
 
-          {draft.length < MAX_COMMUNITY_AV_BROKERS ? (
+          {draft.length < max ? (
             <form
               className="flex items-center gap-1"
               onSubmit={(e) => {
                 e.preventDefault();
-                void addBroker();
+                void addItem();
               }}
             >
               <Input
                 value={addValue}
                 onChange={(e) => setAddValue(e.target.value)}
-                placeholder="https://voice.example.com"
+                placeholder={placeholder}
                 disabled={saving || checking}
                 className="h-7 flex-1 font-mono text-xs"
               />
@@ -1747,23 +1836,19 @@ function VoiceServersSection({
                 variant="ghost"
                 className="size-7 touch:size-11 shrink-0"
                 disabled={saving || checking || !addValue.trim()}
-                aria-label={intl.formatMessage({ id: "communitySettingsView.voice.add", defaultMessage: "Add voice server" })}
+                aria-label={intl.formatMessage(messages.add)}
               >
                 {checking ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
               </Button>
             </form>
           ) : (
             <p className="text-2xs text-muted-foreground">
-              <FormattedMessage
-                id="communitySettingsView.voice.max"
-                defaultMessage="Up to {max} voice servers; past that, clients trim the list."
-                values={{ max: MAX_COMMUNITY_AV_BROKERS }}
-              />
+              <FormattedMessage {...messages.max} values={{ max }} />
             </p>
           )}
 
           <p className="text-2xs text-muted-foreground">
-            <FormattedMessage id="communitySettingsView.voice.exclusiveHint" defaultMessage="Calls use only these, spread across them by channel. Members' own voice servers are ignored here, so if none of these answer, calls can't start. Leave it empty to let every member use their own." />
+            <FormattedMessage {...messages.exclusiveHint} />
           </p>
 
           {error && (
@@ -1780,7 +1865,7 @@ function VoiceServersSection({
               size="icon"
               variant="ghost"
               className="size-7 shrink-0"
-              aria-label={intl.formatMessage({ id: "communitySettingsView.voice.save", defaultMessage: "Save voice servers" })}
+              aria-label={intl.formatMessage(messages.save)}
               disabled={saving || checking}
               onClick={handleSave}
             >

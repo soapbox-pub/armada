@@ -205,6 +205,14 @@ export async function fetchAvTokenFromAny(origins: string[], voice: GroupKey): P
 }
 
 // Presence (§4)
+/** Where a member's iroh endpoint is reached in a peer-to-peer call (CORD-07 §4, §8). */
+export interface IrohAddress {
+  /** The endpoint id, 64 lowercase hex digits. */
+  endpoint: string;
+  /** The relay it is reached through; absent when its presence named none. */
+  relay?: string;
+}
+
 /** One member's latest presence, as opened from the Channel's stream. */
 export interface VoicePresenceEntry {
   author: string;
@@ -254,6 +262,8 @@ export interface VoicePresenceEntry {
    * transport Armada doesn't speak, never dropped.
    */
   transport?: string;
+  /** On an `iroh` `joined`: the endpoint it names, and its relay. */
+  iroh?: IrohAddress;
   /**
    * On a `joined` naming another transport: the same author's latest brokered `joined`
    * in this stay. A member on both (a bot simulcasting to Vector and the SFU) sends
@@ -298,6 +308,8 @@ export function presenceTags(
     recording?: boolean;
     noRecord?: boolean;
     additionalIdentities?: readonly string[];
+    /** Our peer-to-peer endpoint, named beside the SFU identity so Vector peers can reach us (CORD-07 §8). */
+    iroh?: IrohAddress;
     /** What the call shows of its author (CORD-07 §4): mic off, screen or camera on. */
     muted?: boolean;
     screen?: boolean;
@@ -316,6 +328,10 @@ export function presenceTags(
     }
   }
   if (status === "joined" && broker) tags.push(["broker", broker]);
+  if (status === "joined" && opts?.iroh) {
+    tags.push(["transport", "iroh"], ["endpoint", opts.iroh.endpoint]);
+    if (opts.iroh.relay) tags.push(["relay", opts.iroh.relay]);
+  }
   if (status === "joined" && opts?.hand) tags.push(["hand", "1"]);
   if (status === "joined" && opts?.recording) tags.push(["recording", "1"]);
   if (status === "joined" && opts?.noRecord) tags.push(["norecord", "1"]);
@@ -413,6 +429,7 @@ export function parsePresence(opened: OpenedEvent): VoicePresenceEntry | null {
   const bare = (name: string) => status === "joined" && opened.tags.some((t) => t[0] === name);
   const video = (what: string) => status === "joined" && opened.tags.some((t) => t[0] === "video" && t[1] === what);
   const deafened = bare("deafened");
+  const iroh = transport === "iroh" ? irohAddressOf(opened.tags) : undefined;
   return {
     author: opened.author,
     status,
@@ -428,11 +445,24 @@ export function parsePresence(opened: OpenedEvent): VoicePresenceEntry | null {
     ...(video("screen") ? { screen: true } : {}),
     ...(video("camera") ? { camera: true } : {}),
     ...(transport ? { transport } : {}),
+    ...(iroh ? { iroh } : {}),
     ...(bridge ? { bridge } : {}),
     ...(leaves ? { leaves } : {}),
     ms: opened.ms,
     rumorId: opened.rumorId,
   };
+}
+
+/** Longest relay URL kept, as Vector bounds a Community's voice relays. */
+const MAX_RELAY_LEN = 256;
+
+/** An `iroh` `joined`'s endpoint, already checked by `otherTransport`, and its relay when it is an https URL. */
+function irohAddressOf(tags: string[][]): IrohAddress | undefined {
+  const endpoint = uniqueTag(tags, "endpoint");
+  if (typeof endpoint !== "string") return undefined;
+  const relay = uniqueTag(tags, "relay");
+  const usable = typeof relay === "string" && relay.length <= MAX_RELAY_LEN && relay.startsWith("https://");
+  return { endpoint: endpoint.toLowerCase(), ...(usable ? { relay } : {}) };
 }
 
 /** The side a `left` names (see `leaves`): null when its `transport` repeats or has no value, which Vector drops. */
@@ -488,6 +518,8 @@ export interface VoicePresent {
   noRecord: boolean;
   /** Another transport this member is in the same call on, at once (e.g. `"iroh"`). */
   alsoOn?: string;
+  /** Their iroh endpoint, when `alsoOn` is `"iroh"`. */
+  iroh?: IrohAddress;
   /** `alsoOn`, when this member says they relay it into the brokered call (client ext). */
   bridge?: string;
   ms: number;
@@ -518,6 +550,11 @@ export interface VoiceOtherTransport {
   deafened?: boolean;
   serverMuted?: boolean;
   serverDeafened?: boolean;
+  /** What they say they send (CORD-07 §4): a shared screen, a camera. */
+  screen?: boolean;
+  camera?: boolean;
+  /** Their endpoint, on `iroh`. */
+  iroh?: IrohAddress;
   ms: number;
 }
 
@@ -530,7 +567,7 @@ export function notePresence(latest: Map<string, VoicePresenceEntry>, entry: Voi
   if (entry.ms > nowMs + VOICE_AHEAD_MS || entry.ms < nowMs - VOICE_BEHIND_MS) return false;
   // One `joined` naming both an SFU identity and another transport is on both: noted as its two halves.
   if (entry.status === "joined" && entry.transport && entry.identity) {
-    const { transport, ...brokered } = entry;
+    const { transport, iroh: _iroh, ...brokered } = entry;
     const { identity: _identity, identities: _identities, screenShareIdentities: _shares, broker: _broker, ...other } = entry;
     const sfu = notePresence(latest, brokered, nowMs);
     return notePresence(latest, { ...other, transport }, nowMs) || sfu;
@@ -614,6 +651,9 @@ function leaveOneSide(prev: VoicePresenceEntry, left: VoicePresenceEntry, nowMs:
     author: prev.author,
     status: "joined",
     transport: other.transport,
+    ...(other.iroh ? { iroh: other.iroh } : {}),
+    ...(other.screen ? { screen: true } : {}),
+    ...(other.camera ? { camera: true } : {}),
     ...(other.muted ? { muted: true } : {}),
     ...(other.deafened ? { deafened: true } : {}),
     ms: other.ms,
@@ -626,6 +666,9 @@ function leaveOneSide(prev: VoicePresenceEntry, left: VoicePresenceEntry, nowMs:
 /** A `joined` on another transport, held beside a newer brokered one. */
 export interface OtherHalf {
   transport: string;
+  iroh?: IrohAddress;
+  screen?: boolean;
+  camera?: boolean;
   muted?: boolean;
   deafened?: boolean;
   ms: number;
@@ -635,6 +678,9 @@ export interface OtherHalf {
 function otherHalfOf(e: VoicePresenceEntry, heardAt: number): OtherHalf {
   return {
     transport: e.transport!,
+    ...(e.iroh ? { iroh: e.iroh } : {}),
+    ...(e.screen ? { screen: true } : {}),
+    ...(e.camera ? { camera: true } : {}),
     ...(e.muted ? { muted: true } : {}),
     ...(e.deafened ? { deafened: true } : {}),
     ms: e.ms,
@@ -770,7 +816,12 @@ export function isNewcomer(prev: VoicePresenceEntry | undefined, entry: VoicePre
   if (entry.status !== "joined") return false;
   if (!prev || prev.status !== "joined" || !presenceLive(prev, nowMs)) return true;
   // A member on two transports alternates between them; only a new transport or SFU identity is news.
-  if (entry.transport && !entry.identity) return Boolean(prev.transport) && prev.transport !== entry.transport;
+  // …or, on iroh, a new endpoint: whoever has the lower id can't dial it until told who is here (Vector `note`).
+  if (entry.transport && !entry.identity) {
+    if (prev.transport && prev.transport !== entry.transport) return true;
+    const held = otherHalf(prev, nowMs);
+    return Boolean(held?.iroh && entry.iroh && held.iroh.endpoint !== entry.iroh.endpoint);
+  }
   return brokeredHalf(prev, nowMs)?.identity !== entry.identity;
 }
 
@@ -808,7 +859,10 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
       otherTransport.push({
         author: top.author,
         transport: top.transport,
+        ...(top.iroh ? { iroh: top.iroh } : {}),
         ...(top.muted ? { muted: true } : {}),
+        ...(top.screen ? { screen: true } : {}),
+        ...(top.camera ? { camera: true } : {}),
         ...(top.deafened ? { deafened: true } : {}),
         ...(top.serverMuted ? { serverMuted: true } : {}),
         ...(top.serverDeafened ? { serverDeafened: true } : {}),
@@ -819,7 +873,8 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
     // Moderation belongs to the stay, which the newest presence carries.
     const e = half && half !== top ? { ...half, serverMuted: top.serverMuted, serverDeafened: top.serverDeafened } : top;
     if (!e.identity) continue;
-    const alsoOn = otherHalf(top, nowMs)?.transport;
+    const also = otherHalf(top, nowMs);
+    const alsoOn = also?.transport;
     present.push({
       author: e.author,
       identity: e.identity,
@@ -835,6 +890,7 @@ export function foldVoicePresence(entries: VoicePresenceEntry[], nowMs: number):
       ...(e.serverMuted ? { serverMuted: true } : {}),
       ...(e.serverDeafened ? { serverDeafened: true } : {}),
       ...(alsoOn ? { alsoOn } : {}),
+      ...(also?.iroh ? { iroh: also.iroh } : {}),
       ...(alsoOn && e.bridge === alsoOn ? { bridge: alsoOn } : {}),
       ms: e.ms,
     });
@@ -854,15 +910,34 @@ export function bridgedTransports(fold: VoicePresenceFold): Set<string> {
   return new Set(fold.present.flatMap((p) => (p.bridge ? [p.bridge] : [])));
 }
 
-/** How a roster row is in the call beyond the SFU (CORD-07 §4 Transports). */
-export type VoiceRowTransport = "other" | "bridged" | "both" | "bridge";
+/**
+ * How a member is connected to the call, as their roster row and tile show it (CORD-07 §4
+ * Transports). LiveKit wins: a member on the SFU reads `sfu` (or `bridge`, relaying another
+ * transport into it) whatever else they announce. Off it, peer to peer alone: `linked` to this
+ * client, heard here through a bridge (`bridged`), or out of reach (`other`).
+ */
+export type VoiceRowTransport = "sfu" | "bridge" | "linked" | "bridged" | "other";
 
-/** Per author, the transport marker their roster row carries; members on the SFU alone have none. */
-export function voiceRowTransports(fold: VoicePresenceFold): Map<string, VoiceRowTransport> {
+/** The connection a marker shows: the LiveKit server, or peer to peer. */
+export function connectionOf(transport: VoiceRowTransport): "sfu" | "p2p" {
+  return transport === "sfu" || transport === "bridge" ? "sfu" : "p2p";
+}
+
+/**
+ * Per author, the marker their roster row carries. `linked`: the members on peer to peer alone
+ * this client holds a link with. `onSfu`: who the live LiveKit room holds, for a participant
+ * whose presence hasn't arrived yet.
+ */
+export function voiceRowTransports(
+  fold: VoicePresenceFold,
+  linked: ReadonlySet<string> = new Set(),
+  onSfu: Iterable<string> = [],
+): Map<string, VoiceRowTransport> {
   const bridged = bridgedTransports(fold);
   const out = new Map<string, VoiceRowTransport>();
-  for (const p of fold.otherTransport) out.set(p.author, bridged.has(p.transport) ? "bridged" : "other");
-  for (const p of fold.present) if (p.alsoOn) out.set(p.author, p.bridge ? "bridge" : "both");
+  for (const p of fold.otherTransport) out.set(p.author, linked.has(p.author) ? "linked" : bridged.has(p.transport) ? "bridged" : "other");
+  for (const p of fold.present) out.set(p.author, p.alsoOn && p.bridge ? "bridge" : "sfu");
+  for (const author of onSfu) if (!out.has(author)) out.set(author, "sfu");
   return out;
 }
 

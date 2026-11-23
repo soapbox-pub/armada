@@ -239,6 +239,20 @@ export const CONCORD_AV_SERVERS: string[] = (
   .map((s: string) => s.trim())
   .filter((s: string) => Boolean(s));
 
+/**
+ * The deployment's iroh relays for peer-to-peer calls (CORD-07 §8), where a Community lists
+ * none: homed on, and trusted to dial through. Unset (undefined) = the shipped iroh release's
+ * defaults; set empty, no peer-to-peer call starts outside a Community that lists its own.
+ */
+export const CONCORD_IROH_RELAYS: string[] | undefined = (() => {
+  const raw = config("CONCORD_IROH_RELAYS");
+  if (raw === undefined) return undefined;
+  return raw
+    .split(",")
+    .map((s: string) => s.trim())
+    .filter((s: string) => s.startsWith("https://") && s.length <= 256);
+})();
+
 /** Build-time boolean: "true"/"1", "false"/"0", else `dflt`. */
 function envBool(value: string | undefined, dflt: boolean): boolean {
   if (value === undefined || value === "") return dflt;

@@ -9,6 +9,7 @@ vi.mock("@/hooks/useAppContext", () => ({
 }));
 vi.mock("@/concord/hooks/useVoice", () => ({ ownAvServers: () => [] }));
 vi.mock("@/concord/lib/voice", () => ({ probeAvBroker: async () => false }));
+vi.mock("@/concord/lib/irohVoice", () => ({ deploymentIrohRelays: async () => undefined }));
 // The tone button only renders where speaker selection exists (not jsdom).
 vi.mock("@/lib/voiceDevices", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/voiceDevices")>()),

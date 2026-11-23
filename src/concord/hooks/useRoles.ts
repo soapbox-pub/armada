@@ -59,7 +59,7 @@ export function useMetadataActions(community: Community | undefined) {
   const updateMetadata = useMutation<
     void,
     Error,
-    { name?: string; description?: string; icon?: ImagePointer | null; banner?: ImagePointer | null; relays?: string[]; av_brokers?: string[]; message_expiration?: number }
+    { name?: string; description?: string; icon?: ImagePointer | null; banner?: ImagePointer | null; relays?: string[]; av_brokers?: string[]; voice_relays?: string[]; message_expiration?: number }
   >({
     mutationFn: async (patch) => {
       if (!user || !community) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
@@ -79,6 +79,11 @@ export function useMetadataActions(community: Community | undefined) {
         if (patch.av_brokers !== undefined) {
           if (patch.av_brokers.length > 0) next.av_brokers = patch.av_brokers;
           else delete next.av_brokers;
+        }
+        // CORD-02 §6: without the field, calls go through iroh's defaults.
+        if (patch.voice_relays !== undefined) {
+          if (patch.voice_relays.length > 0) next.voice_relays = patch.voice_relays;
+          else delete next.voice_relays;
         }
         // CORD-08: off is the field's ABSENCE.
         if (patch.message_expiration !== undefined) {

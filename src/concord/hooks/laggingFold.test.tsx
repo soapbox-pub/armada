@@ -196,6 +196,19 @@ describe("writes in a row while the rendered fold lags", () => {
     expect(stored().metadata).toMatchObject({ name: "Renamed", description: "about" });
   });
 
+  it("writes the Community's voice relays, and clears them as the field's absence (CORD-02 §6)", async () => {
+    const { community } = setup();
+    const { result } = renderHook(() => useMetadataActions(community), { wrapper });
+    await act(async () => {
+      await result.current.updateMetadata({ voice_relays: ["https://relay.example"] });
+    });
+    expect(stored().metadata?.voice_relays).toEqual(["https://relay.example"]);
+    await act(async () => {
+      await result.current.updateMetadata({ voice_relays: [] });
+    });
+    expect(stored().metadata).not.toHaveProperty("voice_relays");
+  });
+
   it("creates a voice channel inside a Category, following the Category's rules (Vector `create_channel_in`)", async () => {
     const { community, cat } = setup();
     const { result } = renderHook(() => useCommunityManagement(community), { wrapper });

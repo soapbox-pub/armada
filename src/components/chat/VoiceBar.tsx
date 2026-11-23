@@ -53,6 +53,7 @@ import { routeLabel, type CallRoute } from "@/lib/callRoutes";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { useScreenShareVolume, useUserVolume } from "@/hooks/useUserVolume";
 import { useVoiceIdentity } from "@/contexts/VoiceIdentityContext";
+import { useIrohPeers } from "@/lib/irohVoice/peers";
 import { VoiceRejoiningContext } from "@/contexts/VoiceRejoiningContext";
 import {
   audioDeviceLabel,
@@ -345,19 +346,28 @@ export function DeviceMenu({ className }: { className?: string }) {
 
 /** Remote participant's mic and screen-share volume. Local participant is skipped (not played back locally). */
 function ParticipantVolumeRow({ participant }: { participant: Participant }) {
-  const intl = useIntl();
-  const inSheet = useMenuSheet() !== null;
   const resolveIdentity = useVoiceIdentity();
   const { pubkey, verified } = resolveIdentity(participant.identity);
+  return (
+    <VolumeRow
+      pubkey={pubkey}
+      verified={verified}
+      screenShareAudio={Boolean(participant.getTrackPublication(Track.Source.ScreenShareAudio))}
+    />
+  );
+}
+
+/** One person's volume, by pubkey: a LiveKit participant, or a member reached peer to peer. */
+function VolumeRow({ pubkey, verified, screenShareAudio }: { pubkey: string; verified: boolean; screenShareAudio: boolean }) {
+  const intl = useIntl();
+  const inSheet = useMenuSheet() !== null;
   const author = useAuthor(verified ? pubkey : undefined);
   const metadata = author.data?.metadata;
   const scopedName = useScopedDisplayName(pubkey, metadata);
   const name = verified ? scopedName : intl.formatMessage({ id: "voiceBar.unverified", defaultMessage: "Unverified" });
   const [volume, setVolume] = useUserVolume(pubkey);
   const [screenShareVolume, setScreenShareVolume] = useScreenShareVolume(pubkey);
-  const hasScreenShareAudio = Boolean(
-    participant.getTrackPublication(Track.Source.ScreenShareAudio),
-  );
+  const hasScreenShareAudio = screenShareAudio;
 
   return (
     // No drawer drag here, or the sheet would swallow a slider drag.
@@ -403,8 +413,9 @@ function ParticipantVolumeRow({ participant }: { participant: Participant }) {
 /** Per-user volume controls for every remote participant. */
 function ParticipantVolumeGroup() {
   const participants = useParticipants();
+  const { peers } = useIrohPeers();
   const remotes = participants.filter((p) => !p.isLocal && p.identity);
-  if (remotes.length === 0) return null;
+  if (remotes.length === 0 && peers.length === 0) return null;
   return (
     <>
       <DropdownMenuSeparator />
@@ -413,6 +424,9 @@ function ParticipantVolumeGroup() {
       </DropdownMenuLabel>
       {remotes.map((p) => (
         <ParticipantVolumeRow key={p.sid || p.identity} participant={p} />
+      ))}
+      {peers.map((p) => (
+        <VolumeRow key={`p2p:${p.pubkey}`} pubkey={p.pubkey} verified screenShareAudio={false} />
       ))}
     </>
   );
@@ -432,7 +446,8 @@ export function InCallView({ label, onLabelClick, stacked, compact }: InCallView
   // stage is the floating window, which `stageOpen` doesn't describe.
   const intl = useIntl();
   const { stageVisible, toggleStage } = useCall();
-  const participantCount = useParticipants().length;
+  // Members reached peer to peer are in the call too (CORD-07 §8).
+  const participantCount = useParticipants().length + useIrohPeers().peers.length;
   const connectionState = useConnectionState();
   const rejoining = useContext(VoiceRejoiningContext);
 

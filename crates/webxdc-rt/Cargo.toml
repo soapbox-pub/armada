@@ -3,7 +3,7 @@ name = "webxdc-rt"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Browser-side iroh-gossip transport for webxdc realtime channels"
+description = "Browser-side iroh transport: webxdc realtime channels and Concord P2P voice"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -21,6 +21,7 @@ js-sys = "0.3"
 futures-util = "0.3"
 futures-channel = "0.3"
 serde_json = "1"
+url = "2"
 
 [profile.release]
 opt-level = "z"

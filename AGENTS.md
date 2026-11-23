@@ -41,7 +41,7 @@ needs no Armada-specific server at all: any NIP-29 relay serves it.
 | `src/npanel/` | The link-preview script an npanel gateway runs for crawlers: profiles (`/npub1…`, `/nprofile1…`, `/name@domain`, `/domain`) and Concord invites, each with a drawn Armada card. Built to `/.well-known/npanel/preview.js` by the `npanelPreview()` plugin in `vite.config.ts`. An invite's community is sealed under the link's `#fragment`, which never reaches a server, so its card is the same for every invite |
 | `src/lib/db/` | ArmadaDB — the one local storage interface (tenants of rumors + a KV), its IndexedDB adapter, the Android bridge adapter, and the migrations |
 | `android/`   | Capacitor Android project (signed APK/AAB built in CI)          |
-| `crates/webxdc-rt/` | Rust: the iroh-gossip transport for Mini App multiplayer, compiled to wasm. The only Rust in the repo |
+| `crates/webxdc-rt/` | Rust: the iroh transport, compiled to wasm — gossip for Mini App multiplayer, and a voice Channel's peer-to-peer call (`VoiceNode`). The only Rust in the repo |
 | `android/…/app/db/` | ArmadaDB in Kotlin: the SQLite engine the Android build actually runs, shared by the WebView and the notification service |
 | `ios/`       | Capacitor iOS project (SwiftPM, no CocoaPods; built manually on a Mac — no CI) |
 | `ios/ArmadaDB/` | ArmadaDB in Swift: the SQLite engine the iOS build runs, with SQLite vendored. A SwiftPM package so it builds on **Linux**, where its conformance suite runs without a Mac |
@@ -222,8 +222,10 @@ compile it through a prebuild hook, rebuilding only when a source file,
 
 **It is optional locally and required in the deploy.** Without a Rust
 toolchain the hook prints what to install and exits 0: the app builds and runs,
-Mini Apps still open and sync their state, and only multiplayer is off. Nobody
-needs Rust to work on the chat UI. The deploy workflow sets
+Mini Apps still open and sync their state, and only multiplayer and
+peer-to-peer voice are off — a build without it cannot hear Vector's callers,
+and says so ("built without peer-to-peer calling"). Nobody needs Rust to work
+on the chat UI. The deploy workflow sets
 `WEBXDC_RT_REQUIRED=1`, which turns a missing toolchain or a failed compile
 into a failed deploy rather than a published build with multiplayer silently
 switched off.
@@ -241,6 +243,33 @@ target wasm32, which surfaces as a `ring` build failure.
 The wire formats the two clients share live in `src/lib/webxdcRealtime.ts`, not
 in the crate, and are tested against Vector's Rust. The crate moves opaque
 bytes; keep it that way, or the interop surface straddles a language boundary.
+
+The same crate carries a voice Channel's peer-to-peer call (CORD-07 §8), the
+network half of Vector's `calls/voice.rs`: a fresh endpoint per call on ALPN
+`concord/voice/1`, one QUIC connection per peer, 20 ms Opus frames in datagrams
+behind Vector's 8-byte header. Which members to link, who dials and the header
+are `src/concord/lib/irohVoice.ts`; the audio (WebCodecs Opus, the call's own
+mic track with its RNNoise) is `src/lib/irohVoice/`. Armada stays on LiveKit
+whenever a broker answers, so a pair links only when at least one side is off
+the SFU — Vector, or an Armada member whose LiveKit failed — and the link drops
+once that member's SFU presence arrives. Our `joined` names the SFU identity
+and the iroh endpoint in ONE rumor: Vector folds presence latest-wins per
+author, so two rumors would make it drop and re-dial us every heartbeat.
+Its relays are chosen the way LiveKit brokers are: a Community's
+`voice_relays` (edited in Community settings, beside its AV brokers) replace
+the deployment's `CONCORD_IROH_RELAYS`, which defaults to the shipped iroh
+release's own (`defaultVoiceRelays()` in the crate, so no list is kept in
+TS), and a call dials peers through either (`irohRelayPlan`). A bind that no
+relay answers is refused rather than left looking connected, since a presence
+naming no relay is dialled by nobody.
+Cameras and screens ride the same links in Vector's format (`irohVideo.ts`,
+`src/lib/irohVoice/video.ts`): one unidirectional stream per frame behind a
+16-byte header (H.264 Annex B or VP8 through WebCodecs), JSON `watch`/`key`/
+`unsupported` controls on streams of their own, and a picture is sent only to a
+member who asked for it. Linked members reach the call's UI through
+`IrohPeersContext` (`src/lib/irohVoice/peers.ts`): the LiveKit stage and its
+roster reporters add them beside LiveKit participants, and a call that is peer
+to peer alone gets `IrohCallStage`.
 
 ## How the client reaches backends (no build-time coupling)
 

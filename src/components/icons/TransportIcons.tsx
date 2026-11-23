@@ -1,5 +1,7 @@
 import React from "react";
 
+import { cn } from "@/lib/utils";
+
 type IconProps = React.SVGProps<SVGSVGElement>;
 
 const base = {
@@ -35,3 +37,26 @@ export const HiveIcon = React.forwardRef<SVGSVGElement, IconProps>(({ strokeWidt
   </svg>
 ));
 HiveIcon.displayName = "HiveIcon";
+
+/** The software that carries a call, named: brand names, never translated (AGENTS.md › Translations). */
+const TRANSPORT_NAMES = { sfu: "LiveKit", p2p: "iroh" } as const;
+
+/**
+ * A plain name tag for what carries a call — LiveKit for the server, iroh for peer to peer —
+ * with the same generic icon and colour the call's connection markers use.
+ */
+export function TransportName({ via, icon = true, className }: { via: "sfu" | "p2p"; icon?: boolean; className?: string }) {
+  const Icon = via === "sfu" ? HubIcon : HiveIcon;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-sm bg-secondary/60 px-1.5 py-0.5 text-2xs font-medium normal-case tracking-normal text-foreground/80",
+        className,
+      )}
+      data-transport={via}
+    >
+      {icon && <Icon className={via === "sfu" ? "size-3 text-warning" : "size-3 text-success"} aria-hidden />}
+      {TRANSPORT_NAMES[via]}
+    </span>
+  );
+}
