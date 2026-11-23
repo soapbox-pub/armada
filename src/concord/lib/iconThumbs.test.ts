@@ -31,13 +31,20 @@ describe("iconThumbs", () => {
 
   it("remembers a miss without re-reading storage", () => {
     expect(readIconThumb("c1")).toBeUndefined();
-    localStorage.setItem("armada:c2icon:v1:c1", JSON.stringify({ hash: "h1", url: URL_A }));
+    localStorage.setItem("armada:c2icon:v2:c1", JSON.stringify({ hash: "h1", url: URL_A }));
     expect(readIconThumb("c1")).toBeUndefined();
   });
 
   it("refuses anything that isn't an image data: URL", () => {
-    localStorage.setItem("armada:c2icon:v1:c1", JSON.stringify({ hash: "h1", url: "https://evil.example/x.png" }));
+    localStorage.setItem("armada:c2icon:v2:c1", JSON.stringify({ hash: "h1", url: "https://evil.example/x.png" }));
     expect(readIconThumb("c1")).toBeUndefined();
+  });
+
+  it("never reads a v1 thumb, and drops it when the community's thumb is rewritten", () => {
+    localStorage.setItem("armada:c2icon:v1:c1", JSON.stringify({ hash: "h1", url: URL_A }));
+    expect(readIconThumb("c1")).toBeUndefined();
+    writeIconThumb("c1", { hash: "h1", url: URL_A });
+    expect(localStorage.getItem("armada:c2icon:v1:c1")).toBeNull();
   });
 
   it("deletes", () => {

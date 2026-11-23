@@ -2294,6 +2294,8 @@
   "historyExport.tag.reply": "返信",
   "historyExport.title": "{community} の Concord エクスポート",
   "imageCropDialog.apply": "切り抜きを適用",
+  "imageCropDialog.canvasBlocked": "このブラウザーは画像の切り抜きに使うキャンバスをブロックしているため、ここで切り抜けるのは GIF だけです。その他の画像はそのまま使われます。",
+  "imageCropDialog.canvasBlockedUnsupported": "この画像はこのブラウザーでは使えません。JPEG、PNG、WebP、GIF のいずれかを試してください。",
   "imageCropDialog.hint": "ドラッグで位置調整 · ピンチまたはスクロールでズーム",
   "imageCropDialog.processing": "処理中…",
   "imageCropDialog.reset": "リセット",

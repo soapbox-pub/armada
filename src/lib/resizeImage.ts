@@ -1,7 +1,7 @@
 import { characterCardFromPngBytes, isPngBytes, stripNonCardMetadata } from "@/lib/characterCard";
 import { isAnimatedImage, METADATA_SCAN_BYTES } from "@/lib/imageMetadata";
 import { canvasReadbackIntact } from "@/lib/canvasProbe";
-import { needsMetadataStrip, stripAnimatedMetadata, stripJpegMetadata } from "@/lib/imageMetadataStrip";
+import { needsMetadataStrip, stripAnimatedMetadata, stripMetadataWithoutCanvas } from "@/lib/imageMetadataStrip";
 
 /** Maximum dimension (width or height) for resized images. */
 const MAX_DIMENSION = 1920;
@@ -68,9 +68,7 @@ export async function resizeImage(file: File): Promise<ResizedImage> {
   // its own size, with the metadata cut out of the container instead.
   if (!animated && !canvasReadbackIntact()) {
     bitmap.close();
-    const stripped = !needsMetadataStrip(bytes)
-      ? bytes
-      : stripJpegMetadata(bytes) ?? stripAnimatedMetadata(bytes);
+    const stripped = stripMetadataWithoutCanvas(bytes);
     if (!stripped) throw new Error("This browser blocks the canvas needed to remove this image's metadata.");
     return {
       file: stripped === bytes ? file : new File([stripped], file.name, { type: file.type, lastModified: file.lastModified }),

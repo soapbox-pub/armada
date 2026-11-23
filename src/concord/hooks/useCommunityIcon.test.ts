@@ -67,4 +67,13 @@ describe("useCommunityIcon", () => {
     expect(result.current).toBeNull();
     await waitFor(() => expect(readIconThumb("c1")).toBeUndefined());
   });
+
+  it("ignores a v1 thumbnail, which a fingerprint blocker may have filled with noise", () => {
+    localStorage.setItem("armada:c2icon:v1:c1", JSON.stringify({ hash: "h1", url: "data:image/png;base64,STRIPES" }));
+    decrypted.mockReturnValue("blob:live");
+    makeIconThumb.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useCommunityIcon("c1", pointer("h1")));
+    expect(result.current).toBe("blob:live");
+    expect(decrypted).toHaveBeenLastCalledWith(pointer("h1"));
+  });
 });
