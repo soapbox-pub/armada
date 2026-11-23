@@ -100,12 +100,12 @@ function scheduleDelta(
           if (!old) return undefined;
           let next: Map<string, OpenedChat[]> | undefined;
           for (const id of ids) {
-            const rows = delta.get(id);
+            const read = delta.get(id);
             const prev = old.get(id);
             // Unchanged rows keep the old arrays (and the old Map), so nothing re-renders.
-            if (rows ? prev !== undefined && sameRows(prev, rows) : prev === undefined) continue;
+            if (read ? prev !== undefined && sameRows(prev, read) : prev === undefined) continue;
             next ??= new Map(old);
-            if (rows) next.set(id, rows);
+            if (read) next.set(id, prev ? reuseRows(prev, read) : read);
             else next.delete(id);
           }
           return next ?? old;
@@ -113,6 +113,17 @@ function scheduleDelta(
       })
       .catch(() => undefined);
   });
+}
+
+/**
+ * `read` with each row already held in `prev` replaced by that object: a rumor is
+ * immutable, so the copy just decoded from the store is the same row. Successive
+ * maps then share their rows, and a superseded map that something still holds
+ * costs an array rather than a second copy of every message.
+ */
+export function reuseRows(prev: readonly OpenedChat[], read: OpenedChat[]): OpenedChat[] {
+  const held = new Map(prev.map((row) => [row.rumorId, row]));
+  return read.map((row) => held.get(row.rumorId) ?? row);
 }
 
 /** Same rumors, same order — rumors are immutable, so the id says it all. */

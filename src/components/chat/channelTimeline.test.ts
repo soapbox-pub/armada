@@ -20,6 +20,13 @@ const ciRun = (workflow: string, createdAt: number): GitTimelineActivity => ({
 });
 
 describe("mixed channel timeline", () => {
+  it("shares a message's entry across merges, so a superseded timeline holds no copy of it", () => {
+    const a = chat("a", 10);
+    const first = mergeChannelTimeline([a], []);
+    const second = mergeChannelTimeline([a, chat("b", 20)], []);
+    expect(second[0]).toBe(first[0]);
+  });
+
   it("slots Git into chat chronologically with a deterministic id tie-break", () => {
     expect(mergeChannelTimeline([chat("a", 10), chat("z", 20)], [git("d", 20), git("c", 20), git("b", 15)]).map((entry) => entry.id))
       .toEqual(["chat:a", "git:b", "chat:z", "git:c", "git:d"]);
