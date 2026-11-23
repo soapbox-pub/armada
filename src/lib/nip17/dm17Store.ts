@@ -43,7 +43,7 @@ import {
 } from "@/lib/nip17/protocol";
 import { dmThreadScope, emitWireScopes, onWireScopes } from "@/wire/bus";
 import { nowSecs } from "@/lib/relayClock";
-import { dmOpenerOf, type DmOpener } from "@/lib/dmStrangerFilter";
+import { DM_SCREEN_WINDOW, dmScreenOf, type DmScreen } from "@/lib/dmStrangerFilter";
 
 /**
  * The opened-DM store for one account, bound to its conversation term policy
@@ -176,50 +176,43 @@ export async function queryDm17Thread(
     .map((ev) => storedToDm17(ev, self)));
 }
 
-/** Openers by `self|conversation|latest rumor id`: a conversation's head moving re-reads it. */
-const openers = new Map<string, DmOpener>();
-/** The last opener read per `self|conversation`, for synchronous callers (the foreground notifier). */
-const latestOpeners = new Map<string, DmOpener>();
-/** Past this many messages the window's oldest stands in for the first: no request is that long. */
-const OPENER_WINDOW = 200;
+/** The last screen read per `self|conversation`, and the head it was read at. */
+const screens = new Map<string, { head: string | undefined; screen: DmScreen }>();
 
 /**
- * The first chat/file message of a conversation (`createdAt` order), for the
- * stranger filter. `latestId` (the conversation's head) keys the memo; undefined when
- * nothing is stored yet.
+ * The stranger filter's facts about a conversation's stored messages
+ * ({@link DmScreen}). `head` (the newest message's id) memoizes the read: a
+ * conversation whose head hasn't moved isn't read again. Expired messages count,
+ * so an expiring link can't make a conversation look clean once it is gone.
  */
-export async function queryDm17Opener(
+export async function queryDm17Screen(
   self: string,
   peers: readonly string[],
-  latestId: string,
+  head?: string,
   opts: { signal?: AbortSignal } = {},
-): Promise<DmOpener | undefined> {
+): Promise<DmScreen> {
   const key = dmConvKey(peers);
-  const memoKey = `${self}|${key}|${latestId}`;
-  const held = openers.get(memoKey);
-  if (held) return held;
+  const memoKey = `${self}|${key}`;
+  const held = screens.get(memoKey);
+  if (held && head !== undefined && held.head === head) return held.screen;
   const others = peers.filter((peer) => peer !== self);
-  const events = await dm17Store(self).query(
-    [{ kinds: [...DM_MESSAGE_KINDS], search: dmConvTerm(others.length > 0 ? others : [self]), limit: OPENER_WINDOW }],
+  const events = (await dm17Store(self).query(
+    [{ kinds: [...DM_MESSAGE_KINDS], search: dmConvTerm(others.length > 0 ? others : [self]), limit: DM_SCREEN_WINDOW }],
     { signal: opts.signal },
+  )).filter((ev) => dmConvKeyOf(ev, self) === key);
+  const screen = dmScreenOf(
+    events.map((ev) => ({ author: ev.pubkey, kind: ev.kind, content: ev.content })),
+    self,
+    events.length >= DM_SCREEN_WINDOW,
   );
-  let first: NostrRumor | undefined;
-  for (const ev of events) {
-    if (isExpired(ev.tags) || dmConvKeyOf(ev, self) !== key) continue;
-    if (!first || ev.created_at < first.created_at || (ev.created_at === first.created_at && ev.id < first.id)) first = ev;
-  }
-  // A miss isn't held: the head may be a fresh message still on its way to the store.
-  if (!first) return undefined;
-  const opener = dmOpenerOf({ author: first.pubkey, kind: first.kind, content: first.content });
-  if (openers.size >= 2048) openers.clear();
-  openers.set(memoKey, opener);
-  latestOpeners.set(`${self}|${key}`, opener);
-  return opener;
+  if (screens.size >= 2048 && !held) screens.clear();
+  screens.set(memoKey, { head, screen });
+  return screen;
 }
 
-/** The opener last read by {@link queryDm17Opener} for this conversation, without a store read. */
-export function peekDm17Opener(self: string, conversation: string): DmOpener | undefined {
-  return latestOpeners.get(`${self}|${conversation}`);
+/** The screen {@link queryDm17Screen} last read for this conversation, without a store read. */
+export function peekDm17Screen(self: string, conversation: string): DmScreen | undefined {
+  return screens.get(`${self}|${conversation}`)?.screen;
 }
 
 /**
@@ -485,8 +478,7 @@ export function onFreshDm17(self: string, listener: (fresh: OpenedDm[]) => void)
 export function clearPendingDm17(): void {
   pendingDms.clear();
   conversationReads.clear();
-  openers.clear();
-  latestOpeners.clear();
+  screens.clear();
   forgetDm17Arrivals();
   liveWrapArrivals.clear();
 }

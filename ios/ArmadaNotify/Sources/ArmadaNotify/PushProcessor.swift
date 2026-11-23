@@ -324,6 +324,17 @@ struct PushProcessor {
         }
 
         let known = Self.isKnownDm(peers: opened.peers, config: config)
+        // A filtered stranger raises nothing; the app lists them apart under
+        // Message requests. Judged on everything stored, this message included.
+        if !known, let policy = config.strangerFilter {
+            let incoming = StrangerFilter.screen(
+                [(author: opened.author, kind: opened.kind, content: opened.content)], self: config.selfPubkey
+            )
+            let stored = store?.dmScreen(self: config.selfPubkey, peers: opened.peers)
+            if StrangerFilter.filtered(stored.map { $0 + incoming } ?? incoming, policy: policy) {
+                return dropped
+            }
+        }
         if !known && config.policy != .full {
             // A stranger picks the text, the name AND the avatar alike — gate
             // all of it before any reaches the screen.

@@ -158,6 +158,7 @@ export function useIosPush(): UsePushNotificationsReturn {
     dmKnownPeers,
     dmKnownConversationKeys,
     dmMutedPeers,
+    dmStrangerFilter,
     dmLevels,
     roomMutes,
     dmSk,
@@ -214,6 +215,7 @@ export function useIosPush(): UsePushNotificationsReturn {
           ...new Set([...dmKnownConversationKeys, ...mineConversationKeys]),
         ].sort(),
         mutedPeers: dmMutedPeers,
+        ...(dmStrangerFilter ? { strangerFilter: dmStrangerFilter } : {}),
         // One entry per watched channel's CURRENT epoch; the wrap-signing secret stays in the page,
         // and a rekey rewrites the set.
         concord: concord.flatMap((sub) =>
@@ -268,6 +270,7 @@ export function useIosPush(): UsePushNotificationsReturn {
     dmKnownPeers,
     dmKnownConversationKeys,
     dmMutedPeers,
+    dmStrangerFilter,
     dmLevels,
     roomMutes,
     dmSk,

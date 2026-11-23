@@ -1057,6 +1057,18 @@ html.theme-bg #root .theme-scope .bg-background {
   background: transparent;
 }
 
+/* The DM page's empty pane: a desktop window too narrow for its prompt (the
+ * list keeps its own width below the `sidebar` breakpoint) shows nothing rather
+ * than a clipped one. */
+.dm-empty-pane {
+  container-type: inline-size;
+}
+@container (max-width: 14rem) {
+  .dm-empty-prompt {
+    display: none;
+  }
+}
+
 /* Member rows (MemberList): in a tight row a badge keeps its icon, and its
  * label stays for screen readers only, so the name keeps the room. */
 .member-row {

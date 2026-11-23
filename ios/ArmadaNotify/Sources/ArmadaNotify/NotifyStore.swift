@@ -132,6 +132,29 @@ struct NotifyStore {
         return Profile(name: name, picture: picture)
     }
 
+    /// The stranger filter's facts about a conversation's stored messages — the
+    /// port of `queryDm17Screen`. Nil when the store can't be read; the caller
+    /// still judges the message in hand.
+    func dmScreen(self selfPubkey: String, peers: [String]) -> StrangerFilter.Screen? {
+        let others = peers.filter { $0 != selfPubkey }
+        guard let events = query(
+            tenant: Self.dmTenant(self: selfPubkey),
+            filters: [[
+                "kinds": [Dm17.kindChat, Dm17.kindFile],
+                "search": Dm17Conversation.term(others.isEmpty ? [selfPubkey] : others),
+                "limit": StrangerFilter.window,
+            ]]
+        ) else { return nil }
+        let messages = events.map { event in
+            (
+                author: event["pubkey"] as? String ?? "",
+                kind: (event["kind"] as? NSNumber)?.intValue ?? -1,
+                content: event["content"] as? String ?? ""
+            )
+        }
+        return StrangerFilter.screen(messages, self: selfPubkey, overflow: events.count >= StrangerFilter.window)
+    }
+
     /// Just the name, for the mention map.
     func displayName(pubkey: String) -> String? {
         profile(pubkey: pubkey).name

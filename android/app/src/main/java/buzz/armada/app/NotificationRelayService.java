@@ -42,6 +42,7 @@ import androidx.core.graphics.drawable.IconCompat;
 
 import buzz.armada.app.db.SelfState;
 import buzz.armada.app.db.ServiceStore;
+import buzz.armada.app.db.StrangerFilter;
 import buzz.armada.app.relayfleet.CircuitBreakerPolicy;
 import buzz.armada.app.relayfleet.CursorGate;
 import buzz.armada.app.relayfleet.DmRelayCover;
@@ -508,6 +509,9 @@ public class NotificationRelayService extends Service {
     // so the default keeps all three off the lock screen. Empty/unknown value ⇒
     // "generic". Only consulted when the `directMessages` pref is on.
     private String dmRequests = "generic";
+    // The DM stranger filter (StrangerFilter.kt): the viewer's community peers
+    // and whether every non-member is filtered. Null (off) until the app sends it.
+    private StrangerFilter.Policy dmStrangerFilter = null;
     // Where a sender's avatar and a community's icon may be fetched FROM — the
     // WebView's media policy (see MediaPolicy), applied to the two fetches this
     // service makes unprompted. Absent means the default: proxying off.
@@ -1965,6 +1969,7 @@ public class NotificationRelayService extends Service {
         dmMutedPeers.clear();
         dmMutedPeers.addAll(parseStringArray(sp.getString("dmMutedPeers", null)));
         dmRequests = sp.getString("dmRequests", "generic");
+        dmStrangerFilter = StrangerFilter.Policy.parse(sp.getString("dmStrangerFilter", null));
         mediaPolicy = MediaPolicy.parse(sp.getString("mediaPolicy", null));
         selfRelays.clear();
         selfRelays.addAll(parseStringArray(sp.getString("selfRelays", null)));
@@ -4685,6 +4690,9 @@ public class NotificationRelayService extends Service {
                         // already stored, so the request remains in-app on open.
                         if (!dmConversationKnown(room, convPeers,
                                 dmKnownPeers, dmKnownConversations)) {
+                            // A filtered stranger raises nothing; the app lists
+                            // them apart under Message requests.
+                            if (dmStrangerFiltered(room, rumor, rumorKind)) return;
                             if ("off".equals(dmRequests)) return;
                             if (!"full".equals(dmRequests)) { // "generic" / unset
                                 long reqTs = rumor.optLong("created_at", 0);
@@ -6125,6 +6133,22 @@ public class NotificationRelayService extends Service {
      * still a request. A conversation whose every participant is independently
      * established is also known, preserving the pre-group peer policy.
      */
+    /**
+     * Whether the stranger filter screens this unknown conversation, judged on
+     * everything stored for it plus the message in hand (already stored, unless
+     * the write failed).
+     */
+    private boolean dmStrangerFiltered(String room, JSONObject rumor, int kind) {
+        StrangerFilter.Policy policy = dmStrangerFilter;
+        if (policy == null || userPubkey == null) return false;
+        StrangerFilter.Screen incoming = StrangerFilter.screen(
+                java.util.Collections.singletonList(new StrangerFilter.Message(
+                        rumor.optString("pubkey", ""), kind, rumor.optString("content", ""))),
+                userPubkey, false);
+        StrangerFilter.Screen stored = ServiceStore.dm17Screen(this, userPubkey, room);
+        return StrangerFilter.filtered(stored != null ? stored.plus(incoming) : incoming, policy);
+    }
+
     static boolean dmConversationKnown(String convKey, List<String> peers,
                                        Set<String> knownPeers,
                                        Set<String> knownConversations) {

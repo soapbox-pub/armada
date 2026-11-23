@@ -3,6 +3,7 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor
 import { isRouterPath } from "@/lib/deepLinkUrl";
 
 import type { MediaPolicyConfig } from "@/lib/mediaPolicy";
+import type { SwStrangerFilter } from "@/lib/swPushConfig";
 
 /**
  * Bridge to `ArmadaPushPlugin.swift` (iOS APNs). iOS can't run a background
@@ -84,6 +85,8 @@ export interface IosPushConfig {
   knownConversations?: string[];
   /** Peers whose presence suppresses their whole DM conversation. */
   mutedPeers?: string[];
+  /** The DM stranger filter (`dmStrangerFilter.ts`); absent = off. */
+  strangerFilter?: SwStrangerFilter;
   sk?: string;
   nip46?: { clientSk: string; bunkerPubkey: string; relays: string[] };
   concord?: Array<{

@@ -7,7 +7,7 @@ import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useDmRelayList } from "@/hooks/useDmRelayList";
 import { useKnownDmPeers } from "@/hooks/useKnownDmPeers";
-import { useStrangerFilterPolicy } from "@/hooks/useDmStrangerFilter";
+import { useStrangerFilterConfig } from "@/hooks/useDmStrangerFilter";
 import { useNotifLevels, type NotifLevel } from "@/hooks/useNotifLevels";
 import { useUserGroupList } from "@/hooks/useUserGroupList";
 import { effectiveDmRelays } from "@/contexts/AppContext";
@@ -149,14 +149,7 @@ export function usePushWatchSet(prefs: PushPrefs, onDevice: TimedMutesOnDevice):
     authoritativeReady: dmPeersReady,
     configurationReady: dmPeersConfigReady,
   } = useKnownDmPeers();
-  const strangerPolicy = useStrangerFilterPolicy();
-  const dmStrangerFilter = useMemo<SwStrangerFilter | undefined>(
-    () => strangerPolicy && {
-      communityPeers: [...strangerPolicy.communityPeers].sort(),
-      blockNonMembers: strangerPolicy.blockNonMembers,
-    },
-    [strangerPolicy],
-  );
+  const dmStrangerFilter = useStrangerFilterConfig();
   const { logins } = useNostrLogin();
   const notifLevels = useNotifLevels();
   const { channelLevel, concordChannelLevel } = onDevice === "all" ? notifLevels.standing : notifLevels;

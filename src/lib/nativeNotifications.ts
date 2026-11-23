@@ -5,6 +5,7 @@ import { normalizeRelayUrl } from "@/lib/platform";
 import type { ConcordLevelPolicy } from "@/hooks/useNotifLevels";
 import type { MediaPolicyConfig } from "@/lib/mediaPolicy";
 import type { NativeSelfDoc } from "@/lib/settingsKeys";
+import type { SwStrangerFilter } from "@/lib/swPushConfig";
 import type { NostrEvent } from "@nostrify/nostrify";
 
 // Bridge to the Android background notification service
@@ -204,6 +205,8 @@ export interface ArmadaNotificationPlugin {
     roomMutes?: Record<string, number>;
     /** Muted pubkeys; a NIP-17 notification is suppressed if any participant is muted. */
     dmMutedPeers?: string[];
+    /** The DM stranger filter (`dmStrangerFilter.ts`); absent keeps the last one sent. */
+    dmStrangerFilter?: SwStrangerFilter;
     /** Unknown-conversation mode: `"off"`, `"generic"` (default), or `"full"`. */
     dmRequests?: string;
     /**

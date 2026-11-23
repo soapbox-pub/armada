@@ -826,6 +826,16 @@ public class ArmadaNotificationPlugin extends Plugin {
             Log.w(TAG, "Failed to read room mutes", e);
         }
         String dmMutedPeersRaw = arrayToString(call.getArray("dmMutedPeers"));
+        // The stranger filter (StrangerFilter.kt). Absent while the app is still
+        // reading community memberships, which keeps the last one sent.
+        String dmStrangerFilterRaw = null;
+        try {
+            if (call.getObject("dmStrangerFilter") != null) {
+                dmStrangerFilterRaw = call.getObject("dmStrangerFilter").toString();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to read the DM stranger filter", e);
+        }
         String dmRequestsRaw = call.getString("dmRequests");
         // Where the service may fetch an avatar from (see MediaPolicy). Stored
         // verbatim; the service parses it and treats a missing or unreadable
@@ -992,6 +1002,9 @@ public class ArmadaNotificationPlugin extends Plugin {
             // last-good. Unrelated relay planes never gate them, but startup
             // defaults must not replace an existing policy (or bootstrap a
             // fresh account) before that authority exists.
+            if (dmStrangerFilterRaw != null) {
+                editor.putString("dmStrangerFilter", dmStrangerFilterRaw);
+            }
             if (policyPlaneReady) {
                 putOrRemove(editor, "dmLevels", dmLevelsRaw);
                 putOrRemove(editor, "roomMutes", roomMutesRaw);

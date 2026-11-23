@@ -63,14 +63,13 @@ export function DirectMessageSettings() {
             </SettingsRow>
           </SettingsGroup>
 
-          {/* Only request-tier strangers are screened; follows and anyone written to always get through. */}
           <SettingsGroup
-            title={intl.formatMessage({ id: "directMessageSettings.whoCanMessage", defaultMessage: "Who can message you" })}
-            footer={intl.formatMessage({ id: "directMessageSettings.linkFilterFooter", defaultMessage: "A stranger outside your communities whose first message is a link is always filtered out. Filtered conversations stay at the bottom of Message requests." })}
+            title={intl.formatMessage({ id: "directMessageSettings.filtering", defaultMessage: "Filtering" })}
+            footer={intl.formatMessage({ id: "directMessageSettings.linkFilterFooter", defaultMessage: "Requests from people outside your communities that contain a link are always filtered. Filtered conversations never notify you and stay under Message requests, out of the way." })}
           >
             <SettingsRow
               label={intl.formatMessage({ id: "directMessageSettings.blockNonMembers", defaultMessage: "Only people in my communities" })}
-              description={intl.formatMessage({ id: "directMessageSettings.blockNonMembersDescription", defaultMessage: "Silently filter out DMs from strangers who aren't in any of your communities. People you follow or have written to still get through." })}
+              description={intl.formatMessage({ id: "directMessageSettings.blockNonMembersDescription", defaultMessage: "Filter every request from someone who isn't in one of your communities. People you follow or have written to always get through." })}
             >
               <Switch
                 checked={config.blockNonMemberDms}

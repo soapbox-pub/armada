@@ -18,6 +18,15 @@ export interface CommunityMembership {
   members: ReadonlySet<string>;
 }
 
+/** As the query holds it: sorted arrays, so an unchanged refetch keeps its identity. */
+interface StoredMembership {
+  name: string;
+  members: string[];
+}
+
+/** Guestbooks move slowly and every read is a bridge crossing per community on native. */
+const MEMBERSHIP_STALE_MS = 5 * 60_000;
+
 /**
  * The members of each of the viewer's communities, from the decrypted Guestbook Plane in
  * the rumor store (purely local, Concord only). Undefined until the community list and
@@ -45,16 +54,16 @@ export function useCommunityMemberships(enabled = true): CommunityMembership[] |
     [communities],
   );
 
-  const { data } = useQuery<CommunityMembership[]>({
+  const { data } = useQuery<StoredMembership[]>({
     queryKey: ["dm-community-memberships", communityKey],
     enabled: enabled && communities !== undefined,
-    staleTime: 60_000,
+    staleTime: MEMBERSHIP_STALE_MS,
     refetchOnWindowFocus: false,
     // Independent per-tenant reads, issued concurrently: each is a bridge crossing on native.
     queryFn: () => Promise.all((communities ?? []).map(async (community) => {
       try {
         const events = await queryPlane(community.idHex, "guestbook");
-        if (!events.length) return { name: community.name, members: new Set<string>() };
+        if (!events.length) return { name: community.name, members: [] };
         // Without a fold nobody is kicked or banned, so it can only over-include.
         const folded = await readControlFold(community.idHex);
         const coalesced = coalesceGuestbook(events, {
@@ -76,15 +85,19 @@ export function useCommunityMemberships(enabled = true): CommunityMembership[] |
           folded?.banned ?? new Set(),
           folded?.bannedAt,
         );
-        return { name: community.name, members };
+        return { name: community.name, members: [...members].sort() };
       } catch {
         // An unreadable guestbook contributes nobody.
-        return { name: community.name, members: new Set<string>() };
+        return { name: community.name, members: [] };
       }
     })),
   });
 
-  return enabled ? data : undefined;
+  const memberships = useMemo(
+    () => data?.map(({ name, members }) => ({ name, members: new Set(members) })),
+    [data],
+  );
+  return enabled ? memberships : undefined;
 }
 
 /** Everyone sharing at least one community with the viewer; undefined while loading. */

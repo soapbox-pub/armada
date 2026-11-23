@@ -1,4 +1,4 @@
-import { AtSign, Bell, BellOff, CheckCheck, ChevronLeft, ChevronRight, Copy, Flag, Headphones, Inbox, Loader2, Lock, MessageSquare, MoreVertical, PanelLeft, PanelLeftDashed, PenSquare, Phone, PhoneOff, Pin, PinOff, Plus, Search, ShieldCheck, Sparkles, Timer, User, UserCheck, Users, UserX, X } from "lucide-react";
+import { AtSign, Bell, BellOff, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, Copy, Flag, Headphones, Inbox, ListX, Loader2, Lock, MessageSquare, MoreVertical, PanelLeft, PanelLeftDashed, PenSquare, Phone, PhoneOff, Pin, PinOff, Plus, Search, ShieldCheck, Sparkles, Timer, User, UserCheck, Users, UserX, X } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { Fragment, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type UIEvent } from "react";
 import { useLocation, useNavigate, useParams, Navigate } from "react-router-dom";
@@ -115,7 +115,7 @@ import { useOpenProfile } from "@/hooks/useOpenProfile";
 import { usePrefetchProfile } from "@/hooks/usePrefetchProfile";
 import { useStartedDms } from "@/hooks/useStartedDms";
 import { useSharedCommunities } from "@/hooks/useSharedCommunities";
-import { useDmOpeners, useStrangerFilterPolicy } from "@/hooks/useDmStrangerFilter";
+import { useDmScreens, useStrangerFilterPolicy } from "@/hooks/useDmStrangerFilter";
 import { strangerDmFiltered } from "@/lib/dmStrangerFilter";
 import { useStableNavigate } from "@/hooks/useStableNavigate";
 import { useToast } from "@/hooks/useToast";
@@ -2069,7 +2069,7 @@ function dm17LatestRumor(latest: Dm17Conversation["latest"]): NostrRumor {
  * The request-tier entry row. Deliberately low-salience (muted count, no rail
  * badge): flooding a stranger's inbox must not light up their UI.
  */
-function RequestsEntryRow({ count, onClick }: { count: number; onClick: () => void }) {
+function RequestsEntryRow({ count, filtered, onClick }: { count: number; filtered: number; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -2085,11 +2085,19 @@ function RequestsEntryRow({ count, onClick }: { count: number; onClick: () => vo
           <FormattedMessage id="dmsPage.requests.entryTitle" defaultMessage="Message requests" />
         </div>
         <div className="text-sm text-muted-foreground truncate">
-          <FormattedMessage
-            id="dmsPage.requests.entryCount"
-            defaultMessage="{count, plural, one {# person you don't follow} other {# people you don't follow}}"
-            values={{ count }}
-          />
+          {count > 0 ? (
+            <FormattedMessage
+              id="dmsPage.requests.entryCount"
+              defaultMessage="{count, plural, one {# person you don't follow} other {# people you don't follow}}"
+              values={{ count }}
+            />
+          ) : (
+            <FormattedMessage
+              id="dmsPage.requests.entryFilteredCount"
+              defaultMessage="{count, plural, one {# filtered conversation} other {# filtered conversations}}"
+              values={{ count: filtered }}
+            />
+          )}
         </div>
       </div>
       <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -2141,7 +2149,7 @@ export function ConversationList({
   /** Opens (or starts) a 1:1 with a person who may have no conversation yet. */
   startDm: (pubkey: string) => void;
   closePeer: (conversation: string, latest: DmLatestMarker | undefined) => void;
-  /** Close every request row at once. */
+  /** Close every request row at once, filtered ones included. */
   dismissRequests?: () => void;
   loadMore: () => Promise<number>;
   hasMore: boolean;
@@ -2161,6 +2169,11 @@ export function ConversationList({
 
   const requesting = view === "requests";
   const [showFiltered, setShowFiltered] = useState(false);
+  // An open filtered conversation keeps its section expanded.
+  const activeFiltered = !!activePeer && filteredRows.some((c) => c.conversation === activePeer);
+  useEffect(() => {
+    if (activeFiltered) setShowFiltered(true);
+  }, [activeFiltered]);
 
   // Tier-2 hint, only while the request list shows; 1:1 requests only.
   const requestPeers = useMemo(
@@ -2254,22 +2267,24 @@ export function ConversationList({
   const hasSyncedRoster = rows.some((row) => row.indexedLatest !== undefined);
 
   // Read at call time so the actions object keeps one identity.
-  const rowActionsRef = useRef({ openPeer, togglePin, toggleRail, closePeer, blockPeer, rows, requestRows });
-  rowActionsRef.current = { openPeer, togglePin, toggleRail, closePeer, blockPeer, rows, requestRows };
+  const rowActionsRef = useRef({ openPeer, togglePin, toggleRail, closePeer, blockPeer, rows, requestRows, filteredRows });
+  rowActionsRef.current = { openPeer, togglePin, toggleRail, closePeer, blockPeer, rows, requestRows, filteredRows };
   const rowActions = useMemo<ConversationRowActions>(() => ({
     open: (conversation) => rowActionsRef.current.openPeer(conversation),
     togglePin: (conversation) => rowActionsRef.current.togglePin(conversation),
     toggleRail: (conversation) => rowActionsRef.current.toggleRail(conversation),
     close: (conversation) => {
-      const { closePeer: close, rows: all, requestRows: requests } = rowActionsRef.current;
+      const { closePeer: close, rows: all, requestRows: requests, filteredRows: filtered } = rowActionsRef.current;
       const row = all.find((r) => r.conversation === conversation)
-        ?? requests.find((r) => r.conversation === conversation);
+        ?? requests.find((r) => r.conversation === conversation)
+        ?? filtered.find((r) => r.conversation === conversation);
       close(conversation, row ? dmListRowLatestMarker(row) : undefined);
     },
     block: (peer) => void rowActionsRef.current.blockPeer(peer),
   }), []);
 
-  const renderRow = (c: DmListRow, index: number, request = false) => (
+  // A filtered row never reads as unread: nothing about it should call for attention.
+  const renderRow = (c: DmListRow, index: number, request = false, filtered = false) => (
     <DeferredRow key={c.conversation} active={gateRows && index >= EAGER_ROWS} minHeight={ROW_MIN_H}>
     <ConversationRow
       peers={c.peers}
@@ -2279,6 +2294,7 @@ export function ConversationList({
       query={search}
       messageMatch={messageMatches.get(c.conversation)?.text}
       unread={
+        !filtered &&
         c.latest !== undefined &&
         c.latest.pubkey !== user?.pubkey &&
         c.latest.created_at > getLastRead(dmReadKey(c.conversation)) &&
@@ -2323,7 +2339,9 @@ export function ConversationList({
   const searchLabel = intl.formatMessage({ id: "dmsPage.list.search", defaultMessage: "Search conversations" });
   const newMessageLabel = intl.formatMessage({ id: "dmsPage.newMessage", defaultMessage: "New message" });
 
-  const showRequestsEntry = config.showDmRequests && requestRows.length > 0 && search.trim().length === 0;
+  const requestCount = requestRows.length + filteredRows.length;
+  const showRequestsEntry = config.showDmRequests && requestCount > 0 && search.trim().length === 0;
+  const dismissAllLabel = intl.formatMessage({ id: "dmsPage.requests.dismissAll", defaultMessage: "Dismiss all requests" });
 
   return (
     <aside
@@ -2358,6 +2376,22 @@ export function ConversationList({
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 <FormattedMessage id="dmsPage.list.messages" defaultMessage="Messages" />
               </span>
+            )}
+            {requesting && dismissRequests && requestCount > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 touch:size-11 shrink-0 text-muted-foreground hover:text-foreground"
+                    aria-label={dismissAllLabel}
+                    onClick={dismissRequests}
+                  >
+                    <ListX className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{dismissAllLabel}</TooltipContent>
+              </Tooltip>
             )}
             <div className={cn("flex items-center gap-2", requesting && "hidden")}>
               {hasUnread && (
@@ -2459,37 +2493,52 @@ export function ConversationList({
           </p>
         ) : requesting ? (
           <>
-            <p className="px-2 pt-1 pb-2 text-xs text-muted-foreground">
+            <p className="px-2.5 pt-1 pb-2 text-xs text-muted-foreground">
               <FormattedMessage
                 id="dmsPage.requests.description"
                 defaultMessage="Messages from people you don't follow. Reply to one and it moves to your inbox. Nobody here is told you've seen theirs."
               />
             </p>
-            {dismissRequests && requestRows.length > 1 && (
-              <div className="flex justify-end px-1 pb-2">
-                <Button variant="secondary" size="sm" onClick={dismissRequests}>
-                  <X className="size-4" />
-                  <FormattedMessage id="dmsPage.requests.dismissAll" defaultMessage="Dismiss all" />
-                </Button>
-              </div>
-            )}
             {requestRows.map((c, i) => renderRow(c, i, true))}
-            {filteredRows.length > 0 && (
-              <div className="flex justify-center px-1 py-2">
-                <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setShowFiltered((shown) => !shown)}>
-                  {showFiltered ? (
-                    <FormattedMessage id="dmsPage.requests.hideFiltered" defaultMessage="Hide filtered messages" />
-                  ) : (
-                    <FormattedMessage
-                      id="dmsPage.requests.showFiltered"
-                      defaultMessage="{count, plural, one {Show # filtered conversation} other {Show # filtered conversations}}"
-                      values={{ count: filteredRows.length }}
-                    />
-                  )}
-                </Button>
-              </div>
+            {requestRows.length === 0 && (
+              <p className="px-2.5 py-3 text-sm text-muted-foreground">
+                <FormattedMessage id="dmsPage.requests.empty" defaultMessage="No message requests." />
+              </p>
             )}
-            {showFiltered && filteredRows.map((c, i) => renderRow(c, requestRows.length + i, true))}
+            {filteredRows.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  aria-expanded={showFiltered}
+                  onClick={() => setShowFiltered((shown) => !shown)}
+                  className="flex w-full items-center gap-1.5 px-2.5 pt-3 pb-1 touch:min-h-11 text-2xs font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <FormattedMessage id="dmsPage.requests.filtered" defaultMessage="Filtered" />
+                  <span className="tabular-nums font-normal">{filteredRows.length}</span>
+                  {showFiltered
+                    ? <ChevronDown className="ml-auto size-3.5" aria-hidden />
+                    : <ChevronRight className="ml-auto size-3.5" aria-hidden />}
+                </button>
+                {showFiltered && (
+                  <>
+                    <p className="px-2.5 pb-2 text-xs text-muted-foreground">
+                      {config.blockNonMemberDms ? (
+                        <FormattedMessage
+                          id="dmsPage.requests.filteredAllHint"
+                          defaultMessage="From people who aren't in any of your communities. You weren't notified about these."
+                        />
+                      ) : (
+                        <FormattedMessage
+                          id="dmsPage.requests.filteredLinkHint"
+                          defaultMessage="Links from people who aren't in any of your communities. You weren't notified about these."
+                        />
+                      )}
+                    </p>
+                    {filteredRows.map((c, i) => renderRow(c, requestRows.length + i, true, true))}
+                  </>
+                )}
+              </>
+            )}
             {/* Sync only moves forward, so older-only senders need explicit backfill (useDm17Backfill). */}
             <div className="flex flex-col items-center gap-1 py-3">
               {backfill.hasMore ? (
@@ -2545,6 +2594,7 @@ export function ConversationList({
             {showRequestsEntry && (
               <RequestsEntryRow
                 count={requestRows.length}
+                filtered={filteredRows.length}
                 onClick={() => onViewChange("requests")}
               />
             )}
@@ -2823,40 +2873,41 @@ export function DMsPage() {
     [self, isDmClosed],
   );
 
-  // Strangers screened out of the requests entirely: listed only behind the requests view's footer.
+  // Strangers the filter screens out of the requests, listed only on demand at their foot.
   const filterPolicy = useStrangerFilterPolicy();
-  const openers = useDmOpeners(requestRows, filterPolicy !== undefined);
+  const screens = useDmScreens(requestRows, filterPolicy !== undefined);
   const [screenedRequestRows, filteredRequestRows] = useMemo(() => {
     const screened: DmListRow[] = [];
     const filtered: DmListRow[] = [];
     for (const row of requestRows) {
-      if (strangerDmFiltered(openers.get(row.conversation), filterPolicy)) filtered.push(row);
+      if (strangerDmFiltered(screens.get(row.conversation), filterPolicy)) filtered.push(row);
       else screened.push(row);
     }
     return [screened, filtered];
-  }, [requestRows, openers, filterPolicy]);
+  }, [requestRows, screens, filterPolicy]);
 
   const visibleRows = useMemo(() => rows.filter((row) => !isHidden(row)), [rows, isHidden]);
   const visibleRequestRows = useMemo(() => screenedRequestRows.filter((row) => !isHidden(row)), [screenedRequestRows, isHidden]);
   const visibleFilteredRows = useMemo(() => filteredRequestRows.filter((row) => !isHidden(row)), [filteredRequestRows, isHidden]);
 
   const dismissRequests = useCallback(() => {
-    closeManyDms(visibleRequestRows.map((row) => ({ peer: row.conversation, latest: dmListRowLatestMarker(row) })));
-    const dismissed = (peer: string | undefined) => !!peer && visibleRequestRows.some((row) => row.conversation === peer);
+    const all = [...visibleRequestRows, ...visibleFilteredRows];
+    closeManyDms(all.map((row) => ({ peer: row.conversation, latest: dmListRowLatestMarker(row) })));
+    const dismissed = (peer: string | undefined) => !!peer && all.some((row) => row.conversation === peer);
     if (dismissed(returnPeer)) setReturnPeer(undefined);
     if (dismissed(activePeer)) {
       setRenderedPeer(undefined);
       navigate("/dm");
     }
-  }, [closeManyDms, visibleRequestRows, activePeer, returnPeer, navigate]);
+  }, [closeManyDms, visibleRequestRows, visibleFilteredRows, activePeer, returnPeer, navigate]);
 
   // Opening a request switches the list INTO the request view (never out of it mid-thread).
   useEffect(() => {
     if (activePeer && requestRows.some((c) => c.conversation === activePeer)) setListView("requests");
   }, [activePeer, requestRows]);
   useEffect(() => {
-    if (visibleRequestRows.length === 0) setListView("inbox");
-  }, [visibleRequestRows.length]);
+    if (visibleRequestRows.length + visibleFilteredRows.length === 0) setListView("inbox");
+  }, [visibleRequestRows.length, visibleFilteredRows.length]);
   // Back from the request list returns to the inbox, ahead of SwipeReveal's
   // root-screen back (leave the app), which applies only there.
   useAndroidBack(() => {
@@ -3099,8 +3150,8 @@ export function DMsPage() {
         ) : composing ? (
           <NewDMPane onSelectRecipients={openNewRecipients} onCancel={revealList} />
         ) : (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground p-8 text-center">
-            <div className="flex flex-col items-center gap-3 max-w-sm">
+          <div className="dm-empty-pane flex flex-1 items-center justify-center text-muted-foreground p-8 text-center">
+            <div className="dm-empty-prompt flex flex-col items-center gap-3 max-w-sm">
               <MessageSquare className="size-12 opacity-30" />
               <p className="text-sm">
                 <FormattedMessage id="dmsPage.selectConversation" defaultMessage="Select a conversation" />

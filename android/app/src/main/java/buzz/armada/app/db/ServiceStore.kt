@@ -289,6 +289,29 @@ object ServiceStore {
         0L
     }
 
+    /**
+     * The stranger filter's facts about a conversation's stored messages — the port
+     * of `queryDm17Screen`. Null when the store can't be read; the caller still
+     * judges the message in hand.
+     */
+    @JvmStatic
+    fun dm17Screen(context: Context, self: String, convKey: String): StrangerFilter.Screen? = try {
+        val peers = Dm17.convPeers(convKey).filter { it != self }
+        val filter = JSONObject()
+            .put("kinds", JSONArray().put(14).put(15))
+            .put("search", Dm17.convTerm(if (peers.isEmpty()) listOf(self) else peers))
+            .put("limit", StrangerFilter.WINDOW)
+        val rumors = ArmadaDb.get(context).query(Dm17.tenant(self), listOf(filter))
+        StrangerFilter.screen(
+            rumors.map { StrangerFilter.Message(it.pubkey, it.kind, it.content) },
+            self,
+            overflow = rumors.size >= StrangerFilter.WINDOW,
+        )
+    } catch (error: Throwable) {
+        Log.w(TAG, "dm screen read failed", error)
+        null
+    }
+
     /** The stored kind-0 for a pubkey, or null — so a profile already fetched isn't fetched again. */
     @JvmStatic
     fun profileRaw(context: Context, pubkey: String): String? = try {

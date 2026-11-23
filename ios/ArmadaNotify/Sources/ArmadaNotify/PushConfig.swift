@@ -175,6 +175,9 @@ struct PushConfig {
     let knownConversations: Set<String>
     /// Peers whose presence suppresses their whole DM conversation.
     let mutedPeers: Set<String>
+    /// The DM stranger filter (`StrangerFilter`); nil (off) in a config written
+    /// before memberships were read, or before the field existed.
+    let strangerFilter: StrangerFilter.Policy?
     /// Decrypt key bytes. Present for nsec logins only.
     let secretKey: [UInt8]?
     /// The bunker to ask instead, for NIP-46 logins.
@@ -199,6 +202,7 @@ struct PushConfig {
         knownPeers: Set<String>,
         knownConversations: Set<String> = [],
         mutedPeers: Set<String> = [],
+        strangerFilter: StrangerFilter.Policy? = nil,
         secretKey: [UInt8]?,
         nip46: Nip46Config?,
         concord: [ConcordStream],
@@ -213,6 +217,7 @@ struct PushConfig {
         self.knownPeers = knownPeers
         self.knownConversations = knownConversations
         self.mutedPeers = mutedPeers
+        self.strangerFilter = strangerFilter
         self.secretKey = secretKey
         self.nip46 = nip46
         self.concord = concord
@@ -312,6 +317,7 @@ struct PushConfig {
             knownPeers: knownPeers,
             knownConversations: knownConversations,
             mutedPeers: mutedPeers,
+            strangerFilter: StrangerFilter.Policy.parse(object["strangerFilter"]),
             secretKey: secretKey,
             nip46: nip46,
             concord: streams,
