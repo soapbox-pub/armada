@@ -4370,6 +4370,7 @@
   "staffPill.moderatorTitle": "Moderatore della community",
   "staffPill.owner": "Proprietario",
   "staffPill.ownerTitle": "Proprietario della community",
+  "staffPill.roleTitle": "{role} ({tier})",
   "statusDialog.addEmoji": "Aggiungi emoji",
   "statusDialog.clearStatus": "Cancella stato",
   "statusDialog.heading": "imposta uno stato",

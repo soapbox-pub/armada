@@ -16,4 +16,11 @@ export function useStaffTier(pubkey: string | undefined): StaffTier | undefined 
   return ctx.staffTierOf(pubkey);
 }
 
+/** The Role behind a member's admin/moderator tier; undefined outside a scope with roles. */
+export function useStaffRole(pubkey: string | undefined): MemberRole | undefined {
+  const ctx = useContext(MemberRolesContext);
+  if (!ctx || !pubkey) return undefined;
+  return ctx.staffRoleOf(pubkey);
+}
+
 const EMPTY: MemberRole[] = [];
