@@ -29,7 +29,6 @@ export type StorageRowId =
   | "profiles"
   | "otherData"
   | "settings"
-  | "database"
   | "other";
 
 export interface StorageRow {
@@ -159,23 +158,8 @@ export function dataRows(usage: ArmadaDBUsage, settingsBytes: number): StorageRo
 }
 
 /**
- * The database file beyond the rows and KV the data rows count: the search and
- * tag indexes, page overhead and free pages SQLite keeps for reuse. Absent
- * unless the engine sized the file and every tenant in it.
- */
-export function databaseOverhead(usage: ArmadaDBUsage): number | undefined {
-  if (usage.fileBytes === undefined) return undefined;
-  let counted = usage.kv?.bytes ?? 0;
-  for (const tenant of usage.tenants) {
-    if (tenant.bytes === undefined) return undefined;
-    counted += tenant.bytes;
-  }
-  return Math.max(0, usage.fileBytes - counted);
-}
-
-/**
- * What the total holds that no row names (the app's own offline files, other
- * web storage), so the rows add up to it. Absent when a row is unsized, since
+ * What the total holds that no row names, so the rows add up to it: mostly the
+ * database file's indexes and free pages, plus web storage outside the caches. Absent when a row is unsized, since
  * the remainder would then be that row's.
  */
 export function unattributedBytes(totalBytes: number | undefined, rows: readonly StorageRow[]): number | undefined {
@@ -236,8 +220,6 @@ export async function measureStorage(): Promise<StorageReport> {
   // native caches sit outside it.
   const outside = (dbUsage.fileBytes ?? 0) + (nativeUsage?.avatars ?? 0) + (webCache ?? 0);
   const totalBytes = estimate?.usage !== undefined ? estimate.usage + outside : undefined;
-  const overhead = databaseOverhead(dbUsage);
-  if (overhead !== undefined && overhead > 0) data.push({ id: "database", bytes: overhead, clearable: false });
   const other = unattributedBytes(totalBytes, [...caches, ...data]);
   if (other !== undefined) data.push({ id: "other", bytes: other, clearable: false });
   const onWeb = platform === "web" && !desktop();
