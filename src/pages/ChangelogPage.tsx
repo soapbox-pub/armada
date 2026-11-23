@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { nip19 } from "nostr-tools";
 import { ArrowLeft, Bug, FlaskConical, Minus, Package, Plus, RefreshCw, ShieldAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -7,9 +8,19 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { parseChangelog } from "@/lib/changelog";
 import type { ChangelogCategory, ChangelogEntry } from "@/lib/changelog";
 import { useBackOrHome } from "@/hooks/useBackOrHome";
+import { useReleases } from "@/hooks/useReleases";
+import { RELEASE_KIND } from "@/lib/releases";
 import { common, defineMessages, FormattedMessage, useIntl, type MessageDescriptor } from "@/i18n";
 
-const GITLAB_REPO = "https://gitlab.com/soapbox-pub/armada";
+const REPO_URL = "https://gitworkshop.dev/soapbox.pub/relay.ngit.dev/armada";
+
+/** GitWorkshop's page for a version's NIP-82 release, or the release list until it resolves. */
+function useReleaseUrl(version: string): string {
+  const { data: releases } = useReleases();
+  const release = releases?.find((r) => r.version === version);
+  if (!release) return `${REPO_URL}/releases`;
+  return `${REPO_URL}/releases/${nip19.neventEncode({ id: release.id, author: release.pubkey, kind: RELEASE_KIND })}`;
+}
 
 /** Per-category icon + color used as inline list bullets. */
 const CATEGORY_STYLES: Record<ChangelogCategory, { icon: typeof Plus; colorClass: string }> = {
@@ -38,6 +49,8 @@ function formatDate(raw: string, locale: string): string {
 }
 
 const commitSha = import.meta.env.COMMIT_SHA;
+// GitWorkshop resolves only full SHAs (a short one is looked up as a ref name).
+const fullCommitSha = import.meta.env.COMMIT_SHA_FULL;
 const commitTag = import.meta.env.COMMIT_TAG;
 const buildDate = import.meta.env.BUILD_DATE;
 const isPreRelease = !commitTag;
@@ -119,6 +132,7 @@ function LatestRelease({ entry }: { entry: ChangelogEntry }) {
   const contentRef = useRef<HTMLUListElement>(null);
   const [overflows, setOverflows] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const releaseUrl = useReleaseUrl(entry.version);
 
   const measure = useCallback(() => {
     const el = contentRef.current;
@@ -134,7 +148,7 @@ function LatestRelease({ entry }: { entry: ChangelogEntry }) {
   return (
     <div className="pt-2 pb-1 px-4">
       <a
-        href={`${GITLAB_REPO}/-/releases/v${entry.version}`}
+        href={releaseUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="block text-center text-2xl font-bold tracking-tight hover:underline"
@@ -142,7 +156,7 @@ function LatestRelease({ entry }: { entry: ChangelogEntry }) {
         v{entry.version}
       </a>
       <a
-        href={`${GITLAB_REPO}/-/releases/v${entry.version}`}
+        href={releaseUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mt-1"
@@ -210,6 +224,7 @@ function ChangelogEntryCard({ entry }: { entry: ChangelogEntry }) {
   const contentRef = useRef<HTMLUListElement>(null);
   const [overflows, setOverflows] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const releaseUrl = useReleaseUrl(entry.version);
 
   const measure = useCallback(() => {
     const el = contentRef.current;
@@ -226,7 +241,7 @@ function ChangelogEntryCard({ entry }: { entry: ChangelogEntry }) {
     <div className="clip-hairline-lg [--edge:var(--border)/0.5] p-px overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-3">
         <a
-          href={`${GITLAB_REPO}/-/releases/v${entry.version}`}
+          href={releaseUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="font-semibold text-sm hover:underline"
@@ -234,7 +249,7 @@ function ChangelogEntryCard({ entry }: { entry: ChangelogEntry }) {
           v{entry.version}
         </a>
         <a
-          href={`${GITLAB_REPO}/-/releases/v${entry.version}`}
+          href={releaseUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors ml-auto"
@@ -306,7 +321,7 @@ function PreReleaseBanner({ latestVersion }: { latestVersion: string }) {
         </span>
         {commitSha && buildDate && (
           <a
-            href={`${GITLAB_REPO}/-/commit/${commitSha}`}
+            href={fullCommitSha ? `${REPO_URL}/commit/${fullCommitSha}` : `${REPO_URL}/commits`}
             target="_blank"
             rel="noopener noreferrer"
             className="ml-auto text-2xs text-warning/70 hover:text-warning transition-colors"
@@ -322,7 +337,7 @@ function PreReleaseBanner({ latestVersion }: { latestVersion: string }) {
           values={{
             link: (chunks) => (
               <a
-                href={`${GITLAB_REPO}/-/compare/v${latestVersion}...${commitSha || "main"}`}
+                href={`${REPO_URL}/compare/v${latestVersion}...${fullCommitSha || "main"}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline underline-offset-2 hover:text-warning transition-colors"

@@ -504,6 +504,7 @@ export default defineConfig({
     "import.meta.env.VERSION": JSON.stringify(getVersion()),
     "import.meta.env.BUILD_DATE": JSON.stringify(new Date(BUILD_EPOCH * 1000).toISOString()),
     "import.meta.env.COMMIT_SHA": JSON.stringify(getCommitSha()),
+    "import.meta.env.COMMIT_SHA_FULL": JSON.stringify(getFullCommitSha()),
     "import.meta.env.COMMIT_TAG": JSON.stringify(getCommitTag()),
   },
   test: {

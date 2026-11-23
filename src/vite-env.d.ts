@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly BUILD_DATE: string;
   /** Short git commit SHA. Empty string if unavailable. */
   readonly COMMIT_SHA: string;
+  /** Full git commit SHA. Empty string if unavailable. */
+  readonly COMMIT_SHA_FULL: string;
   /** Git tag for the current commit (e.g., "v0.25.4"). Empty string if untagged (pre-release build). */
   readonly COMMIT_TAG: string;
 }
