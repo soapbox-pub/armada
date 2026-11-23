@@ -60,11 +60,15 @@ function sortName(p: SearchProfile): string {
   return (p.metadata.name || p.metadata.display_name || p.pubkey).toLowerCase();
 }
 
-/** Sorts in place by relevance to `query`, then alphabetically. */
+function unnamed(p: SearchProfile): number {
+  return p.metadata.name || p.metadata.display_name ? 0 : 1;
+}
+
+/** Sorts in place by relevance to `query`, then named before bare keys, then alphabetically. */
 function sortByRelevance(profiles: SearchProfile[], query: string): SearchProfile[] {
   const rank = new Map(profiles.map((p) => [p.pubkey, profileMatchRank(p, query)]));
   return profiles.sort((a, b) =>
-    (rank.get(a.pubkey)! - rank.get(b.pubkey)!) || sortName(a).localeCompare(sortName(b)));
+    (rank.get(a.pubkey)! - rank.get(b.pubkey)!) || unnamed(a) - unnamed(b) || sortName(a).localeCompare(sortName(b)));
 }
 
 /** Scan cached ['author', pubkey] entries; by relevance, then follows, then alphabetical. */
@@ -100,37 +104,43 @@ function searchCachedProfiles(
   return results.slice(0, limit);
 }
 
+/** Authors per relay REQ when filling in missing kind-0s; relays cap a filter's author list. */
+const PROFILE_FETCH_CHUNK = 500;
+
 /**
- * Prefetch followed users' kind-0s (store first, then one batched relay query) so follow
- * matches work even when NIP-50 relays don't return them. Keyed on the follow set only.
+ * Prefetch `pubkeys`' kind-0s (store first, then batched relay queries) so local name matching
+ * works even when NIP-50 relays don't return them, and the author cache is seeded for each row.
+ * Keyed on the set only.
  */
-function useFollowProfiles(followedPubkeys: string[], enabled = true) {
+function useProfilesOf(cacheKey: string, pubkeys: string[], enabled = true) {
   const { nostr } = useNostr();
   const queryClient = useQueryClient();
   const eventStore = useEventStore();
 
-  const key = useMemo(() => [...followedPubkeys].sort().join(","), [followedPubkeys]);
+  const key = useMemo(() => [...pubkeys].sort().join(","), [pubkeys]);
 
   return useQuery<SearchProfile[]>({
-    queryKey: ["follow-profiles", key],
+    queryKey: [cacheKey, key],
     queryFn: async ({ signal }) => {
-      if (followedPubkeys.length === 0) return [];
+      if (pubkeys.length === 0) return [];
       const store = await eventStore;
 
-      const cached = await store.query([{ kinds: [0], authors: followedPubkeys }]);
+      const cached = await store.query([{ kinds: [0], authors: pubkeys }]);
       const byPubkey = new Map<string, NostrRumor>();
       for (const ev of cached) {
         const prev = byPubkey.get(ev.pubkey);
         if (!prev || ev.created_at > prev.created_at) byPubkey.set(ev.pubkey, ev);
       }
 
-      const missing = followedPubkeys.filter((pk) => !byPubkey.has(pk));
+      const missing = pubkeys.filter((pk) => !byPubkey.has(pk));
       if (missing.length > 0) {
         try {
-          const fresh = await nostr.query(
-            [{ kinds: [0], authors: missing }],
-            { signal: AbortSignal.any([signal, AbortSignal.timeout(6000)]) },
-          );
+          const chunks: string[][] = [];
+          for (let i = 0; i < missing.length; i += PROFILE_FETCH_CHUNK) chunks.push(missing.slice(i, i + PROFILE_FETCH_CHUNK));
+          const timeout = AbortSignal.any([signal, AbortSignal.timeout(6000)]);
+          const fresh = (await Promise.all(chunks.map((authors) =>
+            nostr.query([{ kinds: [0], authors }], { signal: timeout }).catch(() => []),
+          ))).flat();
           for (const ev of fresh) {
             const prev = byPubkey.get(ev.pubkey);
             if (!prev || ev.created_at > prev.created_at) {
@@ -139,7 +149,7 @@ function useFollowProfiles(followedPubkeys: string[], enabled = true) {
             }
           }
         } catch {
-          // Relay miss — the cached subset still powers follow-prioritized matches.
+          // Relay miss — the cached subset still powers local matches.
         }
       }
 
@@ -156,9 +166,13 @@ function useFollowProfiles(followedPubkeys: string[], enabled = true) {
       }
       return profiles;
     },
-    enabled: enabled && followedPubkeys.length > 0,
+    enabled: enabled && pubkeys.length > 0,
     staleTime: 5 * 60 * 1000,
   });
+}
+
+function useFollowProfiles(followedPubkeys: string[], enabled = true) {
+  return useProfilesOf("follow-profiles", followedPubkeys, enabled);
 }
 
 /**
@@ -277,15 +291,28 @@ const EMPTY: string[] = [];
 const EMPTY_PROFILES: SearchProfile[] = [];
 
 /**
- * A fixed member set for scoped @-mention autocomplete; members without cached metadata still
- * match by npub/hex.
+ * A roster's kind-0s, from the store then relays, for `useMemberProfiles`'s `loaded`: names
+ * then match members whose profile no row has rendered yet.
  */
-export function useMemberProfiles(pubkeys: string[], query: string) {
+export function useRosterProfiles(pubkeys: string[], enabled: boolean): SearchProfile[] | undefined {
+  return useProfilesOf("member-profiles", enabled ? pubkeys : EMPTY, enabled).data;
+}
+
+/**
+ * A fixed member set for scoped autocomplete (@-mentions, search's `from:`); members without
+ * metadata still match by npub/hex. `loaded` fills in members missing from the author cache.
+ */
+export function useMemberProfiles(
+  pubkeys: string[],
+  query: string,
+  { limit = 10, loaded }: { limit?: number; loaded?: SearchProfile[] } = {},
+) {
   const queryClient = useQueryClient();
   const { mutedPubkeys } = useMutedPubkeys();
 
   return useMemo<SearchProfile[]>(() => {
     const lowerQuery = query.trim().toLowerCase();
+    const loadedBy = new Map((loaded ?? EMPTY_PROFILES).map((p) => [p.pubkey, p]));
 
     const profiles: SearchProfile[] = pubkeys.filter((pk) => !mutedPubkeys.has(pk)).map((pubkey) => {
       // `getQueryData` hashes once; `getQueryCache().find` stringifies every key, which is
@@ -293,6 +320,10 @@ export function useMemberProfiles(pubkeys: string[], query: string) {
       const data = queryClient.getQueryData(["author", pubkey]) as
         | { event?: NostrRumor; metadata?: NostrMetadata }
         | undefined;
+      if (!data?.metadata) {
+        const fetched = loadedBy.get(pubkey);
+        if (fetched) return fetched;
+      }
       return {
         pubkey,
         metadata: data?.metadata ?? {},
@@ -306,6 +337,6 @@ export function useMemberProfiles(pubkeys: string[], query: string) {
         )
       : profiles;
 
-    return sortByRelevance(matched, lowerQuery).slice(0, 10);
-  }, [pubkeys, query, queryClient, mutedPubkeys]);
+    return sortByRelevance(matched, lowerQuery).slice(0, limit);
+  }, [pubkeys, query, queryClient, mutedPubkeys, loaded, limit]);
 }
