@@ -65,11 +65,11 @@ const openConnectQr = async () => {
   await openMenu();
   fireEvent.click(screen.getByRole("menuitem", { name: "Connect remote signer" }));
   // The QR paints from a promise; awaiting it keeps the state update inside act.
-  await screen.findByRole("img", { name: "QR code" });
+  await screen.findByRole("img", { name: "Signer connect QR code" });
 };
 
 /** The URI as the app built it, perms included. */
-const CONNECT_URI = `${h.connectUri}&perms=${encodeURIComponent(NOSTR_CONNECT_PERMS)}`;
+const CONNECT_URI = `${h.connectUri}&perms=${NOSTR_CONNECT_PERMS}`;
 
 const renderLogin = () =>
   render(<LoginScreen isOpen onClose={vi.fn()} onLogin={vi.fn()} />);
@@ -169,7 +169,7 @@ describe("LoginScreen signer link", () => {
     const { stub, restore } = stubLocation();
     try {
       fireEvent.click(screen.getByRole("menuitem", { name: "Open signer app" }));
-      await screen.findByRole("img", { name: "QR code" });
+      await screen.findByRole("img", { name: "Signer connect QR code" });
       expect(stub.href).toBe(CONNECT_URI);
     } finally {
       restore();
@@ -195,6 +195,6 @@ describe("LoginScreen signer link", () => {
       restore();
     }
 
-    expect(screen.queryByRole("img", { name: "QR code" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Signer connect QR code" })).not.toBeInTheDocument();
   });
 });

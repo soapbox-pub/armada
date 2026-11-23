@@ -26,6 +26,9 @@ export { generateNostrConnectParams, generateNostrConnectURI } from "@nostrify/r
 /** Cap on the frozen bunker relay set — pairing URIs plus the bunker's own. */
 const MAX_BUNKER_RELAYS = 8;
 
+/** Cap on nostrconnect:// rendezvous relays: each one grows the login QR, and one shared relay suffices. */
+const MAX_RENDEZVOUS_RELAYS = 2;
+
 /**
  * Loopback is unreachable for a remote signer, and on native builds non-wss relays are
  * mixed content on our side. LAN ws:// stays usable on web (air-gapped setups).
@@ -199,7 +202,7 @@ export function useLoginActions() {
       const all = [...new Set(appRelays)];
       const usable = all.filter(usableRendezvousRelay);
       // Never empty: a loopback-only dev config still needs SOME rendezvous attempt.
-      return usable.length > 0 ? usable : all;
+      return (usable.length > 0 ? usable : all).slice(0, MAX_RENDEZVOUS_RELAYS);
     },
     async logout(): Promise<void> {
       const login = logins[0];

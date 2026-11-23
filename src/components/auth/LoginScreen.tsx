@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { QRCodeCanvas } from '@/components/ui/qrcode';
+import { ThemedQRCode } from '@/components/ui/qrcode';
 import {
   useLoginActions,
   generateNostrConnectParams,
@@ -418,15 +418,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ isOpen, onClose, onLogin, onS
             </div>
           ) : showQr ? (
             <div className='flex flex-col items-center space-y-4'>
-              {nostrConnectUri ? (
-                <div className='p-4 bg-white dark:bg-white clip-corner-lg'>
-                  <QRCodeCanvas value={nostrConnectUri} size={180} level='M' />
-                </div>
-              ) : (
-                <div className='flex items-center justify-center h-[180px]'>
-                  <Loader2 className='w-8 h-8 animate-spin text-muted-foreground' />
-                </div>
-              )}
+              <ThemedQRCode
+                value={nostrConnectUri}
+                alt={intl.formatMessage({ id: "loginScreen.connectQrAlt", defaultMessage: "Signer connect QR code" })}
+              />
               <p className='text-sm text-muted-foreground text-center'>
                 <FormattedMessage id="loginScreen.scanQr" defaultMessage="Scan with a signer app to log in, or copy the link if your signer is on this device." />
               </p>

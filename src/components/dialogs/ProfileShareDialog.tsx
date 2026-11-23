@@ -1,17 +1,16 @@
-import QRCode from "qrcode";
 import { Check, Copy, Link2, Loader2, Share2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, ChromeDialogContent } from "@/components/ui/dialog";
+import { ThemedQRCode } from "@/components/ui/qrcode";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { toast } from "@/hooks/useToast";
 import { common, FormattedMessage, t, useIntl } from "@/i18n";
 import { writeClipboardText } from "@/lib/clipboard";
-import { getThemedQRColors } from "@/lib/qrColors";
 import { tryNpubEncode } from "@/lib/safeNip19";
 import { canShare, share as nativeShare } from "@/lib/share";
 import { shareOrigin } from "@/lib/shareOrigin";
@@ -23,7 +22,7 @@ interface ProfileShareDialogProps {
 
 /**
  * Profile QR + link. Uses {@link shareOrigin} so it works on native, where the
- * WebView origin is unreachable. QR tinted via {@link getThemedQRColors}.
+ * WebView origin is unreachable. QR via {@link ThemedQRCode}.
  */
 export function ProfileShareDialog({ open, onOpenChange }: ProfileShareDialogProps) {
   const intl = useIntl();
@@ -31,30 +30,12 @@ export function ProfileShareDialog({ open, onOpenChange }: ProfileShareDialogPro
   const author = useAuthor(user?.pubkey);
   const metadata = author.data?.metadata;
   const [copied, setCopied] = useState(false);
-  const [qrDataUrl, setQrDataUrl] = useState("");
 
   const npub = tryNpubEncode(user?.pubkey);
   const ownName = metadata?.name || metadata?.display_name;
   const displayName = ownName ||
     intl.formatMessage({ id: "profileShareDialog.yourProfile", defaultMessage: "your profile" });
   const url = npub ? `${shareOrigin()}/${npub}` : "";
-
-  useEffect(() => {
-    if (!url || !open) return;
-    // Read at open time so a theme switch is reflected.
-    const { dark, light } = getThemedQRColors();
-    // SVG, not canvas: fingerprint blockers (Brave, Tor, resistFingerprinting)
-    // poison canvas readback and would blank the QR. Loaded via data URL, so it's script-sandboxed.
-    QRCode.toString(url, {
-      type: "svg",
-      width: 400,
-      margin: 2,
-      color: { dark, light },
-      errorCorrectionLevel: "M",
-    })
-      .then((svg) => setQrDataUrl(`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`))
-      .catch(() => setQrDataUrl(""));
-  }, [url, open]);
 
   const copy = () => {
     if (!url) return;
@@ -118,16 +99,10 @@ export function ProfileShareDialog({ open, onOpenChange }: ProfileShareDialogPro
             </div>
           ) : (
             <>
-              {qrDataUrl ? (
-                <img
-                  src={qrDataUrl}
-                  alt={intl.formatMessage({ id: "profileShareDialog.qrAlt", defaultMessage: "Profile QR code" })}
-                  className="mx-auto w-64 clip-corner-lg"
-                  decoding="async"
-                />
-              ) : (
-                <div className="mx-auto size-64 clip-corner-lg bg-muted animate-pulse" />
-              )}
+              <ThemedQRCode
+                value={url}
+                alt={intl.formatMessage({ id: "profileShareDialog.qrAlt", defaultMessage: "Profile QR code" })}
+              />
 
               <button
                 type="button"
