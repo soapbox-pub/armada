@@ -57,6 +57,8 @@ interface Paint {
   text: string;
   className?: string;
   emoji?: { shortcode: string; url: string };
+  /** Which occurrence of its shortcode in the whole text, so its key holds while the drawn window moves. */
+  nth?: number;
   /** From the layer's left edge, or leftwards from it to the piece's right edge when `rtl`. */
   x: number;
   rtl: boolean;
@@ -67,8 +69,17 @@ interface Paint {
 /**
  * Where to draw each styled run over the overlay's text node, which holds the
  * textarea's text unsplit so it is laid out exactly as the textarea's is.
+ * With `view` (layer coordinates), only the lines crossing it are measured and drawn,
+ * so a keystroke costs the lines that can be seen rather than the whole message.
  */
-function measurePaint(base: Text, layer: HTMLElement, inner: HTMLElement, runs: HighlightRun[], atoms: readonly AtomSpan[]): Paint[] {
+function measurePaint(
+  base: Text,
+  layer: HTMLElement,
+  inner: HTMLElement,
+  runs: HighlightRun[],
+  atoms: readonly AtomSpan[],
+  view?: { top: number; bottom: number },
+): Paint[] {
   const text = base.data.slice(0, -1);
   const innerStyle = getComputedStyle(inner);
   const box = layer.getBoundingClientRect();
@@ -196,7 +207,30 @@ function measurePaint(base: Text, layer: HTMLElement, inner: HTMLElement, runs: 
     flush();
   };
 
+  // The offsets whose lines cross `view`, found by bisection: lines hold contiguous
+  // offsets in order, and a glyph without a box (a newline) defers to the next one.
+  const edgeAt = (k: number, edge: "top" | "bottom") => {
+    for (let j = k; j + 1 < starts.length; j++) {
+      const r = rectOf(starts[j], starts[j + 1]);
+      if (r) return r[edge] - box.top;
+    }
+    return Infinity;
+  };
+  const firstWhere = (past: (k: number) => boolean) => {
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (past(mid)) hi = mid;
+      else lo = mid + 1;
+    }
+    return starts[lo];
+  };
+  const shownFrom = view ? firstWhere((k) => edgeAt(k, "bottom") >= view.top) : 0;
+  const shownTo = view ? firstWhere((k) => edgeAt(k, "top") > view.bottom) : text.length;
+
   const emojiAt = new Map(atoms.filter((a) => a.emoji).map((a) => [a.dStart, a.emoji!]));
+  const occurrences = new Map<string, number>();
   let pos = 0;
   for (const run of runs) {
     const from = pos;
@@ -205,18 +239,23 @@ function measurePaint(base: Text, layer: HTMLElement, inner: HTMLElement, runs: 
       // One placeholder per emoji, holding its width; the image is drawn over it.
       for (let i = from; i < pos; i++) {
         const emoji = emojiAt.get(i);
-        const r = emoji && rectOf(i, i + 1);
+        if (!emoji) continue;
+        const nth = occurrences.get(emoji.shortcode) ?? 0;
+        occurrences.set(emoji.shortcode, nth + 1);
+        const r = i >= shownFrom && i < shownTo && rectOf(i, i + 1);
         if (!r) continue;
         const { top, height } = lineBox(r);
-        out.push({ at: i, text: text[i], emoji, x: r.left - box.left, rtl: false, top, height });
+        out.push({ at: i, text: text[i], emoji, nth, x: r.left - box.left, rtl: false, top, height });
       }
       continue;
     }
+    if (pos <= shownFrom || from >= shownTo) continue;
     const className = runClass(run.flags);
     // A tab's width depends on where its line starts, so tabs and newlines aren't drawn.
     for (const m of run.text.matchAll(/[^\t\n]+/g)) {
-      const a = from + m.index;
-      (bidi ? byGlyph : byLine)(a, a + m[0].length, className);
+      const a = Math.max(from + m.index, shownFrom);
+      const b = Math.min(from + m.index + m[0].length, shownTo);
+      if (a < b) (bidi ? byGlyph : byLine)(a, b, className);
     }
   }
   return out;
@@ -256,14 +295,11 @@ const NO_PAINT: Paint[] = [];
 const PaintLayer = memo(function PaintLayer({ paint }: { paint: Paint[] }) {
   // An emoji is keyed by which occurrence of its shortcode it is, not its offset:
   // typing before it would otherwise remount (and reload) its image every keystroke.
-  const seen = new Map<string, number>();
   return paint.map((p) => {
     const style = { [p.rtl ? "right" : "left"]: `${p.x}px`, top: `${p.top}px`, lineHeight: `${p.height}px` };
     if (p.emoji) {
-      const n = seen.get(p.emoji.shortcode) ?? 0;
-      seen.set(p.emoji.shortcode, n + 1);
       return (
-        <span key={`e:${p.emoji.shortcode}:${n}`} data-at={p.at} className="rt-piece rt-emoji" style={style}>
+        <span key={`e:${p.emoji.shortcode}:${p.nth}`} data-at={p.at} className="rt-piece rt-emoji" style={style}>
           <span className="opacity-0">{p.text}</span>
           <CustomEmojiImg name={p.emoji.shortcode} url={p.emoji.url} className="rt-emoji-img" />
         </span>
@@ -316,6 +352,9 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
     else if (ref) ref.current = el;
   }, [textareaRef, ref]);
 
+  /** The layer-coordinate band the current pieces cover; null when they cover all of it. */
+  const drawnView = useRef<{ top: number; bottom: number } | null>(null);
+
   const syncScroll = useCallback(() => {
     const el = textareaRef.current;
     const inner = innerRef.current;
@@ -330,6 +369,7 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
    */
   const syncText = useCallback((now = false) => {
     if (paintInput.current.plain) {
+      drawnView.current = null;
       setPaint(NO_PAINT);
       return;
     }
@@ -345,7 +385,12 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
     syncScroll();
     const base = inner.firstChild;
     if (!(base instanceof Text)) return;
-    const next = measurePaint(base, layer, inner, paintInput.current.runs, paintInput.current.atoms);
+    // A field's height either side of what shows, so scrolling redraws only past it.
+    // An unlaid-out field (no height) draws everything.
+    const h = el.clientHeight;
+    const view = h > 0 ? { top: el.scrollTop - h, bottom: el.scrollTop + 2 * h } : undefined;
+    drawnView.current = view ?? null;
+    const next = measurePaint(base, layer, inner, paintInput.current.runs, paintInput.current.atoms, view);
     if (now) flushSync(() => setPaint(next));
     else setPaint(next);
   }, [textareaRef, syncScroll]);
@@ -394,11 +439,17 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
       if (getComputedStyle(el).font !== font) sync();
     };
     const rootObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver(onRootChange);
+    // Scrolled past the drawn band: redraw at once, or the uncovered lines show blank.
+    const onScroll = () => {
+      syncScroll();
+      const drawn = drawnView.current;
+      if (drawn && (el.scrollTop < drawn.top || el.scrollTop + el.clientHeight > drawn.bottom)) syncText(true);
+    };
     const start = () => {
       started.current = true;
       sync(false);
       setReady(true);
-      el.addEventListener("scroll", syncScroll);
+      el.addEventListener("scroll", onScroll);
       window.addEventListener("resize", onEvent);
       document.fonts?.addEventListener("loadingdone", onEvent);
       observer?.observe(el);
@@ -428,7 +479,7 @@ export function RichTextarea({ rich, ref, className, onKeyDown, onCopy, onCut, f
         clearTimeout(timer);
         return;
       }
-      el.removeEventListener("scroll", syncScroll);
+      el.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onEvent);
       document.fonts?.removeEventListener("loadingdone", onEvent);
       observer?.disconnect();

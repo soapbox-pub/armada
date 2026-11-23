@@ -224,6 +224,15 @@ describe("idIsHash", () => {
     expect(idIsHash({ ...event, created_at: event.created_at + 1 })).toBe(false);
   });
 
+  it("doesn't remember an ephemeral event, which no relay serves again", () => {
+    const event = finalizeEvent({ kind: 21059, content: "typing", tags: [], created_at: 1000 }, generateSecretKey());
+    expect(idIsHash(event)).toBe(true);
+    perfReset();
+    expect(idIsHash({ ...event, tags: [] })).toBe(true);
+    expect(perfReport().aggregates.find((a) => a.label === "crypto.idHash (copy hit)")).toBeUndefined();
+    expect(idIsHash({ ...event, content: "forged" })).toBe(false);
+  });
+
   it("isn't fooled by the remembered copy being mutated after", () => {
     const event = signed("original");
     expect(idIsHash(event)).toBe(true);

@@ -87,12 +87,25 @@ export function mergeIntoOrdered<A, B>(
 }
 
 /**
+ * One entry per message object, so every merge of a timeline shares them: a merge
+ * runs on each change, and one still held by a superseded render would otherwise
+ * keep a full copy of the timeline's entries.
+ */
+const chatEntries = new WeakMap<ChatMsg, ChannelTimelineEntry>();
+
+function chatEntry(message: ChatMsg): ChannelTimelineEntry {
+  let entry = chatEntries.get(message);
+  if (!entry) chatEntries.set(message, (entry = { type: "chat", id: `chat:${message.id}`, createdAt: message.created_at, message }));
+  return entry;
+}
+
+/**
  * Oldest-first merge. `chat` is taken in the order given (the source's fold
  * already ordered it); Git and `extra` entries (e.g. Concord timer notices)
  * slot in by time, with IDs breaking their ties.
  */
 export function mergeChannelTimeline(chat: readonly ChatMsg[], git: readonly GitTimelineActivity[], extra: readonly ChannelTimelineEntry[] = []): ChannelTimelineEntry[] {
-  const chatEntries: ChannelTimelineEntry[] = chat.map((message) => ({ type: "chat" as const, id: `chat:${message.id}`, createdAt: message.created_at, message }));
+  const chatEntries: ChannelTimelineEntry[] = chat.map(chatEntry);
   const entries = mergeIntoOrdered(
     chatEntries,
     [...git.map(gitActivityEntry), ...extra],

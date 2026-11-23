@@ -33,6 +33,20 @@ interface RelayLine {
 
 const lines = new Map<string, RelayLine>();
 
+/**
+ * Wraps this client published and needs no echo of (its own typing): each relay
+ * sends them back, and opening one costs a seal verify and two decryptions only
+ * for every handler to discard it. Ids, bounded FIFO.
+ */
+const OWN_ECHOES_MAX = 256;
+const ownEchoes = new Set<string>();
+
+/** Drop the relays' echo of wrap `id`, which this client is about to publish. */
+export function ignoreEcho(id: string): void {
+  if (ownEchoes.size >= OWN_ECHOES_MAX) ownEchoes.delete(ownEchoes.values().next().value!);
+  ownEchoes.add(id);
+}
+
 /** How long a (un)subscribe burst may grow before the REQ is (re)opened. */
 const REOPEN_MS = 50;
 
@@ -110,6 +124,7 @@ function reopen(nostr: EphemeralNostr, relay: string): void {
       )) {
         if (msg[0] !== "EVENT") continue;
         const event = msg[2] as NostrEvent;
+        if (ownEchoes.has(event.id)) continue;
         // Demux strictly by wrap author.
         const handlers = lines.get(relay)?.authors.get(event.pubkey);
         if (!handlers) continue;

@@ -10,7 +10,7 @@ import { isPlausiblyLive } from "@/lib/liveSignal";
 import { sameTypers, TYPING_THROTTLE_MS, TYPING_WINDOW_MS, useTypersStillTyping, useTypingResetOnPost, type Typer } from "@/lib/typingSignal";
 import { clockNowMs } from "@/lib/relayClock";
 import { KIND_SEAL_ENCRYPTED, KIND_TYPING } from "@/concord/lib/kinds";
-import { subscribeEphemeral } from "@/concord/lib/ephemeralSub";
+import { ignoreEcho, subscribeEphemeral } from "@/concord/lib/ephemeralSub";
 import { buildRumor, channelBindingTags, checkChannelBinding, openWrap, sealRumor, wrapSeal } from "@/concord/lib/stream";
 import type { Channel, Community } from "@/concord/lib/types";
 
@@ -124,6 +124,7 @@ export function useTypingPublisher(community: Community | undefined, channel: Ch
         });
         const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, at.group, user.signer);
         const wrap = await wrapSeal(seal, at.group, { ephemeral: true });
+        ignoreEcho(wrap.id);
         await Promise.allSettled(
           community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(6000) })),
         );

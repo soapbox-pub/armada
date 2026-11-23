@@ -126,6 +126,45 @@ describe("RichTextarea painting", () => {
     ]);
   });
 
+  describe("a message taller than the field", () => {
+    // Forty one-line paragraphs, each `**NN**x` plus its newline: exactly one 8-character line apiece.
+    const long = Array.from({ length: 40 }, (_, i) => `**${String(i).padStart(2, "0")}**x`).join("\n");
+    const bold = (container: HTMLElement) => pieces(container).filter((p) => p.cls === "rt-bold").map((p) => p.text);
+    const scrolled = (field: HTMLElement, top: number) => {
+      Object.defineProperty(field, "scrollTop", { configurable: true, value: top });
+      fireEvent.scroll(field);
+    };
+
+    it("draws only the lines around what the field shows", async () => {
+      const { container } = render(<Field initial={long} onValue={() => {}} />);
+      const field = screen.getByLabelText("field");
+      Object.defineProperty(field, "clientHeight", { configurable: true, value: 100 });
+      await painted();
+      // 100px shows 5 lines; a field's height either side draws lines 0..10.
+      expect(bold(container)).toEqual(Array.from({ length: 11 }, (_, i) => String(i).padStart(2, "0")));
+    });
+
+    it("redraws when scrolled past the drawn lines", async () => {
+      const { container } = render(<Field initial={long} onValue={() => {}} />);
+      const field = screen.getByLabelText("field");
+      Object.defineProperty(field, "clientHeight", { configurable: true, value: 100 });
+      await painted();
+      act(() => scrolled(field, 40));
+      expect(bold(container)).toContain("00");
+      act(() => scrolled(field, 600));
+      const drawn = bold(container);
+      expect(drawn).toContain("30");
+      expect(drawn).toContain("39");
+      expect(drawn).not.toContain("00");
+    });
+
+    it("draws everything in a field that has no layout", async () => {
+      const { container } = render(<Field initial={long} onValue={() => {}} />);
+      await painted();
+      expect(bold(container)).toHaveLength(40);
+    });
+  });
+
   it("keeps a wrapped line on its own line when its first glyph also reports the line before", async () => {
     // iOS WebKit: a range starting a soft-wrapped line also yields a zero-width box at the previous line's end.
     vi.spyOn(Range.prototype, "getClientRects").mockImplementation(function (this: Range) {
