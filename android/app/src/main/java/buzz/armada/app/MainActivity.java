@@ -60,6 +60,12 @@ public class MainActivity extends BridgeActivity {
     private static final long GATE_MAX_MS = 4000;
     private static final long GATE_POLL_MS = 16;
 
+    // Visible without window focus means system UI is over the app: the shade,
+    // or the bouncer and shade of a lock-screen Reply. The notification service
+    // holds read-driven dismissals until it isn't (setAppCovered).
+    private boolean started = false;
+    private boolean windowFocused = false;
+
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (CallAudioSession.handleVolumeKey(this, event)) return true;
@@ -225,6 +231,27 @@ public class MainActivity extends BridgeActivity {
                 }
             }
         );
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        started = true;
+        NotificationRelayService.setAppCovered(started && !windowFocused);
+    }
+
+    @Override
+    public void onStop() {
+        started = false;
+        NotificationRelayService.setAppCovered(false);
+        super.onStop();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        windowFocused = hasFocus;
+        NotificationRelayService.setAppCovered(started && !windowFocused);
     }
 
     // Recover from the WebView getting STUCK reporting `document.visibilityState
