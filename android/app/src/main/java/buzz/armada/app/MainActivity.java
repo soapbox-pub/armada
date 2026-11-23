@@ -60,6 +60,12 @@ public class MainActivity extends BridgeActivity {
     private static final long GATE_MAX_MS = 4000;
     private static final long GATE_POLL_MS = 16;
 
+    // Visible without window focus means system UI is over the app: the shade,
+    // or the bouncer and shade of a lock-screen Reply. The notification service
+    // holds read-driven dismissals until it isn't (setAppCovered).
+    private boolean started = false;
+    private boolean windowFocused = false;
+
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (CallAudioSession.handleVolumeKey(this, event)) return true;
@@ -227,27 +233,6 @@ public class MainActivity extends BridgeActivity {
         );
     }
 
-    // Recover from the WebView getting STUCK reporting `document.visibilityState
-    // === "hidden"` while the app is actually foreground. On some background→
-    // foreground / screen-off→on transitions the Android WebView fails to
-    // propagate its restored visibility to the renderer's page-visibility state,
-    // so Chromium keeps the document "hidden" and FREEZES all timers, intervals,
-    // rAF and background tasks in it, stalling every timer-driven subsystem.
-    // A document reload does NOT fix it (the reloaded document is still
-    // hidden); only re-resuming the WebView does.
-    //
-    // `WebView.onResume()` + `resumeTimers()` un-freeze the renderer's timer and
-    // task queues for this (now genuinely foreground) activity, so the frozen
-    // subsystems resume even if the WebView's `visibilityState` stays cosmetically
-    // "hidden". The existing `appStateChange`→`focusManager` wiring (see App.tsx)
-    // then drives the catch-up refetch. Cheap and idempotent, so running it on
-    // every resume is safe; it's a no-op when the WebView was never frozen.
-    // Visible without window focus means system UI is over the app: the shade,
-    // or the bouncer and shade of a lock-screen Reply. The notification service
-    // holds read-driven dismissals until it isn't (setAppCovered).
-    private boolean started = false;
-    private boolean windowFocused = false;
-
     @Override
     public void onStart() {
         super.onStart();
@@ -269,6 +254,21 @@ public class MainActivity extends BridgeActivity {
         NotificationRelayService.setAppCovered(started && !windowFocused);
     }
 
+    // Recover from the WebView getting STUCK reporting `document.visibilityState
+    // === "hidden"` while the app is actually foreground. On some background→
+    // foreground / screen-off→on transitions the Android WebView fails to
+    // propagate its restored visibility to the renderer's page-visibility state,
+    // so Chromium keeps the document "hidden" and FREEZES all timers, intervals,
+    // rAF and background tasks in it, stalling every timer-driven subsystem.
+    // A document reload does NOT fix it (the reloaded document is still
+    // hidden); only re-resuming the WebView does.
+    //
+    // `WebView.onResume()` + `resumeTimers()` un-freeze the renderer's timer and
+    // task queues for this (now genuinely foreground) activity, so the frozen
+    // subsystems resume even if the WebView's `visibilityState` stays cosmetically
+    // "hidden". The existing `appStateChange`→`focusManager` wiring (see App.tsx)
+    // then drives the catch-up refetch. Cheap and idempotent, so running it on
+    // every resume is safe; it's a no-op when the WebView was never frozen.
     @Override
     public void onResume() {
         super.onResume();
