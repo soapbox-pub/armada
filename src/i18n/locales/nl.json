@@ -2892,6 +2892,7 @@
   "messageActionSheet.removeReaction": "Reactie {emoji} verwijderen",
   "messageActionSheet.title": "Berichtacties",
   "messageEditBox.hint": "Esc om te annuleren · Enter om op te slaan",
+  "messageEditBox.hintModifier": "Esc om te annuleren · Ctrl+Enter om op te slaan",
   "messageOverflowMenu.moreActions": "Meer acties",
   "messageRow.disappearingLeft": "Verdwijnend bericht, nog {time}",
   "messageRow.disappearsIn": "Verdwijnt over {time}",

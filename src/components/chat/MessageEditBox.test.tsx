@@ -69,6 +69,15 @@ describe("MessageEditBox mentions", () => {
     expect(menu()).toBeNull();
   });
 
+  it("opens the menu below a box with no room above it", () => {
+    const { field, type } = setup([alice]);
+    field.getBoundingClientRect = () => ({ top: 40, bottom: 80, left: 0, right: 300, width: 300, height: 40, x: 0, y: 40, toJSON: () => ({}) });
+    type("hi @al");
+    const style = (menu() as HTMLElement).style;
+    expect(style.top).toBe("86px");
+    expect(style.bottom).toBe("");
+  });
+
   it("offers nothing where the room's composer has mentions off", () => {
     const { type } = setup(undefined);
     type("hi @al");

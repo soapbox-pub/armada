@@ -35,6 +35,8 @@ export interface MentionRole {
 
 /** `@query` profile autocomplete at the caret; inserts `nostr:npub1...` (NIP-27). */
 const NO_MEMBERS: string[] = [];
+/** Must match the list's `max-h-[240px]`. */
+const DROPDOWN_HEIGHT = 240;
 
 export function MentionAutocomplete({
   textareaRef,
@@ -50,7 +52,7 @@ export function MentionAutocomplete({
   const [mentionStart, setMentionStart] = useState(-1);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState<{ bottom: number; left: number } | null>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const handleClose = useCallback(() => setIsOpen(false), []);
@@ -58,7 +60,7 @@ export function MentionAutocomplete({
     textareaRef,
     isOpen,
     onClose: handleClose,
-    dropdownHeight: 240, // must match max-h-[240px] below
+    dropdownHeight: DROPDOWN_HEIGHT,
   });
 
   const restricted = Array.isArray(restrictToPubkeys);
@@ -113,13 +115,13 @@ export function MentionAutocomplete({
     setIsOpen(true);
     setSelectedIndex(0);
 
-    // Anchor the bottom just above the composer; track the caret horizontally.
+    // Anchor the bottom just above the textarea, or the top just below it when
+    // the list would not fit above (an edit box near the top of the page).
     const caret = getCaretCoordinates(textarea, atPos);
     const rect = textarea.getBoundingClientRect();
-    setDropdownPos({
-      bottom: window.innerHeight - rect.top + 6,
-      left: Math.max(8, Math.min(rect.left + caret.left, window.innerWidth - 280 - 8)),
-    });
+    const left = Math.max(8, Math.min(rect.left + caret.left, window.innerWidth - 280 - 8));
+    const below = rect.top < DROPDOWN_HEIGHT + 14 && window.innerHeight - rect.bottom > rect.top;
+    setDropdownPos(below ? { top: rect.bottom + 6, left } : { bottom: window.innerHeight - rect.top + 6, left });
   }, [textareaRef, isMentionStart]);
 
   useEffect(() => {
@@ -237,9 +239,12 @@ export function MentionAutocomplete({
     <div
       data-autocomplete-dropdown
       className="fixed z-[300] w-[280px] max-w-[calc(100vw-1rem)] vessel-lift pointer-events-auto"
-      style={{ bottom: dropdownPos.bottom, left: dropdownPos.left }}
+      style={dropdownPos}
     >
-      <div className="vessel overflow-hidden animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-150">
+      <div className={cn(
+        "vessel overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150",
+        dropdownPos.top === undefined ? "slide-in-from-bottom-2" : "slide-in-from-top-2",
+      )}>
         <div ref={listRef} className="max-h-[240px] overflow-y-auto scroll-py-1 p-1">
           {(profiles ?? []).map((profile, index) => (
             <MentionItem

@@ -2892,6 +2892,7 @@
   "messageActionSheet.removeReaction": "Retirer la réaction {emoji}",
   "messageActionSheet.title": "Actions sur le message",
   "messageEditBox.hint": "Échap pour annuler · Entrée pour enregistrer",
+  "messageEditBox.hintModifier": "Échap pour annuler · Ctrl+Entrée pour enregistrer",
   "messageOverflowMenu.moreActions": "Plus d’actions",
   "messageRow.disappearingLeft": "Message éphémère, {time} restant(s)",
   "messageRow.disappearsIn": "Disparaît dans {time}",

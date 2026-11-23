@@ -99,8 +99,10 @@ export function MessageEditBox({ content, tags, sendOnEnter, onSubmit, onCancel 
         <button type="button" className="hover:text-foreground touch:py-2" onClick={onCancel}>
           <FormattedMessage {...common.cancel} />
         </button>
-        <span className="opacity-70">
-          <FormattedMessage id="messageEditBox.hint" defaultMessage="escape to cancel · enter to save" />
+        <span className="opacity-70 touch:hidden">
+          {sendOnEnter
+            ? <FormattedMessage id="messageEditBox.hint" defaultMessage="escape to cancel · enter to save" />
+            : <FormattedMessage id="messageEditBox.hintModifier" defaultMessage="escape to cancel · ctrl+enter to save" />}
         </span>
       </div>
     </div>
