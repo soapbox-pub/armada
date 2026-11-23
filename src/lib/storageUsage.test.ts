@@ -13,7 +13,7 @@ vi.mock("@/lib/mediaCache", () => ({
 
 import { clearCommunityImageCache } from "@/concord/lib/image";
 import { clearMediaCache } from "@/lib/mediaCache";
-import { clearStorage, dataRows, measureStorage, tenantRow } from "@/lib/storageUsage";
+import { clearStorage, databaseOverhead, dataRows, measureStorage, tenantRow, unattributedBytes } from "@/lib/storageUsage";
 
 describe("tenantRow()", () => {
   it("files each tenant under what its data is", () => {
@@ -82,6 +82,29 @@ describe("dataRows()", () => {
   });
 });
 
+describe("databaseOverhead()", () => {
+  it("is the file beyond the rows and KV the data rows count", () => {
+    expect(databaseOverhead({ tenants: [{ id: "main", rumors: 1, bytes: 100 }], kv: { entries: 1, bytes: 50 }, fileBytes: 1000 })).toBe(850);
+  });
+
+  it("is absent when the file or a tenant is unsized", () => {
+    expect(databaseOverhead({ tenants: [{ id: "main", rumors: 1, bytes: 100 }] })).toBeUndefined();
+    expect(databaseOverhead({ tenants: [{ id: "main", rumors: 1 }], fileBytes: 1000 })).toBeUndefined();
+  });
+});
+
+describe("unattributedBytes()", () => {
+  it("is what the total holds beyond every row", () => {
+    expect(unattributedBytes(1000, [{ id: "media", bytes: 300, clearable: true }, { id: "dms", bytes: 200, clearable: false }])).toBe(500);
+  });
+
+  it("is absent when nothing is left over, or a row is unsized", () => {
+    expect(unattributedBytes(400, [{ id: "media", bytes: 500, clearable: true }])).toBeUndefined();
+    expect(unattributedBytes(1000, [{ id: "dms", clearable: false }])).toBeUndefined();
+    expect(unattributedBytes(undefined, [])).toBeUndefined();
+  });
+});
+
 describe("measureStorage()", () => {
   beforeEach(() => {
     vi.stubGlobal("navigator", {
@@ -105,6 +128,14 @@ describe("measureStorage()", () => {
     expect(report.data.find((r) => r.id === "profiles")).toMatchObject({ count: 1, bytes: 10 });
     expect(report.totalBytes).toBe(7000);
     expect(report.quotaBytes).toBe(1_000_000);
+  });
+
+  it("shows the database's indexes and the unnamed rest, so the rows add up to the total", async () => {
+    const report = await measureStorage();
+    expect(report.data.find((r) => r.id === "database")).toEqual({ id: "database", bytes: 1990, clearable: false });
+    const sum = [...report.caches, ...report.data].reduce((n, r) => n + (r.bytes ?? 0), 0);
+    expect(report.data.at(-1)?.id).toBe("other");
+    expect(sum).toBe(report.totalBytes);
   });
 
   it("still answers when the database can't", async () => {

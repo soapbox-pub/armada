@@ -4,6 +4,7 @@ import {
   Database,
   Globe,
   HardDrive,
+  Layers,
   Image,
   MessageSquareLock,
   Mic,
@@ -46,6 +47,8 @@ const labels = defineMessages({
   profiles: { id: "storageSettings.profiles", defaultMessage: "Profiles and lists" },
   otherData: { id: "storageSettings.otherData", defaultMessage: "Other events" },
   settings: { id: "storageSettings.settings", defaultMessage: "Settings and sync state" },
+  database: { id: "storageSettings.database", defaultMessage: "Database indexes and free space" },
+  other: { id: "storageSettings.other", defaultMessage: "Other app data" },
 });
 
 const descriptions = defineMessages({
@@ -55,6 +58,8 @@ const descriptions = defineMessages({
   webCache: { id: "storageSettings.webCacheDescription", defaultMessage: "Pictures and pages the app loaded recently, including profile pictures." },
   callRecordings: { id: "storageSettings.callRecordingsDescription", defaultMessage: "Recordings that were never saved, for example after a crash." },
   legacy: { id: "storageSettings.legacyDescription", defaultMessage: "Storage an earlier version of Armada left behind." },
+  database: { id: "storageSettings.databaseDescription", defaultMessage: "Search indexes over your messages, and space the database keeps to reuse." },
+  other: { id: "storageSettings.otherDescription", defaultMessage: "The app's offline files and other storage not listed above." },
 });
 
 /** Names for the pieces of settings and sync state worth naming; any other shows its key group. */
@@ -83,6 +88,8 @@ const ICONS: Record<StorageRowId, LucideIcon> = {
   profiles: UserRound,
   otherData: Database,
   settings: SlidersHorizontal,
+  database: Layers,
+  other: HardDrive,
 };
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte", "terabyte"] as const;
@@ -191,7 +198,9 @@ export function StorageSettings() {
             <SettingsRow
               icon={ICONS[row.id]}
               label={intl.formatMessage(labels[row.id])}
-              description={row.count !== undefined ? items(intl, row.count) : undefined}
+              description={row.count !== undefined
+                ? items(intl, row.count)
+                : row.id in descriptions ? intl.formatMessage(descriptions[row.id as keyof typeof descriptions]) : undefined}
               value={size(row.bytes)}
               {...(row.parts?.length ? { onClick: () => setOpenParts((open) => !open), chevron: true } : {})}
             />

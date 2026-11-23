@@ -92,6 +92,16 @@ describe("StorageSettings", () => {
     expect(screen.getByText("c2odd")).toBeInTheDocument();
   });
 
+  it("labels the database's indexes and the unnamed rest, with what they hold", async () => {
+    h.report.data.push({ id: "database", bytes: 300_000_000, clearable: false }, { id: "other", bytes: 5_000_000, clearable: false });
+    render(<StorageSettings />);
+
+    expect(await screen.findByText("Database indexes and free space")).toBeInTheDocument();
+    expect(within(rowOf("Database indexes and free space")).getByText("300 MB")).toBeInTheDocument();
+    expect(within(rowOf("Other app data")).getByText("5 MB")).toBeInTheDocument();
+    expect(screen.getByText("The app's offline files and other storage not listed above.")).toBeInTheDocument();
+  });
+
   it("asks before deleting unsaved recordings", async () => {
     render(<StorageSettings />);
     await screen.findByText("20 MB");

@@ -28,7 +28,9 @@ export type StorageRowId =
   | "servers"
   | "profiles"
   | "otherData"
-  | "settings";
+  | "settings"
+  | "database"
+  | "other";
 
 export interface StorageRow {
   id: StorageRowId;
@@ -156,6 +158,37 @@ export function dataRows(usage: ArmadaDBUsage, settingsBytes: number): StorageRo
   return out;
 }
 
+/**
+ * The database file beyond the rows and KV the data rows count: the search and
+ * tag indexes, page overhead and free pages SQLite keeps for reuse. Absent
+ * unless the engine sized the file and every tenant in it.
+ */
+export function databaseOverhead(usage: ArmadaDBUsage): number | undefined {
+  if (usage.fileBytes === undefined) return undefined;
+  let counted = usage.kv?.bytes ?? 0;
+  for (const tenant of usage.tenants) {
+    if (tenant.bytes === undefined) return undefined;
+    counted += tenant.bytes;
+  }
+  return Math.max(0, usage.fileBytes - counted);
+}
+
+/**
+ * What the total holds that no row names (the app's own offline files, other
+ * web storage), so the rows add up to it. Absent when a row is unsized, since
+ * the remainder would then be that row's.
+ */
+export function unattributedBytes(totalBytes: number | undefined, rows: readonly StorageRow[]): number | undefined {
+  if (totalBytes === undefined) return undefined;
+  let counted = 0;
+  for (const row of rows) {
+    if (row.bytes === undefined) return undefined;
+    counted += row.bytes;
+  }
+  const rest = totalBytes - counted;
+  return rest > 0 ? rest : undefined;
+}
+
 const settle = <T>(promise: Promise<T>, fallback: T): Promise<T> => promise.catch(() => fallback);
 
 export async function measureStorage(): Promise<StorageReport> {
@@ -203,6 +236,10 @@ export async function measureStorage(): Promise<StorageReport> {
   // native caches sit outside it.
   const outside = (dbUsage.fileBytes ?? 0) + (nativeUsage?.avatars ?? 0) + (webCache ?? 0);
   const totalBytes = estimate?.usage !== undefined ? estimate.usage + outside : undefined;
+  const overhead = databaseOverhead(dbUsage);
+  if (overhead !== undefined && overhead > 0) data.push({ id: "database", bytes: overhead, clearable: false });
+  const other = unattributedBytes(totalBytes, [...caches, ...data]);
+  if (other !== undefined) data.push({ id: "other", bytes: other, clearable: false });
   const onWeb = platform === "web" && !desktop();
   return { caches, data, totalBytes, quotaBytes: onWeb ? estimate?.quota : undefined };
 }
