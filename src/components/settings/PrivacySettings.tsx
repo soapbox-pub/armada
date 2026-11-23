@@ -7,6 +7,7 @@ import { MediaPrivacySettings } from "@/components/settings/MediaPrivacySettings
 import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
 import { SettingsNavContext } from "@/components/settings/settingsNav";
 import { Switch } from "@/components/ui/switch";
+import { VECTOR_HUB_URL } from "@/concord/lib/vectorHub";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useMutedPubkeys } from "@/hooks/useMuteList";
@@ -98,6 +99,21 @@ export function PrivacySettings() {
           />
         </SettingsRow>
         <DiscoverCurationSettings />
+        {VECTOR_HUB_URL && (
+          <SettingsRow
+            label={intl.formatMessage({ id: "privacySettings.vectorHub", defaultMessage: "Include the Vector Hub" })}
+            description={intl.formatMessage({
+              id: "privacySettings.vectorHubDescription",
+              defaultMessage: "Also list communities from Vector's reviewed directory, fetched from vectorapp.io. Their cards are marked Vector Hub.",
+            })}
+          >
+            <Switch
+              checked={config.discoverVectorHub}
+              onCheckedChange={(discoverVectorHub) =>
+                updateConfig((current) => ({ ...current, discoverVectorHub }))}
+            />
+          </SettingsRow>
+        )}
       </SettingsGroup>
 
       <BlocklistAuthorsSettings />

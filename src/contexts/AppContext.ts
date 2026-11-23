@@ -232,6 +232,8 @@ export interface AppConfig {
    * Per-device, and ignored in store installs.
    */
   discoverUnfiltered: boolean;
+  /** Also list the Vector Hub's communities in Discover (`concord/lib/vectorHub.ts`; default on). Synced. */
+  discoverVectorHub: boolean;
   /**
    * Strip tracking parameters (`si=`, `fbclid`, `utm_*`…) from sent and rendered
    * links (default on); see `lib/trackingParams.ts`. Synced.
@@ -378,6 +380,7 @@ export const METADATA_CONFIG_KEYS = [
   "mutedWords",
   "showRecentRailDms",
   "discoverCuration",
+  "discoverVectorHub",
   "stripTrackingParams",
   "mediaProxies",
   "communityMediaAutoload",
@@ -491,6 +494,7 @@ export const defaultConfig: AppConfig = {
   showRecentRailDms: true,
   discoverCuration: "",
   discoverUnfiltered: false,
+  discoverVectorHub: true,
   stripTrackingParams: true,
   mediaProxies: [],
   communityMediaAutoload: "trusted",

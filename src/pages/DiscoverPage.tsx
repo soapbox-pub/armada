@@ -30,7 +30,17 @@ import { PillTabs, type PillTab } from "@/components/ui/pill-tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DiscoverActivityTarget } from "@/concord/lib/discoverActivity";
-import { boostListingsBySigner, suppressedListings, type DiscoveredInvite, type ListingStanding } from "@/concord/lib/inviteDiscovery";
+import { useVectorHubEnabled, useVectorHubListings } from "@/concord/hooks/useVectorHub";
+import {
+  boostListingsBySigner,
+  entryListingIds,
+  listingOriginsBySigner,
+  mergeDiscoverEntries,
+  suppressedListings,
+  type DiscoverEntry,
+  type ListingOrigins,
+  type ListingStanding,
+} from "@/concord/lib/inviteDiscovery";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import {
@@ -42,6 +52,7 @@ import {
   type DiscoverScope,
 } from "@/hooks/useDiscover";
 import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
+import { useMutedPubkeys } from "@/hooks/useMuteList";
 import { boostsFor, vouchingBoosts } from "@/lib/discoverBoost";
 import { SettingsOverlayContext } from "@/lib/settingsOverlay";
 import { cn } from "@/lib/utils";
@@ -354,6 +365,7 @@ function DiscoverScopeInfo({
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 space-y-3 p-3 text-xs text-muted-foreground">
         <p className="leading-snug">{hint}</p>
+        <VectorHubNote scope={scope} className="leading-snug" />
         {scope === "network" && (
           <Button
             variant="secondary"
@@ -370,6 +382,20 @@ function DiscoverScopeInfo({
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** The Vector Hub's share of the grid, which none of the scope hints account for. */
+function VectorHubNote({ scope, className }: { scope: DiscoverScope; className?: string }) {
+  const hubOn = useVectorHubEnabled();
+  if (scope !== "network" || !hubOn) return null;
+  return (
+    <p className={className}>
+      <FormattedMessage
+        id="discoverPage.hint.vectorHub"
+        defaultMessage="Also showing communities from the Vector Hub, a directory reviewed by Vector and fetched from vectorapp.io. Their cards are marked Vector Hub."
+      />
+    </p>
   );
 }
 
@@ -478,6 +504,7 @@ function DiscoverScopeMenu({
           </div>
         )}
         <p className="px-1 leading-snug">{hint}</p>
+        <VectorHubNote scope={scope} className="px-1 leading-snug" />
         {scope === "network" && (
           <Button
             variant="secondary"
@@ -558,6 +585,21 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
     fetchNextPage,
     pageCount,
   });
+  // The hub is a directory of its own, not anyone's pick, so only "network" shows it.
+  const { listings: hubListings } = useVectorHubListings(scope === "network");
+  const { mutedPubkeys } = useMutedPubkeys();
+  // Entries keep their identity while their listings do, for the memoized rows.
+  const entriesCache = useRef(new Map<string, DiscoverEntry>());
+  const entries = useMemo(() => {
+    if (!data && hubListings.length === 0) return undefined;
+    const cache = entriesCache.current;
+    const next = mergeDiscoverEntries(data ?? [], hubListings).map((entry) => {
+      const prev = cache.get(entry.linkSigner);
+      return prev && prev.invite === entry.invite && prev.hub === entry.hub ? prev : entry;
+    });
+    entriesCache.current = new Map(next.map((entry) => [entry.linkSigner, entry]));
+    return next;
+  }, [data, hubListings]);
 
   // Announcements name no community/owner; each card reports its resolved
   // bundle's, for one card per community and owner ranking.
@@ -622,7 +664,7 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
   // while unchanged, for the memoized rows.
   const boostListingsCache = useRef(new Map<string, string[]>());
   const boostListings = useMemo(() => {
-    const next = boostListingsBySigner(data ?? [], resolved);
+    const next = boostListingsBySigner(entries ?? [], resolved);
     const cache = boostListingsCache.current;
     for (const [signer, ids] of next) {
       const prev = cache.get(signer);
@@ -630,37 +672,61 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
     }
     boostListingsCache.current = next;
     return next;
-  }, [data, resolved]);
+  }, [entries, resolved]);
+
+  // One card stands per community, so it shows where all of its links were listed.
+  const originsCache = useRef(new Map<string, ListingOrigins>());
+  const origins = useMemo(() => {
+    const next = listingOriginsBySigner(entries ?? [], resolved);
+    const cache = originsCache.current;
+    for (const [signer, o] of next) {
+      const prev = cache.get(signer);
+      if (prev && prev.nostr === o.nostr && prev.hub === o.hub) next.set(signer, prev);
+    }
+    originsCache.current = next;
+    return next;
+  }, [entries, resolved]);
 
   // Order: communities boosted by someone the viewer trusts (most boosts first),
-  // then curated-list owners, then the viewer and their follows, then the rest of
-  // the network; newest-first otherwise. Until a bundle resolves, the announcement
-  // author stands in for its owner.
+  // then curated-list owners, then the viewer and their follows, then the Vector
+  // Hub's (in its order), then the rest of the network; newest-first otherwise.
+  // Until a bundle resolves, the announcement author stands in for its owner.
   const ordered = useMemo(() => {
-    if (!data) return data;
+    if (!entries) return entries;
     const pack = new Set(packAuthors);
     const trusted = new Set(trustedAuthors);
-    const boosted: Array<{ invite: DiscoveredInvite; count: number }> = [];
-    const tiers: DiscoveredInvite[][] = [[], [], []];
-    for (const invite of data) {
-      const owner = resolved[invite.linkSigner]?.owner ?? invite.source.pubkey;
-      const listingBoosts = boostsFor(boosts, boostListings.get(invite.linkSigner) ?? [invite.source.id]);
-      if (vouchingBoosts(listingBoosts, vouchers, owner).length > 0) {
-        boosted.push({ invite, count: listingBoosts.length });
+    const boosted: Array<{ entry: DiscoverEntry; count: number }> = [];
+    const tiers: DiscoverEntry[][] = [[], [], [], []];
+    for (const entry of entries) {
+      const owner = resolved[entry.linkSigner]?.owner ?? entry.invite?.source.pubkey;
+      const listingBoosts = boostsFor(boosts, boostListings.get(entry.linkSigner) ?? entryListingIds(entry));
+      if (owner && vouchingBoosts(listingBoosts, vouchers, owner).length > 0) {
+        boosted.push({ entry, count: listingBoosts.length });
         continue;
       }
-      tiers[pack.has(owner) ? 0 : trusted.has(owner) ? 1 : 2].push(invite);
+      const onHub = !!origins.get(entry.linkSigner)?.hub;
+      tiers[owner && pack.has(owner) ? 0 : owner && trusted.has(owner) ? 1 : onHub ? 2 : 3].push(entry);
     }
     boosted.sort((a, b) => b.count - a.count);
-    return [...boosted.map((b) => b.invite), ...tiers.flat()];
-  }, [data, resolved, boosts, boostListings, vouchers, packAuthors, trustedAuthors]);
+    const hubRank = (entry: DiscoverEntry) => origins.get(entry.linkSigner)?.hub?.rank ?? Infinity;
+    tiers[2].sort((a, b) => hubRank(a) - hubRank(b));
+    return [...boosted.map((b) => b.entry), ...tiers.flat()];
+  }, [entries, resolved, boosts, boostListings, vouchers, packAuthors, trustedAuthors, origins]);
   const boostContext = useMemo(() => ({ boosts, vouchers }), [boosts, vouchers]);
 
   // Suppressed cards stay mounted (rendering nothing) so they keep reporting: the
   // card shown can turn out rotated out, and the next one in line takes its place.
-  const suppressed = useMemo(() => suppressedListings(data ?? [], resolved), [data, resolved]);
+  // A link only the hub lists has no sharer for the mute list to catch, so its owner is checked.
+  const suppressed = useMemo(() => {
+    const out = suppressedListings(entries ?? [], resolved);
+    for (const entry of entries ?? []) {
+      const owner = resolved[entry.linkSigner]?.owner;
+      if (!entry.invite && owner && mutedPubkeys.has(owner)) out.add(entry.linkSigner);
+    }
+    return out;
+  }, [entries, resolved, mutedPubkeys]);
 
-  if (isLoading && !data) {
+  if (isLoading && !entries) {
     return (
       <div className={GRID}>
         <CreateCommunityCard />
@@ -670,10 +736,10 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
       </div>
     );
   }
-  if (isError) return <TabState icon={Users}>
+  if (isError && !entries?.length) return <TabState icon={Users}>
     <FormattedMessage {...m.relaysError} />
   </TabState>;
-  if (!data || data.length === 0) {
+  if (!entries || entries.length === 0) {
     return (
       <div className="space-y-4">
         <div className={GRID}>
@@ -705,17 +771,19 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
     <div className={GRID}>
       <CreateCommunityCard />
       {/* Search matches each card's RESOLVED name; misses render nothing. */}
-      {(ordered ?? []).map((invite) => (
+      {(ordered ?? []).map((entry) => (
         <CommunityRow
-          key={invite.linkSigner}
-          invite={invite}
+          key={entry.linkSigner}
+          entry={entry}
+          origins={origins.get(entry.linkSigner)}
           query={query}
-          needsBoost={boostOnly.has(invite.linkSigner)}
-          suppressed={suppressed.has(invite.linkSigner)}
-          boostListings={boostListings.get(invite.linkSigner)}
+          // The hub vouches for its own listings.
+          needsBoost={!entry.hub && boostOnly.has(entry.linkSigner)}
+          suppressed={suppressed.has(entry.linkSigner)}
+          boostListings={boostListings.get(entry.linkSigner)}
           onResolved={onResolved}
           onActivityTarget={onActivityTarget}
-          lastActiveAt={lastActiveBySigner[invite.linkSigner]}
+          lastActiveAt={lastActiveBySigner[entry.linkSigner]}
         />
       ))}
     </div>
@@ -729,7 +797,8 @@ function CommunitiesTab({ query, scope }: { query: string; scope: DiscoverScope 
  * doesn't re-render every other card; all props are stable per card.
  */
 const CommunityRow = memo(function CommunityRow({
-  invite,
+  entry,
+  origins,
   query,
   needsBoost,
   suppressed,
@@ -738,7 +807,8 @@ const CommunityRow = memo(function CommunityRow({
   onActivityTarget,
   lastActiveAt,
 }: {
-  invite: DiscoveredInvite;
+  entry: DiscoverEntry;
+  origins: ListingOrigins | undefined;
   query: string;
   needsBoost: boolean;
   suppressed: boolean;
@@ -752,7 +822,8 @@ const CommunityRow = memo(function CommunityRow({
     // while searching: cards self-hide on a miss.
     <DeferredRow active={!query.trim()} minHeight={240}>
       <CommunityListingCard
-        invite={invite}
+        entry={entry}
+        origins={origins}
         filter={query}
         needsBoost={needsBoost}
         suppressed={suppressed}

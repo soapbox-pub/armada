@@ -24,6 +24,8 @@ export const CONFIG_NAMES = [
   "DISCOVER_CURATION",
   // "off" keeps a user's "none" from reading Discover unvetted (app-store installs never do). Unset = allowed.
   "DISCOVER_UNFILTERED",
+  // Vector Hub directory endpoint whose Concord invite links Discover also lists. Unset = https://vectorapp.io/api/hub; empty = off.
+  "VECTOR_HUB_URL",
   "NIP85_STATS_PUBKEY",
   "DEFAULT_NOISE_SUPPRESSION",
   "DEFAULT_ECHO_CANCELLATION",

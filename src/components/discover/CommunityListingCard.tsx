@@ -1,10 +1,11 @@
 import { useNostr } from "@nostrify/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Check, Copy, Loader2, MoreHorizontal, ShieldCheck, Skull, Trash2 } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, Copy, Loader2, MoreHorizontal, ShieldCheck, Skull, Trash2, Waypoints } from "lucide-react";
 import { Fragment, memo, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { DisplayName } from "@/components/DisplayName";
+import { VectorMark } from "@/components/brand/VectorMark";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ThumbImg } from "@/components/ui/ThumbImg";
 import { AVATAR_LOOPS } from "@/components/ui/avatarLoops";
@@ -35,13 +36,16 @@ import {
   readCachedControlPeek,
 } from "@/concord/lib/discoverControlPeek";
 import {
+  entryListingIds,
   inviteUrlToLocalRoute,
+  linkCreator,
   listingAuthorized,
-  listingIdsOf,
-  type DiscoveredInvite,
+  type DiscoverEntry,
+  type ListingOrigins,
   type ListingStanding,
 } from "@/concord/lib/inviteDiscovery";
 import { parseInviteLink } from "@/concord/lib/invite";
+import { VECTOR_HUB_PAGE } from "@/concord/lib/vectorHub";
 import { isStaff } from "@/concord/lib/roles";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -55,7 +59,9 @@ import { getDisplayName } from "@/lib/getDisplayName";
 import { cn } from "@/lib/utils";
 
 interface CommunityListingCardProps {
-  invite: DiscoveredInvite;
+  entry: DiscoverEntry;
+  /** Where this community was listed, across all its links; the entry's own by default. */
+  origins?: ListingOrigins;
   className?: string;
   /** Matched against the RESOLVED name, since the announcement has no metadata. Non-matches render nothing. */
   filter?: string;
@@ -124,7 +130,7 @@ export function CommunityListingCardSkeleton({ className }: { className?: string
  */
 export function CommunityListingCard(props: CommunityListingCardProps) {
   const { boosts: byListing, vouchers } = useContext(DiscoverBoostsContext);
-  const boosts = useSameBoosts(boostsFor(byListing, props.boostListings ?? listingIdsOf(props.invite)));
+  const boosts = useSameBoosts(boostsFor(byListing, props.boostListings ?? entryListingIds(props.entry)));
   return <ListingCard {...props} boosts={boosts} vouchers={useSameSet(vouchers)} />;
 }
 
@@ -145,7 +151,8 @@ function useSameSet(next: ReadonlySet<string> | null): ReadonlySet<string> | nul
 }
 
 const ListingCard = memo(function ListingCard({
-  invite,
+  entry,
+  origins,
   className,
   filter,
   needsBoost = false,
@@ -159,21 +166,24 @@ const ListingCard = memo(function ListingCard({
   const intl = useIntl();
   const navigate = useNavigate();
   const { nostr } = useNostr();
-  const parsed = useMemo(() => parseInviteLink(invite.inviteUrl), [invite.inviteUrl]);
+  const parsed = useMemo(() => parseInviteLink(entry.inviteUrl), [entry.inviteUrl]);
+  const linkSigner = entry.linkSigner;
+  // Who announced it on Nostr; a link only the Vector Hub lists has nobody here.
+  const sharer = entry.invite?.source.pubkey;
   const [copied, setCopied] = useState(false);
 
   // The home-relay second hop runs in the background; a fresher copy or a
   // revocation lands via the callback.
   const queryClient = useQueryClient();
   const { data: bundle, isLoading: bundleLoading, isError: bundleError } = useQuery({
-    queryKey: ["discover", "invite-bundle", invite.linkSigner],
+    queryKey: ["discover", "invite-bundle", linkSigner],
     enabled: !!parsed,
     staleTime: 5 * 60_000,
     retry: false,
     queryFn: () =>
       resolveBundle(nostr, parsed!, parsed!.bootstrapRelays, {
         onSecondHop: (result) => {
-          const key = ["discover", "invite-bundle", invite.linkSigner];
+          const key = ["discover", "invite-bundle", linkSigner];
           if (result.bundle) queryClient.setQueryData(key, result.bundle);
           // Re-resolving hits the tombstoned floor and errors, hiding the card.
           else if (result.revoked) void queryClient.invalidateQueries({ queryKey: key });
@@ -189,21 +199,21 @@ const ListingCard = memo(function ListingCard({
     void (async () => {
       const cached = await readCachedBundle(parsed);
       if (cancelled || !cached) return;
-      const key = ["discover", "invite-bundle", invite.linkSigner];
+      const key = ["discover", "invite-bundle", linkSigner];
       if (queryClient.getQueryData(key) !== undefined) return;
       queryClient.setQueryData(key, cached, { updatedAt: 0 });
     })();
     return () => {
       cancelled = true;
     };
-  }, [parsed, invite.linkSigner, queryClient]);
+  }, [parsed, linkSigner, queryClient]);
 
   // Attribute to the verified bundle `owner`, not the announcement author (just the sharer).
-  const attributedPubkey = bundle?.owner ?? invite.source.pubkey;
+  const attributedPubkey = bundle?.owner ?? sharer;
   const ownedByOwner = !!bundle?.owner;
   const author = useAuthor(attributedPubkey);
   const metadata = author.data?.metadata;
-  const displayName = getDisplayName(metadata, attributedPubkey);
+  const displayName = attributedPubkey ? getDisplayName(metadata, attributedPubkey) : "";
 
   const isBlocked = useIsBlocked();
   const blocked = !!bundle?.community_id && isBlocked(bundle.community_id);
@@ -212,7 +222,10 @@ const ListingCard = memo(function ListingCard({
     () => (bundle ? vouchingBoosts(boosts, vouchers, bundle.owner) : NO_BOOSTS),
     [boosts, vouchers, bundle],
   );
-  const authorized = !!bundle && listingAuthorized(bundle, invite.source.pubkey) && (!needsBoost || vouched.length > 0);
+  // A hub listing is the hub's claim, which it checks with the owner; an announcement must come from the owner or the link's creator.
+  const authorized = !!bundle
+    && (sharer ? listingAuthorized(bundle, sharer) : !!entry.hub)
+    && (!needsBoost || vouched.length > 0);
 
   // Dissolved communities' links keep resolving, so check the dissolved address
   // (derived from community_id, so non-members can check it too).
@@ -234,7 +247,7 @@ const ListingCard = memo(function ListingCard({
 
   // NIP-09 deletes only count from the event's author.
   const { user } = useCurrentUser();
-  const isAuthor = !!user && user.pubkey === invite.source.pubkey;
+  const isAuthor = !!user && !!sharer && user.pubkey === sharer;
   const { unlistLinks } = useUnlistAnnouncements();
   const [removing, setRemoving] = useState(false);
 
@@ -295,7 +308,19 @@ const ListingCard = memo(function ListingCard({
   const channelCount = folded
     ? [...folded.channels.values()].filter((c) => !c.deleted).length
     : (controlPeek?.channelCount ?? bundleChannelCount);
+  const shownOrigins = origins ?? ownOrigins(entry);
   const stats: Array<{ key: string; text: string; hint?: string }> = [];
+  const hubMembers = shownOrigins.hub?.memberCount;
+  if (hubMembers != null && hubMembers > 0) {
+    stats.push({
+      key: "members",
+      text: intl.formatMessage(
+        { id: "communityListingCard.memberCount", defaultMessage: "{count, plural, one {# member} other {# members}}" },
+        { count: hubMembers },
+      ),
+      hint: intl.formatMessage({ id: "communityListingCard.memberCountHint", defaultMessage: "As counted by the Vector Hub" }),
+    });
+  }
   if (channelCount > 0) {
     stats.push({
       key: "channels",
@@ -326,17 +351,17 @@ const ListingCard = memo(function ListingCard({
   }, [folded, controlPeek?.publicChannelIdHexes]);
 
   // A member judges the link by its own fold, a stranger by the peek of the link's epoch.
-  const sharer = invite.source.pubkey;
-  const linkSigner = invite.linkSigner;
+  // A hub listing is ranked as shared by the link's creator.
+  const rankedSharer = sharer ?? (bundle ? linkCreator(bundle) ?? bundle.owner : undefined);
   const bundleEpoch = bundle?.root_epoch;
   const memberEpoch = memberCommunity?.rootEpoch;
   const peek = controlPeek && controlPeek.epoch === bundleEpoch ? controlPeek : undefined;
   const retired = bundleEpoch !== undefined && (memberEpoch !== undefined ? BigInt(bundleEpoch) < memberEpoch : !!peek?.rotated);
   const sharerRank = !bundle
     ? 2
-    : sharer === bundle.owner
+    : rankedSharer === bundle.owner
       ? 0
-      : (memberEpoch !== undefined ? !!folded && isStaff(folded.roster, sharer, folded.ownerHex) : !!peek?.staff?.includes(sharer))
+      : rankedSharer && (memberEpoch !== undefined ? !!folded && isStaff(folded.roster, rankedSharer, folded.ownerHex) : !!peek?.staff?.includes(rankedSharer))
         ? 1
         : 2;
 
@@ -374,24 +399,24 @@ const ListingCard = memo(function ListingCard({
   useEffect(() => {
     if (!onActivityTarget) return;
     if (!listed || !bundle) {
-      onActivityTarget(invite.linkSigner, null);
+      onActivityTarget(linkSigner, null);
       return;
     }
-    onActivityTarget(invite.linkSigner, {
-      linkSigner: invite.linkSigner,
+    onActivityTarget(linkSigner, {
+      linkSigner: linkSigner,
       authors: discoverStreamAuthors(bundle, { publicChannelIdHexes }),
       relays: Array.isArray(bundle.relays) ? bundle.relays : [],
     });
-    return () => onActivityTarget(invite.linkSigner, null);
-  }, [listed, bundle, publicChannelIdHexes, invite.linkSigner, onActivityTarget]);
+    return () => onActivityTarget(linkSigner, null);
+  }, [listed, bundle, publicChannelIdHexes, linkSigner, onActivityTarget]);
 
-  const onJoin = () => navigate(inviteUrlToLocalRoute(invite.inviteUrl));
+  const onJoin = () => navigate(inviteUrlToLocalRoute(entry.inviteUrl));
   const onOpen = () => navigate(`/c/${encodeURIComponent(bundle!.community_id)}`);
   const onRemove = async () => {
     setRemoving(true);
     try {
       // Discover keeps the newest copy per link, so unlist every copy.
-      await unlistLinks([invite.linkSigner], [invite]);
+      await unlistLinks([linkSigner], entry.invite ? [entry.invite] : []);
       toast({
         title: t({ id: "communityListingCard.removedTitle", defaultMessage: "Removed from Discover" }),
         description: t(
@@ -411,7 +436,7 @@ const ListingCard = memo(function ListingCard({
   };
   const onCopy = async () => {
     try {
-      await writeClipboardText(invite.inviteUrl);
+      await writeClipboardText(entry.inviteUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -425,6 +450,7 @@ const ListingCard = memo(function ListingCard({
   // Unresolvable links (revoked, expired, dead relays) are hidden; this is what
   // makes revoking a shared link an un-listing. So are links rotated out.
   if ((!listed && !husk) || !bundle || blocked) return null;
+  const attributed = attributedPubkey ?? bundle.owner;
 
   return (
     <div
@@ -518,13 +544,15 @@ const ListingCard = memo(function ListingCard({
           <p className="text-xs text-muted-foreground line-clamp-2 break-words">{description}</p>
         )}
 
-        <ProfilePreviewCard pubkey={attributedPubkey}>
+        <ListingOriginBadges origins={shownOrigins} />
+
+        <ProfilePreviewCard pubkey={attributed}>
           <button
             type="button"
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground min-w-0"
           >
             <UserAvatar
-              pubkey={attributedPubkey}
+              pubkey={attributed}
               metadata={metadata}
               imeta={author.data?.imeta?.picture}
               name={displayName}
@@ -537,7 +565,7 @@ const ListingCard = memo(function ListingCard({
                 defaultMessage="{owned, select, true {owned by {name}} other {shared by {name}}}"
                 values={{
                   owned: ownedByOwner ? "true" : "false",
-                  name: <DisplayName pubkey={attributedPubkey} name={displayName} />,
+                  name: <DisplayName pubkey={attributed} name={displayName} />,
                 }}
               />
             </span>
@@ -603,6 +631,67 @@ const ListingCard = memo(function ListingCard({
     </div>
   );
 });
+
+/** An entry's own origins, for a card given none. */
+function ownOrigins(entry: DiscoverEntry): ListingOrigins {
+  return { nostr: !!entry.invite, hub: entry.hub };
+}
+
+const ORIGIN_BADGE = "inline-flex max-w-full items-center gap-1 px-1.5 py-0.5 clip-corner text-2xs font-medium";
+
+/** Where the community was listed: announced on Nostr, in the Vector Hub, or both. */
+function ListingOriginBadges({ origins }: { origins: ListingOrigins }) {
+  const intl = useIntl();
+  const hub = origins.hub;
+  if (!origins.nostr && !hub) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
+      <span>
+        <FormattedMessage id="communityListingCard.listedOn" defaultMessage="Listed on" />
+      </span>
+      {origins.nostr && (
+        <span
+          className={cn(ORIGIN_BADGE, "bg-foreground/5 text-foreground/80")}
+          title={intl.formatMessage({
+            id: "communityListingCard.origin.nostrHint",
+            defaultMessage: "Announced on Nostr by someone Discover is showing you.",
+          })}
+        >
+          <Waypoints className="size-3 shrink-0" aria-hidden />
+          <FormattedMessage id="communityListingCard.origin.nostr" defaultMessage="Nostr" />
+        </span>
+      )}
+      {/* Vector's mark may only appear as a link to an official Vector site. */}
+      {hub && (
+        <a
+          href={VECTOR_HUB_PAGE}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(ORIGIN_BADGE, "bg-[#33DB98]/10 text-foreground/90 hover:bg-[#33DB98]/20 touch:min-h-11 touch:px-2.5")}
+          title={intl.formatMessage({
+            id: "communityListingCard.origin.vectorHubHint",
+            defaultMessage: "Listed in the Vector Hub, Vector's community directory at vectorapp.io. Vector reviews its listings; Armada doesn't.",
+          })}
+        >
+          <VectorMark className="h-3 w-auto shrink-0" />
+          <span className="truncate">
+            {hub.official ? (
+              <FormattedMessage id="communityListingCard.origin.vectorHubOfficial" defaultMessage="Vector Hub · Official" />
+            ) : (
+              <FormattedMessage id="communityListingCard.origin.vectorHub" defaultMessage="Vector Hub" />
+            )}
+          </span>
+          {hub.official && <BadgeCheck className="size-3 shrink-0 text-[#33DB98]" aria-hidden />}
+        </a>
+      )}
+      {hub?.category && (
+        <span className={cn(ORIGIN_BADGE, "bg-foreground/5")}>
+          <span className="truncate">{hub.category}</span>
+        </span>
+      )}
+    </div>
+  );
+}
 
 /**
  * Latches true the first time `el` comes within a screenful of the viewport.

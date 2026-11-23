@@ -10,11 +10,15 @@ import {
   listingAuthorized,
   boostListingsBySigner,
   listingIdsOf,
+  listingOriginsBySigner,
+  mergeDiscoverEntries,
+  nostrEntry,
   suppressedListings,
   withCopy,
   type DiscoveredInvite,
   type ListingStanding,
 } from "@/concord/lib/inviteDiscovery";
+import type { VectorHubListing } from "@/concord/lib/vectorHub";
 
 import type { NostrRumor } from "@/lib/nostrRumor";
 
@@ -121,13 +125,13 @@ describe("suppressedListings", () => {
 
   it("hides a retired link even with no sibling to stand in", () => {
     const a = listing(LINK_A, ALICE, 10);
-    expect(suppressedListings([a], { [LINK_A]: standing({ retired: true }) })).toEqual(new Set([LINK_A]));
+    expect(suppressedListings([nostrEntry(a)], { [LINK_A]: standing({ retired: true }) })).toEqual(new Set([LINK_A]));
   });
 
   it("keeps the link on the newest epoch over an older, newer-announced one", () => {
     const old = listing(LINK_A, ALICE, 20);
     const current = listing(LINK_B, BOB, 10);
-    const out = suppressedListings([old, current], {
+    const out = suppressedListings([nostrEntry(old), nostrEntry(current)], {
       [LINK_A]: standing({ epoch: 2 }),
       [LINK_B]: standing({ epoch: 3, sharerRank: 2 }),
     });
@@ -143,14 +147,14 @@ describe("suppressedListings", () => {
       [LINK_B]: standing({ sharerRank: 2 }),
       [LINK_C]: standing({ sharerRank: 0 }),
     };
-    expect(suppressedListings([staff, other, owner], standings)).toEqual(new Set([LINK_A, LINK_B]));
-    expect(suppressedListings([staff, other], standings)).toEqual(new Set([LINK_B]));
+    expect(suppressedListings([nostrEntry(staff), nostrEntry(other), nostrEntry(owner)], standings)).toEqual(new Set([LINK_A, LINK_B]));
+    expect(suppressedListings([nostrEntry(staff), nostrEntry(other)], standings)).toEqual(new Set([LINK_B]));
   });
 
   it("falls to the next link when the best one is retired", () => {
     const best = listing(LINK_A, ALICE, 20);
     const next = listing(LINK_B, BOB, 10);
-    const out = suppressedListings([best, next], {
+    const out = suppressedListings([nostrEntry(best), nostrEntry(next)], {
       [LINK_A]: standing({ retired: true }),
       [LINK_B]: standing({ sharerRank: 1 }),
     });
@@ -161,7 +165,7 @@ describe("suppressedListings", () => {
     const a = listing(LINK_A, ALICE, 10);
     const b = listing(LINK_B, BOB, 10);
     const c = listing(LINK_C, BOB, 10);
-    const out = suppressedListings([a, b, c], {
+    const out = suppressedListings([nostrEntry(a), nostrEntry(b), nostrEntry(c)], {
       [LINK_A]: standing(),
       [LINK_B]: standing({ communityId: "e".repeat(64), owner: BOB }),
     });
@@ -190,7 +194,7 @@ describe("boosts across a community's listings", () => {
     const a = withCopy(listing(LINK_A, 30), listing(LINK_A, 10));
     const b = listing(LINK_B, 20);
     const other = listing(LINK_C, 5);
-    const out = boostListingsBySigner([a, b, other], {
+    const out = boostListingsBySigner([nostrEntry(a), nostrEntry(b), nostrEntry(other)], {
       [LINK_A]: { communityId: "d".repeat(64) },
       [LINK_B]: { communityId: "d".repeat(64) },
       [LINK_C]: { communityId: "e".repeat(64) },
@@ -203,6 +207,60 @@ describe("boosts across a community's listings", () => {
 
   it("keeps an unresolved listing's boosts to its own announcements", () => {
     const a = withCopy(listing(LINK_A, 30), listing(LINK_A, 10));
-    expect(boostListingsBySigner([a], {}).get(LINK_A)).toEqual(listingIdsOf(a));
+    expect(boostListingsBySigner([nostrEntry(a)], {}).get(LINK_A)).toEqual(listingIdsOf(a));
+  });
+});
+
+describe("Vector Hub entries", () => {
+  const LINK_C = "c".repeat(64);
+  const COMMUNITY = "d".repeat(64);
+  const listing = (linkSigner: string, createdAt: number): DiscoveredInvite => ({
+    inviteUrl: urlFor(linkSigner),
+    linkSigner,
+    source: announcement(ALICE, linkSigner, createdAt),
+  });
+  const hub = (linkSigner: string, rank: number, createdAt = 0): VectorHubListing => ({
+    id: rank,
+    inviteUrl: urlFor(linkSigner),
+    linkSigner,
+    category: "General",
+    memberCount: null,
+    official: false,
+    createdAt,
+    rank,
+  });
+
+  it("keeps one entry per link, carrying both origins where a link is on both", () => {
+    const a = listing(LINK_A, 10);
+    const hubA = hub(LINK_A, 0);
+    const hubB = hub(LINK_B, 1);
+    const out = mergeDiscoverEntries([a], [hubA, hubB]);
+    expect(out).toEqual([
+      { linkSigner: LINK_A, inviteUrl: a.inviteUrl, invite: a, hub: hubA },
+      { linkSigner: LINK_B, inviteUrl: hubB.inviteUrl, hub: hubB },
+    ]);
+  });
+
+  it("shows every origin of a community on whichever of its links is shown", () => {
+    const entries = mergeDiscoverEntries([listing(LINK_A, 10)], [hub(LINK_B, 3), hub(LINK_C, 0)]);
+    const out = listingOriginsBySigner(entries, {
+      [LINK_A]: { communityId: COMMUNITY },
+      [LINK_B]: { communityId: COMMUNITY },
+    });
+    expect(out.get(LINK_A)).toEqual({ nostr: true, hub: entries[1].hub });
+    expect(out.get(LINK_B)).toEqual({ nostr: true, hub: entries[1].hub });
+    // Unresolved: its own origin only.
+    expect(out.get(LINK_C)).toEqual({ nostr: false, hub: entries[2].hub });
+  });
+
+  it("dedupes a hub link against an announced one by community, the hub's date standing in", () => {
+    const entries = mergeDiscoverEntries([listing(LINK_A, 10)], [hub(LINK_B, 0, 20)]);
+    const standing: ListingStanding = { communityId: COMMUNITY, owner: ALICE, epoch: 3, sharerRank: 0, retired: false };
+    expect(suppressedListings(entries, { [LINK_A]: standing, [LINK_B]: standing })).toEqual(new Set([LINK_A]));
+  });
+
+  it("gives a hub-only link no announcements to count boosts on", () => {
+    const entries = mergeDiscoverEntries([], [hub(LINK_A, 0)]);
+    expect(boostListingsBySigner(entries, {}).get(LINK_A)).toEqual([]);
   });
 });

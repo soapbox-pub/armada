@@ -11,6 +11,7 @@
 import { nip19 } from "nostr-tools";
 
 import { parseInviteLink, type InviteBundle } from "@/concord/lib/invite";
+import type { VectorHubListing } from "@/concord/lib/vectorHub";
 
 import type { EventTemplate } from "@/hooks/useNostrPublish";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -41,6 +42,84 @@ export function withCopy(invite: DiscoveredInvite, other: DiscoveredInvite): Dis
 /** Every announcement id an invite stands for: its own and its copies'. */
 export function listingIdsOf(invite: DiscoveredInvite): string[] {
   return invite.copies?.length ? [invite.source.id, ...invite.copies] : [invite.source.id];
+}
+
+/** One link in the Discover grid, from wherever it was listed: announced on Nostr, in the Vector Hub, or both. */
+export interface DiscoverEntry {
+  linkSigner: string;
+  inviteUrl: string;
+  invite?: DiscoveredInvite;
+  hub?: VectorHubListing;
+  /** A bare {@link DiscoveredInvite} would otherwise pass for an entry; wrap it with {@link nostrEntry}. */
+  source?: never;
+}
+
+/** Where a community's listings came from, across every link resolving to it. */
+export interface ListingOrigins {
+  nostr: boolean;
+  hub?: VectorHubListing;
+}
+
+/** An announcement as a grid entry. */
+export function nostrEntry(invite: DiscoveredInvite): DiscoverEntry {
+  return { linkSigner: invite.linkSigner, inviteUrl: invite.inviteUrl, invite };
+}
+
+/**
+ * Announcements and hub listings as one entry per link, announcements first in
+ * their order, then the hub's links nobody announced. A link on both keeps both.
+ */
+export function mergeDiscoverEntries(
+  invites: readonly DiscoveredInvite[],
+  hub: readonly VectorHubListing[],
+): DiscoverEntry[] {
+  const hubBySigner = new Map(hub.map((listing) => [listing.linkSigner, listing]));
+  const out: DiscoverEntry[] = [];
+  const seen = new Set<string>();
+  for (const invite of invites) {
+    seen.add(invite.linkSigner);
+    const listing = hubBySigner.get(invite.linkSigner);
+    out.push(listing ? { ...nostrEntry(invite), hub: listing } : nostrEntry(invite));
+  }
+  for (const listing of hub) {
+    if (seen.has(listing.linkSigner)) continue;
+    out.push({ linkSigner: listing.linkSigner, inviteUrl: listing.inviteUrl, hub: listing });
+  }
+  return out;
+}
+
+/** When an entry was listed: its announcement's date, else the hub's. */
+function listedAt(entry: DiscoverEntry): number {
+  return entry.invite?.source.created_at ?? entry.hub?.createdAt ?? 0;
+}
+
+/**
+ * The origins each entry's card shows: those of every entry resolving to the same
+ * community, since only one card stands per community. Unresolved entries show their own.
+ */
+export function listingOriginsBySigner(
+  entries: readonly DiscoverEntry[],
+  standings: Readonly<Record<string, Pick<ListingStanding, "communityId">>>,
+): Map<string, ListingOrigins> {
+  const byCommunity = new Map<string, ListingOrigins>();
+  const own = (entry: DiscoverEntry): ListingOrigins => ({ nostr: !!entry.invite, hub: entry.hub });
+  for (const entry of entries) {
+    const communityId = standings[entry.linkSigner]?.communityId;
+    if (!communityId) continue;
+    const held = byCommunity.get(communityId);
+    if (!held) {
+      byCommunity.set(communityId, own(entry));
+      continue;
+    }
+    held.nostr ||= !!entry.invite;
+    if (entry.hub && (!held.hub || entry.hub.rank < held.hub.rank)) held.hub = entry.hub;
+  }
+  const out = new Map<string, ListingOrigins>();
+  for (const entry of entries) {
+    const communityId = standings[entry.linkSigner]?.communityId;
+    out.set(entry.linkSigner, (communityId && byCommunity.get(communityId)) || own(entry));
+  }
+  return out;
 }
 
 /**
@@ -103,17 +182,17 @@ export interface ListingStanding {
  * the newest announcement. Listings not yet resolved aren't judged.
  */
 export function suppressedListings(
-  invites: readonly DiscoveredInvite[],
+  invites: readonly DiscoverEntry[],
   standings: Readonly<Record<string, ListingStanding>>,
 ): Set<string> {
   const suppressed = new Set<string>();
-  const best = new Map<string, { invite: DiscoveredInvite; standing: ListingStanding }>();
-  const outranks = (a: { invite: DiscoveredInvite; standing: ListingStanding }, b: typeof a) =>
+  const best = new Map<string, { invite: DiscoverEntry; standing: ListingStanding }>();
+  const outranks = (a: { invite: DiscoverEntry; standing: ListingStanding }, b: typeof a) =>
     a.standing.epoch !== b.standing.epoch
       ? a.standing.epoch > b.standing.epoch
       : a.standing.sharerRank !== b.standing.sharerRank
         ? a.standing.sharerRank < b.standing.sharerRank
-        : a.invite.source.created_at > b.invite.source.created_at;
+        : listedAt(a.invite) > listedAt(b.invite);
   for (const invite of invites) {
     const standing = standings[invite.linkSigner];
     if (!standing) continue;
@@ -139,7 +218,7 @@ export function suppressedListings(
  * keep their own.
  */
 export function boostListingsBySigner(
-  invites: readonly DiscoveredInvite[],
+  invites: readonly DiscoverEntry[],
   standings: Readonly<Record<string, Pick<ListingStanding, "communityId">>>,
 ): Map<string, string[]> {
   const byCommunity = new Map<string, Set<string>>();
@@ -147,15 +226,22 @@ export function boostListingsBySigner(
     const communityId = standings[invite.linkSigner]?.communityId;
     if (!communityId) continue;
     const ids = byCommunity.get(communityId) ?? byCommunity.set(communityId, new Set()).get(communityId)!;
-    for (const id of listingIdsOf(invite)) ids.add(id);
+    for (const id of entryListingIds(invite)) ids.add(id);
   }
   const out = new Map<string, string[]>();
   for (const invite of invites) {
     const communityId = standings[invite.linkSigner]?.communityId;
     const shared = communityId ? byCommunity.get(communityId) : undefined;
-    out.set(invite.linkSigner, shared ? [...shared].sort() : listingIdsOf(invite));
+    out.set(invite.linkSigner, shared ? [...shared].sort() : entryListingIds(invite));
   }
   return out;
+}
+
+const NO_IDS: string[] = [];
+
+/** The announcement ids an entry stands for; none when only the hub lists it. */
+export function entryListingIds(entry: DiscoverEntry): string[] {
+  return entry.invite ? listingIdsOf(entry.invite) : NO_IDS;
 }
 
 /** The hex pubkey of a link's creator, as its bundle names it. */
