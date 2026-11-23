@@ -3832,6 +3832,7 @@
   "remoteLoginSuccessPage.goHome": "Go home",
   "remoteLoginSuccessPage.returning": "Taking you back to the app…",
   "remoteLoginSuccessPage.title": "Login approved",
+  "replyPreview.spoiler": "Spoiler",
   "report.audience.concord": "Only this community's moderators can read it.",
   "report.audience.network": "This report is public. Anyone can read it, including your comment.",
   "report.audience.nip29": "Sent to this server's moderators.",

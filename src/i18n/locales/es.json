@@ -3832,6 +3832,7 @@
   "remoteLoginSuccessPage.goHome": "Ir al inicio",
   "remoteLoginSuccessPage.returning": "Volviendo a la app…",
   "remoteLoginSuccessPage.title": "Inicio de sesión aprobado",
+  "replyPreview.spoiler": "Spoiler",
   "report.audience.concord": "Solo los moderadores de esta comunidad pueden leerla.",
   "report.audience.network": "Esta denuncia es pública. Cualquiera puede leerla, incluido tu comentario.",
   "report.audience.nip29": "Se envía a los moderadores de este servidor.",

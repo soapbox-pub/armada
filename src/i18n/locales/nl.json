@@ -3832,6 +3832,7 @@
   "remoteLoginSuccessPage.goHome": "Naar start",
   "remoteLoginSuccessPage.returning": "Je wordt teruggebracht naar de app…",
   "remoteLoginSuccessPage.title": "Inloggen goedgekeurd",
+  "replyPreview.spoiler": "Spoiler",
   "report.audience.concord": "Alleen de moderators van deze community kunnen het lezen.",
   "report.audience.network": "Dit rapport is openbaar. Iedereen kan het lezen, ook je opmerking.",
   "report.audience.nip29": "Verstuurd naar de moderators van deze server.",

@@ -3832,6 +3832,7 @@
   "remoteLoginSuccessPage.goHome": "ホームへ",
   "remoteLoginSuccessPage.returning": "アプリに戻っています…",
   "remoteLoginSuccessPage.title": "ログインが承認されました",
+  "replyPreview.spoiler": "ネタバレ",
   "report.audience.concord": "このコミュニティのモデレーターだけが読めます。",
   "report.audience.network": "この報告は公開されます。あなたのコメントも含め、誰でも読めます。",
   "report.audience.nip29": "このサーバーのモデレーターに送信されます。",
