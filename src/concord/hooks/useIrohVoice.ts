@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type { CallAllowance } from "@/concord/lib/callGate";
-import { irohRelayPlan, p2pTargets, type IrohRelayPlan } from "@/concord/lib/irohVoice";
+import { deploymentIrohRelays, irohRelayPlan, p2pTargets, type IrohRelayPlan } from "@/concord/lib/irohVoice";
 import type { IrohAddress, VoicePresenceFold } from "@/concord/lib/voice";
 import { IrohVoiceAudio, irohAudioSupported } from "@/lib/irohVoice/audio";
 import { IrohVoiceCall, type LinkedPeer } from "@/lib/irohVoice/call";
 import { peerViews, SPEAKING_LEVEL, wantedFrom, type P2pPeerView } from "@/lib/irohVoice/peers";
 import { IrohVideo } from "@/lib/irohVoice/video";
 import type { VideoKind } from "@/concord/lib/irohVideo";
-import { CONCORD_IROH_RELAYS } from "@/lib/platform";
-import { irohDefaultRelays, voiceNodeBinder } from "@/lib/realtimeTransport";
+import { voiceNodeBinder } from "@/lib/realtimeTransport";
 import { getPreferredSpeakerId, getUserVolume, subscribeUserVolumes, subscribeVoiceDevices } from "@/lib/voiceDevices";
 
 export type IrohVoiceStatus = "off" | "starting" | "on" | "unavailable";
@@ -54,13 +53,6 @@ export interface IrohVoice {
 }
 
 const NONE: LinkedPeer[] = [];
-
-/** This deployment's iroh relays: `CONCORD_IROH_RELAYS`, else the shipped iroh release's; undefined without iroh. */
-async function deploymentIrohRelays(): Promise<string[] | undefined> {
-  const shipped = await irohDefaultRelays();
-  if (!shipped) return undefined;
-  return CONCORD_IROH_RELAYS ?? shipped;
-}
 
 /**
  * Whether a call can run peer to peer here: the iroh module, WebCodecs Opus, and a relay to

@@ -10,6 +10,8 @@
  */
 import { canonicalOrigin, type IrohAddress, type VoicePresenceFold } from "@/concord/lib/voice";
 import type { CommunityMetadata } from "@/concord/lib/types";
+import { CONCORD_IROH_RELAYS } from "@/lib/platform";
+import { irohDefaultRelays } from "@/lib/realtimeTransport";
 
 /** Vector's datagram header (`vector-calls` `wire.rs`): seq u16, sender ms u32, flags u16, big-endian. */
 export const HEADER_LEN = 8;
@@ -85,6 +87,16 @@ export async function probeVoiceRelay(url: string, signal?: AbortSignal): Promis
   } catch {
     return false;
   }
+}
+
+/**
+ * This deployment's iroh relays: `CONCORD_IROH_RELAYS`, else the shipped iroh release's.
+ * Undefined in a build without iroh, where no peer-to-peer call can run at all.
+ */
+export async function deploymentIrohRelays(): Promise<string[] | undefined> {
+  const shipped = await irohDefaultRelays();
+  if (!shipped) return undefined;
+  return CONCORD_IROH_RELAYS ?? shipped;
 }
 
 /** Where a call's endpoint homes, and which relays it dials peers through (CORD-07 §8). */

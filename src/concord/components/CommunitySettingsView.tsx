@@ -88,6 +88,7 @@ import { encryptedUploadFailureReason } from "@/lib/blossomPreflight";
 import { COMMUNITY_BANNER_EDGE, COMMUNITY_ICON_EDGE, encryptImageBlob } from "@/concord/lib/image";
 import { mirrorHistoryToRelays, type MirrorProgress } from "@/concord/lib/relayMirror";
 import { canonicalOrigin, communityAvBrokers, probeAvBroker } from "@/concord/lib/voice";
+import { IrohWordmark, LiveKitMark } from "@/components/icons/BrandMarks";
 import { communityVoiceRelays, MAX_VOICE_RELAYS, probeVoiceRelay, voiceRelayUrl } from "@/concord/lib/irohVoice";
 import {
   MAX_COMMUNITY_AV_BROKERS,
@@ -1586,6 +1587,7 @@ function DisappearingSection({
 
 const VOICE_SERVER_MESSAGES = defineMessages({
   title: { id: "communitySettingsView.voice.title", defaultMessage: "Voice servers" },
+  about: { id: "communitySettingsView.voice.about", defaultMessage: "Calls run on a LiveKit server, reached through these Concord voice brokers. They carry only end-to-end encrypted media, but see members' IP addresses and when they call." },
   edit: { id: "communitySettingsView.voice.edit", defaultMessage: "Edit voice servers" },
   none: { id: "communitySettingsView.voice.none", defaultMessage: "None set, so calls use each member's own voice server. Setting them here makes every call in this community use these, and only these." },
   invalid: { id: "communitySettingsView.voice.invalid", defaultMessage: "Enter an https address, like https://voice.example.com" },
@@ -1603,6 +1605,7 @@ const VOICE_SERVER_MESSAGES = defineMessages({
 
 const VOICE_RELAY_MESSAGES = defineMessages({
   title: { id: "communitySettingsView.voiceRelays.title", defaultMessage: "Peer-to-peer relays" },
+  about: { id: "communitySettingsView.voiceRelays.about", defaultMessage: "Calls that connect members to each other over iroh, the way Vector calls, pass through these relays. They carry only encrypted traffic, but see members' IP addresses and when they call." },
   edit: { id: "communitySettingsView.voiceRelays.edit", defaultMessage: "Edit peer-to-peer relays" },
   none: { id: "communitySettingsView.voiceRelays.none", defaultMessage: "None set, so peer-to-peer calls go through the app's default iroh relays. Setting them here makes this community's peer-to-peer calls use these." },
   invalid: { id: "communitySettingsView.voiceRelays.invalid", defaultMessage: "Enter an https address, like https://relay.example.com" },
@@ -1625,7 +1628,7 @@ type ServerListMessages = Record<keyof typeof VOICE_SERVER_MESSAGES, MessageDesc
  * own. Non-empty is EXCLUSIVE, so all-down means no calls. Brokers hold no
  * secrets and see only E2EE media; the choice is who sees IPs and call timing.
  */
-function VoiceServersSection({ community, brokers, canManage }: { community: Community; brokers: string[]; canManage: boolean }) {
+export function VoiceServersSection({ community, brokers, canManage }: { community: Community; brokers: string[]; canManage: boolean }) {
   const { updateMetadata } = useMetadataActions(community);
   return (
     <ServerListSection
@@ -1634,6 +1637,7 @@ function VoiceServersSection({ community, brokers, canManage }: { community: Com
       max={MAX_COMMUNITY_AV_BROKERS}
       placeholder="https://voice.example.com"
       messages={VOICE_SERVER_MESSAGES}
+      brand={<LiveKitMark className="size-3.5" />}
       // Non-https refused: the token grant is a bearer credential (CORD-07 §2).
       normalize={(raw) => canonicalOrigin(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`)}
       probe={probeAvBroker}
@@ -1646,7 +1650,7 @@ function VoiceServersSection({ community, brokers, canManage }: { community: Com
  * Community iroh relays for peer-to-peer calls (CORD-02 §6 / CORD-07 §8): like the voice
  * servers, they replace what members would otherwise use, here the app's default relays.
  */
-function VoiceRelaysSection({ community, relays, canManage }: { community: Community; relays: string[]; canManage: boolean }) {
+export function VoiceRelaysSection({ community, relays, canManage }: { community: Community; relays: string[]; canManage: boolean }) {
   const { updateMetadata } = useMetadataActions(community);
   return (
     <ServerListSection
@@ -1655,6 +1659,7 @@ function VoiceRelaysSection({ community, relays, canManage }: { community: Commu
       max={MAX_VOICE_RELAYS}
       placeholder="https://relay.example.com"
       messages={VOICE_RELAY_MESSAGES}
+      brand={<IrohWordmark className="h-3.5 w-auto" />}
       normalize={voiceRelayUrl}
       probe={probeVoiceRelay}
       save={(list) => updateMetadata({ voice_relays: list })}
@@ -1669,6 +1674,7 @@ function ServerListSection({
   max,
   placeholder,
   messages,
+  brand,
   normalize,
   probe,
   save,
@@ -1678,6 +1684,8 @@ function ServerListSection({
   max: number;
   placeholder: string;
   messages: ServerListMessages;
+  /** The mark of what these servers are, beside the title. */
+  brand: React.ReactNode;
   normalize: (raw: string) => string | null;
   probe: (url: string) => Promise<boolean>;
   save: (list: string[]) => Promise<void>;
@@ -1748,7 +1756,8 @@ function ServerListSection({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {brand}
           <FormattedMessage {...messages.title} />
         </span>
         {canManage && !editing && (
@@ -1764,6 +1773,9 @@ function ServerListSection({
           </Button>
         )}
       </div>
+      <p className="text-2xs text-muted-foreground">
+        <FormattedMessage {...messages.about} />
+      </p>
 
       {!editing ? (
         items.length === 0 ? (

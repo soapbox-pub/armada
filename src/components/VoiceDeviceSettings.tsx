@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Globe, Keyboard, Mic, MicOff, Volume2 } from "lucide-react";
+import { Keyboard, Mic, MicOff, Volume2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { InfoTip } from "@/components/settings/SettingsSection";
@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { ownAvServers } from "@/concord/hooks/useVoice";
 import { probeAvBroker } from "@/concord/lib/voice";
+import { deploymentIrohRelays } from "@/concord/lib/irohVoice";
+import { IrohWordmark, LiveKitMark } from "@/components/icons/BrandMarks";
 import { useAppContext } from "@/hooks/useAppContext";
 import { FormattedMessage, t, useIntl } from "@/i18n";
 import {
@@ -633,7 +635,7 @@ export function VoiceDeviceSettings() {
       {/* Only used where no community sets its own (Settings → Network), and for DM calls. */}
       <div className="space-y-2.5">
         <div className="flex items-center gap-2">
-          <Globe className="size-4 text-muted-foreground shrink-0" />
+          <LiveKitMark className="size-4" />
           <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             <FormattedMessage id="voiceDeviceSettings.voiceServer" defaultMessage="Voice server" />
           </label>
@@ -692,6 +694,55 @@ export function VoiceDeviceSettings() {
           )}
         </p>
       </div>
+
+      <PeerToPeerRelays />
+    </div>
+  );
+}
+
+/**
+ * The iroh relays this build's peer-to-peer calls use where a community lists none
+ * (CORD-07 §8). Read-only: a relay outside iroh's defaults and the community's list is
+ * one other clients won't dial, so there is no per-user choice to offer.
+ */
+function PeerToPeerRelays() {
+  const intl = useIntl();
+  const { data: relays, isPending } = useQuery({
+    queryKey: ["iroh-deployment-relays"],
+    queryFn: async () => (await deploymentIrohRelays()) ?? null,
+    staleTime: Infinity,
+  });
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-2">
+        <IrohWordmark className="h-4 w-auto" />
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <FormattedMessage id="voiceDeviceSettings.p2pRelays" defaultMessage="Peer-to-peer relays" />
+        </span>
+        <InfoTip label={intl.formatMessage({ id: "voiceDeviceSettings.aboutP2pRelays", defaultMessage: "About peer-to-peer relays" })}>
+          <FormattedMessage
+            id="voiceDeviceSettings.p2pRelaysHelp"
+            defaultMessage="Used by calls that connect members to each other over iroh, the way Vector calls, in communities that set no relays of their own. A community that sets them uses only those. The relays see your IP address and when you call, never what is said."
+          />
+        </InfoTip>
+      </div>
+      {isPending ? null : relays === null || relays === undefined ? (
+        <p className="text-xs text-muted-foreground">
+          <FormattedMessage id="voiceDeviceSettings.p2pUnavailable" defaultMessage="This copy of Armada was built without peer-to-peer calling." />
+        </p>
+      ) : relays.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          <FormattedMessage id="voiceDeviceSettings.p2pNoRelays" defaultMessage="None. Peer-to-peer calls start only in communities that set their own relays." />
+        </p>
+      ) : (
+        <ul className="space-y-1">
+          {relays.map((r) => (
+            <li key={r} className="truncate rounded-md bg-secondary/40 px-2 py-1 text-xs font-mono">
+              {r}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
