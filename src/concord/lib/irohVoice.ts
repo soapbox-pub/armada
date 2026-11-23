@@ -99,6 +99,8 @@ export interface P2pTopology {
   /** Our own endpoint, hex. */
   endpoint: string;
   communityRelays: readonly string[];
+  /** Whether a member may be in this Channel's call at all (CONNECT, CORD-07 §7). */
+  mayConnect?: (author: string) => boolean;
 }
 
 /**
@@ -121,6 +123,7 @@ export function p2pTargets(fold: VoicePresenceFold, me: string, topo: P2pTopolog
   for (const c of candidates) {
     if (c.author === me || c.iroh.endpoint === mine || claims.get(c.iroh.endpoint) !== 1) continue;
     if (topo.onSfu && c.onSfu) continue;
+    if (topo.mayConnect && !topo.mayConnect(c.author)) continue;
     const relay = c.iroh.relay;
     out.push({
       author: c.author,

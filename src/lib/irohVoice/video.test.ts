@@ -54,6 +54,51 @@ describe("video over the peer-to-peer links (Vector `voice/video.rs`)", () => {
     expect(sent).toHaveLength(1);
   });
 
+  it("still owes a keyframe when the encoder was too busy to take the frame it was asked of", async () => {
+    const encoded: boolean[] = [];
+    class FakeEncoder {
+      static isConfigSupported = async () => ({ supported: true });
+      state = "configured";
+      encodeQueueSize = 0;
+      configure() {}
+      close() {
+        this.state = "closed";
+      }
+      encode(_frame: unknown, opts: { keyFrame: boolean }) {
+        encoded.push(opts.keyFrame);
+      }
+    }
+    vi.stubGlobal("VideoEncoder", FakeEncoder);
+    vi.stubGlobal("MediaStreamTrackProcessor", class { readable = new ReadableStream(); });
+    let t = 10_000;
+    vi.spyOn(performance, "now").mockImplementation(() => t);
+    try {
+      const { video } = harness();
+      video.onStream("a", packControlStream({ t: "watch", camera: true, screen: false }));
+      await video.setSource("camera", {} as MediaStreamTrack);
+      const internals = video as unknown as { senders: Map<string, { encoder?: FakeEncoder }>; encode(s: unknown, f: unknown): void };
+      const sender = internals.senders.get("camera")!;
+      const frame = () => ({ displayWidth: 1280, displayHeight: 720, timestamp: t * 1000, close: vi.fn() });
+
+      internals.encode(sender, frame());
+      expect(encoded).toEqual([true]);
+
+      video.onStream("a", packControlStream({ t: "key", kind: "camera" }));
+      t += 100;
+      sender.encoder!.encodeQueueSize = 5;
+      internals.encode(sender, frame());
+      expect(encoded, "the busy encoder took nothing").toEqual([true]);
+
+      t += 100;
+      sender.encoder!.encodeQueueSize = 0;
+      internals.encode(sender, frame());
+      expect(encoded).toEqual([true, true]);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("ignores what isn't a frame or a control", () => {
     const { video, sent } = harness();
     video.onStream("a", new Uint8Array([9, 1, 2]));

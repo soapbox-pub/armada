@@ -1342,6 +1342,8 @@ function ConcordVoiceRoom({
       const o = obey.current;
       if (d.verb === "mute" || d.verb === "deafen") {
         void e2ee.room?.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
+        // A call that is peer to peer alone has no LiveKit mic to turn off.
+        setP2pMuted(true);
         toast({
           title: d.verb === "mute"
             ? t({ id: "persistentVoiceRoom.directive.muted", defaultMessage: "A moderator muted you" })

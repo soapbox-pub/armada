@@ -380,12 +380,15 @@ export class IrohVideo {
         s.canvas.getContext("2d")?.drawImage(frame, 0, 0, width, height);
         input = new VideoFrame(s.canvas, { timestamp: frame.timestamp });
       }
-      const keyFrame = s.forceKey || now - s.lastKey > KEY_EVERY_MS;
-      if (keyFrame) {
-        s.forceKey = false;
-        s.lastKey = now;
+      // A frame the busy encoder doesn't take leaves any keyframe owed for the next one.
+      if (s.encoder.encodeQueueSize < 3) {
+        const keyFrame = s.forceKey || now - s.lastKey > KEY_EVERY_MS;
+        if (keyFrame) {
+          s.forceKey = false;
+          s.lastKey = now;
+        }
+        s.encoder.encode(input, { keyFrame });
       }
-      if (s.encoder.encodeQueueSize < 3) s.encoder.encode(input, { keyFrame });
       if (input !== frame) input.close();
     } finally {
       frame.close();

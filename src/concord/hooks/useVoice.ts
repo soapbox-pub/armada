@@ -452,7 +452,8 @@ export function useVoiceHeartbeat(
   irohRef.current = iroh;
   const irohKey = iroh ? `${iroh.endpoint}|${iroh.relay ?? ""}` : "";
   // Off LiveKit the endpoint alone puts us in the call; on it, it rides the SFU heartbeat.
-  const active = Boolean(identity && broker) || (irohAlone && Boolean(iroh));
+  // Still in the call while the endpoint binds, so falling back sends no `left` in between.
+  const active = Boolean(identity && broker) || irohAlone;
   // Read at send time: dropping the SFU identity for peer to peer alone must not send a
   // `left`, which Vector takes as leaving the call and unlinks.
   const sfuRef = useRef({ identity, broker });
@@ -466,6 +467,8 @@ export function useVoiceHeartbeat(
       reaction?: { emoji: string; nonce: string },
     ) => {
       if (!user || !community || !channel) return false;
+      // A `joined` naming neither an SFU identity nor an endpoint says nothing yet.
+      if (status === "joined" && !id && !irohRef.current) return false;
       const rumor = buildRumor({
         kind: KIND_VOICE_PRESENCE,
         content: status,

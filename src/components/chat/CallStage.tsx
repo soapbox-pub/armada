@@ -74,7 +74,7 @@ import { fitGrid, heroSize, useElementSize, type HeroSize } from "@/components/c
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { playScreenShareEndSound, playScreenShareSound } from "@/lib/callSounds";
 import { pickVisible, type CallActivity } from "@/lib/callRanking";
-import { getAvatarShape } from "@/lib/avatarShape";
+import { getAvatarShape, shapedAvatarSpeakingStyle } from "@/lib/avatarShape";
 import { useWearsFrame } from "@/lib/ultra";
 import { cn } from "@/lib/utils";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";

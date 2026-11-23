@@ -74,6 +74,25 @@ describe("the call's presence heartbeat", () => {
     expect(presences().map((p) => p.content)).toEqual(["left"]);
   });
 
+  it("sends no left when LiveKit fails before the endpoint is bound, and announces the endpoint once it is", async () => {
+    type P = { identity?: string; broker?: string; alone: boolean; iroh?: IrohAddress };
+    const { rerender } = renderHook(
+      ({ identity, broker, alone, iroh }: P) => useVoiceHeartbeat(community, channel, identity, broker, false, [], false, MEDIA, iroh, alone),
+      { initialProps: { identity: "id-1", broker: "https://av.test", alone: false } as P },
+    );
+    await settle();
+    expect(presences()[0]).toEqual({ content: "joined", identity: "id-1", endpoint: undefined });
+
+    h.sent = [];
+    rerender({ identity: undefined, broker: undefined, alone: true });
+    await settle();
+    expect(presences(), "nothing to announce yet, and no left").toEqual([]);
+
+    rerender({ identity: undefined, broker: undefined, alone: true, iroh: IROH });
+    await settle();
+    expect(presences()).toEqual([{ content: "joined", identity: undefined, endpoint: IROH.endpoint }]);
+  });
+
   it("announces nothing before LiveKit hands out an identity, unless the call is peer to peer alone", async () => {
     renderHook(() => useVoiceHeartbeat(community, channel, undefined, undefined, false, [], false, MEDIA, IROH, false));
     await settle();

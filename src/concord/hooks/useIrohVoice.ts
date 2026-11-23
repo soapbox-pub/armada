@@ -140,15 +140,16 @@ export function useIrohVoice(opts: IrohVoiceOptions): IrohVoice {
     return () => clearInterval(timer);
   }, [call]);
 
+  const gateRef = useRef(gate);
+  gateRef.current = gate;
+
   const mine = address?.endpoint;
   useEffect(() => {
     if (!call || !me || !mine) return;
-    call.call.setTargets(p2pTargets(fold, me, { onSfu, endpoint: mine, communityRelays: relays }));
+    const mayConnect = (author: string) => gateRef.current?.(author).connect !== false;
+    call.call.setTargets(p2pTargets(fold, me, { onSfu, endpoint: mine, communityRelays: relays, mayConnect }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [call, fold, me, mine, onSfu, relaysKey]);
-
-  const gateRef = useRef(gate);
-  gateRef.current = gate;
+  }, [call, fold, me, mine, onSfu, relaysKey, gate]);
   useEffect(() => {
     if (!call) return;
     const apply = () =>

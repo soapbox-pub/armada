@@ -165,6 +165,12 @@ describe("the call's topology", () => {
     expect(p2pTargets(fold([bridge], [vector]), me, { onSfu: false, endpoint: mine, communityRelays: [] })).toHaveLength(2);
   });
 
+  it("links no member who may not connect to the Channel", () => {
+    const mayConnect = (author: string) => author !== pk("v");
+    expect(p2pTargets(fold([], [vector]), me, { onSfu: true, endpoint: mine, communityRelays: [], mayConnect })).toEqual([]);
+    expect(p2pTargets(fold([armadaOnSfu], [vector]), me, { onSfu: false, endpoint: mine, communityRelays: [], mayConnect }).map((t) => t.author)).toEqual([pk("b")]);
+  });
+
   it("holds the mesh to its cap", () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ author: pk(i.toString(16).padStart(2, "0").slice(-1)) + i, iroh: { endpoint: (i + 100).toString(16).padStart(64, "f"), relay: RELAY } }));
     expect(p2pTargets(fold([], many), me, { onSfu: true, endpoint: mine, communityRelays: [] })).toHaveLength(MAX_PEERS);
