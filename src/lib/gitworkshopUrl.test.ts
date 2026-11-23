@@ -12,6 +12,7 @@ import {
   gitworkshopRepositoryUrl,
   gitworkshopTicketUrl,
   ngitCloneUrl,
+  parseGitworkshopUrl,
 } from "@/lib/gitworkshopUrl";
 import { routeParamToRelay } from "@/lib/platform";
 
@@ -97,10 +98,71 @@ describe("repository links", () => {
   });
 
   it("builds ngit's nostr:// remote, keeping only a bare wss host as the relay", () => {
-    expect(ngitCloneUrl(OWNER, "armada", "wss://relay.ngit.dev/")).toBe(`nostr://${npub}/relay.ngit.dev/armada`);
+    expect(ngitCloneUrl(OWNER, "armada", "wss://relay.ngit.dev")).toBe(`nostr://${npub}/relay.ngit.dev/armada`);
     expect(ngitCloneUrl(OWNER, "armada", "wss://relay.example:7447")).toBe(`nostr://${npub}/relay.example:7447/armada`);
     expect(ngitCloneUrl(OWNER, "armada", "wss://gleasonator.dev/relay")).toBe(`nostr://${npub}/armada`);
     expect(ngitCloneUrl(OWNER, "armada", "ws://localhost:7777")).toBe(`nostr://${npub}/armada`);
     expect(ngitCloneUrl(OWNER, "team armada")).toBe(`nostr://${npub}/team%20armada`);
+  });
+});
+
+describe("parseGitworkshopUrl", () => {
+  const npub = nip19.npubEncode(OWNER);
+
+  it("reads a repository with a relay segment", () => {
+    expect(parseGitworkshopUrl(`https://gitworkshop.dev/${npub}/relay.ngit.dev/armada`)).toEqual({
+      owner: OWNER,
+      identifier: "armada",
+      relays: ["wss://relay.ngit.dev"],
+      view: "repository",
+      ticket: undefined,
+    });
+  });
+
+  it("round-trips the routes this client builds", () => {
+    const url = gitworkshopRepositoryUrl(OWNER, "my repo", "wss://gleasonator.dev/relay")!;
+    expect(parseGitworkshopUrl(url)).toMatchObject({
+      owner: OWNER,
+      identifier: "my repo",
+      relays: ["wss://gleasonator.dev/relay"],
+      view: "repository",
+    });
+    const ticketUrl = gitworkshopTicketUrl(ticket(GIT_ISSUE_KIND))!;
+    expect(parseGitworkshopUrl(ticketUrl)).toMatchObject({
+      identifier: "armada",
+      view: "issue",
+      ticket: { id: TICKET_ID, author: AUTHOR },
+    });
+  });
+
+  it("does not take a section after the identifier for a relay", () => {
+    expect(parseGitworkshopUrl(`https://gitworkshop.dev/${npub}/foo.js/issues`)).toMatchObject({
+      identifier: "foo.js",
+      relays: [],
+      view: "issues",
+    });
+    expect(parseGitworkshopUrl(`https://gitworkshop.dev/${npub}/armada/prs`)?.view).toBe("pull-requests");
+    expect(parseGitworkshopUrl(`https://gitworkshop.dev/${npub}/armada/tree/main`)?.view).toBe("repository");
+  });
+
+  it("reads a NIP-05 owner and a repository naddr", () => {
+    expect(parseGitworkshopUrl("https://gitworkshop.dev/soapbox.pub/armada")).toMatchObject({
+      owner: undefined,
+      identifier: "armada",
+    });
+    const naddr = nip19.naddrEncode({ kind: 30617, pubkey: OWNER, identifier: "armada", relays: ["wss://relay.ngit.dev"] });
+    expect(parseGitworkshopUrl(`https://gitworkshop.dev/${naddr}/issues`)).toMatchObject({
+      owner: OWNER,
+      identifier: "armada",
+      relays: ["wss://relay.ngit.dev"],
+      view: "issues",
+    });
+  });
+
+  it("ignores other hosts and GitWorkshop's own pages", () => {
+    expect(parseGitworkshopUrl(`https://example.com/${npub}/armada`)).toBeNull();
+    expect(parseGitworkshopUrl(`https://gitworkshop.dev/${npub}`)).toBeNull();
+    expect(parseGitworkshopUrl("https://gitworkshop.dev/quick-start")).toBeNull();
+    expect(parseGitworkshopUrl("https://gitworkshop.dev/search/armada")).toBeNull();
   });
 });

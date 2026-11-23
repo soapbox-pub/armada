@@ -7,6 +7,8 @@ import { Lightbox, type LightboxItem } from "@/components/chat/Lightbox";
 import { TweetEmbed } from "@/components/chat/TweetEmbed";
 import { VideoPlayer } from "@/components/chat/VideoPlayer";
 import { toast } from "@/hooks/useToast";
+import { useAuthor } from "@/hooks/useAuthor";
+import { publicRelayHints, useAddrEvent, useEvent } from "@/hooks/useEvent";
 import { useLinkPreview, useRichEmbed } from "@/hooks/useLinkPreview";
 import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -28,9 +30,11 @@ import {
 } from "@/lib/linkEmbed";
 import { faviconUrl } from "@/lib/faviconUrl";
 import { fullDateTime } from "@/lib/formatTime";
-import type { RichEmbedImage } from "@/lib/richEmbed";
+import { GIT_REPOSITORY_ANNOUNCEMENT_KIND, parseGitRepositoryAnnouncement, parseGitTicket } from "@/lib/gitActivity";
+import { parseGitworkshopUrl, type GitworkshopTarget, type GitworkshopView } from "@/lib/gitworkshopUrl";
+import type { RichEmbed, RichEmbedImage } from "@/lib/richEmbed";
 import { sanitizeImageSrc } from "@/lib/sanitizeUrl";
-import { FormattedMessage, common, t, useIntl } from "@/i18n";
+import { FormattedMessage, common, defineMessage, t, useIntl, type MessageDescriptor } from "@/i18n";
 import {
   hasNativeYouTubePlayer,
   needsNativeYouTubePlayer,
@@ -55,6 +59,7 @@ export function LinkEmbed({ url, className }: LinkEmbedProps) {
   const odysee = odyseeEmbedUrl(url);
   const peerTube = peerTubeApiUrl(url);
   const giphyMp4 = giphyMp4FromPageUrl(url);
+  const gitworkshop = useMemo(() => parseGitworkshopUrl(url), [url]);
   // Remounting the provider iframe is the only way to stop its playback.
   const pauseEpoch = useEmbedPauseEpoch();
 
@@ -144,6 +149,10 @@ export function LinkEmbed({ url, className }: LinkEmbedProps) {
     );
   }
 
+  if (gitworkshop) {
+    return <GitworkshopPreview url={url} target={gitworkshop} className={className} />;
+  }
+
   return <LinkPreview url={url} className={className} />;
 }
 
@@ -215,6 +224,59 @@ const GRID_MAX = 4;
 
 function LinkPreview({ url, className }: { url: string; className?: string }) {
   const { data: embed, isLoading } = useRichEmbed(url);
+  return <PreviewCard url={url} embed={embed} isLoading={isLoading} className={className} />;
+}
+
+const GITWORKSHOP_VIEW_LABELS = {
+  repository: defineMessage({ id: "linkEmbed.gitworkshop.repository", defaultMessage: "Repository" }),
+  issues: defineMessage({ id: "linkEmbed.gitworkshop.issues", defaultMessage: "Issues" }),
+  "pull-requests": defineMessage({ id: "linkEmbed.gitworkshop.pullRequests", defaultMessage: "Pull requests" }),
+  issue: defineMessage({ id: "linkEmbed.gitworkshop.issue", defaultMessage: "Issue" }),
+  "pull-request": defineMessage({ id: "linkEmbed.gitworkshop.pullRequest", defaultMessage: "Pull request" }),
+} satisfies Record<GitworkshopView, MessageDescriptor>;
+
+/**
+ * A GitWorkshop page is NIP-34 data, so its card is drawn from the URL and the
+ * events it names rather than the site's generic og:image page card.
+ */
+function GitworkshopPreview({ url, target, className }: { url: string; target: GitworkshopTarget; className?: string }) {
+  const intl = useIntl();
+  const addr = useMemo(
+    () => target.owner ? { kind: GIT_REPOSITORY_ANNOUNCEMENT_KIND, pubkey: target.owner, identifier: target.identifier } : undefined,
+    [target.owner, target.identifier],
+  );
+  const relayHints = useMemo(() => publicRelayHints(target.relays), [target.relays]);
+  const ticketHints = useMemo(() => publicRelayHints([...(target.ticket?.relays ?? []), ...target.relays]), [target.ticket, target.relays]);
+  const { data: announcementEvent } = useAddrEvent(addr, relayHints);
+  const { data: ticketEvent } = useEvent(target.ticket?.id, ticketHints, target.ticket?.author);
+  const repository = announcementEvent ? parseGitRepositoryAnnouncement(announcementEvent) : undefined;
+  const ticket = ticketEvent ? parseGitTicket(ticketEvent) : undefined;
+  const { data: author } = useAuthor(ticket?.author ?? target.ticket?.author ?? target.owner);
+
+  const embed = useMemo((): RichEmbed => {
+    const repoName = repository?.name ?? target.identifier;
+    const authorName = author?.metadata?.display_name?.trim() || author?.metadata?.name?.trim();
+    const typeField = {
+      name: intl.formatMessage({ id: "linkEmbed.gitworkshop.type", defaultMessage: "Type" }),
+      value: intl.formatMessage(GITWORKSHOP_VIEW_LABELS[target.view]),
+    };
+    const isTicket = target.view === "issue" || target.view === "pull-request";
+    return {
+      provider: "GitWorkshop",
+      author: authorName ? { name: authorName, icon: author?.metadata?.picture } : undefined,
+      title: isTicket && ticket ? ticket.subject : repoName,
+      description: isTicket ? undefined : repository?.description,
+      fields: isTicket
+        ? [typeField, { name: intl.formatMessage({ id: "linkEmbed.gitworkshop.repositoryField", defaultMessage: "Repository" }), value: repoName }]
+        : [typeField],
+      images: [],
+    };
+  }, [intl, target, repository, ticket, author]);
+
+  return <PreviewCard url={url} embed={embed} isLoading={false} className={className} />;
+}
+
+function PreviewCard({ url, embed, isLoading, className }: { url: string; embed: RichEmbed | null | undefined; isLoading: boolean; className?: string }) {
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // The lightbox applies the media policy itself; full-size original where named.
