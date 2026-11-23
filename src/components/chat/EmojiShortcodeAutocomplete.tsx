@@ -328,7 +328,7 @@ export function EmojiShortcodeAutocomplete({
               data-emoji-item
               data-highlighted={index === selectedIndex || undefined}
               className={cn(
-                "relative w-full flex items-center gap-3 menu-row clip-corner px-2 py-1.5 text-left text-popover-foreground transition-colors cursor-pointer",
+                "relative w-full flex items-center gap-3 menu-row clip-corner px-2 py-1.5 touch:min-h-11 text-left text-popover-foreground transition-colors cursor-pointer",
                 index === selectedIndex ? "bg-foreground/[0.08]" : "hover:bg-foreground/[0.05]",
               )}
               {...menuPickHandlers(() => selectEmoji(emoji))}
