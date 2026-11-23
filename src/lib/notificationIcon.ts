@@ -5,6 +5,7 @@
  */
 
 import { hasTransparency } from "@/lib/canvasAlpha";
+import { canvasReadbackIntact } from "@/lib/canvasProbe";
 import { bytesToBase64, sniffImageMime } from "@/lib/fileBytes";
 
 /** Longest edge drawn; a notification shows a face at well under this. */
@@ -21,8 +22,9 @@ const PNG_PREFERRED_BYTES = 16 * 1024;
 
 const LOSSY_QUALITIES = [0.85, 0.6];
 
+/** A fingerprint blocker (Tor Browser) would hand back noise for the redraw. */
 function canRedraw(): boolean {
-  return typeof createImageBitmap === "function" && typeof OffscreenCanvas === "function";
+  return typeof createImageBitmap === "function" && typeof OffscreenCanvas === "function" && canvasReadbackIntact();
 }
 
 async function dataUrl(blob: Blob): Promise<string> {
@@ -32,7 +34,8 @@ async function dataUrl(blob: Blob): Promise<string> {
 /**
  * `bytes` redrawn no larger than `edge` as a `data:` URL within
  * {@link MAX_NOTIFICATION_ICON_CHARS}, or undefined if it can't be made to fit.
- * Without OffscreenCanvas, small enough originals pass through unchanged.
+ * Without an OffscreenCanvas that reads back honestly, small enough originals
+ * pass through unchanged.
  */
 export async function notificationIconDataUrl(
   bytes: Uint8Array,

@@ -10,7 +10,9 @@ import type { ImagePointer } from "@/concord/lib/types";
 import type { MediaPolicy } from "@/lib/mediaPolicy";
 import { notificationIconDataUrl } from "@/lib/notificationIcon";
 
-const PREFIX = "armada:c2icon:v1:";
+/** v1 thumbs drawn under a fingerprint blocker hold its noise under the right hash. */
+const PREFIX = "armada:c2icon:v2:";
+const STALE_PREFIX = "armada:c2icon:v1:";
 const INDEX_KEY = "armada:c2icon:index";
 const MAX_THUMBS = 64;
 /** A 48px rail icon at the densest phone screens. */
@@ -58,6 +60,7 @@ export function writeIconThumb(communityId: string, thumb: IconThumb): void {
   memory.set(communityId, thumb);
   try {
     localStorage.setItem(PREFIX + communityId, JSON.stringify(thumb));
+    localStorage.removeItem(STALE_PREFIX + communityId);
     const index = readIndex().filter((id) => id !== communityId);
     index.push(communityId);
     while (index.length > MAX_THUMBS) {
@@ -77,6 +80,7 @@ export function deleteIconThumb(communityId: string): void {
   memory.set(communityId, null);
   try {
     localStorage.removeItem(PREFIX + communityId);
+    localStorage.removeItem(STALE_PREFIX + communityId);
     localStorage.setItem(INDEX_KEY, JSON.stringify(readIndex().filter((id) => id !== communityId)));
   } catch {
     // best-effort

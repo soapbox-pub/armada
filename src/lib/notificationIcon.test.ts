@@ -4,6 +4,9 @@ import { decryptNotificationIcon, encryptImageBlob } from "@/concord/lib/image";
 
 import { MAX_NOTIFICATION_ICON_CHARS, notificationIconDataUrl } from "./notificationIcon";
 
+const probe = vi.hoisted(() => ({ intact: true }));
+vi.mock("@/lib/canvasProbe", () => ({ canvasReadbackIntact: () => probe.intact }));
+
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 function png(size: number): Uint8Array<ArrayBuffer> {
@@ -47,10 +50,27 @@ function stubCanvas(sizes: {
 }
 
 afterEach(() => {
+  probe.intact = true;
   vi.unstubAllGlobals();
 });
 
 describe("notificationIconDataUrl", () => {
+  it("passes the original through where a fingerprint blocker poisons canvas readback", async () => {
+    probe.intact = false;
+    const { drawn } = stubCanvas({ png: 8 * 1024, jpeg: () => 4 * 1024 });
+    const original = png(1024);
+    const url = await notificationIconDataUrl(original, "image/png");
+    expect(drawn).toEqual([]);
+    expect(url).toBe(`data:image/png;base64,${Buffer.from(original).toString("base64")}`);
+  });
+
+  it("draws nothing for an original too large to pass through when readback is poisoned", async () => {
+    probe.intact = false;
+    const { drawn } = stubCanvas({ png: 8 * 1024, jpeg: () => 4 * 1024 });
+    expect(await notificationIconDataUrl(png(600_000), "image/png")).toBeUndefined();
+    expect(drawn).toEqual([]);
+  });
+
   it("redraws to the longest edge and keeps a small PNG", async () => {
     const { drawn, encoded } = stubCanvas({ png: 8 * 1024, jpeg: () => 4 * 1024 });
     const url = await notificationIconDataUrl(png(600_000), "image/png");
