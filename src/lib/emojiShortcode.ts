@@ -1,4 +1,4 @@
-import { emojiData, loadEmojiData } from "@/lib/emojiData";
+import { emojiData, loadEmojiData, type EmojiMartData } from "@/lib/emojiData";
 
 /**
  * Index of the `:` opening an in-progress `:shortcode` ending at `cursor`, or
@@ -15,6 +15,49 @@ export function findEmojiShortcodeColon(value: string, cursor: number): number {
     }
   }
   return -1;
+}
+
+/** Characters every emoji-mart emoticon contains one of (`:)`, `;-)`, `<3`, `8)`, `-_-`). */
+const EMOTICON_HINT = /[:;=<8_]/;
+
+/**
+ * The whitespace-delimited word ending at `cursor` when it could be an
+ * emoticon (`:-)`, `;)`, `<3`), as `{ start, token }`, else null. Whether it
+ * is one is up to {@link emojisForEmoticon}, which needs the dataset.
+ */
+export function emoticonCandidateAt(value: string, cursor: number): { start: number; token: string } | null {
+  let start = cursor;
+  while (start > 0 && !/\s/.test(value[start - 1]!)) start--;
+  const token = value.slice(start, cursor);
+  if (token.length < 2 || token.length > 4 || !EMOTICON_HINT.test(token)) return null;
+  return { start, token };
+}
+
+export interface EmoticonEmoji {
+  id: string;
+  name: string;
+  native: string;
+}
+
+const emoticonIndexes = new WeakMap<EmojiMartData, Map<string, EmoticonEmoji[]>>();
+
+/** The emoji emoji-mart lists for an exact emoticon (case-sensitive: `:p` and `:P` differ from `:D`/`D:`), in dataset order. */
+export function emojisForEmoticon(token: string, data: EmojiMartData): readonly EmoticonEmoji[] {
+  let index = emoticonIndexes.get(data);
+  if (!index) {
+    index = new Map();
+    for (const [id, emoji] of Object.entries(data.emojis)) {
+      const native = emoji.skins?.[0]?.native;
+      if (!native) continue;
+      for (const emoticon of emoji.emoticons ?? []) {
+        const list = index.get(emoticon) ?? [];
+        list.push({ id, name: emoji.name, native });
+        index.set(emoticon, list);
+      }
+    }
+    emoticonIndexes.set(data, index);
+  }
+  return index.get(token) ?? [];
 }
 
 /**

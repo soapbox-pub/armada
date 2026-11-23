@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
  * user types a `:`, so nothing imports it statically on the way to a chat.
  */
 export interface EmojiMartData {
-  emojis: Record<string, { name: string; keywords?: string[]; skins?: Array<{ native?: string }> }>;
+  emojis: Record<string, { name: string; keywords?: string[]; emoticons?: string[]; skins?: Array<{ native?: string }> }>;
   aliases: Record<string, string>;
 }
 

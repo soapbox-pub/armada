@@ -110,6 +110,54 @@ test("a custom emoji shows as its image and is sent as its shortcode", async ({ 
   await expect(sent.locator("img[alt=':blob:']")).toBeVisible();
 });
 
+test("an emoticon offers its emoji, and Enter still sends it as typed", async ({ page }) => {
+  test.setTimeout(120_000);
+  await bootChannel(page);
+  const field = page.getByRole("textbox").last();
+  await field.click();
+
+  await page.keyboard.type("ok :-)");
+  await expect(page.locator("[data-emoji-item]").first()).toContainText("🙂");
+  await page.keyboard.press("Tab");
+  await expect(field).toHaveValue("ok 🙂");
+
+  await page.keyboard.type(" :smi");
+  await expect(page.locator("[data-emoji-item]").first()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await field.fill("");
+
+  await page.keyboard.type("thanks ;)");
+  await expect(page.locator("[data-emoji-item]").first()).toContainText("😉");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-event-id]").filter({ hasText: "thanks ;)" })).toBeVisible();
+});
+
+test("the colon list offers custom emoji from the first letter, beside standard ones", async ({ page }) => {
+  test.setTimeout(120_000);
+  await bootChannel(page);
+  const field = page.getByRole("textbox").last();
+  await field.click();
+
+  await page.keyboard.type(":b");
+  await expect(page.locator("[data-emoji-item]").filter({ hasText: ":blob:" })).toBeVisible();
+  await page.keyboard.type("l");
+  await expect(page.locator("[data-emoji-item]").first()).toContainText(":blob:");
+  await page.keyboard.press("Tab");
+  await expect(page.locator(".rt-overlay img[alt=':blob:']")).toBeVisible();
+
+  await page.keyboard.type(":smi");
+  await expect(page.locator("[data-emoji-item]").filter({ hasText: ":smile:" })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(field).toHaveValue(/^\u2B1C [^:]+$/u);
+
+  // A one-letter list doesn't take Enter: the message is sent as typed.
+  await field.fill("");
+  await page.keyboard.type("ok :b");
+  await expect(page.locator("[data-emoji-item]").filter({ hasText: ":blob:" })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-event-id]").filter({ hasText: "ok :b" })).toBeVisible();
+});
+
 // Reduce motion is on whenever the OS asks for it. Its stylesheet once gave
 // every element a 0.01ms transition, so the overlay read back its pre-write
 // font size, divided it out as a text zoom, and drew the text smaller than the
