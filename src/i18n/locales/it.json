@@ -4362,6 +4362,8 @@
   "storageSettings.notificationAvatarsDescription": "Foto profilo mostrate nelle notifiche.",
   "storageSettings.other": "Indici e altri dati",
   "storageSettings.otherData": "Altri eventi",
+  "storageSettings.otherUnmeasured": "Altri dati",
+  "storageSettings.otherWithMessages": "Cronologia dei messaggi e altri dati",
   "storageSettings.part.channelSnapshots": "Istantanee dei canali",
   "storageSettings.part.communityKeys": "Cache delle chiavi delle community",
   "storageSettings.part.communityState": "Ruoli e canali delle community",

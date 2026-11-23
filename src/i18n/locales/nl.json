@@ -4362,6 +4362,8 @@
   "storageSettings.notificationAvatarsDescription": "Profielfoto's die in meldingen worden getoond.",
   "storageSettings.other": "Indexen en overige gegevens",
   "storageSettings.otherData": "Andere gebeurtenissen",
+  "storageSettings.otherUnmeasured": "Overige gegevens",
+  "storageSettings.otherWithMessages": "Berichtgeschiedenis en overige gegevens",
   "storageSettings.part.channelSnapshots": "Kanaalmomentopnamen",
   "storageSettings.part.communityKeys": "Cache van communitysleutels",
   "storageSettings.part.communityState": "Communityrollen en -kanalen",

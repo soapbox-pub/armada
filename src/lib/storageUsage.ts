@@ -40,6 +40,11 @@ export interface StorageRow {
   clearable: boolean;
   /** What the row is made of, largest first, where it can be told apart (settings and sync state). */
   parts?: StoragePart[];
+  /**
+   * On the `other` row: what unsized rows its bytes also hold. `messages` when
+   * message rows couldn't be sized (IndexedDB), `unmeasured` for anything else.
+   */
+  includes?: "messages" | "unmeasured";
 }
 
 /** One piece of a row: a KV key group (`kvGroupOf`) or {@link LOCAL_STORAGE_PART}. */
@@ -158,19 +163,22 @@ export function dataRows(usage: ArmadaDBUsage, settingsBytes: number): StorageRo
 }
 
 /**
- * What the total holds that no row names, so the rows add up to it: mostly the
- * database file's indexes and free pages, plus web storage outside the caches. Absent when a row is unsized, since
- * the remainder would then be that row's.
+ * The row for what the total holds beyond every sized row, so the rows add up
+ * to it: the database file's indexes and free pages, web storage outside the
+ * caches, and the bytes of any row the platform couldn't size.
  */
-export function unattributedBytes(totalBytes: number | undefined, rows: readonly StorageRow[]): number | undefined {
+export function remainderRow(totalBytes: number | undefined, rows: readonly StorageRow[]): StorageRow | undefined {
   if (totalBytes === undefined) return undefined;
   let counted = 0;
+  let includes: StorageRow["includes"];
   for (const row of rows) {
-    if (row.bytes === undefined) return undefined;
-    counted += row.bytes;
+    if (row.bytes !== undefined) counted += row.bytes;
+    else if (row.id === "legacy") includes ??= "unmeasured";
+    else includes = "messages";
   }
   const rest = totalBytes - counted;
-  return rest > 0 ? rest : undefined;
+  if (rest <= 0) return undefined;
+  return { id: "other", bytes: rest, clearable: false, ...(includes ? { includes } : {}) };
 }
 
 const settle = <T>(promise: Promise<T>, fallback: T): Promise<T> => promise.catch(() => fallback);
@@ -220,8 +228,8 @@ export async function measureStorage(): Promise<StorageReport> {
   // native caches sit outside it.
   const outside = (dbUsage.fileBytes ?? 0) + (nativeUsage?.avatars ?? 0) + (webCache ?? 0);
   const totalBytes = estimate?.usage !== undefined ? estimate.usage + outside : undefined;
-  const other = unattributedBytes(totalBytes, [...caches, ...data]);
-  if (other !== undefined) data.push({ id: "other", bytes: other, clearable: false });
+  const other = remainderRow(totalBytes, [...caches, ...data]);
+  if (other) data.push(other);
   const onWeb = platform === "web" && !desktop();
   return { caches, data, totalBytes, quotaBytes: onWeb ? estimate?.quota : undefined };
 }

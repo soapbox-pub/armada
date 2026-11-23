@@ -4362,6 +4362,8 @@
   "storageSettings.notificationAvatarsDescription": "Photos de profil affichées dans les notifications.",
   "storageSettings.other": "Index et autres données",
   "storageSettings.otherData": "Autres événements",
+  "storageSettings.otherUnmeasured": "Autres données",
+  "storageSettings.otherWithMessages": "Historique des messages et autres données",
   "storageSettings.part.channelSnapshots": "Instantanés des salons",
   "storageSettings.part.communityKeys": "Cache des clés de communauté",
   "storageSettings.part.communityState": "Rôles et salons des communautés",

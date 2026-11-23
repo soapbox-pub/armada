@@ -13,7 +13,7 @@ vi.mock("@/lib/mediaCache", () => ({
 
 import { clearCommunityImageCache } from "@/concord/lib/image";
 import { clearMediaCache } from "@/lib/mediaCache";
-import { clearStorage, dataRows, measureStorage, tenantRow, unattributedBytes } from "@/lib/storageUsage";
+import { clearStorage, dataRows, measureStorage, remainderRow, tenantRow } from "@/lib/storageUsage";
 
 describe("tenantRow()", () => {
   it("files each tenant under what its data is", () => {
@@ -82,15 +82,28 @@ describe("dataRows()", () => {
   });
 });
 
-describe("unattributedBytes()", () => {
+describe("remainderRow()", () => {
   it("is what the total holds beyond every row", () => {
-    expect(unattributedBytes(1000, [{ id: "media", bytes: 300, clearable: true }, { id: "dms", bytes: 200, clearable: false }])).toBe(500);
+    expect(remainderRow(1000, [{ id: "media", bytes: 300, clearable: true }, { id: "dms", bytes: 200, clearable: false }]))
+      .toEqual({ id: "other", bytes: 500, clearable: false });
   });
 
-  it("is absent when nothing is left over, or a row is unsized", () => {
-    expect(unattributedBytes(400, [{ id: "media", bytes: 500, clearable: true }])).toBeUndefined();
-    expect(unattributedBytes(1000, [{ id: "dms", clearable: false }])).toBeUndefined();
-    expect(unattributedBytes(undefined, [])).toBeUndefined();
+  it("still covers the gap when message rows are unsized, and says it holds them", () => {
+    const rows = [
+      { id: "media", bytes: 20_000_000, clearable: true },
+      { id: "dms", count: 400, clearable: false },
+      { id: "settings", bytes: 15_000_000, clearable: false },
+    ] as const;
+    expect(remainderRow(60_000_000, rows)).toEqual({ id: "other", bytes: 25_000_000, clearable: false, includes: "messages" });
+  });
+
+  it("says it holds unmeasured data when only the leftovers of older versions are unsized", () => {
+    expect(remainderRow(1000, [{ id: "legacy", clearable: true }, { id: "dms", bytes: 200, clearable: false }])?.includes).toBe("unmeasured");
+  });
+
+  it("is absent when nothing is left over or the total is unknown", () => {
+    expect(remainderRow(400, [{ id: "media", bytes: 500, clearable: true }])).toBeUndefined();
+    expect(remainderRow(undefined, [])).toBeUndefined();
   });
 });
 
@@ -117,6 +130,14 @@ describe("measureStorage()", () => {
     expect(report.data.find((r) => r.id === "profiles")).toMatchObject({ count: 1, bytes: 10 });
     expect(report.totalBytes).toBe(7000);
     expect(report.quotaBytes).toBe(1_000_000);
+  });
+
+  it("adds up on the web too, where IndexedDB can't size message rows", async () => {
+    usage.mockResolvedValue({ tenants: [{ id: "dm17:a", rumors: 40 }], kv: { entries: 1, bytes: 200 } });
+    const report = await measureStorage();
+    expect(report.data.at(-1)).toEqual({ id: "other", bytes: 3500, clearable: false, includes: "messages" });
+    const sum = [...report.caches, ...report.data].reduce((n, r) => n + (r.bytes ?? 0), 0);
+    expect(sum).toBe(report.totalBytes);
   });
 
   it("adds one row for the rest of the total, so the rows add up to it", async () => {

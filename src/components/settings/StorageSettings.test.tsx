@@ -100,6 +100,14 @@ describe("StorageSettings", () => {
     expect(within(rowOf("Indexes and other data")).getByText("430 MB")).toBeInTheDocument();
   });
 
+  it("names the rest after the unsized message rows it holds", async () => {
+    h.report.data.push({ id: "other", bytes: 25_000_000, clearable: false, includes: "messages" });
+    render(<StorageSettings />);
+
+    expect(within(await screen.findByText("Message history and other data").then((el) => el.closest("div.flex") as HTMLElement)).getByText("25 MB")).toBeInTheDocument();
+    expect(screen.queryByText("Indexes and other data")).toBeNull();
+  });
+
   it("asks before deleting unsaved recordings", async () => {
     render(<StorageSettings />);
     await screen.findByText("20 MB");
