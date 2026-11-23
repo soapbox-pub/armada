@@ -2,6 +2,7 @@ import { ArrowLeft, CornerDownRight, Loader2, MessagesSquare, Pin } from "lucide
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ChatComposer } from "@/components/chat/ChatComposer";
+import { MentionRosterContext } from "@/components/chat/mentionRoster";
 import { flashRow } from "@/components/chat/rowFlash";
 import { ThreadMessage } from "@/components/chat/ThreadPanel";
 import { useChatEditing } from "@/components/chat/useChatEditing";
@@ -283,6 +284,7 @@ export function ForumPostPage({
 
   return (
     <ComposerBoundsProvider value={composerBoundsRef}>
+    <MentionRosterContext.Provider value={mentionPubkeys}>
       <div className={cn("flex min-h-0 flex-col", className)}>
         <div
           ref={scrollRef}
@@ -364,6 +366,7 @@ export function ForumPostPage({
           </div>
         </div>
       </div>
+    </MentionRosterContext.Provider>
     </ComposerBoundsProvider>
   );
 }

@@ -41,7 +41,6 @@ import { LazyContextMenuContent, useLazyContextMenu } from "@/components/chat/La
 import { EventJsonDialog } from "@/components/EventJsonDialog";
 import { useAndroidBack } from "@/hooks/useAndroidBack";
 import { useAppContext } from "@/hooks/useAppContext";
-import { useAutosizeTextarea } from "@/hooks/useAutosizeTextarea";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useChatScope } from "@/hooks/useChatScope";
 import { useHiddenMessages } from "@/hooks/useHiddenMessages";
@@ -69,6 +68,8 @@ import { common, FormattedMessage, useIntl } from "@/i18n";
 
 import type { MessageActionItem } from "@/components/chat/messageActions";
 import { useChatEditing } from "@/components/chat/useChatEditing";
+import { MessageEditBox } from "@/components/chat/MessageEditBox";
+import { MentionRosterContext, useMentionRoster } from "@/components/chat/mentionRoster";
 import type { ChatMsg, ChatTransport, MessageReactions, MessageZaps, OnchainZapAnnouncement, ZapPayment } from "@/components/chat/transport";
 import { reducedMotion } from "@/lib/reducedMotion";
 
@@ -158,11 +159,6 @@ export function ThreadMessage({
   const canDelete = Boolean(onDelete) && (isOwn || canModerate);
   // The transport only provides editMessage for kinds it can edit.
   const canEdit = isOwn && Boolean(onEdit);
-  const [editText, setEditText] = useState(event.content);
-  const editRef = useAutosizeTextarea(editText);
-  useEffect(() => {
-    if (isEditing) setEditText(event.content);
-  }, [isEditing, event.content]);
   // Mirrors ChatMessage: never gated on a lightning address.
   const canZap = Boolean(zapEnabled && user && !isOwn);
   // Gated as in ChatMessage: the chat scope decides the destination (none for
@@ -285,45 +281,13 @@ export function ThreadMessage({
   const isComment = presentation === "comment";
 
   const body = isEditing ? (
-    <div className="mt-0.5">
-      <textarea
-        ref={editRef}
-        autoFocus
-        value={editText}
-        onChange={(e) => setEditText(e.target.value)}
-        onKeyDown={(e) => {
-          // Ignore Enter confirming an IME composition; with send-on-Enter off,
-          // Ctrl/Cmd+Enter saves.
-          const saveKey = sendsOnEnter(config.sendOnEnter, isTouch)
-            ? e.key === "Enter" && !e.shiftKey
-            : e.key === "Enter" && (e.ctrlKey || e.metaKey);
-          if (saveKey && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            onEditSubmit?.(event, editText);
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            onEditCancel?.();
-          }
-        }}
-        rows={1}
-        className="block w-full resize-none rounded-md bg-background border border-input px-2 py-1.5 text-chat max-h-40 overflow-y-auto focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      />
-      <div className="flex items-center gap-2 touch:gap-4 mt-1 text-2xs text-muted-foreground">
-        <button
-          type="button"
-          className="font-semibold text-primary hover:underline touch:py-2"
-          onClick={() => onEditSubmit?.(event, editText)}
-        >
-          <FormattedMessage {...common.save} />
-        </button>
-        <button type="button" className="hover:text-foreground touch:py-2" onClick={() => onEditCancel?.()}>
-          <FormattedMessage {...common.cancel} />
-        </button>
-        <span className="opacity-70">
-          <FormattedMessage id="threadPanel.editHint" defaultMessage="escape to cancel · enter to save" />
-        </span>
-      </div>
-    </div>
+    <MessageEditBox
+      content={event.content}
+      tags={event.tags}
+      sendOnEnter={sendsOnEnter(config.sendOnEnter, isTouch)}
+      onSubmit={(text) => onEditSubmit?.(event, text)}
+      onCancel={() => onEditCancel?.()}
+    />
   ) : (
     <ChatContent event={event} className={isPost ? "text-chat leading-relaxed" : "text-chat"} everyoneMention={everyoneMention} documentMarkdown={documentMarkdown} disableNoteEmbeds={documentMarkdown} />
   );
@@ -634,6 +598,8 @@ export function ThreadPanel({ root, rootTitle, transport, relayUrl, groupId, can
   const editMessage = transport.editMessage;
   const { user } = useCurrentUser();
   const composerBoundsRef = useRef<HTMLElement | null>(null);
+  // Edits offer the composer's candidates (it is handed no messages either).
+  const mentionRoster = useMentionRoster(relayUrl, groupId, undefined, mentionPubkeys);
 
   const { editingId, startEditing, cancelEditing, handleEditSubmit, editLast } = useChatEditing({
     edit: (original, content) => editMessage?.(original, content),
@@ -807,6 +773,7 @@ export function ThreadPanel({ root, rootTitle, transport, relayUrl, groupId, can
 
   return (
     <ComposerBoundsProvider value={composerBoundsRef}>
+    <MentionRosterContext.Provider value={mentionRoster}>
     <aside className={cn(
       // `thread:ml-0` drops the left gap only at ≥1200px (in-flow); below, it
       // overlays the chat and keeps the gutter.
@@ -899,6 +866,7 @@ export function ThreadPanel({ root, rootTitle, transport, relayUrl, groupId, can
         </div>
       )}
     </aside>
+    </MentionRosterContext.Provider>
     </ComposerBoundsProvider>
   );
 }

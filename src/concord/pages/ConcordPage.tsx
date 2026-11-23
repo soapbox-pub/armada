@@ -16,6 +16,7 @@ import { useConcordReplyParents } from "@/concord/hooks/useReplyParents";
 import { LoginArea } from "@/components/auth/LoginArea";
 import { JoinButton } from "@/components/auth/JoinButton";
 import { MemberList } from "@/components/chat/MemberList";
+import { MentionRosterContext } from "@/components/chat/mentionRoster";
 import { CommunityBoosters } from "@/concord/components/CommunityBoosters";
 import { useCommunityDiscoverListings } from "@/concord/hooks/useDiscoverListings";
 import type { RolePickerOption } from "@/components/chat/RolePickerItems";
@@ -3620,6 +3621,7 @@ function ConcordCommunityPage() {
       <MemberRolesContext.Provider value={memberRolesValue}>
       <CommunityNicknamesContext.Provider value={nicknames}>
       <MemberActionsContext.Provider value={memberActionsValue}>
+      <MentionRosterContext.Provider value={memberPubkeys}>
       <ConcordMediaHold community={community} trusted={trustedAuthors}>
       <ChatShell
         scope={appScope}
@@ -4433,6 +4435,7 @@ function ConcordCommunityPage() {
       </MountWhenOpened>
       {rankedControls.dialog}
       </ConcordMediaHold>
+      </MentionRosterContext.Provider>
     </MemberActionsContext.Provider>
     </CommunityNicknamesContext.Provider>
     </MemberRolesContext.Provider>

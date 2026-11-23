@@ -6,6 +6,7 @@ import { ChatComposer } from "@/components/chat/ChatComposer";
 import { ChatMessage, ReplyContextLine, ReplyPreview, ReplyThumbnail } from "@/components/chat/ChatMessage";
 import { useMediaHeld, useMessageRevealed } from "@/components/chat/mediaHold";
 import { firstImageRef, getReplyToId } from "@/components/chat/messageHelpers";
+import { MentionRosterContext, useMentionRoster } from "@/components/chat/mentionRoster";
 import { MessageTimeline } from "@/components/chat/MessageTimeline";
 import { ThreadPanel } from "@/components/chat/ThreadPanel";
 import { ThreadPanelSlot } from "@/components/chat/ThreadPanelSlot";
@@ -563,8 +564,12 @@ export function GroupChat({ relayUrl, groupId, canWrite, membershipPending = fal
     ],
   );
 
+  // In-place edits offer the composer's mention candidates.
+  const mentionRoster = useMentionRoster(relayUrl, groupId, messages);
+
   return (
     <div className="relative flex flex-1 min-h-0 min-w-0">
+      <MentionRosterContext.Provider value={mentionRoster}>
       <ComposerBoundsProvider value={composerBoundsRef}>
       <div className={cn("relative flex flex-col flex-1 min-h-0 min-w-0", chatColumnClass)}>
         {searching ? (
@@ -739,6 +744,7 @@ export function GroupChat({ relayUrl, groupId, canWrite, membershipPending = fal
           />
         )}
       </ThreadPanelSlot>
+      </MentionRosterContext.Provider>
     </div>
   );
 }
