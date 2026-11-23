@@ -27,7 +27,7 @@ export { generateNostrConnectParams, generateNostrConnectURI } from "@nostrify/r
 const MAX_BUNKER_RELAYS = 8;
 
 /** Cap on nostrconnect:// rendezvous relays: each one grows the login QR, and one shared relay suffices. */
-const MAX_RENDEZVOUS_RELAYS = 4;
+const MAX_RENDEZVOUS_RELAYS = 2;
 
 /**
  * Loopback is unreachable for a remote signer, and on native builds non-wss relays are

@@ -2580,6 +2580,7 @@
   "loginScreen.awaitingConnect": "Wachten op verbinding met signer…",
   "loginScreen.bunkerFailed": "Verbinden mislukt. Controleer de bunker-URI.",
   "loginScreen.connectLink": "Verbindingslink voor signer",
+  "loginScreen.connectQrAlt": "Verbindings-QR-code voor signer",
   "loginScreen.connectRemoteSigner": "Externe signer verbinden",
   "loginScreen.copyFailed": "Kopiëren mislukt",
   "loginScreen.copyFailedDescription": "Kon niet naar het klembord kopiëren. Selecteer de link en kopieer hem handmatig.",

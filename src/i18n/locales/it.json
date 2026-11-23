@@ -2580,6 +2580,7 @@
   "loginScreen.awaitingConnect": "In attesa della connessione del firmatario…",
   "loginScreen.bunkerFailed": "Connessione non riuscita. Controlla l’URI del bunker.",
   "loginScreen.connectLink": "Link di connessione del firmatario",
+  "loginScreen.connectQrAlt": "Codice QR di connessione del firmatario",
   "loginScreen.connectRemoteSigner": "Connetti firmatario remoto",
   "loginScreen.copyFailed": "Copia non riuscita",
   "loginScreen.copyFailedDescription": "Impossibile copiare negli appunti. Seleziona il link e copialo manualmente.",

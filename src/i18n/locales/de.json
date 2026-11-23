@@ -2580,6 +2580,7 @@
   "loginScreen.awaitingConnect": "Warte auf Verbindung mit dem Signer…",
   "loginScreen.bunkerFailed": "Verbindung fehlgeschlagen. Prüfe die Bunker-URI.",
   "loginScreen.connectLink": "Signer-Verbindungslink",
+  "loginScreen.connectQrAlt": "Signer-Verbindungs-QR-Code",
   "loginScreen.connectRemoteSigner": "Remote-Signer verbinden",
   "loginScreen.copyFailed": "Kopieren fehlgeschlagen",
   "loginScreen.copyFailedDescription": "Kopieren in die Zwischenablage fehlgeschlagen. Markiere den Link und kopiere ihn manuell.",

@@ -2580,6 +2580,7 @@
   "loginScreen.awaitingConnect": "署名アプリの接続を待っています…",
   "loginScreen.bunkerFailed": "接続に失敗しました。bunker URI を確認してください。",
   "loginScreen.connectLink": "署名アプリの接続リンク",
+  "loginScreen.connectQrAlt": "署名アプリの接続QRコード",
   "loginScreen.connectRemoteSigner": "リモート署名アプリに接続",
   "loginScreen.copyFailed": "コピーに失敗しました",
   "loginScreen.copyFailedDescription": "クリップボードにコピーできませんでした。リンクを選択して手動でコピーしてください。",

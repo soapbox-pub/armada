@@ -2580,6 +2580,7 @@
   "loginScreen.awaitingConnect": "Waiting for signer connection…",
   "loginScreen.bunkerFailed": "Failed to connect. Check the bunker URI.",
   "loginScreen.connectLink": "Signer connect link",
+  "loginScreen.connectQrAlt": "Signer connect QR code",
   "loginScreen.connectRemoteSigner": "Connect remote signer",
   "loginScreen.copyFailed": "Copy failed",
   "loginScreen.copyFailedDescription": "Could not copy to the clipboard. Select the link and copy it manually.",

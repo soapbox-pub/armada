@@ -2580,6 +2580,7 @@
   "loginScreen.awaitingConnect": "Aguardando a conexão do assinador…",
   "loginScreen.bunkerFailed": "Falha ao conectar. Verifique a URI do bunker.",
   "loginScreen.connectLink": "Link de conexão do assinador",
+  "loginScreen.connectQrAlt": "Código QR de conexão do assinador",
   "loginScreen.connectRemoteSigner": "Conectar assinador remoto",
   "loginScreen.copyFailed": "Falha ao copiar",
   "loginScreen.copyFailedDescription": "Não foi possível copiar para a área de transferência. Selecione o link e copie manualmente.",

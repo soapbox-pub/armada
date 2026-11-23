@@ -1,3 +1,4 @@
+import QRCode from "qrcode";
 import { describe, expect, it } from "vitest";
 
 import { NOSTR_CONNECT_PERMS, withConnectPerms } from "./nostrConnectPerms";
@@ -22,5 +23,15 @@ describe("withConnectPerms", () => {
     const uri = withConnectPerms("nostrconnect://abc?secret=s");
     expect(uri).toBe(`nostrconnect://abc?secret=s&perms=${NOSTR_CONNECT_PERMS}`);
     expect(uri).not.toMatch(/%2C|%3A/);
+  });
+
+  it("keeps a two-relay login QR at version 13 or below at level M", () => {
+    const params = new URLSearchParams();
+    params.append("relay", "wss://relay.ditto.pub");
+    params.append("relay", "wss://relay.dreamith.to");
+    params.set("secret", "0".repeat(32));
+    params.set("name", "Armada");
+    const uri = withConnectPerms(`nostrconnect://${"a".repeat(64)}?${params}`);
+    expect(QRCode.create(uri, { errorCorrectionLevel: "M" }).version).toBeLessThanOrEqual(13);
   });
 });
