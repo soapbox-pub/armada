@@ -87,7 +87,7 @@ function ThemeCreatorForm({ editing, initial, onDone }: { editing?: UserTheme; i
           ? intl.formatMessage({ id: "themeCreatorDialog.publicHint", defaultMessage: "Anyone will be able to find and apply this theme." })
           : intl.formatMessage({
             id: "themeCreatorDialog.publishOrSaveHint",
-            defaultMessage: "Publishing lets anyone find and apply this theme. Save without publishing to keep it private, as your theme.",
+            defaultMessage: "Publishing lets anyone find and apply this theme. Saving without publishing makes it your theme only, replacing the one you're wearing.",
           });
 
   /** The theme as it would be worn. A credited copy stays credited only while it is still the creator's work. */
@@ -113,7 +113,7 @@ function ThemeCreatorForm({ editing, initial, onDone }: { editing?: UserTheme; i
     const { config } = ownLook();
     applyCustomTheme(config);
     toast({
-      title: t({ id: "themeCreatorDialog.themeSavedPrivately", defaultMessage: "Theme saved" }),
+      title: t({ id: "themeCreatorDialog.themeSaved", defaultMessage: "Theme saved" }),
       description: t(
         { id: "themeCreatorDialog.savedPrivatelyDescription", defaultMessage: "{title}, applied as your theme. It isn't published." },
         { title: config.title },
@@ -230,7 +230,9 @@ function ThemeCreatorForm({ editing, initial, onDone }: { editing?: UserTheme; i
             onCheckedChange={(v) => setApplyToMine(v === true)}
             className="shrink-0"
           />
-          <FormattedMessage id="themeCreatorDialog.applyAsMine" defaultMessage="Apply as my theme" />
+          {editing
+            ? <FormattedMessage id="themeCreatorDialog.applyAsMine" defaultMessage="Apply as my theme" />
+            : <FormattedMessage id="themeCreatorDialog.applyAsMineOnPublish" defaultMessage="Apply as my theme when publishing" />}
         </Label>
         <Button className="w-full clip-corner-lg" onClick={publish} disabled={!canPublish}>
           {publishing && <Loader2 className="size-4 animate-spin" />}

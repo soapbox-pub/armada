@@ -85,7 +85,7 @@ describe("ThemeCreatorDialog", () => {
 
     expect(publishButton()).toBeEnabled();
     expect(
-      screen.getByText("Publishing lets anyone find and apply this theme. Save without publishing to keep it private, as your theme."),
+      screen.getByText("Publishing lets anyone find and apply this theme. Saving without publishing makes it your theme only, replacing the one you're wearing."),
     ).toBeInTheDocument();
   });
 
@@ -174,7 +174,7 @@ describe("ThemeCreatorDialog", () => {
 
     vi.clearAllMocks();
     h.publishEvent.mockResolvedValue(PUBLISHED);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Apply as my theme" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Apply as my theme when publishing" }));
     fireEvent.click(publishButton());
 
     await waitFor(() => expect(h.publishEvent).toHaveBeenCalled());
