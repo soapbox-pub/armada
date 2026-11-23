@@ -242,6 +242,33 @@ public class MainActivity extends BridgeActivity {
     // "hidden". The existing `appStateChange`→`focusManager` wiring (see App.tsx)
     // then drives the catch-up refetch. Cheap and idempotent, so running it on
     // every resume is safe; it's a no-op when the WebView was never frozen.
+    // Visible without window focus means system UI is over the app: the shade,
+    // or the bouncer and shade of a lock-screen Reply. The notification service
+    // holds read-driven dismissals until it isn't (setAppCovered).
+    private boolean started = false;
+    private boolean windowFocused = false;
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        started = true;
+        NotificationRelayService.setAppCovered(started && !windowFocused);
+    }
+
+    @Override
+    public void onStop() {
+        started = false;
+        NotificationRelayService.setAppCovered(false);
+        super.onStop();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        windowFocused = hasFocus;
+        NotificationRelayService.setAppCovered(started && !windowFocused);
+    }
+
     @Override
     public void onResume() {
         super.onResume();

@@ -249,6 +249,12 @@ public class NotificationRelayService extends Service {
     // Newest read stamp (unix s) per read-state key seen from another device,
     // so a held message read there is dropped instead of posted.
     private final Map<String, Long> lastReadByKey = new HashMap<>();
+    // Read stamps whose tray dismissal waits for the app to get focus back from
+    // system UI (see setAppCovered). Handler-confined; cleared with the account.
+    private final Map<String, Long> deferredDismissRead = new HashMap<>();
+    // The activity is visible but system UI holds focus over it: the shade, or the
+    // bouncer of a lock-screen Reply tap. Written on the main thread.
+    private static volatile boolean appCovered = false;
     private final Runnable flushHeldRunnable = this::flushHeldMessages;
     private final java.util.Map<String, java.util.ArrayDeque<Long>> mentionBurst = new java.util.HashMap<>();
 
@@ -1452,17 +1458,52 @@ public class NotificationRelayService extends Service {
         svc.handler.post(() -> svc.applyDismissRead(readByKey));
     }
 
+    /** Record reported read stamps and dismiss the rooms they cover. */
+    private void applyDismissRead(java.util.Map<String, Long> readByKey) {
+        mergeReadStamps(lastReadByKey, readByKey);
+        // Read state that advances while the shade or the bouncer covers the app
+        // (unlocking for a lock-screen Reply resumes the room it had open) would
+        // cancel the notification before its reply field takes focus, and
+        // SystemUI only keeps a cancelled notification once that field is active.
+        if (appCovered) {
+            mergeReadStamps(deferredDismissRead, readByKey);
+            return;
+        }
+        cancelReadRooms(readByKey);
+    }
+
+    /**
+     * The app's activity became covered by system UI (visible, without window
+     * focus) or stopped being so. Uncovering applies the dismissals held meanwhile.
+     */
+    static void setAppCovered(boolean covered) {
+        appCovered = covered;
+        NotificationRelayService svc = instance;
+        if (!covered && svc != null) svc.handler.post(svc::flushDeferredDismissRead);
+    }
+
+    private void flushDeferredDismissRead() {
+        if (appCovered || deferredDismissRead.isEmpty()) return;
+        java.util.Map<String, Long> held = new HashMap<>(deferredDismissRead);
+        deferredDismissRead.clear();
+        cancelReadRooms(held);
+    }
+
+    /** Keep the newest stamp per key in {@code into}. */
+    static void mergeReadStamps(java.util.Map<String, Long> into, java.util.Map<String, Long> from) {
+        for (Map.Entry<String, Long> e : from.entrySet()) {
+            Long prev = into.get(e.getKey());
+            if (prev == null || e.getValue() > prev) into.put(e.getKey(), e.getValue());
+        }
+    }
+
     /**
      * Cancel each posted room whose newest notified message is at/older than
      * the read timestamp the WebView reports for that conversation, and drop its
      * accumulated history so a later message starts fresh rather than
      * resurrecting read lines. A room with a newer unread message is left up.
      */
-    private void applyDismissRead(java.util.Map<String, Long> readByKey) {
-        for (Map.Entry<String, Long> e : readByKey.entrySet()) {
-            Long prev = lastReadByKey.get(e.getKey());
-            if (prev == null || e.getValue() > prev) lastReadByKey.put(e.getKey(), e.getValue());
-        }
+    private void cancelReadRooms(java.util.Map<String, Long> readByKey) {
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
         java.util.Iterator<Map.Entry<String, RoomNotif>> it = roomNotifs.entrySet().iterator();
@@ -1901,6 +1942,7 @@ public class NotificationRelayService extends Service {
             groupImageCache.evictAll();
             heldMessages.clear();
             lastReadByKey.clear();
+            deferredDismissRead.clear();
         }
         userPubkey = nextUserPubkey;
         relayUrls.clear();
