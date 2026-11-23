@@ -12,6 +12,7 @@ import { useReleases } from "@/hooks/useReleases";
 import { RELEASE_KIND } from "@/lib/releases";
 import { common, defineMessages, FormattedMessage, useIntl, type MessageDescriptor } from "@/i18n";
 
+const REPO_RELAY = "wss://relay.ngit.dev";
 const REPO_URL = "https://gitworkshop.dev/soapbox.pub/relay.ngit.dev/armada";
 
 /** GitWorkshop's page for a version's NIP-82 release, or the release list until it resolves. */
@@ -19,7 +20,8 @@ function useReleaseUrl(version: string): string {
   const { data: releases } = useReleases();
   const release = releases?.find((r) => r.version === version);
   if (!release) return `${REPO_URL}/releases`;
-  return `${REPO_URL}/releases/${nip19.neventEncode({ id: release.id, author: release.pubkey, kind: RELEASE_KIND })}`;
+  const nevent = nip19.neventEncode({ id: release.id, author: release.pubkey, kind: RELEASE_KIND, relays: [REPO_RELAY] });
+  return `${REPO_URL}/releases/${nevent}`;
 }
 
 /** Per-category icon + color used as inline list bullets. */
