@@ -46,6 +46,13 @@ const labels = defineMessages({
   profiles: { id: "storageSettings.profiles", defaultMessage: "Profiles and lists" },
   otherData: { id: "storageSettings.otherData", defaultMessage: "Other events" },
   settings: { id: "storageSettings.settings", defaultMessage: "Settings and sync state" },
+  other: { id: "storageSettings.other", defaultMessage: "Indexes and other data" },
+});
+
+/** The `other` row's label when it also holds rows that couldn't be sized. */
+const otherLabels = defineMessages({
+  messages: { id: "storageSettings.otherWithMessages", defaultMessage: "Message history and other data" },
+  unmeasured: { id: "storageSettings.otherUnmeasured", defaultMessage: "Other data" },
 });
 
 const descriptions = defineMessages({
@@ -83,6 +90,7 @@ const ICONS: Record<StorageRowId, LucideIcon> = {
   profiles: UserRound,
   otherData: Database,
   settings: SlidersHorizontal,
+  other: HardDrive,
 };
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte", "terabyte"] as const;
@@ -190,7 +198,7 @@ export function StorageSettings() {
           <Fragment key={row.id}>
             <SettingsRow
               icon={ICONS[row.id]}
-              label={intl.formatMessage(labels[row.id])}
+              label={intl.formatMessage(row.includes ? otherLabels[row.includes] : labels[row.id])}
               description={row.count !== undefined ? items(intl, row.count) : undefined}
               value={size(row.bytes)}
               {...(row.parts?.length ? { onClick: () => setOpenParts((open) => !open), chevron: true } : {})}
