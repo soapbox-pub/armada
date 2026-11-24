@@ -445,6 +445,12 @@ public class NotificationRelayService extends Service {
     // change, not by its relay's idle timeout.
     private static final long NETWORK_DROP_GRACE_MS = 60_000;
     private boolean sawNetworkLoss = false;
+    // What the foreground row says: written on the handler thread, first read
+    // by onCreate's startForeground on the main thread.
+    private volatile boolean foregroundOffline = false;
+    // onLost can arrive while the lost network is still reported active.
+    private static final long OFFLINE_RECHECK_MS = 1_500;
+    private final Runnable foregroundStatusRecheck = this::refreshForegroundStatus;
     // When the default network was first seen unvalidated (elapsedRealtime), 0 when validated.
     private long unvalidatedSince = 0;
     private SharedPreferences.OnSharedPreferenceChangeListener configListener;
@@ -1724,6 +1730,7 @@ public class NotificationRelayService extends Service {
             int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
                     ? ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                     : 0;
+            foregroundOffline = !isNetworkAvailable();
             ServiceCompat.startForeground(this, FOREGROUND_ID, buildForegroundNotification(), type);
         } catch (Exception e) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -8230,7 +8237,7 @@ public class NotificationRelayService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, SVC_CHANNEL_ID)
                 .setContentTitle(str(R.string.app_name))
-                .setContentText(str(R.string.notif_connected))
+                .setContentText(str(foregroundOffline ? R.string.notif_offline : R.string.notif_connected))
                 .setSmallIcon(R.drawable.ic_stat_armada)
                 .setContentIntent(pi)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -8319,6 +8326,7 @@ public class NotificationRelayService extends Service {
                     // are not a change; one after a loss is.
                     if (sawNetworkLoss) lastNetworkChangeAt = SystemClock.elapsedRealtime();
                     for (RelayConnection rc : connections) rc.onFleetEdge(FleetEdge.CONNECTIVITY_REGAINED);
+                    refreshForegroundStatus();
                 });
             }
 
@@ -8339,10 +8347,23 @@ public class NotificationRelayService extends Service {
                 handler.post(() -> {
                     sawNetworkLoss = true;
                     lastNetworkChangeAt = SystemClock.elapsedRealtime();
+                    refreshForegroundStatus();
+                    handler.removeCallbacks(foregroundStatusRecheck);
+                    handler.postDelayed(foregroundStatusRecheck, OFFLINE_RECHECK_MS);
                 });
             }
         };
         try { cm.registerNetworkCallback(req, networkCallback); } catch (Exception ignored) {}
+    }
+
+    /** Re-words the foreground row when the device goes on or offline; handler thread. */
+    private void refreshForegroundStatus() {
+        if (instance != this) return;
+        boolean offline = !isNetworkAvailable();
+        if (offline == foregroundOffline) return;
+        foregroundOffline = offline;
+        NotificationManager m = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (m != null) m.notify(FOREGROUND_ID, buildForegroundNotification());
     }
 
     private void unregisterNetworkCallback() {

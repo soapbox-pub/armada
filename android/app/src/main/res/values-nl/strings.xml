@@ -38,7 +38,8 @@
     <string name="notif_reply">Beantwoorden</string>
     <string name="notif_mark_read">Markeren als gelezen</string>
     <string name="notif_not_sent">⚠️ Niet verzonden: %1$s</string>
-    <string name="notif_connected">Verbonden voor directe meldingen</string>
+    <string name="notif_connected">Achtergrondverbinding actief</string>
+    <string name="notif_offline">Offline, wachten op een netwerkverbinding</string>
     <string name="channel_service_name">Achtergrondverbinding</string>
     <string name="channel_service_description">Houdt Armada verbonden voor directe meldingen</string>
     <string name="channel_messages_name">Meldingen</string>
