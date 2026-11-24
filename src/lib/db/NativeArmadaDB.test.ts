@@ -149,7 +149,7 @@ vi.mock("@capacitor/core", () => ({
   registerPlugin: () => native.plugin,
 }));
 
-const { hasNativeArmadaDB, NativeArmadaDB } = await import("./NativeArmadaDB");
+const { hasNativeArmadaDB, NativeArmadaDB, READ_PAGE } = await import("./NativeArmadaDB");
 const { SqliteArmadaDB } = await import("./SqliteArmadaDB");
 
 /** The whole driver contract, over Node's built-in SQLite. */
@@ -308,6 +308,54 @@ describe("NativeArmadaDB", () => {
     expect((await db.tenant("t").query([{ since: 200 }])).map((r) => r.id)).toEqual(["b"]);
     expect((await db.tenant("t").query([{ until: 100 }])).map((r) => r.id)).toEqual(["a"]);
     expect((await db.tenant("t").query([{ limit: 1 }])).map((r) => r.id)).toEqual(["b"]);
+  });
+
+  describe("reads larger than a page", () => {
+    /** `n` rows, `perSecond` to each second, oldest at `from`. */
+    async function seed(n: number, perSecond = 1, from = 10_000): Promise<void> {
+      await Promise.all(Array.from({ length: n }, (_, i) =>
+        db.tenant("t").event(rumor({ id: `r${String(i).padStart(6, "0")}`, created_at: from + Math.floor(i / perSecond) }))));
+      native.calls.query = 0;
+    }
+
+    /** What the engine answers in one unpaged read, for comparison. */
+    const whole = (filters: NostrFilter[]) => backing.tenant("t").query(filters);
+
+    it("answers an unlimited read in bounded crossings, identical to one read", async () => {
+      await seed(2 * READ_PAGE + 7, 3);
+      const got = await db.tenant("t").query([{ kinds: [1] }]);
+      expect(got).toEqual(await whole([{ kinds: [1] }]));
+      expect(got).toHaveLength(2 * READ_PAGE + 7);
+      expect(native.calls.query).toBeGreaterThan(1);
+    });
+
+    it("keeps a small unlimited read to one crossing", async () => {
+      await seed(10);
+      await db.tenant("t").query([{ kinds: [1] }]);
+      expect(native.calls.query).toBe(1);
+    });
+
+    it("reads a second holding more than a page whole, and moves past it", async () => {
+      await seed(READ_PAGE + 50, READ_PAGE + 50, 20_000);
+      await db.tenant("t").event(rumor({ id: "older", created_at: 19_999 }));
+      const got = await db.tenant("t").query([{}]);
+      expect(got).toEqual(await whole([{}]));
+      expect(got.at(-1)!.id).toBe("older");
+    });
+
+    it("honours a limit above a page, and since/until", async () => {
+      await seed(3 * READ_PAGE);
+      const limit = READ_PAGE + 123;
+      expect(await db.tenant("t").query([{ limit }])).toEqual(await whole([{ limit }]));
+      const window = { since: 10_100, until: 10_000 + 2 * READ_PAGE + 5 };
+      expect(await db.tenant("t").query([window])).toEqual(await whole([window]));
+    });
+
+    it("merges a paged filter with bounded ones, deduped and newest first", async () => {
+      await seed(READ_PAGE + 10);
+      const filters: NostrFilter[] = [{ ids: ["r000003"] }, { kinds: [1] }, { limit: 5 }];
+      expect(await db.tenant("t").query(filters)).toEqual(await whole(filters));
+    });
   });
 
   it("counts and removes", async () => {

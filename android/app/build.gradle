@@ -172,6 +172,13 @@ def sqliteHostPlatform = {
 
 tasks.withType(Test).configureEach {
     dependsOn 'extractSqliteNatives'
+    // QueryHeapRepro: -PreproRows=<n> [-PreproHeap=256m] (a phone's heap).
+    if (findProperty('reproRows')) {
+        systemProperty 'reproRows', findProperty('reproRows')
+        maxHeapSize = findProperty('reproHeap') ?: '256m'
+        testLogging { showStandardStreams = true; exceptionFormat = 'full' }
+        outputs.upToDateWhen { false }
+    }
     doFirst {
         def natives = sqliteNativesDir.get().dir("natives/${sqliteHostPlatform()}").asFile
         systemProperty 'java.library.path',
