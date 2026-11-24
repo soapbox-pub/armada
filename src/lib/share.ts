@@ -6,7 +6,8 @@
 import { Capacitor } from "@capacitor/core";
 import { Share } from "@capacitor/share";
 
-import { bytesToBase64, filenameFromUrl, safeFilename, sniffImageMime } from "@/lib/fileBytes";
+import { writeFileChunked } from "@/lib/chunkedWrite";
+import { filenameFromUrl, safeFilename, sniffImageMime } from "@/lib/fileBytes";
 
 const native = Capacitor.isNativePlatform();
 
@@ -91,14 +92,10 @@ export async function shareFile(
   if (native) {
     let uri: string;
     try {
-      const { Filesystem, Directory } = await import("@capacitor/filesystem");
+      const { Directory } = await import("@capacitor/filesystem");
       // Cache dir: transient copy. safeFilename again at the write because the
       // plugin doesn't contain paths, and the cache's siblings are the databases.
-      ({ uri } = await Filesystem.writeFile({
-        path: safeFilename(filename),
-        data: bytesToBase64(bytes),
-        directory: Directory.Cache,
-      }));
+      uri = await writeFileChunked(safeFilename(filename), bytes, Directory.Cache);
     } catch {
       return false;
     }

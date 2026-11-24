@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 
+import { BRIDGE_CHUNK } from "@/lib/chunkedWrite";
 import { bytesToBase64 } from "@/lib/fileBytes";
 
 // The device's recent photos/videos for the attach sheet (MediaGalleryPlugin.java). Android only.
@@ -34,8 +35,6 @@ interface MediaGalleryPlugin {
   cancelSave(opts: { id: string }): Promise<void>;
 }
 
-/** Bytes per bridge call; a multiple of 3 so each piece base64-encodes without padding. */
-const SAVE_CHUNK = 3 * 256 * 1024;
 
 const MediaGallery = registerPlugin<MediaGalleryPlugin>("MediaGallery");
 
@@ -88,14 +87,12 @@ export function galleryThumbnailSrc(item: GalleryItem): Promise<string> {
  * Save bytes into the shared collections: image/video/audio `mime` picks
  * Pictures/Movies/Music, anything else (or none) Download — each under
  * `Armada/`. Resolves the folder it landed in.
- *
- * Sent in pieces: one base64 string of a whole video exhausts the Java heap.
  */
 export async function saveToDevice(filename: string, bytes: Uint8Array, mime?: string): Promise<string> {
   const { id } = await MediaGallery.beginSave({ filename, mime });
   try {
-    for (let at = 0; at < bytes.length; at += SAVE_CHUNK) {
-      await MediaGallery.appendSave({ id, data: bytesToBase64(bytes.subarray(at, at + SAVE_CHUNK)) });
+    for (let at = 0; at < bytes.length; at += BRIDGE_CHUNK) {
+      await MediaGallery.appendSave({ id, data: bytesToBase64(bytes.subarray(at, at + BRIDGE_CHUNK)) });
     }
   } catch (error) {
     void MediaGallery.cancelSave({ id }).catch(() => {});

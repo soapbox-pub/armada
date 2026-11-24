@@ -1,7 +1,8 @@
 import { Capacitor } from "@capacitor/core";
 
 import { t } from "@/i18n";
-import { bytesToBase64, filenameFromUrl, safeFilename, sniffImageMime } from "@/lib/fileBytes";
+import { writeFileChunked } from "@/lib/chunkedWrite";
+import { filenameFromUrl, safeFilename, sniffImageMime } from "@/lib/fileBytes";
 import { hasMediaGallery, saveToDevice } from "@/lib/mediaGallery";
 import { openUrl } from "@/lib/share";
 
@@ -24,13 +25,8 @@ export async function downloadBinaryFile(
     return saveToDevice(safeFilename(filename), bytes, mime);
   }
   if (Capacitor.isNativePlatform()) {
-    const { Filesystem, Directory } = await import("@capacitor/filesystem");
-    // No `encoding` → Capacitor treats `data` as base64.
-    await Filesystem.writeFile({
-      path: safeFilename(filename),
-      data: bytesToBase64(bytes),
-      directory: Directory.Documents,
-    });
+    const { Directory } = await import("@capacitor/filesystem");
+    await writeFileChunked(safeFilename(filename), bytes, Directory.Documents);
     return t({ id: "downloadFile.iosLocation", defaultMessage: "the Armada folder in Files" });
   }
   const blob = new Blob([bytes as BlobPart], { type: "application/octet-stream" });
