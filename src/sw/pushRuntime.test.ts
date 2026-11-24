@@ -615,11 +615,11 @@ describe("preparePush — DM request gating", () => {
     expect(p?.drop).toBe(true);
   });
 
-  it("shows a content-blind request for an unknown sender under `generic`", async () => {
+  it("shows a content-blind request for an unknown sender under `generic`, only where one is required", async () => {
     const p = await push(dmWrap({ content: "vile slur from a random" }), cfg());
     expect(p?.title).toBe("Message requests");
     expect(p?.accumulate).toBe(false);
-    expect(p?.onlyIfRequired).toBeUndefined();
+    expect(p?.onlyIfRequired).toBe(true);
     // Nothing the sender controls reaches the notification.
     expect(JSON.stringify(p)).not.toContain("slur");
   });

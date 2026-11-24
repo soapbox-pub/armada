@@ -325,7 +325,10 @@ const DROP: PreparedPush = {
   accumulate: false,
 };
 
-/** The content-blind ping for an unknown sender: nothing they control. */
+/**
+ * The content-blind ping for an unknown sender: nothing they control. Shown
+ * only where a push must display something; elsewhere it is avoidable noise.
+ */
 function requestPing(
   quiet: boolean,
   eventId?: string,
@@ -340,6 +343,7 @@ function requestPing(
     badge: NOTIFICATION_BADGE_ICON,
     timestamp: Date.now(),
     quiet,
+    onlyIfRequired: true,
     accumulate: false,
     eventId,
     roomKey,
@@ -486,7 +490,7 @@ async function prepareDm(
 
   // Non-message rumors are news to nobody; the request ping only satisfies runtimes that must show something.
   if (opened.kind !== KIND_DM_CHAT && opened.kind !== KIND_DM_FILE) {
-    return { ...requestPing(true, opened.rumorId, roomKey), onlyIfRequired: true };
+    return requestPing(true, opened.rumorId, roomKey);
   }
 
   const known = cfg.knownConversations?.includes(conversation)
@@ -501,10 +505,8 @@ async function prepareDm(
     })) return DROP;
   }
   if (!known && cfg.policy !== "full") {
-    // A stranger controls text, name and avatar: gate all three. Under `off`
-    // the ping exists only for runtimes that must show something.
-    const ping = requestPing(cfg.policy === "off", opened.rumorId, roomKey);
-    return cfg.policy === "off" ? { ...ping, onlyIfRequired: true } : ping;
+    // A stranger controls text, name and avatar: gate all three.
+    return requestPing(cfg.policy === "off", opened.rumorId, roomKey);
   }
 
   return present(

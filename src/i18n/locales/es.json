@@ -3122,7 +3122,6 @@
   "notification.gitActivity": "{action, select, issue {{name} abrió una incidencia en {repository}} pr {{name} abrió una pull request en {repository}} comment {{name} comentó un ticket en {repository}} other {{name} cambió el estado de un ticket en {repository}}}",
   "notification.gitActivityFallback": "Nueva actividad en el canal de destino",
   "notification.mentionedYou": "@tú {text}",
-  "notification.messageRequest": "Solicitud de mensaje",
   "notification.messageRequests": "Solicitudes de mensaje",
   "notification.messagesSynced": "Mensajes sincronizados",
   "notification.newChannelMessage": "Nuevo mensaje en un canal",

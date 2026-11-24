@@ -26,8 +26,6 @@
     <string name="notif_new_message">Nieuw bericht</string>
     <string name="notif_new_direct_message">Nieuw privébericht</string>
     <string name="notif_direct_messages">Privéberichten</string>
-    <string name="notif_message_requests">Berichtverzoeken</string>
-    <string name="notif_new_message_request">Je hebt een nieuw berichtverzoek</string>
     <string name="notif_git_activity">Git-activiteit</string>
     <string name="notif_git_issue">%1$s heeft een issue geopend in %2$s</string>
     <string name="notif_git_pr">%1$s heeft een pull request geopend in %2$s</string>

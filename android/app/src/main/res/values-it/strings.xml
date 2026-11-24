@@ -26,8 +26,6 @@
     <string name="notif_new_message">Nuovo messaggio</string>
     <string name="notif_new_direct_message">Nuovo messaggio diretto</string>
     <string name="notif_direct_messages">Messaggi diretti</string>
-    <string name="notif_message_requests">Richieste di messaggio</string>
-    <string name="notif_new_message_request">Hai una nuova richiesta di messaggio</string>
     <string name="notif_git_activity">Attività Git</string>
     <string name="notif_git_issue">%1$s ha aperto una segnalazione in %2$s</string>
     <string name="notif_git_pr">%1$s ha aperto una pull request in %2$s</string>

@@ -207,7 +207,6 @@ export const notificationMessages = defineMessages({
   newChannelMessage: { id: "notification.newChannelMessage", defaultMessage: "New message in a channel" },
   someoneMentionedYou: { id: "notification.someoneMentionedYou", defaultMessage: "Someone mentioned you" },
   messageRequests: { id: "notification.messageRequests", defaultMessage: "Message requests" },
-  messageRequest: { id: "notification.messageRequest", defaultMessage: "Message request" },
   newMessageRequest: {
     id: "notification.newMessageRequest",
     defaultMessage: "{count, plural, one {You have a new message request} other {You have new message requests}}",

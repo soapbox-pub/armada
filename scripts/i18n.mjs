@@ -260,8 +260,6 @@ const ANDROID_KEYS = {
   notif_room_title: ["notification.roomTitle", null, ["community", "channel"]],
   notif_new_message: ["notification.newMessage"],
   notif_new_direct_message: ["notification.newDirectMessage"],
-  notif_message_requests: ["notification.messageRequests"],
-  notif_new_message_request: ["notification.newMessageRequest", "one"],
   notif_git_issue: ["notification.gitActivity", "issue", ["name", "repository"]],
   notif_git_pr: ["notification.gitActivity", "pr", ["name", "repository"]],
   notif_git_comment: ["notification.gitActivity", "comment", ["name", "repository"]],

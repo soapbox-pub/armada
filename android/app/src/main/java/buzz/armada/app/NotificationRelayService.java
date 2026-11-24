@@ -4700,13 +4700,10 @@ public class NotificationRelayService extends Service {
                             // A filtered stranger raises nothing; the app lists
                             // them apart under Message requests.
                             if (dmStrangerFiltered(room, rumor, rumorKind)) return;
-                            if ("off".equals(dmRequests)) return;
-                            if (!"full".equals(dmRequests)) { // "generic" / unset
-                                long reqTs = rumor.optLong("created_at", 0);
-                                notifyDmRequest(reqTs > 0 ? reqTs * 1000L
-                                        : System.currentTimeMillis());
-                                return;
-                            }
+                            // "off" and "generic" raise nothing: the content-blind
+                            // request ping exists only for runtimes that must show
+                            // something per push (iOS), and this service need not.
+                            if (!"full".equals(dmRequests)) return;
                             // "full" falls through and notifies like a friend.
                         }
                         final boolean group = convPeers.size() > 1;
@@ -5210,27 +5207,6 @@ public class NotificationRelayService extends Service {
         enqueueRoomMessage(/*community=*/null, "dm17:opaque", str(R.string.notif_direct_messages), "/dm",
                 /*senderPubkey=*/null, str(R.string.notif_someone), /*picture=*/null,
                 str(R.string.notif_new_direct_message), System.currentTimeMillis(), /*mention=*/true);
-    }
-
-    /**
-     * The content-blind ping for a DM from an unknown sender when `dmRequests`
-     * is "generic". Deliberately carries NOTHING the sender controls — no
-     * display name, no avatar, no message preview — so a stranger can't push
-     * slurs (in the text OR their profile) onto the lock screen. All pending
-     * requests collapse into one "Message requests" conversation; the WebView's
-     * DM requests tier shows who they actually are on open.
-     */
-    private void notifyDmRequest(long timestampMs) {
-        // Viewing any DM thread suppresses, as for the opaque ping: the request
-        // tier is a DM surface, and the peer isn't tied to a single thread here.
-        for (String roomKey : freshActiveRoomKeys()) {
-            if (roomKey.startsWith("dm:")) return;
-        }
-        if (BuildConfig.DEBUG) Log.d(TAG, "NOTIFY dm17 (request)");
-        String requests = str(R.string.notif_message_requests);
-        enqueueRoomMessage(/*community=*/null, "dm:requests", requests, "/dm",
-                /*senderPubkey=*/null, requests, /*picture=*/null,
-                str(R.string.notif_new_message_request), timestampMs, /*mention=*/true);
     }
 
     /**

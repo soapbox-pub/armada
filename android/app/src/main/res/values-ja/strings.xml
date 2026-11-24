@@ -26,8 +26,6 @@
     <string name="notif_new_message">新しいメッセージ</string>
     <string name="notif_new_direct_message">新しいダイレクトメッセージ</string>
     <string name="notif_direct_messages">ダイレクトメッセージ</string>
-    <string name="notif_message_requests">メッセージリクエスト</string>
-    <string name="notif_new_message_request">新しいメッセージリクエストがあります</string>
     <string name="notif_git_activity">Git のアクティビティ</string>
     <string name="notif_git_issue">%1$s さんが %2$s で課題を作成しました</string>
     <string name="notif_git_pr">%1$s さんが %2$s でプルリクエストを作成しました</string>

@@ -3122,7 +3122,6 @@
   "notification.gitActivity": "{action, select, issue {{name} さんが {repository} で課題を作成しました} pr {{name} さんが {repository} でプルリクエストを作成しました} comment {{name} さんが {repository} のチケットにコメントしました} other {{name} さんが {repository} のチケットのステータスを変更しました}}",
   "notification.gitActivityFallback": "宛先チャンネルに新しいアクティビティ",
   "notification.mentionedYou": "@あなた {text}",
-  "notification.messageRequest": "メッセージリクエスト",
   "notification.messageRequests": "メッセージリクエスト",
   "notification.messagesSynced": "メッセージを同期しました",
   "notification.newChannelMessage": "チャンネルに新しいメッセージ",

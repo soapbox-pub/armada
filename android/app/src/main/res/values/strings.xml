@@ -33,8 +33,6 @@
     <string name="notif_new_message">New message</string>
     <string name="notif_new_direct_message">New direct message</string>
     <string name="notif_direct_messages">Direct messages</string>
-    <string name="notif_message_requests">Message requests</string>
-    <string name="notif_new_message_request">You have a new message request</string>
     <string name="notif_git_activity">Git activity</string>
     <string name="notif_git_issue">%1$s opened an issue in %2$s</string>
     <string name="notif_git_pr">%1$s opened a pull request in %2$s</string>

@@ -829,8 +829,6 @@ export function useForegroundNotifications(): void {
         let readKey = cand.readKey;
         let path = cand.path;
         let level: NotifLevel;
-        // Unknown DM sender under the "generic" request policy: cue but show nothing they control.
-        let dmGeneric = false;
         let relayUrl: string | undefined;
         let communityId: string | undefined;
 
@@ -860,8 +858,7 @@ export function useForegroundNotifications(): void {
             continue;
           }
           level = cand.peer ? c.dmLevel(cand.peer) : "all";
-          // Unknown senders control text, name and avatar: apply the request policy ("off" silent,
-          // "generic" content-free, "full" normal).
+          // Unknown senders control text, name and avatar: only the "full" request policy notifies.
           const conversationKnown = cand.peer
             ? c.knownConversationSet.has(cand.peer)
               || mineConversationKeys.current.has(cand.peer)
@@ -890,12 +887,12 @@ export function useForegroundNotifications(): void {
               suppress(roomKey);
               continue;
             }
-            const policy = c.dmRequestPolicy;
-            if (policy === "off") {
+            // Only "full" notifies from the page: the content-blind request ping is for
+            // push runtimes that must show something, and the page never has to.
+            if (c.dmRequestPolicy !== "full") {
               suppress(roomKey);
               continue;
             }
-            if (policy !== "full") dmGeneric = true;
           }
         } else {
           if (!path) {
@@ -984,15 +981,7 @@ export function useForegroundNotifications(): void {
           let message: NotificationMessage | undefined;
           let notificationLines: string[] | undefined;
 
-          if (cand.plane === "dm" && dmGeneric) {
-            // Content-blind: nothing the sender controls (name/avatar/text).
-            presented = {
-              title: t(notificationMessages.messageRequest),
-              body: t(notificationMessages.newMessageRequest, { count: 1 }),
-              icon: NOTIFICATION_FALLBACK_ICON,
-              badge: NOTIFICATION_BADGE_ICON,
-            };
-          } else if (cand.git) {
+          if (cand.git) {
             // Repository activity keeps its own shape rather than going through the presenter.
             const { name, avatar } = await profileFor(cand.author);
             presented = {

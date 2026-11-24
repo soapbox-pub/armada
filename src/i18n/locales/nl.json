@@ -3122,7 +3122,6 @@
   "notification.gitActivity": "{action, select, issue {{name} heeft een issue geopend in {repository}} pr {{name} heeft een pull request geopend in {repository}} comment {{name} heeft gereageerd op een ticket in {repository}} other {{name} heeft de status van een ticket gewijzigd in {repository}}}",
   "notification.gitActivityFallback": "Nieuwe activiteit in het doelkanaal",
   "notification.mentionedYou": "@jij {text}",
-  "notification.messageRequest": "Berichtverzoek",
   "notification.messageRequests": "Berichtverzoeken",
   "notification.messagesSynced": "Berichten gesynchroniseerd",
   "notification.newChannelMessage": "Nieuw bericht in een kanaal",

@@ -20,12 +20,13 @@ const h = vi.hoisted(() => ({
   sounds: 0,
   policy: undefined as StrangerFilterPolicy | undefined,
   stored: new Map<string, DmScreen>(),
+  dmRequests: "full" as "off" | "generic" | "full",
 }));
 
 vi.mock("@nostrify/react", () => ({ useNostr: () => ({ nostr: {} }) }));
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: { pubkey: "a".repeat(64) } }) }));
 vi.mock("@/hooks/useAppContext", () => ({
-  useAppContext: () => ({ config: { automaticSettingsSync: false, pushPrefs: { dmRequests: "full" } } }),
+  useAppContext: () => ({ config: { automaticSettingsSync: false, pushPrefs: { dmRequests: h.dmRequests } } }),
 }));
 vi.mock("@/lib/notificationSettingsAuthority", () => ({
   useNotificationSettingsReady: () => true,
@@ -115,6 +116,7 @@ describe("useForegroundNotifications: the DM stranger filter", () => {
     h.sounds = 0;
     h.policy = { communityPeers: new Set(["c".repeat(64)]), blockNonMembers: false };
     h.stored.clear();
+    h.dmRequests = "full";
   });
   afterEach(() => vi.useRealTimers());
 
@@ -166,5 +168,13 @@ describe("useForegroundNotifications: the DM stranger filter", () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
     expect(h.sounds).toBe(1);
+  });
+
+  it.each(["generic", "off"] as const)("raises nothing for a stranger's message under `%s`", async (level) => {
+    h.dmRequests = level;
+    renderHook(() => useForegroundNotifications(), { wrapper });
+    act(() => h.sink!([dm("e".repeat(64), "hi, we met at the meetup")]));
+    await settle();
+    expect(h.sounds).toBe(0);
   });
 });
