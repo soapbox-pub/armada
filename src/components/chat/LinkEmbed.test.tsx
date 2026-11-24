@@ -1,3 +1,4 @@
+import { nip19 } from "nostr-tools";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,6 +27,23 @@ vi.mock("@/hooks/useLinkPreview", () => ({
   useRichEmbed: () => ({ data: preview.embed, isLoading: false }),
 }));
 
+const nostrData = vi.hoisted(() => ({
+  addr: null as NostrRumor | null,
+  event: null as NostrRumor | null,
+  addrCalls: [] as unknown[][],
+}));
+
+vi.mock("@/hooks/useEvent", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/useEvent")>()),
+  useAddrEvent: (...args: unknown[]) => {
+    nostrData.addrCalls.push(args);
+    return { data: args[0] ? nostrData.addr : null };
+  },
+  useEvent: (id: string | undefined) => ({ data: id ? nostrData.event : null }),
+}));
+
+vi.mock("@/hooks/useAuthor", () => ({ useAuthor: () => ({ data: undefined }) }));
+
 vi.mock("@/hooks/useMediaPolicy", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/useMediaPolicy")>()),
   useMediaSrc: (src: string | undefined) => src,
@@ -33,6 +51,7 @@ vi.mock("@/hooks/useMediaPolicy", async (importOriginal) => ({
 
 import { LinkEmbed, YouTubeEmbed } from "@/components/chat/LinkEmbed";
 import { oembedDescription } from "@/lib/linkEmbed";
+import type { NostrRumor } from "@/lib/nostrRumor";
 import { BlueskyPostSchema, extractBlueskyPost, fromBlueskyPost, fromOEmbed, type RichEmbed } from "@/lib/richEmbed";
 
 const BLUESKY_HTML =
@@ -324,5 +343,72 @@ describe("PeerTube embeds", () => {
     fireEvent.click(screen.getByRole("button", { name: "Play video from framatube.org" }));
     await waitFor(() => expect(open).toHaveBeenCalledWith(LINK, "_blank", "noopener,noreferrer"));
     expect(screen.getByRole("link", { name: "Open on framatube.org" })).toHaveAttribute("href", LINK);
+  });
+});
+
+describe("GitWorkshop links", () => {
+  const OWNER = "a".repeat(64);
+  const NPUB = "npub1424242424242424242424242424242424242424242424242424qamrcaj";
+  const REPO_URL = `https://gitworkshop.dev/${NPUB}/relay.ngit.dev/armada`;
+
+  beforeEach(() => {
+    // The site's generic page card must not be what's shown.
+    preview.embed = { provider: "gitworkshop.dev", title: "gitworkshop.dev", images: [{ thumb: "https://gitworkshop.dev/og.png" }] };
+    nostrData.addr = null;
+    nostrData.event = null;
+    nostrData.addrCalls = [];
+  });
+  afterEach(cleanup);
+
+  it("names the repository from the URL before its announcement arrives", () => {
+    render(<LinkEmbed url={REPO_URL} />);
+    expect(screen.getByText("armada")).toBeInTheDocument();
+    expect(screen.getByText("Repository")).toBeInTheDocument();
+    expect(screen.queryByText("gitworkshop.dev")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View image" })).not.toBeInTheDocument();
+    expect(nostrData.addrCalls[0]?.[0]).toEqual({ kind: 30617, pubkey: OWNER, identifier: "armada" });
+    expect(nostrData.addrCalls[0]?.[1]).toEqual(["wss://relay.ngit.dev"]);
+  });
+
+  it("shows the announced name and description", () => {
+    nostrData.addr = {
+      id: "b".repeat(64),
+      pubkey: OWNER,
+      created_at: 1,
+      kind: 30617,
+      content: "",
+      tags: [["d", "armada"], ["name", "Armada"], ["description", "Serverless communities"]],
+    };
+    render(<LinkEmbed url={REPO_URL} />);
+    expect(screen.getByText("Armada")).toBeInTheDocument();
+    expect(screen.getByText("Serverless communities")).toBeInTheDocument();
+  });
+
+  it("labels a repository's pull request list", () => {
+    render(<LinkEmbed url={`https://gitworkshop.dev/${NPUB}/armada/prs`} />);
+    expect(screen.getByText("Pull requests")).toBeInTheDocument();
+    expect(screen.getByText("armada")).toBeInTheDocument();
+  });
+
+  it("titles a pull request page with its subject", () => {
+    nostrData.event = {
+      id: "c".repeat(64),
+      pubkey: "d".repeat(64),
+      created_at: 1,
+      kind: 1618,
+      content: "",
+      tags: [["a", `30617:${OWNER}:armada`], ["subject", "Show repo names in link previews"]],
+    };
+    const note = nip19.noteEncode("c".repeat(64));
+    render(<LinkEmbed url={`https://gitworkshop.dev/${NPUB}/armada/prs/${note}/files`} />);
+    expect(screen.getByText("Show repo names in link previews")).toBeInTheDocument();
+    expect(screen.getByText("Pull request")).toBeInTheDocument();
+    expect(screen.getByText("armada")).toBeInTheDocument();
+  });
+
+  it("leaves GitWorkshop's own pages to the generic card", () => {
+    preview.embed = { provider: "gitworkshop.dev", title: "Quick start", images: [] };
+    render(<LinkEmbed url="https://gitworkshop.dev/quick-start" />);
+    expect(screen.getByText("Quick start")).toBeInTheDocument();
   });
 });
