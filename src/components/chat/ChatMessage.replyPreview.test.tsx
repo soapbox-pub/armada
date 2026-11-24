@@ -106,3 +106,26 @@ describe("ReplyPreview quoted notes", () => {
     expect(container.textContent).toBe("nevent1qqqq");
   });
 });
+
+describe("ReplyPreview spoilers", () => {
+  it("covers spoiler text instead of printing the pipes", () => {
+    const { container } = render(<ReplyPreview content="the killer is ||the butler|| obviously" />);
+    expect(container.textContent).not.toContain("||");
+    const cover = container.querySelector("[aria-hidden]");
+    expect(cover?.textContent).toBe("the butler");
+    expect(cover?.className).toContain("text-transparent");
+    expect(screen.getByText("Spoiler")).toHaveClass("sr-only");
+  });
+
+  it("only labels a quote inside a spoiler, without fetching it", () => {
+    events.set(ID, note());
+    const { container } = render(<ReplyPreview content={`||nostr:${nip19.noteEncode(ID)}||`} quotesBy={PARENT} />);
+    expect(useEvent).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("You can already disable DMs");
+  });
+
+  it("leaves a lone pair of pipes alone", () => {
+    const { container } = render(<ReplyPreview content="a || b" />);
+    expect(container.textContent).toBe("a || b");
+  });
+});

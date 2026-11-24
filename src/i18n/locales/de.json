@@ -3834,6 +3834,7 @@
   "remoteLoginSuccessPage.goHome": "Zur Startseite",
   "remoteLoginSuccessPage.returning": "Du wirst zur App zurückgebracht…",
   "remoteLoginSuccessPage.title": "Anmeldung bestätigt",
+  "replyPreview.spoiler": "Spoiler",
   "report.audience.concord": "Nur die Moderatoren dieser Community können sie lesen.",
   "report.audience.network": "Diese Meldung ist öffentlich. Jeder kann sie lesen, auch deinen Kommentar.",
   "report.audience.nip29": "An die Moderatoren dieses Servers gesendet.",

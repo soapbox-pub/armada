@@ -142,11 +142,34 @@ function InvokedBotName({ pubkey }: { pubkey: string }) {
   return <span className="font-semibold not-italic text-primary"><DisplayName pubkey={pubkey} ultra={false} /></span>;
 }
 
+/** `||spoiler||`, matched as the body's markdown does (`INLINE_PATTERNS`). */
+const REPLY_SPOILER_RE = /\|\|([\s\S]+?)\|\|(?!\|)/g;
+
+/**
+ * A covered spoiler in a reply line. Not revealable here: the line is a jump to
+ * the parent, whose own {@link Spoiler} reveals it.
+ */
+function ReplySpoiler({ children }: { children: ReactNode }) {
+  const intl = useIntl();
+  return (
+    <>
+      <span className="sr-only">{intl.formatMessage({ id: "replyPreview.spoiler", defaultMessage: "Spoiler" })}</span>
+      <span
+        aria-hidden
+        className="rounded px-0.5 bg-foreground/20 text-transparent select-none [box-decoration-break:clone] [-webkit-box-decoration-break:clone] [&_*]:!text-transparent [&_*]:!bg-transparent [&_img]:invisible"
+      >
+        {children}
+      </span>
+    </>
+  );
+}
+
 /**
  * One-line reply preview: mentions as `@name`, URLs as 📎 (dropped with
  * `hideMediaPlaceholder` when a thumbnail shows), NIP-30 emoji when `tags` given.
  * A quoted note shows its own text when `quotesBy` (the content's author) is
  * given — omit it where that author's embeds are held — else a label naming it.
+ * `||spoilers||` stay covered.
  */
 export function ReplyPreview({ content, hideMediaPlaceholder = false, tags, quotesBy }: {
   content: string;
@@ -155,54 +178,68 @@ export function ReplyPreview({ content, hideMediaPlaceholder = false, tags, quot
   quotesBy?: string;
 }) {
   const placeholder = hideMediaPlaceholder ? "" : "📎";
-  const withoutUrls = content.replace(/https?:\/\/\S+/g, placeholder);
   const emojiMap = tags ? buildEmojiMap(tags) : undefined;
   const renderText = (text: string): ReactNode =>
     emojiMap && emojiMap.size > 0
       ? emojify(text, emojiMap, "inline h-[1.15em] w-[1.15em] object-contain align-text-bottom")
       : text;
   const parts: ReactNode[] = [];
-  let last = 0;
   let key = 0;
   let hasText = false;
-  for (const m of withoutUrls.matchAll(REPLY_NOSTR_RE)) {
-    const start = m.index ?? 0;
-    if (start > last) {
-      const text = withoutUrls.slice(last, start);
-      if (text.trim()) hasText = true;
-      parts.push(<span key={key++}>{renderText(text)}</span>);
-    }
-    try {
-      const decoded = nip19.decode(`${m[1]}${m[2]}`);
-      const pubkey = decoded.type === "npub" ? decoded.data : decoded.type === "nprofile" ? decoded.data.pubkey : undefined;
-      if (pubkey) {
-        hasText = true;
-        parts.push(<ReplyMentionName key={key++} pubkey={pubkey} />);
-      } else if (decoded.type === "note" || decoded.type === "nevent") {
-        hasText = true;
-        const ref: nip19.EventPointer = decoded.type === "note" ? { id: decoded.data } : decoded.data;
-        parts.push(quotesBy
-          ? <ReplyQuotedNote key={key++} eventId={ref.id} relays={ref.relays} author={ref.author} kind={ref.kind} fallbackAuthor={quotesBy} />
-          : <ReplyQuoteLabel key={key++} kind={ref.kind} />);
-      } else if (decoded.type === "naddr") {
-        // Not fetched: an naddr can name a group or an invite, which the body cards specially.
-        hasText = true;
-        parts.push(<ReplyQuoteLabel key={key++} kind={decoded.data.kind} />);
-      } else {
-        parts.push(<span key={key++}>{m[0]}</span>);
+  const renderSegment = (segment: string, out: ReactNode[], quotes: boolean) => {
+    const withoutUrls = segment.replace(/https?:\/\/\S+/g, placeholder);
+    let last = 0;
+    for (const m of withoutUrls.matchAll(REPLY_NOSTR_RE)) {
+      const start = m.index ?? 0;
+      if (start > last) {
+        const text = withoutUrls.slice(last, start);
+        if (text.trim()) hasText = true;
+        out.push(<span key={key++}>{renderText(text)}</span>);
+      }
+      try {
+        const decoded = nip19.decode(`${m[1]}${m[2]}`);
+        const pubkey = decoded.type === "npub" ? decoded.data : decoded.type === "nprofile" ? decoded.data.pubkey : undefined;
+        if (pubkey) {
+          hasText = true;
+          out.push(<ReplyMentionName key={key++} pubkey={pubkey} />);
+        } else if (decoded.type === "note" || decoded.type === "nevent") {
+          hasText = true;
+          const ref: nip19.EventPointer = decoded.type === "note" ? { id: decoded.data } : decoded.data;
+          out.push(quotes && quotesBy
+            ? <ReplyQuotedNote key={key++} eventId={ref.id} relays={ref.relays} author={ref.author} kind={ref.kind} fallbackAuthor={quotesBy} />
+            : <ReplyQuoteLabel key={key++} kind={ref.kind} />);
+        } else if (decoded.type === "naddr") {
+          // Not fetched: an naddr can name a group or an invite, which the body cards specially.
+          hasText = true;
+          out.push(<ReplyQuoteLabel key={key++} kind={decoded.data.kind} />);
+        } else {
+          out.push(<span key={key++}>{m[0]}</span>);
+          hasText = true;
+        }
+      } catch {
+        out.push(<span key={key++}>{m[0]}</span>);
         hasText = true;
       }
-    } catch {
-      parts.push(<span key={key++}>{m[0]}</span>);
-      hasText = true;
+      last = start + m[0].length;
     }
+    if (last < withoutUrls.length) {
+      const text = withoutUrls.slice(last);
+      if (text.trim()) hasText = true;
+      out.push(<span key={key++}>{renderText(text)}</span>);
+    }
+  };
+  let last = 0;
+  for (const m of content.matchAll(REPLY_SPOILER_RE)) {
+    const start = m.index ?? 0;
+    if (start > last) renderSegment(content.slice(last, start), parts, true);
+    const hidden: ReactNode[] = [];
+    // Covered, so a quote inside is only labelled rather than fetched.
+    renderSegment(m[1], hidden, false);
+    hasText = true;
+    parts.push(<ReplySpoiler key={key++}>{hidden}</ReplySpoiler>);
     last = start + m[0].length;
   }
-  if (last < withoutUrls.length) {
-    const text = withoutUrls.slice(last);
-    if (text.trim()) hasText = true;
-    parts.push(<span key={key++}>{renderText(text)}</span>);
-  }
+  if (last < content.length) renderSegment(content.slice(last), parts, true);
   if (!hasText) return hideMediaPlaceholder ? null : <>📎</>;
   return <>{parts}</>;
 }
