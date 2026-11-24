@@ -411,6 +411,8 @@ public class NotificationRelayService extends Service {
     private final RelayFleetPolicy fleetPolicy = new CircuitBreakerPolicy();
 
     private OkHttpClient httpClient;
+    /** onCreate finished: the clients exist and the service is in the foreground. Main thread only. */
+    private boolean ready;
 
     /**
      * The confinement thread, and deliberately NOT the main one.
@@ -1724,7 +1726,6 @@ public class NotificationRelayService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        instance = this;
         createChannels(this);
         try {
             int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
@@ -1770,6 +1771,8 @@ public class NotificationRelayService extends Service {
                 .pingInterval(0, TimeUnit.SECONDS) // no pings on one-shot image GETs
                 .cache(new Cache(new File(getCacheDir(), "avatar-http"), AVATAR_HTTP_CACHE_BYTES))
                 .build();
+        ready = true;
+        instance = this;
 
         // Both registrations only arm listeners that post, so they stay here
         // and are live before onStartCommand can run. The rest is confined
@@ -1796,6 +1799,9 @@ public class NotificationRelayService extends Service {
         // AlarmManager call is thread-free and cheap, so it stays here rather
         // than riding the queue behind whatever the handler thread is doing.
         BootReceiver.scheduleWatchdog(this);
+        // onCreate bailed before building the clients (foreground start refused)
+        // and has already stopped; the start it was launched for still arrives.
+        if (!ready) return START_NOT_STICKY;
         final String action = intent != null ? intent.getAction() : null;
         // Everything below reads or rebuilds the confined state, so it runs on
         // the handler thread. The intent is ours once delivered — nothing
