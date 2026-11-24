@@ -1146,6 +1146,7 @@
   "concordPage.ban.done": "メンバーをBANしました",
   "concordPage.ban.rotationIncomplete": "BANリストに追加しましたが、鍵のローテーションが完了しませんでした（再試行できます）。",
   "concordPage.ban.silenced": "このコミュニティの全員に対してミュートされています。",
+  "concordPage.bannedHidden": "{count, plural, other {{authors, plural, other {BANされたメンバー}}の#件のメッセージを非表示にしています}}",
   "concordPage.category.moveFailed": "チャンネルを移動できませんでした",
   "concordPage.category.partialMove": "{total}件中{moved}件のチャンネルのみ移動しました",
   "concordPage.channel.moveFailed": "チャンネルを移動できませんでした",

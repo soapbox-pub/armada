@@ -1146,6 +1146,7 @@
   "concordPage.ban.done": "Membro bannato",
   "concordPage.ban.rotationIncomplete": "Aggiunto alla lista dei ban; la rotazione delle chiavi non è stata completata (puoi riprovare).",
   "concordPage.ban.silenced": "È silenziato per tutti in questa community.",
+  "concordPage.bannedHidden": "{count, plural, one {# messaggio di un membro bannato è nascosto} other {# messaggi {authors, plural, one {di un membro bannato} other {di # membri bannati}} sono nascosti}}",
   "concordPage.category.moveFailed": "Impossibile spostare i canali",
   "concordPage.category.partialMove": "Spostati solo {moved} canali su {total}",
   "concordPage.channel.moveFailed": "Impossibile spostare il canale",

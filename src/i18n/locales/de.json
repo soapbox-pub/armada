@@ -1146,6 +1146,7 @@
   "concordPage.ban.done": "Mitglied gesperrt",
   "concordPage.ban.rotationIncomplete": "Zur Sperrliste hinzugefügt; die Schlüsselrotation wurde nicht abgeschlossen (du kannst es erneut versuchen).",
   "concordPage.ban.silenced": "Die Person ist für alle in dieser Community stummgeschaltet.",
+  "concordPage.bannedHidden": "{count, plural, one {# Nachricht eines gesperrten Mitglieds ist ausgeblendet} other {# Nachrichten {authors, plural, one {eines gesperrten Mitglieds} other {von # gesperrten Mitgliedern}} sind ausgeblendet}}",
   "concordPage.category.moveFailed": "Die Kanäle konnten nicht verschoben werden",
   "concordPage.category.partialMove": "Nur {moved} von {total} Kanälen verschoben",
   "concordPage.channel.moveFailed": "Der Kanal konnte nicht verschoben werden",

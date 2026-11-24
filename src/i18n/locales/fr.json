@@ -1146,6 +1146,7 @@
   "concordPage.ban.done": "Membre banni",
   "concordPage.ban.rotationIncomplete": "Ajouté à la liste des bannis ; la rotation des clés n’a pas abouti (vous pouvez réessayer).",
   "concordPage.ban.silenced": "Cette personne est masquée pour tout le monde dans cette communauté.",
+  "concordPage.bannedHidden": "{count, plural, one {# message d’un membre banni est masqué} other {# messages {authors, plural, one {d’un membre banni} other {de # membres bannis}} sont masqués}}",
   "concordPage.category.moveFailed": "Impossible de déplacer les salons",
   "concordPage.category.partialMove": "Seulement {moved} salons déplacés sur {total}",
   "concordPage.channel.moveFailed": "Impossible de déplacer le salon",

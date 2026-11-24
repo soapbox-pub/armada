@@ -33,7 +33,7 @@ const h = vi.hoisted(() => ({
     pollVotes: new Map(),
     calendarEvents: [],
     rsvps: new Map(),
-    timerNotices: [],
+    timerNotices: [], bannedHidden: [],
     quarantined: new Set<string>(),
     paused: new Set<string>(),
     ruled: new Set<string>(),

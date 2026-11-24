@@ -1146,6 +1146,7 @@
   "concordPage.ban.done": "Lid verbannen",
   "concordPage.ban.rotationIncomplete": "Toegevoegd aan de banlijst; de sleutelrotatie is niet voltooid (je kunt het opnieuw proberen).",
   "concordPage.ban.silenced": "Deze persoon is voor iedereen in deze community gedempt.",
+  "concordPage.bannedHidden": "{count, plural, one {# bericht van een verbannen lid is verborgen} other {# berichten van {authors, plural, one {een verbannen lid} other {# verbannen leden}} zijn verborgen}}",
   "concordPage.category.moveFailed": "Kan de kanalen niet verplaatsen",
   "concordPage.category.partialMove": "Slechts {moved} van {total} kanalen verplaatst",
   "concordPage.channel.moveFailed": "Kan het kanaal niet verplaatsen",

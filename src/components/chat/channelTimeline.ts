@@ -18,6 +18,16 @@ export interface DmTimerTimelineEntry {
   seconds: number;
 }
 
+/** Posts by banned members a channel no longer shows, in place of the gap they leave. */
+export interface BannedHiddenTimelineEntry {
+  type: "banned-hidden";
+  id: string;
+  createdAt: number;
+  count: number;
+  /** Distinct banned authors among them. */
+  authors: number;
+}
+
 /**
  * Broader than `ChatTransport`: Git events keep their own Nostr identity, and a
  * DM timer change is conversation state rather than a message.
@@ -25,10 +35,11 @@ export interface DmTimerTimelineEntry {
 export type ChannelTimelineEntry =
   | { type: "chat"; id: string; createdAt: number; message: ChatMsg }
   | GitChannelTimelineEntry
-  | DmTimerTimelineEntry;
+  | DmTimerTimelineEntry
+  | BannedHiddenTimelineEntry;
 
 export function isGitTimelineEntry(entry: ChannelTimelineEntry): entry is GitChannelTimelineEntry {
-  return entry.type !== "chat" && entry.type !== "dm-timer";
+  return entry.type !== "chat" && entry.type !== "dm-timer" && entry.type !== "banned-hidden";
 }
 
 export function gitActivityEntry(activity: GitTimelineActivity): GitChannelTimelineEntry {
@@ -48,6 +59,9 @@ export function timelineEntryAuthor(entry: ChannelTimelineEntry): string | undef
       return entry.message.pubkey;
     case "dm-timer":
       return entry.author;
+    case "banned-hidden":
+      // Deliberately unattributed: the placeholder names nobody.
+      return undefined;
     case "git-ticket-opened":
       return entry.activity.ticket.author;
     case "git-comment":

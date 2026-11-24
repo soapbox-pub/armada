@@ -488,6 +488,44 @@ describe("chat plane (CORD-03)", () => {
     expect(open.messages).toHaveLength(3);
   });
 
+  it("counts banned authors' posts as runs between visible posts", () => {
+    const member = "aa".repeat(32);
+    const b1 = "bb".repeat(32);
+    const b2 = "cc".repeat(32);
+    const mk = (rumorId: string, author: string, ms: number, kind = KIND_MESSAGE, tags: string[][] = []) => ({
+      rumorId, author, kind, content: rumorId, tags, ms, createdAt: Math.floor(ms / 1000), channelIdHex, epoch: 0n,
+    });
+    const rows = [
+      mk("s1", b1, 1000),
+      mk("s2", b2, 1100),
+      mk("m1", member, 1200),
+      mk("s3", b1, 1300),
+      // A thread reply isn't in the channel's own timeline.
+      mk("r1", b1, 1350, KIND_COMMENT, [["E", "m1"]]),
+      // The author took this one back before the ban; nothing is left to stand for.
+      mk("s4", b1, 1400),
+      mk("d1", b1, 1450, KIND_DELETE, [["e", "s4"]]),
+      mk("m2", member, 1500),
+      mk("s5", b2, 1600),
+    ];
+    const folded = foldTimeline(rows, { banned: new Set([b1, b2]), canDelete: () => false });
+    expect(folded.messages.map((m) => m.rumorId)).toEqual(["m1", "m2"]);
+    expect(folded.bannedHidden).toEqual([
+      { id: "s1", ms: 1000, count: 2, authors: 2 },
+      { id: "s3", ms: 1300, count: 1, authors: 1 },
+      { id: "s5", ms: 1600, count: 1, authors: 1 },
+    ]);
+
+    // A moderator's delete removes the post outright, placeholder included.
+    const modDeleted = foldTimeline(
+      [...rows, mk("d2", member, 1700, KIND_DELETE, [["e", "s5"]])],
+      { banned: new Set([b1, b2]), canDelete: (d) => d === member },
+    );
+    expect(modDeleted.bannedHidden.map((r) => r.id)).toEqual(["s1", "s3"]);
+
+    expect(foldTimeline(rows, { banned: new Set(), canDelete: () => false }).bannedHidden).toEqual([]);
+  });
+
   it("silently skips wraps from epochs we don't hold", async () => {
     const channel = makeChannel();
     const alice = signer();

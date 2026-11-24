@@ -1187,6 +1187,22 @@ function TimerNotice({ author, seconds, self }: { author: string; seconds: numbe
   );
 }
 
+/** Where banned members' posts were (CORD-04 §4): a count, never their names or content. */
+const BannedHiddenNotice = memo(function BannedHiddenNotice({ count, authors }: { count: number; authors: number }) {
+  return (
+    <div className="flex items-center justify-center gap-1.5 px-4 py-1.5 select-none" role="status">
+      <Ban className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+      <span className="text-2xs text-muted-foreground/80 text-center">
+        <FormattedMessage
+          id="concordPage.bannedHidden"
+          defaultMessage="{count, plural, one {# message from a banned member is hidden} other {# messages from {authors, plural, one {a banned member} other {# banned members}} are hidden}}"
+          values={{ count, authors }}
+        />
+      </span>
+    </div>
+  );
+});
+
 /**
  * A Concord community (CORD-01..06) at `/c/:communityId`, or
  * {@link CommunityBlocked} for one on the blocklist, checked before the
@@ -1764,7 +1780,7 @@ function ConcordCommunityPage() {
     [canManageRoles, canKickAny, canBanAny, canCreateInvite, canReadReports, dissolved],
   );
 
-  const { transport: baseTransport, span: timelineSpan, reactionsFor, allMessages, calendar, timerEntries, openedById, trustedAuthors } = useTransport(
+  const { transport: baseTransport, span: timelineSpan, reactionsFor, allMessages, calendar, timerEntries, bannedEntries, openedById, trustedAuthors } = useTransport(
     community,
     channel,
     canWrite,
@@ -1812,21 +1828,23 @@ function ConcordCommunityPage() {
   );
   const gitActivity = useChannelGitActivity(channel?.idHex, gitAttachments);
   const mixedEntries = useMemo(() => {
-    const merged = mergeChannelTimeline(baseTransport.messages, gitActivity.activities, timerEntries);
+    const extra = bannedEntries.length === 0 ? timerEntries : [...timerEntries, ...bannedEntries];
+    const merged = mergeChannelTimeline(baseTransport.messages, gitActivity.activities, extra);
     const to = timelineSpan?.to;
     if (!timelineSpan || to === undefined) return merged;
     // A detached run shows only its own span; activity either side sits past a gap.
     const { from } = timelineSpan;
     return merged.filter((entry) => entry.type === "chat" || (entry.createdAt >= from && entry.createdAt <= to));
-  }, [baseTransport.messages, timelineSpan, gitActivity.activities, timerEntries]);
+  }, [baseTransport.messages, timelineSpan, gitActivity.activities, timerEntries, bannedEntries]);
   // Memoized: rebuilding it allocates the full timeline.
   const dividerEntries = useMemo(
     () =>
-      mixedEntries.map((entry) => ({
+      // A placeholder for hidden posts is nothing new to read.
+      mixedEntries.flatMap((entry) => entry.type === "banned-hidden" ? [] : [{
         id: entry.id,
         createdAt: entry.createdAt,
         author: entry.type === "chat" ? entry.message.pubkey : entry.type === "dm-timer" ? entry.author : entry.type === "git-ticket-opened" ? entry.activity.ticket.author : entry.type === "git-comment" ? entry.activity.comment.author : entry.type === "git-ci-run" ? entry.activity.run.author : entry.activity.status.author,
-      })),
+      }]),
     [mixedEntries],
   );
   const newDividerId = useNewMessagesDivider(channel?.idHex ?? "", dividerEntries, user?.pubkey, baseTransport.hasMore);
@@ -2931,7 +2949,7 @@ function ConcordCommunityPage() {
     transport={transport}
     entries={mixedEntries}
     newDividerId={newDividerId}
-    renderEntry={(entry, relatedEntries) => isGitTimelineEntry(entry) ? <GitTimelineRow entry={entry} onOpen={openChannelTicket} related={relatedEntries} /> : entry.type === "dm-timer" ? <TimerNotice author={entry.author} seconds={entry.seconds} self={user?.pubkey} /> : null}
+    renderEntry={(entry, relatedEntries) => isGitTimelineEntry(entry) ? <GitTimelineRow entry={entry} onOpen={openChannelTicket} related={relatedEntries} /> : entry.type === "dm-timer" ? <TimerNotice author={entry.author} seconds={entry.seconds} self={user?.pubkey} /> : entry.type === "banned-hidden" ? <BannedHiddenNotice count={entry.count} authors={entry.authors} /> : null}
     handleRef={timelineHandleFor(channel?.idHex ?? "")}
     syncing={channelSyncing || gateResolving}
     syncFailed={channelSyncFailed}

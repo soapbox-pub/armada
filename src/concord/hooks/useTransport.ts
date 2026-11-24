@@ -19,7 +19,7 @@ import { expirationOf, timerNoticeSeconds } from "@/concord/lib/disappearing";
 import { sendRefusal } from "@/concord/lib/sendRateLimit";
 import { hasEveryoneMention } from "@/concord/lib/everyoneMention";
 import { channelKey, type TimelineSpan } from "@/concord/hooks/useChannel";
-import { mergeIntoOrdered, type DmTimerTimelineEntry } from "@/components/chat/channelTimeline";
+import { mergeIntoOrdered, type BannedHiddenTimelineEntry, type DmTimerTimelineEntry } from "@/components/chat/channelTimeline";
 import { buildCalendarTags, type CalendarEvent, type CalendarEventInput, type CalendarTransport, parseCalendarEvents, type RsvpStatus, type RsvpTally, tallyRsvps } from "@/lib/calendar";
 import { buildPollTags, parsePoll, tallyPollVotes, type PollTally, type PollVote } from "@/lib/polls";
 import { zapRumorTags, type ZapTally } from "@/lib/zaps";
@@ -86,6 +86,8 @@ export function useTransport(
    * via {@link mergeChannelTimeline}.
    */
   timerEntries: DmTimerTimelineEntry[];
+  /** Placeholders for banned members' hidden posts, merged the same way. */
+  bannedEntries: BannedHiddenTimelineEntry[];
   /** Opened rows by rumor id — the ONLY place the original seal (needed for pins) survives. */
   openedById: Map<string, OpenedChat>;
   /** The fold's earned-trust set (`FoldedTimeline.trusted`), for the media hold. */
@@ -546,6 +548,19 @@ export function useTransport(
     [folded.timerNotices],
   );
 
+  // Placeholders where banned members' posts were (CORD-04 §4); unattributed on purpose.
+  const bannedEntries = useMemo<BannedHiddenTimelineEntry[]>(
+    () =>
+      folded.bannedHidden.map((run) => ({
+        type: "banned-hidden" as const,
+        id: `banned-hidden:${run.id}`,
+        createdAt: Math.floor(run.ms / 1000),
+        count: run.count,
+        authors: run.authors,
+      })),
+    [folded.bannedHidden],
+  );
+
   // Defined outside the transport memo so memoized rows get stable props.
   const sendStatusFor = useCallback((id: string) => sendStatus[id], [sendStatus]);
   // A refusal counts as a flooding attempt, so call once per user send, before
@@ -623,5 +638,5 @@ export function useTransport(
     return map;
   }, [raw]);
 
-  return { transport, span, reactionsFor, allMessages: messages, calendar, timerEntries, openedById, trustedAuthors: folded.trusted };
+  return { transport, span, reactionsFor, allMessages: messages, calendar, timerEntries, bannedEntries, openedById, trustedAuthors: folded.trusted };
 }

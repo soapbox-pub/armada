@@ -515,6 +515,8 @@ export interface FoldedTimeline {
    * notice rows by the transport.
    */
   timerNotices: OpenedChat[];
+  /** Banned authors' timeline posts (CORD-04 §4), as runs of placeholders between visible posts. */
+  bannedHidden: BannedRun[];
   /** Messages an authorized delete removed in this fold, so their cached media can go. */
   removed: OpenedChat[];
 }
@@ -598,8 +600,20 @@ export function foldTimeline(
   // One clock per fold: a rumor expiring mid-loop must not split the batch.
   const nowSecs = Math.floor(clockNowMs() / 1000);
 
+  // A banned author's timeline posts never render, but are counted so the reader
+  // sees that something was hidden rather than a silent gap.
+  const bannedPosts = new Map<string, OpenedChat>();
+  const bannedSelfDeletes = new Set<string>();
+
   for (const ev of opened) {
-    if (moderation?.banned.has(ev.author)) continue;
+    if (moderation?.banned.has(ev.author)) {
+      if (isExpired(ev.tags, nowSecs)) continue;
+      if (isTimelinePost(ev)) bannedPosts.set(ev.rumorId, ev);
+      else if (ev.kind === KIND_DELETE) {
+        for (const t of ev.tags) if (t[0] === "e" && t[1]) bannedSelfDeletes.add(`${ev.author}:${t[1]}`);
+      }
+      continue;
+    }
     // Expired rumors (CORD-08 §3) may still reach here from pre-deadline rows or
     // fresh decrypts.
     if (isExpired(ev.tags, nowSecs)) continue;
@@ -861,6 +875,17 @@ export function foldTimeline(
   // Last, so the rules above see strict ms order: nudge inline replies after their parents.
   orderRepliesAfterParents(messages);
 
+  const hidden: OpenedChat[] = [];
+  for (const ev of bannedPosts.values()) {
+    if (bannedSelfDeletes.has(`${ev.author}:${ev.rumorId}`)) continue;
+    const deleters = deletes.get(ev.rumorId);
+    if (moderation && deleters && [...deleters].some(([d, act]) => moderation.canDelete(d, ev.author, act, ev.channelIdHex))) continue;
+    if (opts?.hold?.(ev)) continue;
+    if (HELD_KINDS.has(ev.kind) && ev.ms > holdCeilingMs) continue;
+    hidden.push(ev);
+  }
+  const bannedHidden = bannedRuns(messages.filter(isTimelinePost), hidden);
+
   return {
     messages,
     ...(nextRevealMs !== undefined ? { nextRevealMs } : {}),
@@ -874,6 +899,54 @@ export function foldTimeline(
     calendarEvents: [...calendarById.values()],
     rsvps,
     timerNotices: timerNotices.sort((a, b) => (a.ms !== b.ms ? a.ms - b.ms : a.rumorId < b.rumorId ? -1 : 1)),
+    bannedHidden,
     removed,
   };
+}
+
+/** A post that stands in the channel's own timeline: not a thread reply (NIP-22 `E`). */
+function isTimelinePost(ev: OpenedChat): boolean {
+  if (ev.kind === KIND_MESSAGE || ev.kind === KIND_POLL) return true;
+  return ev.kind === KIND_COMMENT && !ev.tags.some((t) => t[0] === "E");
+}
+
+/** A run of consecutive banned authors' posts, shown as one placeholder row. */
+export interface BannedRun {
+  /** The run's first hidden rumor id. */
+  id: string;
+  /** The first hidden post's `ms`. */
+  ms: number;
+  /** Posts in the run. */
+  count: number;
+  /** Distinct banned authors in the run. */
+  authors: number;
+}
+
+/**
+ * Group `hidden` posts into runs no visible post interrupts, by `ms` (a visible
+ * post at the same instant comes first).
+ */
+export function bannedRuns(visible: readonly { ms: number }[], hidden: readonly OpenedChat[]): BannedRun[] {
+  if (hidden.length === 0) return [];
+  // Visible order can lift a reply after its parent; runs are judged by time alone.
+  const at = visible.map((m) => m.ms).sort((a, b) => a - b);
+  const sorted = [...hidden].sort((a, b) => (a.ms !== b.ms ? a.ms - b.ms : a.rumorId < b.rumorId ? -1 : 1));
+  const runs: BannedRun[] = [];
+  let open: { run: BannedRun; authors: Set<string> } | undefined;
+  let v = 0;
+  for (const ev of sorted) {
+    let interrupted = false;
+    while (v < at.length && at[v]! <= ev.ms) {
+      v++;
+      interrupted = true;
+    }
+    if (!open || interrupted) {
+      open = { run: { id: ev.rumorId, ms: ev.ms, count: 0, authors: 0 }, authors: new Set() };
+      runs.push(open.run);
+    }
+    open.run.count++;
+    open.authors.add(ev.author);
+    open.run.authors = open.authors.size;
+  }
+  return runs;
 }
