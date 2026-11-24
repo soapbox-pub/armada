@@ -12,6 +12,10 @@ vi.mock("@/hooks/useIsMobile", () => ({
   useIsMobile: () => false,
 }));
 vi.mock("@/hooks/useAuthor", () => ({ useAuthor: () => ({ data: undefined }) }));
+vi.mock("@nostrify/react", () => ({ useNostr: () => ({ nostr: { query: async () => [] } }) }));
+vi.mock("@/hooks/useEventStore", () => ({
+  useEventStore: () => Promise.resolve({ query: async () => [], event: async () => {} }),
+}));
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: undefined }) }));
 vi.mock("@/hooks/useMuteList", () => ({
   useMutedPubkeys: () => ({ mutedPubkeys: new Set<string>(), ready: true }),

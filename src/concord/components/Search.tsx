@@ -13,7 +13,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useAuthor } from "@/hooks/useAuthor";
 import { usePortalDropdown } from "@/hooks/usePortalDropdown";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
-import { useMemberProfiles } from "@/hooks/useSearchProfiles";
+import { useMemberProfiles, useRosterProfiles } from "@/hooks/useSearchProfiles";
 import {
   activeFacetCount,
   dateTokenPatch,
@@ -370,6 +370,9 @@ function SuggestProfile({ pubkey }: { pubkey: string }) {
  * Discord-style typed filters: `from:`/`in:`/`has:`/`before:`/`after:`/`during:`
  * at the caret offer matches, and picking one turns the token into its facet.
  */
+/** `from:` rows; the list scrolls, and typing narrows a large roster from there. */
+const FROM_SUGGESTIONS = 50;
+
 export function SearchTokenSuggest({
   inputRef,
   filters,
@@ -423,9 +426,11 @@ export function SearchTokenSuggest({
 
   const query = filters.query;
   const tok = caret === null ? null : tokenAtCaret(query, Math.min(caret, query.length));
+  const roster = useRosterProfiles(members, tok?.key === "from");
   const profiles = useMemberProfiles(
     tok?.key === "from" ? members : NO_MEMBERS,
     tok?.key === "from" ? tok.value : "",
+    { limit: FROM_SUGGESTIONS, loaded: roster },
   );
 
   const placeCaret = (pos: number) => {
