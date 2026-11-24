@@ -32,6 +32,8 @@ const env = vi.hoisted(() => ({
   rotations: [] as Array<{ recipients: string[] }>,
   readWhole: true,
   failVsk: undefined as string | undefined,
+  /** Called with each edition published, as the store would hold it. */
+  onPublish: undefined as ((rumor: NostrRumor) => void) | undefined,
 }));
 
 vi.mock("@nostrify/react", () => ({ useNostr: () => ({ nostr: { relay: () => ({ event: async () => undefined, query: async () => [] }) } }) }));
@@ -43,6 +45,7 @@ vi.mock("@/concord/hooks/useControlPlane", async (orig) => ({
   publishEdition: async (_n: unknown, _c: unknown, _s: unknown, rumor: NostrRumor) => {
     if (env.failVsk !== undefined && rumor.tags.some((t) => t[0] === "vsk" && t[1] === env.failVsk)) throw new Error("no relay took it");
     env.published.push(rumor);
+    env.onPublish?.(rumor);
   },
   invalidateControl: () => undefined,
   readControlWhole: async () => (env.readWhole && env.folded ? { folded: env.folded, served: undefined } : undefined),
@@ -81,6 +84,7 @@ vi.mock("@/concord/lib/readCutPending", async (orig) => ({
 }));
 
 const { useCommunityManagement } = await import("@/concord/hooks/useCommunityActions");
+const { parsedOf } = await import("@/concord/lib/rankedWrites");
 const { useRoles } = await import("@/concord/hooks/useRoles");
 const { useRankedRoles } = await import("@/concord/hooks/useRankedRoles");
 const { useModeration } = await import("@/concord/hooks/useModeration");
@@ -93,6 +97,7 @@ const vskOf = (r: NostrRumor) => r.tags.find((t) => t[0] === "vsk")?.[1];
 const channelEditions = () => env.published.filter((r) => vskOf(r) === "2");
 
 beforeEach(() => {
+  env.onPublish = undefined;
   env.failVsk = undefined;
   env.readWhole = true;
   env.rotations = [];
@@ -675,5 +680,38 @@ describe("the vsk-13 Roster's editors (Vector create/edit/move/delete_role_v2)",
     expect(resumed.length).toBeGreaterThan(0);
     expect(resumed.every((r) => vskOf(r) === "2" || vskOf(r) === "17")).toBe(true);
     await vi.waitFor(() => expect(result.current.activationLeft).toBe(0));
+  });
+});
+
+describe("duplicating a Channel (Vector v0.5.2 `duplicate_channel`)", () => {
+  it("makes a copy right after the original, with its topic and view, then its own rules", async () => {
+    const { c, community, publicId, base } = setup();
+    const o = { scope: publicId, target: { kind: "everyone" as const }, allow: 0n, deny: Permissions.SEND_MESSAGES };
+    const rule = c.edition({ vsk: "14", eid: overwriteLocator(c.id, o), author: c.owner, content: overwriteToJSON(o) });
+    const pub = env.folded!.channels.get(publicId)!;
+    const general = c.edition({ vsk: "2", eid: publicId, author: c.owner, content: { ...pub.metadata, topic: "say hi", view: "forum" } });
+    const others = [...env.folded!.headEditions.values()].filter((e) => bytesToHex(e.entityId) !== publicId);
+    env.folded = foldControlState([...base, ...others.filter((e) => !base.includes(e)), general, rule], c.id, c.owner);
+    // A rule on @everyone's Send takes someone holding it: the owner here.
+    env.user = { pubkey: c.owner, signer: {} };
+    // What this device publishes it folds, as its store does.
+    const held = [...base, ...others.filter((e) => !base.includes(e)), general, rule];
+    env.onPublish = (r) => {
+      held.push(parsedOf(r));
+      env.folded = foldControlState(held, c.id, c.owner);
+    };
+    const { result } = renderHook(() => useCommunityManagement(community), { wrapper });
+    let made: { channelIdHex: string } | undefined;
+    await act(async () => {
+      made = await result.current.duplicateChannel({ sourceIdHex: publicId, name: "general-2" });
+    });
+    const first = channelEditions().find((r) => r.tags.some((t) => t[0] === "d" || t[0] === "eid") && r.content.includes("general-2"))!;
+    const meta = JSON.parse(first.content);
+    expect(meta).toMatchObject({ name: "general-2", private: false, topic: "say hi", view: "forum" });
+    expect(isRankKey(meta.position) && meta.position > "m").toBe(true);
+    expect(made!.channelIdHex).not.toBe(publicId);
+    const rules = env.published.filter((r) => vskOf(r) === "14").map((r) => JSON.parse(r.content));
+    expect(rules).toHaveLength(1);
+    expect(rules[0].scope ?? rules[0].channel).toBe(made!.channelIdHex);
   });
 });

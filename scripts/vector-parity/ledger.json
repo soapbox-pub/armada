@@ -407,10 +407,14 @@
   "why": "local state invariant"
  },
  "community/v2/service.rs::whole_wraps_held::err::more wraps than a pass reads": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/hooks/readControlWhole.test.ts",
+  "title": "is none when the sweep held more wraps than a pass reads"
  },
  "community/v2/service.rs::whole_wraps_held::err::more wraps than a pass reads#2": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/hooks/readControlWhole.test.ts",
+  "title": "is none when the sweep held more wraps than a pass reads"
  },
  "community/v2/service.rs::whole_wraps_held::err::a relay's whole set is not known": {
   "status": "todo"
@@ -741,7 +745,9 @@
   "status": "todo"
  },
  "community/v2/service.rs::owed_channel_keys::branch::everyone.is_none()": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/hooks/owedChannelKeys.test.ts",
+  "title": "is owed only where the member may read the Channel's history, and never on the legacy Roster"
  },
  "community/v2/service.rs::activate_roles_v2::err::only the owner moves a community to the new roles": {
   "status": "covered",
@@ -778,13 +784,19 @@
   "status": "todo"
  },
  "community/v2/service.rs::change_member_roles::err::only the owner sets the owner's roles": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/lib/rankedWrites.test.ts",
+  "title": "lets the owner, and only the owner, give the owner Roles for display"
  },
  "community/v2/service.rs::change_member_roles::branch::everyone.is_none()": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/lib/rankedWrites.test.ts",
+  "title": "sets a member's Roles on Manage Roles held above the member and each Role it adds"
  },
  "community/v2/service.rs::change_member_roles::err::the owner holds roles only on the new roles": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/lib/rankedWrites.test.ts",
+  "title": "sets a member's Roles on Manage Roles held above the member and each Role it adds"
  },
  "community/v2/service.rs::change_member_roles::err::you can only change the roles of members beneath you": {
   "status": "covered",
@@ -802,7 +814,8 @@
   "title": "sets a member's Roles on Manage Roles held above the member"
  },
  "community/v2/service.rs::change_member_roles::err::you can't remove \\": {
-  "status": "todo"
+  "status": "n/a",
+  "why": "unreachable behind the members-beneath-you refusal: a member's rank is their highest Role, so an author who outranks them outranks every Role they hold (Armada keeps the same check)"
  },
  "community/v2/service.rs::change_member_roles::err::a member holds at most {} roles": {
   "status": "covered",
@@ -810,10 +823,14 @@
   "title": "caps a member at 64 Roles"
  },
  "community/v2/service.rs::change_member_roles::branch::everyone.is_some()": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/lib/rankedWrites.test.ts",
+  "title": "refuses a Role that opens a Private Channel its giver holds no key to"
  },
  "community/v2/service.rs::change_member_roles::err::You can't give {what}: it opens {channels} you don't have access to. Someone with access has to, or get access first.": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/lib/rankedWrites.test.ts",
+  "title": "refuses a Role that opens a Private Channel its giver holds no key to"
  },
  "community/v2/service.rs::settle_channel_keys::branch::everyone.is_some()": {
   "status": "covered",
@@ -947,17 +964,23 @@
   "status": "todo"
  },
  "community/v2/service.rs::duplicate_channel::err::a channel needs a name": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/lib/rankedWrites.test.ts",
+  "title": "takes its details and rules, @everyone's first, and needs a name"
  },
  "community/v2/service.rs::duplicate_channel::ok_or::no such channel": {
   "status": "n/a",
   "why": "local state invariant"
  },
  "community/v2/service.rs::duplicate_channel::err::you can't duplicate a private channel you can't read": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/lib/rankedWrites.test.ts",
+  "title": "refuses a copy carrying a rule its author couldn't set, and a private Channel it can't read"
  },
  "community/v2/service.rs::duplicate_channel::branch::roles_v2_held(": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/lib/rankedWrites.test.ts",
+  "title": "carries no rules on the legacy Roster"
  },
  "community/v2/service.rs::dress_duplicate::ok_or::the new channel isn't held": {
   "status": "n/a",
@@ -1297,7 +1320,9 @@
   "why": "Vector's on-disk Control wrap store; Armada stores opened editions, never wraps"
  },
  "community/v2/service/control_sync.rs::ask_one::err::relay did not answer": {
-  "status": "todo"
+  "status": "covered",
+  "test": "src/concord/hooks/readControlWhole.test.ts",
+  "title": "is none when too few relays answered it to the end"
  },
  "community/v2/service/inspect.rs::read_messages::err::#{} is private and these keys don't read it": {
   "status": "todo"

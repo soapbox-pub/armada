@@ -19,7 +19,7 @@ let folded: object;
 const foldWith = (ids: string[]) => ({
   rankedRoster: true,
   ownerHex: "owner",
-  roster: {},
+  roster: { roles: [], grants: [], overwrites: [], everyone: 0n },
   banned: new Set<string>(),
   channels: new Map(ids.map((id) => [id, { channelIdHex: id, isPrivate: true }])),
   writers: new Map(ids.map((id) => [id, {}])),

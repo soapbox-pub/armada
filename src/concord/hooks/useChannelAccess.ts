@@ -18,7 +18,9 @@ import { accessDeliveryAdmits, accessKeyRefuted, accessPlane, parseDelivery } fr
 import { bytesToHex, hex32 } from "@/concord/lib/derive";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { base64ToBytes, decodeWrappedKey, myLocator } from "@/concord/lib/rekey";
+import { isEntitled, readsHistory } from "@/concord/lib/channelAccess";
 import { channelPermissions, Permissions } from "@/concord/lib/roles";
+import type { FoldedControl } from "@/concord/lib/control";
 import { adoptHistoryDeliveries, heldHistoryViews, historyViewsGeneration, historyViewsReady, parseHistoryDelivery, subscribeHistoryViews } from "@/concord/lib/history";
 import { sweepControl, whenAuthSettled } from "@/concord/lib/planeSync";
 import { registerStreamKeys } from "@/concord/lib/streamAuth";
@@ -242,6 +244,21 @@ export async function readAccessPlanes(
   return out;
 }
 
+/**
+ * The Private Channels the fold lets `me` into, with their history, whose key isn't held
+ * (Vector `owed_channel_keys`): those keys are delivered on the access plane. Without
+ * history the key comes in the rotation that mints the member a fresh epoch, which the
+ * rekey walk takes; on the legacy Roster nothing is owed this way.
+ */
+export function owedChannelKeys(folded: FoldedControl, held: ReadonlySet<string>, me: string): string[] {
+  if (!folded.rankedRoster) return [];
+  return [...folded.channels.values()]
+    .filter((c) => c.isPrivate && !c.deleted && !held.has(c.channelIdHex))
+    .filter((c) => isEntitled(folded.roster, folded.ownerHex, me, c.channelIdHex) && readsHistory(folded.roster, folded.ownerHex, me, c.channelIdHex))
+    .map((c) => c.channelIdHex)
+    .sort();
+}
+
 export function useChannelAccess(community: Community | undefined): void {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
@@ -253,14 +270,7 @@ export function useChannelAccess(community: Community | undefined): void {
 
   const me = user?.pubkey;
   const held = new Set((community?.privateChannels ?? []).map((c) => bytesToHex(c.id)));
-  // Private Channels the fold lets this member read whose key they don't hold.
-  const owed = folded?.rankedRoster && me
-    ? [...folded.channels.values()]
-        .filter((c) => c.isPrivate && !c.deleted && !held.has(c.channelIdHex))
-        .filter((c) => (channelPermissions(folded.roster, folded.ownerHex, me, c.channelIdHex, true) & Permissions.VIEW_CHANNEL) !== 0n)
-        .map((c) => c.channelIdHex)
-        .sort()
-    : [];
+  const owed = folded && me ? owedChannelKeys(folded, held, me) : [];
   const owedKey = owed.join(",");
 
   const query = useQuery({

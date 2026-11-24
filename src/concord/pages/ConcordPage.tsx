@@ -1,6 +1,6 @@
 import { observedAuthors } from "@/concord/lib/observedAuthors";
 import { useCommunityRumors } from "@/concord/hooks/useCommunityRumors";
-import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, Gem, MessageSquareText, MessagesSquare, Pause, Pencil, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
+import { AtSign, Ban, CalendarClock, CheckCheck, ChevronDown, Copy, Crown, Folder, FolderGit2, GripVertical, Hash, Headphones, KeyRound, Loader2, Lock, LogOut, Megaphone, Gem, MessageSquareText, MessagesSquare, Pause, Pencil, Phone, Pin, Play, Plus, RefreshCw, Rss, Search, Settings, Shield, ShieldAlert, ShieldOff, Tag, Timer, Trash2, UserMinus, UserPlus, X, type LucideIcon } from "lucide-react";
 import { createRef, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Navigate, useLocation, useNavigationType, useSearchParams } from "react-router-dom";
 
@@ -23,6 +23,8 @@ import type { RolePickerOption } from "@/components/chat/RolePickerItems";
 import { ProfileRelayHints } from "@/components/ProfileRelayHints";
 import { ChannelCategoryHeading } from "@/concord/components/ChannelCategoryHeading";
 import { CategoryNameDialog } from "@/concord/components/CategoryNameDialog";
+import { DuplicateChannelDialog } from "@/concord/components/DuplicateChannelDialog";
+import { logSync } from "@/lib/syncLog";
 import { useRankedCategoryControls } from "@/concord/components/RankedCategoryControls";
 import { mayConnect } from "@/concord/lib/callGate";
 import { sendsIn } from "@/concord/lib/writerKeys";
@@ -526,6 +528,7 @@ export const ChannelRow = memo(function ChannelRow({
   onMove,
   onEdit,
   onPermissions,
+  onDuplicate,
   voiceOnlyCalls,
 }: {
   community: Community | undefined;
@@ -554,6 +557,8 @@ export const ChannelRow = memo(function ChannelRow({
   onEdit?: (channel: Channel) => void;
   /** The editor on its permissions (CORD-04 §8); undefined without MANAGE_ROLES on the vsk-13 Roster. */
   onPermissions?: (channel: Channel) => void;
+  /** Asks for a name and makes a Channel like this one; undefined without MANAGE_CHANNELS. */
+  onDuplicate?: (channel: Channel) => void;
   /** On ranked roles a row offers a call only for one running in a text Channel; a voice Channel joins on click. */
   voiceOnlyCalls?: boolean;
 }) {
@@ -797,6 +802,12 @@ export const ChannelRow = memo(function ChannelRow({
           <ContextMenuItem onSelect={() => onPermissions(channel)}>
             <KeyRound className="mr-2 size-4" />
             <FormattedMessage id="channelPermissions.title" defaultMessage="Permissions" />
+          </ContextMenuItem>
+        )}
+        {onDuplicate && (
+          <ContextMenuItem onSelect={() => onDuplicate(channel)}>
+            <Copy className="mr-2 size-4" />
+            <FormattedMessage id="concordPage.channelRow.duplicate" defaultMessage="Duplicate channel" />
           </ContextMenuItem>
         )}
         {onSetCategory && (
@@ -1972,7 +1983,7 @@ function ConcordCommunityPage() {
     return () => document.removeEventListener("visibilitychange", stamp);
   }, [readerPubkey, channelIdForRead, mixedEntries, allMessages, threads, markChannelRead, markMentionsRead, markThreadRead, covered]);
 
-  const { leave, isLeaving, dissolve, createChannel, mintAccessRole, setChannelCategory, arrangeChannels, nameCategory } =
+  const { leave, isLeaving, dissolve, createChannel, duplicateChannel, mintAccessRole, setChannelCategory, arrangeChannels, nameCategory } =
     useCommunityManagement(community);
   const retireLinks = useRetireCommunityLinks(community);
   /** Dissolve toast Retry: runs the retirement's own `retry` with what missed. */
@@ -2936,6 +2947,21 @@ function ConcordCommunityPage() {
     (c: Channel) => setCategoryPrompt({ channels: [c], initial: "" }),
     [],
   );
+  const [duplicating, setDuplicating] = useState<Channel | null>(null);
+  const handleDuplicate = useCallback((c: Channel) => setDuplicating(c), []);
+  const runDuplicate = async (source: Channel, name: string) => {
+    const made = await duplicateChannel({ sourceIdHex: source.idHex, name });
+    // On the legacy Roster the copy's readers are the original's, let in by its access Role.
+    const roleId = made.accessRoleId;
+    if (roleId) {
+      for (const pk of made.readers) {
+        await setMemberRoles({ member: pk, roleIds: [...roleIntent.rolesFor(pk), roleId] }).catch((e: unknown) =>
+          logSync("control", `a reader of #${source.name} isn't let into the copy: ${e instanceof Error ? e.message : String(e)}`),
+        );
+      }
+    }
+    selectChannel(made.channelIdHex);
+  };
 
   const publishTyping = useTypingPublisher(community, channel, allMessages);
   const typingPubkeys = useTyping(community, channel, allMessages);
@@ -3237,6 +3263,7 @@ function ConcordCommunityPage() {
         onMove={draggable && canManageChannels && isTouchDevice ? channelDrag.arm : undefined}
         onEdit={rankedControls.editChannel}
         onPermissions={rankedControls.openChannelPermissions}
+        onDuplicate={canManageChannels ? handleDuplicate : undefined}
         voiceOnlyCalls={rankedControls.ranked}
       />
       </span>
@@ -4446,6 +4473,14 @@ function ConcordCommunityPage() {
           upgrade={legacyControl}
           onClose={() => setRotateKeysOpen(false)}
           onConfirm={runRotateKeys}
+        />
+      </MountWhenOpened>
+      <MountWhenOpened open={Boolean(duplicating)}>
+        <DuplicateChannelDialog
+          open={Boolean(duplicating)}
+          source={duplicating?.name ?? ""}
+          onOpenChange={(next) => !next && setDuplicating(null)}
+          onSubmit={(name) => (duplicating ? runDuplicate(duplicating, name) : Promise.resolve())}
         />
       </MountWhenOpened>
       <MountWhenOpened open={Boolean(categoryPrompt)}>

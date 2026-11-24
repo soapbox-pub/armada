@@ -16,6 +16,7 @@ import {
   planDeleteRole,
   planEditRole,
   planMoveCategory,
+  planDuplicate,
   planMemberRoles,
   planMoveRole,
   maySync,
@@ -34,6 +35,7 @@ import { EVERYONE_DEFAULT, OVERWRITABLE, Permissions, RANKED_ADMIN_ALL, roleToJS
 import type { OpenedEvent } from "@/concord/lib/stream";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { eidHex, headFloor, heldCommunity, hexKey, rankedCommunity, TestCommunity } from "@/test/concordEditions";
+import { overwriteLocator, overwriteToJSON } from "@/concord/lib/roster";
 
 const parsed = (r: NostrRumor): ParsedEdition =>
   parseEdition({ rumorId: r.id, author: r.pubkey, kind: r.kind, content: r.content, tags: r.tags, ms: r.created_at * 1000, createdAt: r.created_at } as OpenedEvent);
@@ -510,7 +512,8 @@ describe("legacy Role and Grant writers (Vector `create_role`, `edit_role`, `reo
     expect(planMemberRoles(f, cid, ADMIN, MEMBER, [MOD, MOD.toUpperCase()])).toEqual([MOD]);
     expect(() => planMemberRoles(f, cid, ADMIN, MEMBER, [MOD, TOP])).toThrow(/beneath your own/);
     expect(() => planMemberRoles(f, cid, ADMIN, MEMBER, [hexKey()])).toThrow(/No such role/);
-    expect(() => planMemberRoles(f, cid, OWNER, OWNER, [MOD])).toThrow(/owner's standing/);
+    expect(() => planMemberRoles(f, cid, OWNER, OWNER, [MOD])).toThrow(/only on the new roles/);
+    expect(() => planMemberRoles(f, cid, ADMIN, OWNER, [MOD])).toThrow(/Only the owner sets/);
     expect(() => planMemberRoles(f, cid, ADMIN, ADMIN, [])).toThrow(/members beneath you/);
   });
 
@@ -529,5 +532,78 @@ describe("legacy Role and Grant writers (Vector `create_role`, `edit_role`, `reo
     const many = Array.from({ length: 65 }, () => role(hexKey(), 9));
     const big = fold({ roles: [...many, role(TOP, 1, Permissions.MANAGE_ROLES)] });
     expect(() => planMemberRoles(big, cid, ADMIN, MEMBER, many.map((r) => r.roleId))).toThrow(/at most 64/);
+  });
+});
+
+describe("a Grant on the vsk-13 Roster (Vector v0.5.2 `change_member_roles`)", () => {
+  function setup() {
+    const k = rankedCommunity(Permissions.MANAGE_ROLES);
+    const reader = hexKey();
+    const roleId = hexKey();
+    const ch = hexKey();
+    const role = k.c.role(roleId, "z", 0n);
+    const o = { scope: ch, target: { kind: "role" as const, id: roleId }, allow: Permissions.VIEW_CHANNEL, deny: 0n };
+    const rule = k.c.edition({ vsk: "14", eid: overwriteLocator(k.c.id, o), author: k.c.owner, content: overwriteToJSON(o) });
+    const folded = foldControlState([...k.base, role, rule], k.c.id, k.c.owner);
+    const channels = new Map(folded.channels);
+    channels.set(ch, { channelIdHex: ch, name: "", isPrivate: true, deleted: false, metadata: { name: "", private: true } });
+    return { ...k, reader, roleId, ch, folded: { ...folded, channels } as FoldedControl };
+  }
+
+  it("lets the owner, and only the owner, give the owner Roles for display", () => {
+    const { c, admin, roleId, folded } = setup();
+    expect(planMemberRoles(folded, c.id, c.owner, c.owner, [roleId])).toEqual([roleId]);
+    expect(() => planMemberRoles(folded, c.id, admin, c.owner, [roleId])).toThrow(/Only the owner sets/);
+  });
+
+  it("refuses a Role that opens a Private Channel its giver holds no key to", () => {
+    const { c, admin, reader, roleId, ch, folded } = setup();
+    expect(() => planMemberRoles(folded, c.id, admin, reader, [roleId], new Set())).toThrow(/opens a private channel you don't have access to/);
+    expect(planMemberRoles(folded, c.id, admin, reader, [roleId], new Set([ch]))).toEqual([roleId]);
+    // Without the held set (a caller that can't tell), nothing is judged.
+    expect(planMemberRoles(folded, c.id, admin, reader, [roleId])).toEqual([roleId]);
+  });
+});
+
+describe("duplicating a Channel (Vector v0.5.2 `duplicate_channel`)", () => {
+  function setup(adminBits = Permissions.MANAGE_ROLES | Permissions.MANAGE_CHANNELS) {
+    const k = rankedCommunity(adminBits);
+    const ch = hexKey();
+    const channel = k.c.edition({ vsk: "2", eid: ch, author: k.c.owner, content: { name: "rules", private: false, topic: "read me", view: "forum" } });
+    const rule = (target: { kind: "everyone" } | { kind: "role"; id: string }, allow: bigint, deny: bigint) => {
+      const o = { scope: ch, target, allow, deny };
+      return k.c.edition({ vsk: "14", eid: overwriteLocator(k.c.id, o), author: k.c.owner, content: overwriteToJSON(o) });
+    };
+    return { ...k, ch, channel, rule };
+  }
+
+  it("takes its details and rules, @everyone's first, and needs a name", () => {
+    const { c, admin, adminRole, base, ch, channel, rule } = setup();
+    const folded = foldControlState([...base, channel, rule({ kind: "role", id: adminRole }, Permissions.SEND_MESSAGES, 0n), rule({ kind: "everyone" }, 0n, Permissions.SEND_MESSAGES)], c.id, c.owner);
+    // The admin can't set a rule on their own Role, so only the owner may copy this one.
+    expect(() => planDuplicate(folded, admin, ch, "rules-2", undefined)).toThrow(/only someone above you/);
+    const plan = planDuplicate(folded, c.owner, ch, "  rules-2 ", undefined);
+    expect(plan.name).toBe("rules-2");
+    expect(plan.metadata.topic).toBe("read me");
+    expect(plan.rules.map((r) => r.target.kind)).toEqual(["everyone", "role"]);
+    expect(() => planDuplicate(folded, c.owner, ch, " ", undefined)).toThrow(/name is required/);
+    expect(() => planDuplicate(folded, c.owner, hexKey(), "x", undefined)).toThrow(/not found/);
+  });
+
+  it("refuses a copy carrying a rule its author couldn't set, and a private Channel it can't read", () => {
+    const { c, admin, base, ch, channel, rule } = setup(Permissions.MANAGE_CHANNELS);
+    const folded = foldControlState([...base, channel, rule({ kind: "everyone" }, 0n, Permissions.SEND_MESSAGES)], c.id, c.owner);
+    expect(() => planDuplicate(folded, admin, ch, "x", undefined)).toThrow(/only someone above you/);
+    expect(planDuplicate(folded, c.owner, ch, "x", undefined).rules).toHaveLength(1);
+    const channels = new Map(folded.channels);
+    channels.set(ch, { ...channels.get(ch)!, isPrivate: true });
+    expect(() => planDuplicate({ ...folded, channels }, c.owner, ch, "x", undefined)).toThrow(/can't read/);
+  });
+
+  it("carries no rules on the legacy Roster", () => {
+    const legacy = new TestCommunity();
+    const ch = hexKey();
+    const folded = foldControlState([legacy.edition({ vsk: "2", eid: ch, author: legacy.owner, content: { name: "old", private: false } })], legacy.id, legacy.owner);
+    expect(planDuplicate(folded, legacy.owner, ch, "older", undefined)).toMatchObject({ name: "older", isPrivate: false, rules: [] });
   });
 });

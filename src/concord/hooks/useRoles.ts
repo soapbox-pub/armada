@@ -174,12 +174,14 @@ export function useRoles(community: Community | undefined) {
       // The fold's gate (CORD-04 §2/§3), checked before publishing so a doomed grant
       // fails with a reason instead of being silently dropped.
       if (!folded) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
-      roleIds = planMemberRoles(folded, community.id, user.pubkey, member, roleIds);
+      roleIds = planMemberRoles(folded, community.id, user.pubkey, member, roleIds, new Set(community.privateChannels.map((k) => bytesToHex(k.id))));
+      // The owner's Roles are for display alone: no Tenure names them, and their Grant carries no staff key (CORD-04 §3).
+      const ownerSelf = member === folded.ownerHex;
       // Counted with its Tenure when it writes one, so the total is whole before the first signature.
       let counted = false;
       // A Grant that drops a Role writes the member's Tenure first, or waits (CORD-04 §9).
       const current = folded?.roster.grants.find((g) => g.member === member)?.roleIds ?? [];
-      if (folded?.rankedRoster && current.some((id) => !roleIds.includes(id))) {
+      if (folded?.rankedRoster && !ownerSelf && current.some((id) => !roleIds.includes(id))) {
         // Sealed on the plane read whole again, or refused (Vector `Seal::Strict`).
         const whole = await readControlWhole(nostr, community);
         if (!whole) throw new Error(tenureRefusal());
@@ -197,7 +199,7 @@ export function useRoles(community: Community | undefined) {
       // A staff-making grant carries the staff write key itself (CORD-04 §3).
       const controlWrap = await controlWrapOwed(
         community,
-        rolesMakeStaff(folded?.roster ?? emptyRoles(), roleIds),
+        !ownerSelf && rolesMakeStaff(folded?.roster ?? emptyRoles(), roleIds),
         user.signer.nip44,
         member,
       );

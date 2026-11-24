@@ -22,8 +22,9 @@ import { channelKeysToWire, holdsJoinMaterial, isLive, nextChannelEpoch, toJoinM
 import { channelsView, mintCommunity, visibleChannels } from "@/concord/lib/community";
 import { CHANNEL_TOPIC_MAX_BYTES, openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
 import { privatePlanes, withHistory } from "@/concord/lib/channelHistory";
-import { rekeyOrder } from "@/concord/lib/rankKey";
-import { planCreateCategory, planRenameCategory, planSync } from "@/concord/lib/rankedWrites";
+import { rankBetween, rekeyOrder } from "@/concord/lib/rankKey";
+import { planCreateCategory, planDuplicate, planOverwrite, planRenameCategory, planSync } from "@/concord/lib/rankedWrites";
+import { channelRoleIds } from "@/concord/lib/channelAccess";
 import { maySwapOverwrites } from "@/concord/lib/roster";
 import { publishChannelRotation } from "@/concord/lib/channelRotation";
 import { DEFAULT_MESSAGE_EXPIRATION_SECS } from "@/concord/lib/disappearing";
@@ -78,7 +79,7 @@ import {
 } from "@/concord/lib/types";
 import { withChannelCategory } from "@/concord/lib/channelCategory";
 import { channelPosition, compareChannelOrder, reorderPositions, withChannelPosition } from "@/concord/lib/channelOrder";
-import { withChannelView } from "@/concord/lib/channelView";
+import { channelView, withChannelView } from "@/concord/lib/channelView";
 import { controlGroups, foldControlState, openControlWraps } from "@/concord/lib/control";
 import { registerStreamKeys } from "@/concord/lib/streamAuth";
 
@@ -1075,11 +1076,22 @@ export function useCommunityManagement(community: Community | undefined) {
   });
 
   const createChannel = useMutation<
-    { channelIdHex: string; minted?: PrivateChannelKey },
+    { channelIdHex: string; minted?: PrivateChannelKey; accessRoleId?: string },
     Error,
-    { name: string; repository?: { address: string; relayHints: string[] }; isPrivate?: boolean; accessRoleName?: string; view?: ChannelView; category?: string }
+    {
+      name: string;
+      repository?: { address: string; relayHints: string[] };
+      isPrivate?: boolean;
+      accessRoleName?: string;
+      view?: ChannelView;
+      category?: string;
+      /** What a duplicate carries over in its first edition: topic, `custom` and its place (CORD-03 §2). */
+      details?: { topic?: string; custom?: Record<string, unknown>; position?: unknown };
+      /** Whether a public Channel made in a Category takes its rules (default); a duplicate takes its source's. */
+      followCategory?: boolean;
+    }
   >({
-    mutationFn: async ({ name, repository, isPrivate, accessRoleName, view, category }) => {
+    mutationFn: async ({ name, repository, isPrivate, accessRoleName, view, category, details, followCategory = true }) => {
       if (!user || !community) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
       const trimmed = name.trim();
       if (!trimmed) throw new Error(t({ id: "useCommunityActions.channelNameRequired", defaultMessage: "Channel name is required." }));
@@ -1090,6 +1102,9 @@ export function useCommunityManagement(community: Community | undefined) {
       let metadata: ChannelMetadata = { name: trimmed, private: Boolean(isPrivate) };
       // Same: a forum or voice channel opens as one from the start.
       if (view) metadata = withChannelView(metadata, view);
+      if (details?.topic) metadata = { ...metadata, topic: details.topic };
+      if (details?.custom) metadata = { ...metadata, custom: { ...details.custom, ...metadata.custom } };
+      if (details?.position !== undefined) metadata = { ...metadata, position: details.position };
       // Inside a vsk-13 Category (CORD-03 §4); a keyless Channel sorts last in it (Vector `create_channel_in`).
       const cat = ranked && category ? folded?.categories?.get(category.toLowerCase()) : undefined;
       if (category && ranked && (!cat || cat.deleted)) throw new Error(t({ id: "rankedWrites.noSuchCategory", defaultMessage: "No such category." }));
@@ -1113,6 +1128,7 @@ export function useCommunityManagement(community: Community | undefined) {
       // CORD-03: an independent key at epoch 0, stored BEFORE the edition
       // publishes (else the only key copy is orphaned); failures roll back below.
       let minted: PrivateChannelKey | undefined;
+      let accessRoleId: string | undefined;
       const priorChannels = community.privateChannels;
       if (isPrivate) {
         // On the vsk-13 Roster a Private Channel is born at channel epoch 1 (CORD-03 §2).
@@ -1142,7 +1158,7 @@ export function useCommunityManagement(community: Community | undefined) {
         } else {
           // Role BEFORE the channel edition: an orphan role is inert, while an
           // access-less live channel invites a duplicate retry.
-          if (isPrivate) await mintChannelRole(channelId, accessRoleName?.trim() || trimmed);
+          if (isPrivate) accessRoleId = await mintChannelRole(channelId, accessRoleName?.trim() || trimmed);
           await publishEdition(nostr, community, user.signer, buildChannelEdition(channelId, metadata, common));
         }
       } catch (e) {
@@ -1153,7 +1169,7 @@ export function useCommunityManagement(community: Community | undefined) {
         throw e;
       }
       // A public Channel made inside a Category takes its rules; a private one keeps its own.
-      if (cat && !isPrivate) {
+      if (cat && !isPrivate && followCategory) {
         const c = community;
         const u = user;
         await withControlWrite(c.idHex, async () => {
@@ -1164,7 +1180,70 @@ export function useCommunityManagement(community: Community | undefined) {
       }
       invalidateControl(queryClient, community.idHex);
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
-      return { channelIdHex: bytesToHex(channelId), minted };
+      return { channelIdHex: bytesToHex(channelId), minted, ...(accessRoleId ? { accessRoleId } : {}) };
+    },
+  });
+
+  /**
+   * Make a Channel like `sourceIdHex` under `name` (Vector `duplicate_channel`, refusals in
+   * {@link planDuplicate}): private if it is, opening the same way, with its topic and
+   * `custom`, right after it in its Category, under its own rules and its Category's when it
+   * syncs. Nothing said there comes along. On the legacy Roster a private copy's readers are
+   * the original's, returned with its access Role for the caller to grant.
+   */
+  const duplicateChannel = useMutation<{ channelIdHex: string; accessRoleId?: string; readers: string[] }, Error, { sourceIdHex: string; name: string }>({
+    mutationFn: async ({ sourceIdHex, name }) => {
+      if (!user || !community || !folded) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
+      requireChannelManager();
+      const src = sourceIdHex.toLowerCase();
+      const def = folded.channels.get(src);
+      const held = community.privateChannels.find((k) => bytesToHex(k.id) === src);
+      const opened = def?.sealed ? (held ? openChannelSeal(def.sealed, held)?.metadata : undefined) : def?.isPrivate && !held ? undefined : def?.metadata;
+      const plan = planDuplicate(folded, user.pubkey, src, name, opened);
+      // Right after the original, among its Category's Channels.
+      let position: unknown;
+      if (ranked) {
+        const group = channelsView(community, folded).filter((c) => c.categoryId === plan.category);
+        const at = group.findIndex((c) => c.idHex === src);
+        position = rankBetween(group[at]?.positionKey, group[at + 1]?.positionKey);
+      }
+      const topic = typeof plan.metadata.topic === "string" && plan.metadata.topic ? plan.metadata.topic : undefined;
+      const custom = plan.metadata.custom && typeof plan.metadata.custom === "object" ? plan.metadata.custom : undefined;
+      const made = await createChannel.mutateAsync({
+        name: plan.name,
+        isPrivate: plan.isPrivate,
+        view: channelView(plan.metadata),
+        ...(plan.category ? { category: plan.category } : {}),
+        details: { ...(topic ? { topic } : {}), ...(custom ? { custom } : {}), ...(position !== undefined ? { position } : {}) },
+        followCategory: false,
+      });
+      // The Channel stands from here, so a failure says so: a retry would make a second.
+      if (ranked && (plan.syncedTo || plan.rules.length > 0)) {
+        const c = community;
+        const u = user;
+        try {
+          await withControlWrite(c.idHex, async () => {
+            const now = await foldStoredControl(c);
+            const keys = new Set([...c.privateChannels.map((k) => bytesToHex(k.id)), made.channelIdHex]);
+            const authority = citationFor(c, now, u.pubkey);
+            const rumors = [
+              ...(plan.syncedTo ? [planSync(now, c.id, u.pubkey, keys, made.channelIdHex, plan.syncedTo, authority)] : []),
+              ...plan.rules.map((r) => planOverwrite(now, c.id, u.pubkey, keys, made.channelIdHex, r.target, r.allow, r.deny, authority)),
+            ];
+            for (const rumor of rumors) await publishEdition(nostr, c, u.signer, rumor);
+          });
+        } catch (e) {
+          throw new Error(t(
+            { id: "useCommunityActions.duplicatePartial", defaultMessage: "The channel was made, but not everything was copied onto it: {reason}" },
+            { reason: e instanceof Error ? e.message : String(e) },
+          ));
+        }
+      }
+      // On the legacy Roster a private Channel's readers hold its access Role.
+      const access = ranked || !plan.isPrivate ? [] : channelRoleIds(folded.roster, src);
+      const readers = folded.roster.grants.filter((g) => g.member !== user.pubkey && g.roleIds.some((r) => access.includes(r))).map((g) => g.member);
+      invalidateControl(queryClient, community.idHex);
+      return { channelIdHex: made.channelIdHex, ...(made.accessRoleId ? { accessRoleId: made.accessRoleId } : {}), readers };
     },
   });
 
@@ -1676,6 +1755,8 @@ export function useCommunityManagement(community: Community | undefined) {
     isDissolving: dissolve.isPending,
     createChannel: createChannel.mutateAsync,
     isAddingChannel: createChannel.isPending,
+    duplicateChannel: duplicateChannel.mutateAsync,
+    isDuplicating: duplicateChannel.isPending,
     renameChannel: renameChannel.mutateAsync,
     setChannelTopic: setChannelTopic.mutateAsync,
     isSettingTopic: setChannelTopic.isPending,

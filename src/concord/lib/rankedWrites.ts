@@ -8,6 +8,7 @@
 
 import { ARMADA_CHANNEL_CATEGORY_METADATA_KEY, categoryKey, channelCategory } from "@/concord/lib/channelCategory";
 import { ARMADA_CHANNEL_ORDER_METADATA_KEY, channelPosition, compareChannelOrder } from "@/concord/lib/channelOrder";
+import { isEntitled } from "@/concord/lib/channelAccess";
 import { sealChannelMetadata } from "@/concord/lib/channelSeal";
 import type { FoldedChannel as FoldedChannelDef, FoldedControl } from "@/concord/lib/control";
 import { VSK_CHANNEL } from "@/concord/lib/kinds";
@@ -139,22 +140,36 @@ export function planRoleSave(folded: FoldedControl, me: string, role: Role): Rol
 }
 
 /**
- * The Roles a Grant gives `member` (Vector `set_member_roles`): only for a member and
+ * The Roles a Grant gives `member` (Vector `change_member_roles`): only for a member and
  * Roles beneath what the author's Manage Roles reaches. Only what changes is judged,
  * and a held id this device can't resolve rides through rather than being stripped.
+ * The owner may hold Roles, for display alone, set by the owner on the vsk-13 Roster
+ * (CORD-04 §3). On that Roster a Grant that would let the member into a Private Channel
+ * whose key the author doesn't hold is refused: they would be left at its door
+ * (CORD-03 §5); `heldPrivate` names the Private Channels whose keys the author holds.
  */
-export function planMemberRoles(folded: FoldedControl, communityId: Uint8Array, me: string, member: string, roleIds: string[]): string[] {
+export function planMemberRoles(
+  folded: FoldedControl,
+  communityId: Uint8Array,
+  me: string,
+  member: string,
+  roleIds: string[],
+  heldPrivate?: ReadonlySet<string>,
+): string[] {
   const author = roleAuthor(folded, me);
-  if (member === folded.ownerHex) throw new Error(t({ id: "rankedWrites.ownerStanding", defaultMessage: "The owner's standing isn't granted by roles." }));
+  const ownerSelf = member === folded.ownerHex;
+  if (ownerSelf && me !== folded.ownerHex) throw new Error(t({ id: "rankedWrites.ownerRolesOwnerOnly", defaultMessage: "Only the owner sets the owner's roles." }));
+  if (ownerSelf && !folded.rankedRoster) throw new Error(t({ id: "rankedWrites.ownerRolesRanked", defaultMessage: "The owner holds roles only on the new roles." }));
   requireHead(folded, bytesToHex(grantLocator(communityId, hex32(member))));
   const memberRank = highestPosition(folded.roster, member) ?? BENEATH;
-  if (me === member || !author.supports(memberRank, 0n)) {
+  if (!ownerSelf && (me === member || !author.supports(memberRank, 0n))) {
     throw new Error(t({ id: "rankedWrites.memberAbove", defaultMessage: "You can only change the roles of members beneath you." }));
   }
   const current = folded.roster.grants.find((g) => g.member === member)?.roleIds ?? [];
   const next = [...new Set(roleIds.map((id) => id.toLowerCase()))];
   const roleOf = (id: string) => folded.roster.roles.find((r) => r.roleId === id);
-  for (const id of next.filter((id) => !current.includes(id))) {
+  const added = next.filter((id) => !current.includes(id));
+  for (const id of added) {
     const r = roleOf(id);
     if (!r) throw new Error(t({ id: "rankedWrites.noSuchRole", defaultMessage: "No such role." }));
     if (!author.supports(r.position, 0n)) {
@@ -171,7 +186,24 @@ export function planMemberRoles(folded: FoldedControl, communityId: Uint8Array, 
   if (next.length > MAX_ROLES_PER_MEMBER) {
     throw new Error(t({ id: "rankedWrites.tooManyMemberRoles", defaultMessage: "A member holds at most {max} roles." }, { max: MAX_ROLES_PER_MEMBER }));
   }
+  if (heldPrivate && folded.rankedRoster && !ownerSelf && !sameSet(current, next)) {
+    const overlay = { withRoleIds: next, withoutRoleIds: current.filter((id) => !next.includes(id)) };
+    const opened = [...folded.channels.values()].filter(
+      (c) => c.isPrivate && !c.deleted && !heldPrivate.has(c.channelIdHex) &&
+        !isEntitled(folded.roster, folded.ownerHex, member, c.channelIdHex) && isEntitled(folded.roster, folded.ownerHex, member, c.channelIdHex, overlay),
+    ).length;
+    if (opened > 0) {
+      throw new Error(t(
+        { id: "rankedWrites.opensUnkeyed", defaultMessage: "You can't give {roles, plural, one {this role} other {these roles}}: it opens {channels, plural, one {a private channel} other {# private channels}} you don't have access to. Someone with access has to, or get access first." },
+        { roles: added.length, channels: opened },
+      ));
+    }
+  }
   return next;
+}
+
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((x) => b.includes(x));
 }
 
 function requireRanked(folded: FoldedControl): void {
@@ -569,6 +601,52 @@ export function overwriteReach(folded: FoldedControl, me: string, scope: string,
   const current = (folded.roster.overwrites ?? []).find((o) => o.scope === scopeHex && sameTarget(o.target, target));
   if (current && ((current.allow | current.deny) & ~support) !== 0n) return { bits: 0n, refusal: "bits" };
   return { bits: support & OVERWRITABLE };
+}
+
+/** What a duplicate of a Channel takes from it (Vector `duplicate_channel`). */
+export interface DuplicatePlan {
+  name: string;
+  isPrivate: boolean;
+  /** Its details as they stand, opened where sealed: its name aside. */
+  metadata: ChannelMetadata;
+  /** The vsk-13 Category it files under, when one stands. */
+  category?: string;
+  /** The Category whose rules it follows, on the vsk-13 Roster. */
+  syncedTo?: string;
+  /** Its own rules, `@everyone`'s first, so a public copy stands open no longer than it must. */
+  rules: Array<{ target: OverwriteTarget; allow: bigint; deny: bigint }>;
+}
+
+/**
+ * Plan a Channel made like `source` under `name` (Vector `duplicate_channel`): as private,
+ * opening the same way with the same topic, filed in its Category, and under the same
+ * rules: its own, and its Category's when it syncs. Every rule must be one `me` could set:
+ * a copy missing one could be more open than what it copies. Nothing said there comes along.
+ * `opened` is the source's metadata as this member reads it, sealed or not.
+ */
+export function planDuplicate(folded: FoldedControl, me: string, sourceIdHex: string, name: string, opened: ChannelMetadata | undefined): DuplicatePlan {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error(t({ id: "useCommunityActions.channelNameRequired", defaultMessage: "Channel name is required." }));
+  const src = folded.channels.get(sourceIdHex.toLowerCase());
+  if (!src || src.deleted) throw new Error(t({ id: "useCommunityActions.channelNotFound", defaultMessage: "Channel not found." }));
+  if (src.isPrivate && !opened) throw new Error(t({ id: "rankedWrites.duplicateUnreadable", defaultMessage: "You can't duplicate a private channel you can't read." }));
+  const metadata = opened ?? src.metadata;
+  const cat = typeof metadata.category === "string" ? folded.categories?.get(metadata.category) : undefined;
+  const category = cat && !cat.deleted ? cat.idHex : undefined;
+  if (!folded.rankedRoster) return { name: trimmed, isPrivate: src.isPrivate, metadata, ...(category ? { category } : {}), rules: [] };
+  const scope = src.channelIdHex;
+  const syncedTo = folded.roster.syncs?.[scope];
+  const rules = (folded.roster.overwrites ?? [])
+    .filter((o) => o.scope === scope)
+    .map((o) => ({ target: o.target, allow: o.allow, deny: o.deny }))
+    .sort((a, b) => Number(b.target.kind === "everyone") - Number(a.target.kind === "everyone"));
+  const refused = () =>
+    new Error(t({ id: "rankedWrites.duplicateAbove", defaultMessage: "This channel has permissions set above your roles, so only someone above you can duplicate it." }));
+  // A scope no rule names yet, as the copy's is: only what `me` could set there counts.
+  const fresh = "0".repeat(64);
+  if (rules.some((r) => ((r.allow | r.deny) & ~overwriteReach(folded, me, fresh, r.target).bits) !== 0n)) throw refused();
+  if (syncedTo && !maySwapOverwrites(folded.roster, folded.ownerHex, me, [syncedTo], () => 0n)) throw refused();
+  return { name: trimmed, isPrivate: src.isPrivate, metadata, ...(category ? { category } : {}), ...(syncedTo ? { syncedTo } : {}), rules };
 }
 
 /** The scopes whose overwrites a sync of `ch` to `cat` swaps: its own, the Category's and the one it leaves. */
