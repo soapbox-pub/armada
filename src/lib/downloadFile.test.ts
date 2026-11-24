@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const saves: { filename: string; data: string; mime?: string }[] = [];
+const saves: { filename: string; bytes: Uint8Array; mime?: string }[] = [];
 vi.mock("@/lib/mediaGallery", () => ({
   hasMediaGallery: () => true,
-  saveToDevice: async (filename: string, data: string, mime?: string) => {
-    saves.push({ filename, data, mime });
+  saveToDevice: async (filename: string, bytes: Uint8Array, mime?: string) => {
+    saves.push({ filename, bytes, mime });
     return mime?.startsWith("image/") ? "Pictures/Armada" : "Download/Armada";
   },
 }));

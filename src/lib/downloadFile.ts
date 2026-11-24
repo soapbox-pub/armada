@@ -21,7 +21,7 @@ export async function downloadBinaryFile(
   mime?: string,
 ): Promise<string | undefined> {
   if (hasMediaGallery()) {
-    return saveToDevice(safeFilename(filename), bytesToBase64(bytes), mime);
+    return saveToDevice(safeFilename(filename), bytes, mime);
   }
   if (Capacitor.isNativePlatform()) {
     const { Filesystem, Directory } = await import("@capacitor/filesystem");
