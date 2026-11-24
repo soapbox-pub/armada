@@ -110,6 +110,11 @@ export interface PreparedPush {
   timestamp: number;
   /** Unknown sender under the `off` policy: as quiet as possible, never silent (iOS revokes those). */
   quiet?: boolean;
+  /**
+   * Shown only where the runtime requires every push to display something
+   * (iOS); elsewhere it is dropped like {@link drop}.
+   */
+  onlyIfRequired?: true;
   /** Whether earlier room lines may show; content-blind request pings must not accumulate. */
   accumulate: boolean;
 }
@@ -479,9 +484,9 @@ async function prepareDm(
   if (dmLevel === "nothing" || (!dmLevel && cfg.directMessages === false)) return DROP;
   if (roomMutedAt(cfg.roomMutes, [roomKey], nowSecs())) return DROP;
 
-  // Non-message rumors still need something shown on iOS: the request ping.
+  // Non-message rumors are news to nobody; the request ping only satisfies runtimes that must show something.
   if (opened.kind !== KIND_DM_CHAT && opened.kind !== KIND_DM_FILE) {
-    return requestPing(true, opened.rumorId, roomKey);
+    return { ...requestPing(true, opened.rumorId, roomKey), onlyIfRequired: true };
   }
 
   const known = cfg.knownConversations?.includes(conversation)
@@ -496,8 +501,10 @@ async function prepareDm(
     })) return DROP;
   }
   if (!known && cfg.policy !== "full") {
-    // A stranger controls text, name and avatar: gate all three.
-    return requestPing(cfg.policy === "off", opened.rumorId, roomKey);
+    // A stranger controls text, name and avatar: gate all three. Under `off`
+    // the ping exists only for runtimes that must show something.
+    const ping = requestPing(cfg.policy === "off", opened.rumorId, roomKey);
+    return cfg.policy === "off" ? { ...ping, onlyIfRequired: true } : ping;
   }
 
   return present(

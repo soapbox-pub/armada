@@ -743,6 +743,53 @@ describe("Web Push suppression", () => {
     expect(worker.showNotification).not.toHaveBeenCalled();
   });
 
+  describe("a request ping shown only where a notification is required", () => {
+    const optionalPing = {
+      tag: "armada-dm-requests",
+      roomKey: "dm:peer",
+      eventId: "rumor",
+      url: "/dm",
+      title: "Message requests",
+      line: "New message requests",
+      icon: "",
+      badge: "",
+      timestamp: 0,
+      quiet: true,
+      onlyIfRequired: true,
+      accumulate: false,
+    };
+    const wrap = { id: "wrap", kind: 1059, pubkey: "x", content: "", tags: [["p", "me"]] };
+    const options = (extra: Parameters<typeof loadWorker>[0]) => ({
+      pushConfig: { policy: "off", self: "me", knownPeers: [], sk: "aa" },
+      runtime: { preparePush: async () => optionalPing },
+      ...extra,
+    });
+
+    it("shows nothing where the runtime allows silence", async () => {
+      const worker = loadWorker(options(SILENCE_ALLOWED));
+      await worker.push({ scope: "dm", event_id: "wrap", event: wrap });
+      expect(worker.showNotification).not.toHaveBeenCalled();
+    });
+
+    it("shows nothing on Chromium while one of the origin's pages is visible", async () => {
+      const worker = loadWorker(options({
+        pushEndpoint: "https://fcm.googleapis.com/fcm/send/abc",
+        clients: [{ url: "https://armada.buzz/", visibilityState: "visible", focused: true }],
+      }));
+      await worker.push({ scope: "dm", event_id: "wrap", event: wrap });
+      expect(worker.showNotification).not.toHaveBeenCalled();
+    });
+
+    it("still shows the quiet ping on Apple endpoints", async () => {
+      const worker = loadWorker(options({ pushEndpoint: "https://web.push.apple.com/QKw71NdV3vO" }));
+      await worker.push({ scope: "dm", event_id: "wrap", event: wrap });
+      expect(worker.showNotification).toHaveBeenCalledTimes(1);
+      const [title, opts] = worker.showNotification.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      expect(title).toBe("Message requests");
+      expect(opts.silent).toBe(true);
+    });
+  });
+
   it("does not suppress an unresolved push from a stale client URL", async () => {
     const worker = loadWorker({
       clients: [{

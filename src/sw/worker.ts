@@ -777,7 +777,7 @@ async function handlePush(
   // suppress a push again.
   const prepared = await prepareNotification(runtime, data);
   if (prepared) {
-    if (prepared.drop) {
+    if (prepared.drop || (prepared.onlyIfRequired && !(await mustShow()))) {
       await quietSync(mustShow);
       await markSeen(data, { outcome: "suppressed" });
       return;
@@ -879,7 +879,7 @@ async function handlePush(
   if (encrypted) {
     const enriched = await prepareNotification(runtime, { ...data, event: ev });
     if (!enriched) return;
-    if (enriched.drop) {
+    if (enriched.drop || (enriched.onlyIfRequired && !(await mustShow()))) {
       if (await mustShow()) {
         await quietSync(mustShow, tag);
       } else {

@@ -619,15 +619,17 @@ describe("preparePush — DM request gating", () => {
     const p = await push(dmWrap({ content: "vile slur from a random" }), cfg());
     expect(p?.title).toBe("Message requests");
     expect(p?.accumulate).toBe(false);
+    expect(p?.onlyIfRequired).toBeUndefined();
     // Nothing the sender controls reaches the notification.
     expect(JSON.stringify(p)).not.toContain("slur");
   });
 
-  it("still shows, quietly, for an unknown sender under `off`", async () => {
-    // Never nothing: iOS revokes a subscription that displays nothing.
+  it("shows, quietly, for an unknown sender under `off` only where a notification is required", async () => {
+    // Never nothing on iOS, which revokes a subscription that displays nothing.
     const p = await push(dmWrap(), cfg({ policy: "off" }));
     expect(p?.title).toBe("Message requests");
     expect(p?.quiet).toBe(true);
+    expect(p?.onlyIfRequired).toBe(true);
   });
 
   it("shows full content for an unknown sender under `full`", async () => {
@@ -706,10 +708,11 @@ describe("preparePush — DM request gating", () => {
     });
   });
 
-  it("treats a non-message rumor (reaction/delete) as a quiet request", async () => {
+  it("treats a non-message rumor (reaction/delete) as a quiet request, only where one is required", async () => {
     const p = await push(dmWrap({ kind: 7, content: "+" }), cfg({ knownPeers: [senderPk] }));
     expect(p?.title).toBe("Message requests");
     expect(p?.quiet).toBe(true);
+    expect(p?.onlyIfRequired).toBe(true);
   });
 
   it("declines a login the worker has no key for (bunker / NIP-07)", async () => {
