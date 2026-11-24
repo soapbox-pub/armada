@@ -884,6 +884,10 @@ public class NotificationRelayService extends Service {
         final Set<String> sendDenied;
         // In a restricted Channel, the only authors whose posts ring; null elsewhere (CORD-03 §1).
         final Set<String> postAuthors;
+        // Reactions readers don't count ring nobody (CORD-04 §8): authors who can't react here
+        // while anyone else can, or else the only ones who can (null where everyone may).
+        final Set<String> reactDenied;
+        final Set<String> reactors;
         final Map<String, long[]> timeouts;
         // The Nicknames members go by in this Community (CORD-04 §10), which name the sender.
         final Map<String, String> nicknames;
@@ -897,7 +901,8 @@ public class NotificationRelayService extends Service {
                        String name, String url, CommunityRef community, long timerSecs,
                        boolean mentionOnly, Set<String> banned, Set<String> mentionEveryoneAuthors,
                        boolean mentionEveryoneAnyone, List<RoleMentions.Held> roleMentions, Set<String> roleMentionAuthors,
-                       long clockOffsetMs, Set<String> sendDenied, Set<String> postAuthors, Map<String, long[]> timeouts,
+                       long clockOffsetMs, Set<String> sendDenied, Set<String> postAuthors,
+                       Set<String> reactDenied, Set<String> reactors, Map<String, long[]> timeouts,
                        Map<String, String> nicknames, long joinedAtMs, String wepoch) {
             this.convKey = convKey;
             this.communityId = communityId;
@@ -916,11 +921,29 @@ public class NotificationRelayService extends Service {
             this.clockOffsetMs = clockOffsetMs;
             this.sendDenied = sendDenied;
             this.postAuthors = postAuthors;
+            this.reactDenied = reactDenied;
+            this.reactors = reactors;
             this.timeouts = timeouts;
             this.nicknames = nicknames;
             this.joinedAtMs = joinedAtMs;
             this.wepoch = wepoch;
         }
+    }
+
+    /** Whether readers don't count `author`'s reaction (CORD-04 §8), by the config's two lists; null is no list. */
+    static boolean reactionUncounted(Set<String> reactDenied, Set<String> reactors, String author) {
+        return (reactDenied != null && reactDenied.contains(author)) || (reactors != null && !reactors.contains(author));
+    }
+
+    /** A JSON array of keys as a set, or null where the field is absent. */
+    private static Set<String> optKeySet(JSONArray arr) {
+        if (arr == null) return null;
+        Set<String> out = new HashSet<>();
+        for (int j = 0; j < arr.length(); j++) {
+            String pk = arr.optString(j, null);
+            if (pk != null && !pk.isEmpty()) out.add(pk);
+        }
+        return out;
     }
 
     private static final class GitAttachment {
@@ -2387,6 +2410,8 @@ public class NotificationRelayService extends Service {
                         if (pk != null && !pk.isEmpty()) postAuthors.add(pk);
                     }
                 }
+                Set<String> reactDenied = optKeySet(sub.optJSONArray("reactDenied"));
+                Set<String> reactors = optKeySet(sub.optJSONArray("reactors"));
                 Map<String, String> nicknames = new HashMap<>();
                 JSONObject nicksObj = sub.optJSONObject("nicknames");
                 if (nicksObj != null) {
@@ -2434,7 +2459,8 @@ public class NotificationRelayService extends Service {
                             convKey, communityId, channelId, s.optString("epoch", ""),
                             name, url, ref, Math.max(0, sub.optLong("timerSecs", 0)),
                             mentionOnly, banned, mentionEveryoneAuthors, sub.optBoolean("mentionEveryoneAnyone", false),
-                            roleMentions, roleMentionAuthors, sub.optLong("clockOffsetMs", 0), sendDenied, postAuthors, timeouts, nicknames,
+                            roleMentions, roleMentionAuthors, sub.optLong("clockOffsetMs", 0), sendDenied, postAuthors,
+                            reactDenied, reactors, timeouts, nicknames,
                             Math.max(0, sub.optLong("joinedAtMs", 0)),
                             s.has("wepoch") ? s.optString("wepoch", "") : null));
                 }
@@ -5704,7 +5730,9 @@ public class NotificationRelayService extends Service {
             }
             // A post its readers collapse rings nobody (CORD-04 §8): no SEND in this
             // open Channel, or inside a running Timeout's window.
-            if (st.sendDenied.contains(author2)) return;
+            if (rumorKind != 7 && st.sendDenied.contains(author2)) return;
+            // Nor a reaction they don't count: its author can't react here (CORD-04 §8).
+            if (rumorKind == 7 && reactionUncounted(st.reactDenied, st.reactors, author2)) return;
             // In a restricted Channel a post rings only from the authors its address takes (CORD-03 §1).
             if (st.postAuthors != null && rumorKind != 7 && !st.postAuthors.contains(author2)) return;
             long[] timeout = st.timeouts.get(author2);

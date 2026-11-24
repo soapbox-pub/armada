@@ -467,7 +467,12 @@ struct PushProcessor {
 
         // A post its readers collapse rings nobody (CORD-04 §8): no SEND in this open
         // Channel, or inside a running Timeout's window.
-        if stream.sendDenied.contains(opened.author) { return dropped }
+        if opened.kind != Concord.kindReaction, stream.sendDenied.contains(opened.author) { return dropped }
+        // Nor a reaction they don't count: its author can't react here (CORD-04 §8).
+        if opened.kind == Concord.kindReaction,
+           stream.reactDenied?.contains(opened.author) == true || stream.reactors.map({ !$0.contains(opened.author) }) == true {
+            return dropped
+        }
         // In a restricted Channel a post rings only from the authors its address takes (CORD-03 §1).
         if let posters = stream.postAuthors, opened.kind != Concord.kindReaction, !posters.contains(opened.author) { return dropped }
         if let t = stream.timeouts[opened.author],

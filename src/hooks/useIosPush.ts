@@ -234,6 +234,8 @@ export function useIosPush(): UsePushNotificationsReturn {
             clockOffsetMs: sub.clockOffsetMs,
             sendDenied: sub.sendDenied,
             postAuthors: sub.postAuthors,
+            reactDenied: sub.reactDenied,
+            reactors: sub.reactors,
             timeouts: sub.timeouts,
             nicknames: sub.nicknames,
             joinedAtMs: sub.joinedAtMs,

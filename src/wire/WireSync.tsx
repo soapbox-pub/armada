@@ -1,5 +1,5 @@
 import { App as CapacitorApp } from "@capacitor/app";
-import { restrictedPostersIn, restrictedWritersIn, sendDeniedIn } from "@/concord/lib/channelJudges";
+import { reactionGateIn, restrictedPostersIn, restrictedWritersIn, sendDeniedIn } from "@/concord/lib/channelJudges";
 import { storedGuestbookExtras, type GuestbookExtras } from "@/concord/lib/guestbookExtras";
 import { accountClockRelays, CLOCK_RESYNC_MS, nowSecs, syncClock } from "@/lib/relayClock";
 import { drainWrapScrubs, purgeDeletedChannel, queuedWrapScrubs } from "@/concord/lib/channelPurge";
@@ -233,7 +233,7 @@ export async function purgeDeletedChannels(
   }
 }
 
-type WireConcordChannel = { relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; roleMentions?: HeldRoleMention[]; roleMentionAuthors?: Set<string>; sendDenied?: Set<string>; postAuthors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[]; nicknames?: Record<string, string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> };
+type WireConcordChannel = { relays: string[]; channel: Channel; communityIdHex: string; banned: Set<string>; roleMentions?: HeldRoleMention[]; roleMentionAuthors?: Set<string>; sendDenied?: Set<string>; postAuthors?: Set<string>; reactDenied?: Set<string>; reactors?: Set<string>; timeouts?: { pk: string; fromSecs: number; until: number }[]; nicknames?: Record<string, string>; gitAttachments: ReturnType<typeof channelGitRepositoryAttachments> };
 
 function useWireConcordChannels(): WireConcordChannel[] {
   const { nostr } = useNostr();
@@ -389,6 +389,7 @@ function useWireConcordChannels(): WireConcordChannel[] {
           const denied = sendDeniedIn(folded, channel.idHex);
           const posters = restrictedPostersIn(folded, channel.idHex);
           const writers = restrictedWritersIn(folded, channel.idHex);
+          const { reactDenied, reactors } = reactionGateIn(folded, channel.idHex);
           out.push({
             relays: community.relays,
             channel,
@@ -399,6 +400,8 @@ function useWireConcordChannels(): WireConcordChannel[] {
             ...(denied.length > 0 ? { sendDenied: new Set(denied) } : {}),
             ...(posters ? { postAuthors: new Set(posters) } : {}),
             ...(writers ? { writerAuthors: new Set(writers) } : {}),
+            ...(reactDenied ? { reactDenied: new Set(reactDenied) } : {}),
+            ...(reactors ? { reactors: new Set(reactors) } : {}),
             gitAttachments: channelGitRepositoryAttachments(folded?.channels.get(channel.idHex)?.metadata ?? { name: channel.name, private: channel.isPrivate }),
           });
           keys.push(...signingStreams(channel));

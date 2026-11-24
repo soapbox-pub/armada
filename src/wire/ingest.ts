@@ -363,7 +363,10 @@ export async function ingestWireEvents(
  */
 export function postSilenced(silence: ChannelSilence | undefined, author: string, kind: number, ms: number, nowMs: number, atWriter = false): boolean {
   if (!silence) return false;
-  if (silence.sendDenied?.has(author)) return true;
+  // A reaction readers don't count rings nobody either (CORD-04 §8).
+  if (kind === KIND_REACTION) {
+    if (silence.reactDenied?.has(author) || (silence.reactors && !silence.reactors.has(author))) return true;
+  } else if (silence.sendDenied?.has(author)) return true;
   const posters = atWriter ? silence.writerAuthors : silence.postAuthors;
   if (posters && kind !== KIND_REACTION && !posters.has(author)) return true;
   return silence.timeouts?.some((t) => t.pk === author && t.until * 1000 > nowMs && ms >= t.fromSecs * 1000 && ms < t.until * 1000) ?? false;

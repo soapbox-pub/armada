@@ -35,6 +35,10 @@ struct ConcordStream {
     let sendDenied: Set<String>
     /// In a restricted Channel, the only authors whose posts ring; nil elsewhere (CORD-03 §1).
     let postAuthors: Set<String>?
+    /// Reactions readers don't count ring nobody (CORD-04 §8): authors who can't react here
+    /// while anyone else can, or else the only ones who can (nil where everyone may).
+    let reactDenied: Set<String>?
+    let reactors: Set<String>?
     let timeouts: [String: (from: Int, until: Int)]
     /// The Nicknames members go by in this Community (CORD-04 §10), which name the sender.
     let nicknames: [String: String]
@@ -67,6 +71,8 @@ struct ConcordStream {
         clockOffsetMs: Int = 0,
         sendDenied: Set<String> = [],
         postAuthors: Set<String>? = nil,
+        reactDenied: Set<String>? = nil,
+        reactors: Set<String>? = nil,
         timeouts: [String: (from: Int, until: Int)] = [:],
         nicknames: [String: String] = [:],
         mentionOnly: Bool = false,
@@ -87,6 +93,8 @@ struct ConcordStream {
         self.clockOffsetMs = clockOffsetMs
         self.sendDenied = sendDenied
         self.postAuthors = postAuthors
+        self.reactDenied = reactDenied
+        self.reactors = reactors
         self.timeouts = timeouts
         self.nicknames = nicknames
         self.mentionOnly = mentionOnly
@@ -292,6 +300,8 @@ struct PushConfig {
                 clockOffsetMs: (entry["clockOffsetMs"] as? NSNumber).map { Int($0.doubleValue) } ?? 0,
                 sendDenied: Set((entry["sendDenied"] as? [String]) ?? []),
                 postAuthors: (entry["postAuthors"] as? [String]).map(Set.init),
+                reactDenied: (entry["reactDenied"] as? [String]).map(Set.init),
+                reactors: (entry["reactors"] as? [String]).map(Set.init),
                 timeouts: Dictionary(
                     ((entry["timeouts"] as? [[String: Any]]) ?? []).compactMap { t -> (String, (from: Int, until: Int))? in
                         guard let pk = t["pk"] as? String,

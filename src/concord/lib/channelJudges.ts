@@ -90,6 +90,26 @@ export function sendDeniedIn(control: FoldedControl | undefined, channelIdHex: s
 }
 
 /**
+ * Whose reactions in a Channel count, for notifiers that can't resolve the Roster
+ * (CORD-04 §8): while a member with no Grant or overwrite may react there, the exact
+ * list of those who can't (`reactDenied`); otherwise the only ones who can (`reactors`),
+ * the owner included. Neither on the legacy Roster, or when everyone may.
+ */
+export function reactionGateIn(control: FoldedControl | undefined, channelIdHex: string): { reactDenied?: string[]; reactors?: string[] } {
+  const ignored = reactionIgnored(control, channelIdHex);
+  if (!control || !ignored) return {};
+  const candidates = new Set<string>(control.roster.grants.map((g) => g.member));
+  for (const o of control.roster.overwrites ?? []) if (o.target.kind === "member") candidates.add(o.target.id);
+  candidates.delete(control.ownerHex);
+  // Anyone without a Grant or member overwrite resolves as this key does.
+  if (!ignored("0".repeat(64))) {
+    const reactDenied = [...candidates].filter(ignored).sort();
+    return reactDenied.length > 0 ? { reactDenied } : {};
+  }
+  return { reactors: [control.ownerHex, ...[...candidates].filter((pk) => !ignored(pk))].sort() };
+}
+
+/**
  * Who may post at a restricted Channel's read address (CORD-03 §1 "Held posts"), for
  * notifiers that listen there and hold no ledger: the owner and the members who manage
  * Channels, as {@link writerJudge} vouches for them. Undefined where the read address

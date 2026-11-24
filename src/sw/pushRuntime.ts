@@ -566,7 +566,9 @@ async function prepareConcord(
   if (stream.banned?.includes(opened.author)) return DROP;
 
   // A post its readers collapse rings nobody (CORD-04 §8): no SEND here, or inside a running Timeout.
-  if (stream.sendDenied?.includes(opened.author)) return DROP;
+  if (opened.kind !== KIND_REACTION && stream.sendDenied?.includes(opened.author)) return DROP;
+  // Nor a reaction they don't count: its author can't react here (CORD-04 §8).
+  if (opened.kind === KIND_REACTION && (stream.reactDenied?.includes(opened.author) || (stream.reactors && !stream.reactors.includes(opened.author)))) return DROP;
   // In a restricted Channel a post rings only from the authors its address takes (CORD-03 §1).
   if (stream.postAuthors && opened.kind !== KIND_REACTION && !stream.postAuthors.includes(opened.author)) return DROP;
   const nowMs = Date.now() + (stream.clockOffsetMs ?? 0);

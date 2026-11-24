@@ -51,6 +51,10 @@ export interface SwConcordStream {
   sendDenied?: string[];
   /** In a restricted Channel, the only authors whose posts ring (CORD-03 §1); reactions aside. */
   postAuthors?: string[];
+  /** Authors whose reactions readers don't count (CORD-04 §8), while anyone else's count. */
+  reactDenied?: string[];
+  /** The only authors whose reactions count, where a member with no Grant or overwrite can't react. */
+  reactors?: string[];
   timeouts?: { pk: string; fromSecs: number; until: number }[];
   /** The Nicknames members go by in this Community (CORD-04 §10), by pubkey. */
   nicknames?: Record<string, string>;

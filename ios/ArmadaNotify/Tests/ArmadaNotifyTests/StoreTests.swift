@@ -407,6 +407,24 @@ final class StorelessTests: XCTestCase {
         XCTAssertNotEqual(PushProcessor(store: nil, config: config, now: 1_700_000_600).prepare(userInfo: napp(wrap))?.drop, true)
     }
 
+    /// A reaction readers don't count rings nobody (CORD-04 §8), while one from someone who
+    /// can't post but may react still does. Mirrors the web worker and the Android service.
+    func testAReactionRingsOnlyFromWhoMayReact() {
+        let bob = vectorString("bobPk")
+        func dropped(sendDenied: Set<String> = [], reactDenied: Set<String>? = nil, reactors: Set<String>? = nil) -> Bool? {
+            let (wrap, stream) = streamWrap(
+                kind: 7, content: "🔥", tags: [["e", String(repeating: "ab", count: 32)], ["p", self_]],
+                sendDenied: sendDenied, reactDenied: reactDenied, reactors: reactors
+            )
+            let config = PushConfig(policy: .generic, selfPubkey: self_, knownPeers: [], secretKey: nil, nip46: nil, concord: [stream])
+            return PushProcessor(store: nil, config: config, now: 1_700_000_600).prepare(userInfo: napp(wrap))?.drop
+        }
+        XCTAssertEqual(dropped(reactDenied: [bob]), true, "denied Add Reactions")
+        XCTAssertEqual(dropped(reactors: [self_]), true, "not among the only reactors")
+        XCTAssertNotEqual(dropped(reactors: [bob]), true, "among them")
+        XCTAssertNotEqual(dropped(sendDenied: [bob]), true, "denied Send, not Add Reactions")
+    }
+
     /// A malformed `ms` tag makes the rumor malformed, so it is dropped, never announced as
     /// a wrap that wouldn't open (CORD-02 §5, Vector `resolve_ms_strict`). Mirrors the web
     /// worker and the Android service.
@@ -419,7 +437,10 @@ final class StorelessTests: XCTestCase {
     }
 
     /// A chat wrap by bob at a fresh stream address, and the stream that opens it.
-    private func streamWrap(kind: Int, content: String, tags: [[String]], everyoneMayMention: Bool = false) -> ([String: Any], ConcordStream) {
+    private func streamWrap(
+        kind: Int, content: String, tags: [[String]], everyoneMayMention: Bool = false,
+        sendDenied: Set<String> = [], reactDenied: Set<String>? = nil, reactors: Set<String>? = nil
+    ) -> ([String: Any], ConcordStream) {
         let streamSk = String(repeating: "03", count: 32)
         let streamPk = Secp256k1.xonlyPublicKey(secretKey: Hex.decode(streamSk)!)!
         let convKey = Secp256k1.conversationKey(secretKey: Hex.decode(streamSk)!, peerPubkeyHex: streamPk)!
@@ -440,7 +461,8 @@ final class StorelessTests: XCTestCase {
         )
         let stream = ConcordStream(
             pubkey: streamPk, conversationKey: Hex.encode(convKey), epoch: "1", communityId: "cc", channelId: channel,
-            banned: [], mentionEveryoneAnyone: everyoneMayMention
+            banned: [], mentionEveryoneAnyone: everyoneMayMention,
+            sendDenied: sendDenied, reactDenied: reactDenied, reactors: reactors
         )
         return (wrap, stream)
     }

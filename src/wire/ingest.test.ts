@@ -15,7 +15,7 @@ import { _resetChatMemoForTests } from "@/concord/lib/chat";
 import { unseenPlaneWraps } from "@/concord/lib/planeSync";
 import { _resetVerifyCacheForTests } from "@/lib/verifyCache";
 import { bytesToHex, channelGroupKey, controlGroupKey, guestbookGroupKey, voiceGroupKey, voiceMediaKey, type GroupKey } from "@/concord/lib/derive";
-import { KIND_CONTROL, KIND_KICK, KIND_MESSAGE, KIND_SEAL_ENCRYPTED, KIND_SEAL_PLAINTEXT } from "@/concord/lib/kinds";
+import { KIND_CONTROL, KIND_KICK, KIND_MESSAGE, KIND_REACTION, KIND_SEAL_ENCRYPTED, KIND_SEAL_PLAINTEXT } from "@/concord/lib/kinds";
 import { peekPendingWraps, queryPlane, queryChannelRumors } from "@/concord/lib/rumorStore";
 import { drainLiveDmWraps, resetLiveDmWraps } from "@/lib/nip17/dm17Store";
 import { drainLiveInviteWraps, resetLiveInviteWraps } from "@/concord/lib/inviteInbox";
@@ -23,7 +23,7 @@ import { buildRumor, channelBindingTags, sealRumor, wrapSeal } from "@/concord/l
 import type { Channel } from "@/concord/lib/types";
 
 import { onWireScopes, resetWireBus } from "./bus";
-import { ingestWireEvents, type WireEventStore } from "./ingest";
+import { ingestWireEvents, postSilenced, type WireEventStore } from "./ingest";
 import { registerNotifySink, type NotifyCandidate } from "./notify";
 import type { WireSpec } from "./spec";
 
@@ -571,6 +571,16 @@ describe("ingestWireEvents — foreground notify candidates", () => {
       off();
     }
     expect(captured.map((c) => [c.body, c.mention])).toEqual([["hey @Mods", true], ["hey everyone", false], ["hey @Quiet", false]]);
+  });
+
+  it("rings a reaction only from someone who may react there, whatever their Send (CORD-04 §8)", () => {
+    const [a, b] = ["aa".repeat(32), "bb".repeat(32)];
+    expect(postSilenced({ reactDenied: new Set([a]) }, a, KIND_REACTION, 0, 0)).toBe(true);
+    expect(postSilenced({ reactDenied: new Set([a]) }, b, KIND_REACTION, 0, 0)).toBe(false);
+    expect(postSilenced({ reactors: new Set([b]) }, a, KIND_REACTION, 0, 0)).toBe(true);
+    expect(postSilenced({ reactors: new Set([b]) }, b, KIND_REACTION, 0, 0)).toBe(false);
+    expect(postSilenced({ sendDenied: new Set([a]) }, a, KIND_REACTION, 0, 0)).toBe(false);
+    expect(postSilenced({ sendDenied: new Set([a]) }, a, KIND_MESSAGE, 0, 0)).toBe(true);
   });
 
   it("rings nobody for a post readers collapse: no SEND here, or inside a running Timeout (CORD-04 §8)", async () => {

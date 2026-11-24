@@ -107,6 +107,10 @@ export interface WireInputs {
     postAuthors?: Set<string>;
     /** At its live writer address, the only authors whose posts ring. */
     writerAuthors?: Set<string>;
+    /** Authors whose reactions readers don't count (CORD-04 §8), while anyone else's count. */
+    reactDenied?: Set<string>;
+    /** The only authors whose reactions count, where a member with no Grant or overwrite can't react. */
+    reactors?: Set<string>;
     timeouts?: { pk: string; fromSecs: number; until: number }[];
     /** The Nicknames members go by in the Community (CORD-04 §10). */
     nicknames?: Record<string, string>;
@@ -150,6 +154,8 @@ export interface ChannelSilence {
   /** At its writer addresses (`writerPks`), the only authors whose posts ring. */
   writerAuthors?: Set<string>;
   writerPks?: Set<string>;
+  reactDenied?: Set<string>;
+  reactors?: Set<string>;
   timeouts?: { pk: string; fromSecs: number; until: number }[];
 }
 
@@ -261,11 +267,18 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
   const concordNicknamesByCommunity = new Map<string, Record<string, string>>();
   const concordSilenceByChannel = new Map<string, ChannelSilence>();
   const pksByRelay = new Map<string, Set<string>>();
-  for (const { relays, channel, communityIdHex, banned, roleMentions, roleMentionAuthors, sendDenied, postAuthors, writerAuthors, timeouts, nicknames } of inputs.concord) {
+  for (const { relays, channel, communityIdHex, banned, roleMentions, roleMentionAuthors, sendDenied, postAuthors, writerAuthors, reactDenied, reactors, timeouts, nicknames } of inputs.concord) {
     if (nicknames && Object.keys(nicknames).length > 0) concordNicknamesByCommunity.set(communityIdHex, nicknames);
     const writerPks = new Set(channel.streams.filter((s) => s.writer).map((s) => s.group.pk));
-    if (sendDenied?.size || postAuthors || writerAuthors || timeouts?.length) {
-      concordSilenceByChannel.set(channel.idHex, { sendDenied, postAuthors, timeouts, ...(writerAuthors ? { writerAuthors, writerPks } : {}) });
+    if (sendDenied?.size || postAuthors || writerAuthors || reactDenied?.size || reactors || timeouts?.length) {
+      concordSilenceByChannel.set(channel.idHex, {
+        sendDenied,
+        postAuthors,
+        timeouts,
+        ...(writerAuthors ? { writerAuthors, writerPks } : {}),
+        ...(reactDenied ? { reactDenied } : {}),
+        ...(reactors ? { reactors } : {}),
+      });
     }
     if (roleMentions?.length) concordRoleMentionsByCommunity.set(communityIdHex, { held: roleMentions, authors: roleMentionAuthors ?? new Set() });
     for (const s of channel.streams) concordByPk.set(s.group.pk, channel);

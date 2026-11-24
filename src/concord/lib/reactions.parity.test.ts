@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { channelRules, reactionIgnored, reactsIn } from "@/concord/lib/channelJudges";
+import { channelRules, reactionGateIn, reactionIgnored, reactsIn } from "@/concord/lib/channelJudges";
 import { foldTimeline, type OpenedChat } from "@/concord/lib/chat";
 import { foldControlState } from "@/concord/lib/control";
 import { bytesToHex, random32 } from "@/concord/lib/derive";
@@ -80,5 +80,22 @@ describe("reactions readers count (CORD-04 §8)", () => {
 
     const legacy = new TestCommunity();
     expect(reactionIgnored(foldControlState([], legacy.id, legacy.owner), idHex)).toBeUndefined();
+  });
+
+  it("tells notifiers exactly whose reactions don't count, as a denylist or, where a member with no Role can't react, an allowlist", () => {
+    const { c, base, idHex, admin } = setup();
+    const denied = hexKey();
+    const open = foldControlState([...base, denyReactions(c, idHex, denied)], c.id, c.owner);
+    expect(reactionGateIn(open, idHex)).toEqual({ reactDenied: [denied] });
+    expect(reactionGateIn(foldControlState(base, c.id, c.owner), idHex)).toEqual({});
+
+    const rule = (target: { kind: "everyone" } | { kind: "member"; id: string }, allow: bigint, deny: bigint) => {
+      const o = { scope: idHex, target, allow, deny };
+      return c.edition({ vsk: "14", eid: overwriteLocator(c.id, o), author: c.owner, content: overwriteToJSON(o) });
+    };
+    const shut = rule({ kind: "everyone" }, 0n, Permissions.ADD_REACTIONS);
+    expect(reactionGateIn(foldControlState([...base, shut], c.id, c.owner), idHex)).toEqual({ reactors: [c.owner] });
+    const one = foldControlState([...base, shut, rule({ kind: "member", id: admin }, Permissions.ADD_REACTIONS, 0n)], c.id, c.owner);
+    expect(reactionGateIn(one, idHex)).toEqual({ reactors: [c.owner, admin].sort() });
   });
 });

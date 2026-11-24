@@ -1168,6 +1168,31 @@ describe("preparePush — showing nothing on purpose", () => {
     expect((await preparePush({ scope: "c2", event: wrapFrom(manager, 9, "news") as never }, config))?.drop).not.toBe(true);
   });
 
+  it("rings a reaction only from someone who may react there (CORD-04 §8)", async () => {
+    const CHANNEL = "5c".repeat(32);
+    const COMMUNITY = "7c".repeat(32);
+    const streamSk = generateSecretKey();
+    const streamPk = getPublicKey(streamSk);
+    const convKey = getConversationKey(streamSk, streamPk);
+    const self = getPublicKey(generateSecretKey());
+    const reactor = generateSecretKey();
+    const rumor = { pubkey: getPublicKey(reactor), kind: 7, content: "🔥", tags: [["channel", CHANNEL], ["epoch", "1"], ["e", "ab".repeat(32)], ["p", self]], created_at: now() };
+    const withId = { ...rumor, id: getEventHash(rumor as Parameters<typeof getEventHash>[0]) };
+    const sealed = finalizeEvent({ kind: 20013, content: nip44Encrypt(JSON.stringify(withId), convKey), tags: [], created_at: rumor.created_at }, reactor);
+    const wrap = finalizeEvent({ kind: 1059, content: nip44Encrypt(JSON.stringify(sealed), convKey), tags: [["p", getPublicKey(generateSecretKey())]], created_at: now() }, streamSk);
+    const ring = async (gate: { sendDenied?: string[]; reactDenied?: string[]; reactors?: string[] }) => {
+      const stream = { pk: streamPk, convKey: bytesToHex(convKey), epoch: "1", communityId: COMMUNITY, channelId: CHANNEL, ...gate };
+      return (await preparePush({ scope: "c2", event: wrap as never }, { policy: "generic" as const, self, knownPeers: [], concord: [stream] }))?.drop !== true;
+    };
+    const pk = getPublicKey(reactor);
+    expect(await ring({})).toBe(true);
+    expect(await ring({ reactDenied: [pk] })).toBe(false);
+    expect(await ring({ reactors: [self] })).toBe(false);
+    expect(await ring({ reactors: [pk] })).toBe(true);
+    // Denied Send, not Add Reactions: readers count the reaction.
+    expect(await ring({ sendDenied: [pk] })).toBe(true);
+  });
+
   it("opens a restricted Channel's writer address and rings only its writers (CORD-03 §1)", async () => {
     const CHANNEL = "5b".repeat(32);
     const COMMUNITY = "7b".repeat(32);

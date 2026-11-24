@@ -1,6 +1,6 @@
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-import { restrictedPostersIn, restrictedWritersIn, sendDeniedIn } from "@/concord/lib/channelJudges";
+import { reactionGateIn, restrictedPostersIn, restrictedWritersIn, sendDeniedIn } from "@/concord/lib/channelJudges";
 import { clockOffsetMs } from "@/lib/relayClock";
 import { heldRoleMentions, roleMentionAuthors, type HeldRoleMention } from "@/concord/lib/roleMentions";
 import { channelsView, liveWriterStreams, signingStreams, visibleChannels } from "@/concord/lib/community";
@@ -68,6 +68,10 @@ export interface ConcordSub {
   sendDenied?: string[];
   /** In a restricted Channel, the only authors whose posts at these streams ring: held posts never notify (CORD-03 §1). */
   postAuthors?: string[];
+  /** Reactions readers don't count ring nobody (CORD-04 §8): those who can't react here, while anyone else can. */
+  reactDenied?: string[];
+  /** Where a member with no Grant or overwrite can't react, the only authors whose reactions ring. */
+  reactors?: string[];
   timeouts?: { pk: string; fromSecs: number; until: number }[];
   /** The Nicknames members go by here (CORD-04 §10), which a notification names its sender by. */
   nicknames?: Record<string, string>;
@@ -127,6 +131,7 @@ export function buildConcordSubs(
     streamKeys.push(...signingStreams(channel));
     const sendDenied = sendDeniedIn(folded, channel.idHex);
     const postAuthors = restrictedPostersIn(folded, channel.idHex);
+    const { reactDenied, reactors } = reactionGateIn(folded, channel.idHex);
     const mentionEveryoneAuthors = folded
       ? everyoneMentionAuthors(folded.roster, folded.ownerHex, [channel.idHex])
       : community.owner ? [community.owner] : [];
@@ -151,6 +156,8 @@ export function buildConcordSubs(
       ...(clockOffset !== 0 && { clockOffsetMs: clockOffset }),
       ...(sendDenied.length > 0 && { sendDenied }),
       ...(postAuthors && { postAuthors }),
+      ...(reactDenied && { reactDenied }),
+      ...(reactors && { reactors }),
       ...(timeouts.length > 0 && { timeouts }),
       ...(Object.keys(nicknames).length > 0 && { nicknames }),
       ...(joinedAtMs !== undefined && { joinedAtMs }),
