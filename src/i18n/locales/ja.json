@@ -4370,6 +4370,7 @@
   "staffPill.moderatorTitle": "コミュニティのモデレーター",
   "staffPill.owner": "オーナー",
   "staffPill.ownerTitle": "コミュニティのオーナー",
+  "staffPill.roleTitle": "{role}（{tier}）",
   "statusDialog.addEmoji": "絵文字を追加",
   "statusDialog.clearStatus": "ステータスをクリア",
   "statusDialog.heading": "ステータスを設定",

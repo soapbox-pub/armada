@@ -4370,6 +4370,7 @@
   "staffPill.moderatorTitle": "Community-Moderator",
   "staffPill.owner": "Eigentümer",
   "staffPill.ownerTitle": "Community-Eigentümer",
+  "staffPill.roleTitle": "{role} ({tier})",
   "statusDialog.addEmoji": "Emoji hinzufügen",
   "statusDialog.clearStatus": "Status löschen",
   "statusDialog.heading": "status festlegen",

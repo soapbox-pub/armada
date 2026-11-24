@@ -19,6 +19,8 @@ export interface MemberRolesValue {
   rolesOf: (pubkey: string) => MemberRole[];
   /** This member's staff tier, or undefined for a regular member. */
   staffTierOf: (pubkey: string) => StaffTier | undefined;
+  /** The Role behind a non-owner staff tier, whose name the pill shows. */
+  staffRoleOf: (pubkey: string) => MemberRole | undefined;
 }
 
 export const MemberRolesContext = createContext<MemberRolesValue | undefined>(undefined);

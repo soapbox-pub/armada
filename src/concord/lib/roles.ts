@@ -826,6 +826,19 @@ export function badgeOf(roles: CommunityRoles, memberHex: string): "admin" | "mo
   return undefined;
 }
 
+/**
+ * The held Role that earns {@link badgeOf}'s tier, highest first: the one carrying
+ * MANAGE_ROLES for "admin", any management bit for "moderator". Undefined when the
+ * tier comes from `@everyone` alone, or the member has none.
+ */
+export function staffRoleOf(roles: CommunityRoles, memberHex: string): Role | undefined {
+  const tier = badgeOf(roles, memberHex);
+  if (!tier) return undefined;
+  const earns = (r: Role) =>
+    tier === "admin" ? permsContain(r.permissions, Permissions.MANAGE_ROLES) : isManagement(r.permissions);
+  return rolesOf(roles, memberHex).filter(earns).sort(byDisplayOrder)[0];
+}
+
 /** Owner is supreme; otherwise the actor must hold `permission`. */
 export function isAuthorized(
   roles: CommunityRoles,

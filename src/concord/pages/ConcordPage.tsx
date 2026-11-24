@@ -121,7 +121,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChannelNavContext } from "@/contexts/ChannelNavContext";
 import { MemberActionsContext, type MemberActionItem, type MemberActionsValue, type MemberRolePicker } from "@/contexts/MemberActionsContext";
-import { MemberRolesContext, type MemberRolesValue, type StaffTier } from "@/contexts/MemberRolesContext";
+import { MemberRolesContext, type MemberRole, type MemberRolesValue, type StaffTier } from "@/contexts/MemberRolesContext";
 import type { AppScope } from "@/contexts/AppsContext";
 import { ComposerBoundsProvider } from "@/contexts/ComposerBoundsContext";
 import { ConcordMediaHold } from "@/concord/components/ConcordMediaHold";
@@ -217,7 +217,7 @@ import { communityVoiceRelays } from "@/concord/lib/irohVoice";
 import { communityAvBrokers, voiceRowTransports } from "@/concord/lib/voice";
 import { useRegisterChannelStreamKeys } from "@/concord/hooks/useStreamAuth";
 import { completeMemberlist, timeoutRunning } from "@/concord/lib/guestbook";
-import { badgeOf, byDisplayOrder, canActOnMember, canActOnPosition, channelPermissions, everyoneSends, isAuthorized, isAuthorizedIn, MAX_ROLES_PER_MEMBER, Permissions, stockTierOf, tierMoves } from "@/concord/lib/roles";
+import { badgeOf, byDisplayOrder, canActOnMember, canActOnPosition, channelPermissions, everyoneSends, isAuthorized, isAuthorizedIn, MAX_ROLES_PER_MEMBER, Permissions, staffRoleOf, stockTierOf, tierMoves } from "@/concord/lib/roles";
 import { channelGitRepositoryAttachments, type Channel, type Community, type ImagePointer } from "@/concord/lib/types";
 import { matchGitTicketRepository, parseGitRepositoryAddress, sortAndDedupeGitTimelineActivities, trustedGitStatusAuthors, type GitComment, type GitStatusKind, type GitTicket } from "@/lib/gitActivity";
 import { tierChangeConfirm } from "@/lib/memberTierConfirm";
@@ -2319,6 +2319,7 @@ function ConcordCommunityPage() {
     const byId = new Map((roster?.roles ?? []).map((r) => [r.roleId, r]));
     const cache = new Map<string, Array<{ id: string; name: string; color: number }>>();
     const tiers = new Map<string, StaffTier | undefined>();
+    const staffRoles = new Map<string, MemberRole | undefined>();
     return {
       rolesOf: (pubkey: string) => {
         const cached = cache.get(pubkey);
@@ -2337,6 +2338,14 @@ function ConcordCommunityPage() {
         if (!roster) return undefined;
         if (!tiers.has(pubkey)) tiers.set(pubkey, badgeOf(roster, pubkey));
         return tiers.get(pubkey);
+      },
+      staffRoleOf: (pubkey: string) => {
+        if (pubkey === ownerHex || !roster) return undefined;
+        if (!staffRoles.has(pubkey)) {
+          const r = staffRoleOf(roster, pubkey);
+          staffRoles.set(pubkey, r && { id: r.roleId, name: r.name, color: r.color });
+        }
+        return staffRoles.get(pubkey);
       },
     };
   }, [roster, ownerHex]);

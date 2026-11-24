@@ -17,6 +17,7 @@ import {
   projectReorder,
   roleFromJSON,
   roleToJSON,
+  staffRoleOf,
   stockTierOf,
   tierMoves,
   type CommunityRoles,
@@ -457,5 +458,35 @@ describe("a roleless member sits at u32::MAX (Vector `can_act_on_member`)", () =
   it("doesn't let a Role at u32::MAX act on a member who holds none", () => {
     expect(canActOnMember(roster, R_MOD, R_OWNER, R_PLAIN, Permissions.KICK)).toBe(false);
     expect(outranksMember(roster, R_MOD, R_OWNER, R_PLAIN)).toBe(false);
+  });
+});
+
+describe("staffRoleOf", () => {
+  const role = (id: string, name: string, position: number, permissions: bigint): Role => ({
+    roleId: id.repeat(64), name, position, permissions, scope: { kind: "server" }, color: 0,
+  });
+  const contributor = role("1", "Code Contributor", 2, Permissions.MANAGE_MESSAGES);
+  const supporter = role("2", "Supporter", 1, 0n);
+  const lead = role("3", "Lead", 4, Permissions.MANAGE_ROLES);
+  const helper = role("4", "Helper", 3, Permissions.BAN);
+  const M = "d".repeat(64);
+  const at = (roleIds: Role[], everyone?: bigint): CommunityRoles => ({
+    roles: [contributor, supporter, lead, helper],
+    grants: [{ member: M, roleIds: roleIds.map((r) => r.roleId) }],
+    ...(everyone !== undefined ? { everyone } : {}),
+  });
+
+  it("names the highest Role carrying a management bit, past a cosmetic one above it", () => {
+    expect(staffRoleOf(at([supporter, contributor]), M)?.name).toBe("Code Contributor");
+  });
+
+  it("names the Role carrying MANAGE_ROLES for an admin, even below another staff Role", () => {
+    expect(staffRoleOf(at([contributor, lead]), M)?.name).toBe("Lead");
+    expect(staffRoleOf(at([helper, contributor]), M)?.name).toBe("Code Contributor");
+  });
+
+  it("is undefined for a regular member, and when only @everyone grants the tier", () => {
+    expect(staffRoleOf(at([supporter]), M)).toBeUndefined();
+    expect(staffRoleOf(at([supporter], Permissions.MANAGE_MESSAGES), M)).toBeUndefined();
   });
 });
