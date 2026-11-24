@@ -9,7 +9,7 @@ import type { NostrEvent, NostrFilter } from "@nostrify/nostrify";
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from "nostr-tools/pure";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { sealHistory } from "@/concord/hooks/sealHistory";
+import { readsWholeHistory, sealHistory } from "@/concord/hooks/sealHistory";
 import { writerJudge } from "@/concord/lib/channelJudges";
 import { backfillStore } from "@/concord/lib/channelSync";
 import { openChatBatch, type OpenedChat } from "@/concord/lib/chat";
@@ -157,6 +157,29 @@ describe("a seal page (CORD-03 §1)", () => {
     expect(openSealPage(wrap, wrap.id, "08".repeat(32), 1n, group)).toBeUndefined();
     expect(openSealPage(wrap, wrap.id, ch, 2n, group)).toBeUndefined();
     expect(openSealPage({ ...wrap, id: id(1) }, id(1), ch, 1n, group)).toBeUndefined();
+  });
+});
+
+describe("sealing a lock (CORD-03 §1)", () => {
+  it("seals nothing on a read some relay didn't answer whole, over a ledger that moved, or without every plane's key", async () => {
+    const owner = signer();
+    const { c, ch, id, lock, folded } = locked(owner.pubkey);
+    const root = random32();
+    const community = heldCommunity(c, [], root);
+    const relay = new MemoryRelay();
+    const w = await chatWrap(owner, ch, channelGroupKey(root, id, 0), lock - 5 * SEC, "before");
+    relay.events.set(w.id, w);
+    const channel = channelsView(community, folded).find((v) => v.idHex === ch)!;
+    let published = 0;
+    const seal = (nostr: unknown, moved = false) =>
+      sealHistory({ nostr: nostr as never, community, folded, channel, history: new Map(), nowMs: lock, signal: new AbortController().signal, publish: async () => (published++, !moved) });
+
+    const silent = { relay: () => ({ ...relay.relay(), queryStrict: async () => Promise.reject(new Error("CLOSED")) }) };
+    await expect(seal(silent)).rejects.toThrow();
+    expect(published).toBe(0);
+    await expect(seal(relay, true)).rejects.toThrow(/moved/);
+    expect(readsWholeHistory(community, channel)).toBe(true);
+    expect(readsWholeHistory(community, channel, [])).toBe(false);
   });
 });
 

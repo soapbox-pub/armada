@@ -131,28 +131,28 @@
   "test": "src/concord/lib/callGate.test.ts",
   "title": "follows SPEAK and VIDEO in the Channel on the vsk-13 Roster"
  },
- "calls/voice.rs::join::err::End your call first": {
+ "calls/voice.rs::join_with::err::End your call first": {
   "status": "todo"
  },
- "calls/voice.rs::join::ok_or::Not signed in": {
+ "calls/voice.rs::join_with::ok_or::Not signed in": {
   "status": "todo"
  },
- "calls/voice.rs::join::ok_or::bad community id": {
+ "calls/voice.rs::join_with::ok_or::bad community id": {
   "status": "todo"
  },
- "calls/voice.rs::join::ok_or::bad channel id": {
+ "calls/voice.rs::join_with::ok_or::bad channel id": {
   "status": "todo"
  },
- "calls/voice.rs::join::ok_or::No such channel": {
+ "calls/voice.rs::join_with::ok_or::No such channel": {
   "status": "todo"
  },
- "calls/voice.rs::join::err::That isn't a voice channel": {
+ "calls/voice.rs::join_with::err::That isn't a voice channel": {
   "status": "todo"
  },
- "calls/voice.rs::join::err::This channel's key hasn't arrived yet": {
+ "calls/voice.rs::join_with::err::This channel's key hasn't arrived yet": {
   "status": "todo"
  },
- "calls/voice.rs::join::err::You can't connect to this channel": {
+ "calls/voice.rs::join_with::err::You can't connect to this channel": {
   "status": "covered",
   "test": "src/concord/lib/callGate.test.ts",
   "title": "needs View and Connect in the Channel on the vsk-13 Roster"
@@ -181,16 +181,24 @@
  "calls/voice.rs::set_muted::ok_or::Not in a call": {
   "status": "todo"
  },
- "calls/voice.rs::set_muted::err::A moderator muted you in this call": {
+ "calls/voice.rs::set_muted_in::ok_or::Not in that call": {
+  "status": "n/a",
+  "why": "call-session and platform state, not a Concord decision"
+ },
+ "calls/voice.rs::mute::err::A moderator muted you in this call": {
   "status": "todo"
  },
- "calls/voice.rs::set_muted::err::A moderator deafened you in this call": {
+ "calls/voice.rs::mute::err::A moderator deafened you in this call": {
   "status": "todo"
  },
  "calls/voice.rs::set_deafened::ok_or::Not in a call": {
   "status": "todo"
  },
- "calls/voice.rs::set_deafened::err::A moderator deafened you in this call": {
+ "calls/voice.rs::set_deafened_in::ok_or::Not in that call": {
+  "status": "n/a",
+  "why": "call-session and platform state, not a Concord decision"
+ },
+ "calls/voice.rs::deafen::err::A moderator deafened you in this call": {
   "status": "todo"
  },
  "calls/voice/video.rs::set_sending::err::Video isn't ready in this call yet": {
@@ -313,18 +321,32 @@
  "community/v2/roles.rs::role_v2_content_json::ok_or::a Role needs a rank key": {
   "status": "todo"
  },
- "community/v2/service.rs::send_chat_message_at::branch::everyone.is_some()": {
+ "community/v2/service.rs::try_send_chat_message_at::branch::everyone.is_some()": {
   "status": "covered",
   "test": "src/concord/lib/writerKeys.test.ts",
   "title": "needs Send Messages in the Channel on the vsk-13 Roster, owner aside"
  },
- "community/v2/service.rs::send_chat_message_at::err::you can't send messages in this channel": {
+ "community/v2/service.rs::try_send_chat_message_at::err::you can't send messages in this channel": {
   "status": "covered",
   "test": "src/concord/lib/writerKeys.test.ts",
   "title": "needs Send Messages in the Channel on the vsk-13 Roster, owner aside"
  },
  "community/v2/service.rs::refuse_while_timed_out::err::you're timed out here until {until}": {
   "status": "todo"
+ },
+ "community/v2/service.rs::refuse_unless_reacting::branch::everyone.is_none()": {
+  "status": "covered",
+  "test": "src/concord/lib/reactions.parity.test.ts",
+  "title": "always counts the owner's, and judges nothing on the legacy Roster"
+ },
+ "community/v2/service.rs::refuse_unless_reacting::ok_or::no such channel in this community": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
+ "community/v2/service.rs::refuse_unless_reacting::err::you can't react in this channel": {
+  "status": "covered",
+  "test": "src/concord/lib/reactions.parity.test.ts",
+  "title": "always counts the owner's, and judges nothing on the legacy Roster"
  },
  "community/v2/service.rs::moderation_delete::err::this community is dissolved — it accepts no new moderation actions": {
   "status": "todo"
@@ -350,20 +372,25 @@
  "community/v2/service.rs::chat_send_context::err::this private channel has no key yet (awaiting rekey delivery)": {
   "status": "todo"
  },
- "community/v2/service.rs::publish_chat::ok_or::no such channel in this community": {
+ "community/v2/service.rs::publish_chat_tracked::ok_or::no such channel in this community": {
   "status": "todo"
  },
- "community/v2/service.rs::publish_chat::ok_or::rumor has no id": {
+ "community/v2/service.rs::publish_chat_tracked::ok_or::rumor has no id": {
   "status": "n/a",
   "why": "local state invariant"
  },
- "community/v2/service.rs::fetch_channel_history_paged::ok_or::no such channel in this community": {
+ "community/v2/service.rs::fetch_channel_history_since_epoch::ok_or::no such channel in this community": {
   "status": "todo"
  },
- "community/v2/service.rs::mint_public_link::gate::minting a public invite link": {
+ "community/v2/service.rs::fetch_channel_history_since_epoch::err::no relay answered": {
+  "status": "covered",
+  "test": "src/concord/lib/channelSync.test.ts",
+  "title": "a page the relays refuse with CLOSED is a failure, never the bottom of history"
+ },
+ "community/v2/service.rs::publish_public_link::gate::minting a public invite link": {
   "status": "todo"
  },
- "community/v2/service.rs::mint_public_link::err::Too many invite links to sync: revoke some, or let them expire, first": {
+ "community/v2/service.rs::publish_public_link::err::Too many invite links to sync: revoke some, or let them expire, first": {
   "status": "todo"
  },
  "community/v2/service.rs::read_invite_list_with::err::a copy of your invite list couldn't be read, so it isn't written over: {err}": {
@@ -373,6 +400,19 @@
   "status": "todo"
  },
  "community/v2/service.rs::debug_control_editions::ok_or::the Control Plane couldn't be read whole": {
+  "status": "todo"
+ },
+ "community/v2/service.rs::whole_wraps_held::err::the community is not held": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
+ "community/v2/service.rs::whole_wraps_held::err::more wraps than a pass reads": {
+  "status": "todo"
+ },
+ "community/v2/service.rs::whole_wraps_held::err::more wraps than a pass reads#2": {
+  "status": "todo"
+ },
+ "community/v2/service.rs::whole_wraps_held::err::a relay's whole set is not known": {
   "status": "todo"
  },
  "community/v2/service.rs::accept_bundle::err::this invite has expired": {
@@ -632,10 +672,7 @@
  "community/v2/service.rs::set_overwrite::err::no such channel or category": {
   "status": "todo"
  },
- "community/v2/service.rs::set_overwrite::err::you can only change who reads a private channel you can read": {
-  "status": "todo"
- },
- "community/v2/service.rs::set_overwrite::ok_or::no such role": {
+ "community/v2/service.rs::set_overwrite::err::no such role": {
   "status": "todo"
  },
  "community/v2/service.rs::set_overwrite::err::the owner holds every permission everywhere": {
@@ -649,9 +686,6 @@
   "why": "local state invariant"
  },
  "community/v2/service.rs::set_channel_sync::ok_or::no such channel": {
-  "status": "todo"
- },
- "community/v2/service.rs::set_channel_sync::err::you can only change who reads a private channel you can read": {
   "status": "todo"
  },
  "community/v2/service.rs::set_channel_sync::err::no such category": {
@@ -673,6 +707,10 @@
   "status": "n/a",
   "why": "local state invariant"
  },
+ "community/v2/service.rs::deliver_gained::ok_or::v2 community not found": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
  "community/v2/service.rs::deliver_access::ok_or::no such channel": {
   "status": "todo"
  },
@@ -690,16 +728,19 @@
   "status": "n/a",
   "why": "local state invariant"
  },
- "community/v2/service.rs::collect_history::branch::everyone.is_none()": {
+ "community/v2/service.rs::collect_history_rooms::branch::everyone.is_none()": {
   "status": "todo"
  },
- "community/v2/service.rs::access_duty::branch::everyone.is_none()": {
+ "community/v2/service.rs::access_duty_once::branch::everyone.is_none()": {
   "status": "todo"
  },
- "community/v2/service.rs::access_duty::err::the roster couldn't be read whole; no key was delivered": {
+ "community/v2/service.rs::access_duty_once::err::the roster couldn't be read whole; no key was delivered": {
   "status": "todo"
  },
  "community/v2/service.rs::collect_access::branch::everyone.is_none()": {
+  "status": "todo"
+ },
+ "community/v2/service.rs::owed_channel_keys::branch::everyone.is_none()": {
   "status": "todo"
  },
  "community/v2/service.rs::activate_roles_v2::err::only the owner moves a community to the new roles": {
@@ -736,33 +777,43 @@
  "community/v2/service.rs::seal_standing::err::this member's earlier record isn't being served; nothing was changed, try again shortly": {
   "status": "todo"
  },
- "community/v2/service.rs::set_member_roles::err::the owner's standing isn't granted by roles": {
-  "status": "covered",
-  "test": "src/concord/lib/rankedWrites.test.ts",
-  "title": "sets a member's Roles on Manage Roles held above the member"
+ "community/v2/service.rs::change_member_roles::err::only the owner sets the owner's roles": {
+  "status": "todo"
  },
- "community/v2/service.rs::set_member_roles::err::you can only change the roles of members beneath you": {
+ "community/v2/service.rs::change_member_roles::branch::everyone.is_none()": {
+  "status": "todo"
+ },
+ "community/v2/service.rs::change_member_roles::err::the owner holds roles only on the new roles": {
+  "status": "todo"
+ },
+ "community/v2/service.rs::change_member_roles::err::you can only change the roles of members beneath you": {
   "status": "covered",
   "test": "src/concord/lib/rankedWrites.test.ts",
   "title": "takes Manage Roles only from Roles above the member"
  },
- "community/v2/service.rs::set_member_roles::ok_or::no such role": {
+ "community/v2/service.rs::change_member_roles::ok_or::no such role": {
   "status": "covered",
   "test": "src/concord/lib/rankedWrites.test.ts",
   "title": "sets a member's Roles on Manage Roles held above the member"
  },
- "community/v2/service.rs::set_member_roles::err::you can't grant \\": {
+ "community/v2/service.rs::change_member_roles::err::you can't grant \\": {
   "status": "covered",
   "test": "src/concord/lib/rankedWrites.test.ts",
   "title": "sets a member's Roles on Manage Roles held above the member"
  },
- "community/v2/service.rs::set_member_roles::err::you can't remove \\": {
+ "community/v2/service.rs::change_member_roles::err::you can't remove \\": {
   "status": "todo"
  },
- "community/v2/service.rs::set_member_roles::err::a member holds at most {} roles": {
+ "community/v2/service.rs::change_member_roles::err::a member holds at most {} roles": {
   "status": "covered",
   "test": "src/concord/lib/rankedWrites.test.ts",
   "title": "caps a member at 64 Roles"
+ },
+ "community/v2/service.rs::change_member_roles::branch::everyone.is_some()": {
+  "status": "todo"
+ },
+ "community/v2/service.rs::change_member_roles::err::You can't give {what}: it opens {channels} you don't have access to. Someone with access has to, or get access first.": {
+  "status": "todo"
  },
  "community/v2/service.rs::settle_channel_keys::branch::everyone.is_some()": {
   "status": "covered",
@@ -895,6 +946,23 @@
  "community/v2/service.rs::create_channel_in::branch::roles_v2_held(#2": {
   "status": "todo"
  },
+ "community/v2/service.rs::duplicate_channel::err::a channel needs a name": {
+  "status": "todo"
+ },
+ "community/v2/service.rs::duplicate_channel::ok_or::no such channel": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
+ "community/v2/service.rs::duplicate_channel::err::you can't duplicate a private channel you can't read": {
+  "status": "todo"
+ },
+ "community/v2/service.rs::duplicate_channel::branch::roles_v2_held(": {
+  "status": "todo"
+ },
+ "community/v2/service.rs::dress_duplicate::ok_or::the new channel isn't held": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
  "community/v2/service.rs::keyed::ok_or::no room to order these": {
   "status": "todo"
  },
@@ -991,6 +1059,10 @@
   "status": "covered",
   "test": "src/concord/lib/cord25.history.test.ts",
   "title": "seals again junk at an earlier epoch"
+ },
+ "community/v2/service.rs::publicize_channel::ok_or::unknown channel": {
+  "status": "n/a",
+  "why": "local state invariant"
  },
  "community/v2/service.rs::roles_v2_held::branch::roles_v2_held(": {
   "status": "todo"
@@ -1216,6 +1288,17 @@
  "community/v2/service/audit.rs::read_control_history::ok_or::this community's history couldn't be read in full; try again in a moment": {
   "status": "todo"
  },
+ "community/v2/service/control_store.rs::swapped_out::err::the account changed": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
+ "community/v2/service/control_store.rs::held_page::err::a wrap held did not decrypt": {
+  "status": "n/a",
+  "why": "Vector's on-disk Control wrap store; Armada stores opened editions, never wraps"
+ },
+ "community/v2/service/control_sync.rs::ask_one::err::relay did not answer": {
+  "status": "todo"
+ },
  "community/v2/service/inspect.rs::read_messages::err::#{} is private and these keys don't read it": {
   "status": "todo"
  },
@@ -1263,8 +1346,52 @@
  "community/v2/service/relocate.rs::move_relays::err::the community's relays changed while this move ran, so nothing was announced; try again": {
   "status": "todo"
  },
- "community/v2/service/writing.rs::send_group::ok_or::only this channel's writers can post here": {
-  "status": "todo"
+ "community/v2/service/sealing.rs::seal_history_at::ok_or::this channel keeps no writer ledger": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
+ "community/v2/service/sealing.rs::seal_history_at::ok_or::this community is gone": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
+ "community/v2/service/sealing.rs::seal_history_at::ok_or::a page's read plane has no key here": {
+  "status": "covered",
+  "test": "src/concord/lib/locked.parity.test.ts",
+  "title": "seals nothing on a read some relay didn't answer whole, over a ledger that moved, or without every plane's key"
+ },
+ "community/v2/service/sealing.rs::seal_history_at::err::account changed while sealing a channel": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
+ "community/v2/service/sealing.rs::seal_history_at::ok_or::this community is gone#2": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
+ "community/v2/service/sealing.rs::seal_history_at::ok_or::no such channel": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
+ "community/v2/service/sealing.rs::seal_history_at::ok_or::this channel keeps no writer ledger#2": {
+  "status": "n/a",
+  "why": "local state invariant"
+ },
+ "community/v2/service/sealing.rs::seal_history_at::err::this channel's writer ledger moved; nothing sealed": {
+  "status": "covered",
+  "test": "src/concord/lib/locked.parity.test.ts",
+  "title": "seals nothing on a read some relay didn't answer whole, over a ledger that moved, or without every plane's key"
+ },
+ "community/v2/service/sealing.rs::read_whole_range::err::a relay didn't answer the whole read; nothing sealed": {
+  "status": "covered",
+  "test": "src/concord/lib/locked.parity.test.ts",
+  "title": "seals nothing on a read some relay didn't answer whole, over a ledger that moved, or without every plane's key"
+ },
+ "community/v2/service/tests/control_sync.rs::fetch::err::relay did not answer the fetch": {
+  "status": "n/a",
+  "why": "Vector test fixture"
+ },
+ "community/v2/service/tests/relay_reads.rs::fetch::err::relay did not answer the fetch": {
+  "status": "n/a",
+  "why": "Vector test fixture"
  },
  "community/v2/service/writing.rs::mint_carrying::ok_or::this community is gone": {
   "status": "n/a",
@@ -1315,11 +1442,16 @@
  "community/v2/service/writing.rs::publish_ledger::ok_or::this channel's writer ledger can't take that": {
   "status": "todo"
  },
- "community/v2/service/writing.rs::publish_ledger::err::account changed while moving a channel's writers": {
+ "community/v2/service/writing.rs::publish_seal::ok_or::this channel's writer ledger can't take that": {
+  "status": "covered",
+  "test": "src/concord/lib/writers.locked.test.ts",
+  "title": "keeps a seal's stretch past the cap"
+ },
+ "community/v2/service/writing.rs::publish_next::err::account changed while moving a channel's writers": {
   "status": "n/a",
   "why": "local state invariant"
  },
- "community/v2/service/writing.rs::settle_writers_moved::ok_or::v2 community not found": {
+ "community/v2/service/writing.rs::settle_writers_moved_once::ok_or::v2 community not found": {
   "status": "n/a",
   "why": "local state invariant"
  },
@@ -1333,6 +1465,11 @@
  "community/v2/service/writing.rs::retract_since_bound::err::account changed while taking posts back": {
   "status": "n/a",
   "why": "local state invariant"
+ },
+ "community/v2/service/writing.rs::owed_writer_keys::branch::everyone.is_none()": {
+  "status": "covered",
+  "test": "src/concord/lib/writerKeys.locked.test.ts",
+  "title": "hands a reactor a scoped certificate it reacts with and can't post with"
  },
  "community/v2/service/writing.rs::collect_writers_bound::branch::everyone.is_none()": {
   "status": "todo"
@@ -1357,7 +1494,7 @@
  "lib.rs::roles_v2_active::branch::everyone.is_some()": {
   "status": "todo"
  },
- "lib.rs::channel_send_denied::branch::everyone.is_none()": {
+ "lib.rs::channel_denied::branch::everyone.is_none()": {
   "status": "todo"
  }
 }

@@ -227,7 +227,7 @@
   "id": "calls/voice.rs::may_connect::branch::everyone.is_none()",
   "file": "calls/voice.rs",
   "fn": "may_connect",
-  "line": 202,
+  "line": 292,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
@@ -235,7 +235,7 @@
   "id": "calls/voice.rs::may_speak::branch::everyone.is_none()",
   "file": "calls/voice.rs",
   "fn": "may_speak",
-  "line": 221,
+  "line": 311,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
@@ -243,7 +243,7 @@
   "id": "calls/voice.rs::has_bit::branch::everyone.is_some()",
   "file": "calls/voice.rs",
   "fn": "has_bit",
-  "line": 230,
+  "line": 320,
   "kind": "branch",
   "text": "everyone.is_some()"
  },
@@ -251,71 +251,71 @@
   "id": "calls/voice.rs::may_video::branch::everyone.is_none()",
   "file": "calls/voice.rs",
   "fn": "may_video",
-  "line": 242,
+  "line": 332,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
  {
-  "id": "calls/voice.rs::join::err::End your call first",
+  "id": "calls/voice.rs::join_with::err::End your call first",
   "file": "calls/voice.rs",
-  "fn": "join",
-  "line": 325,
+  "fn": "join_with",
+  "line": 426,
   "kind": "err",
   "text": "End your call first"
  },
  {
-  "id": "calls/voice.rs::join::ok_or::Not signed in",
+  "id": "calls/voice.rs::join_with::ok_or::Not signed in",
   "file": "calls/voice.rs",
-  "fn": "join",
-  "line": 328,
+  "fn": "join_with",
+  "line": 433,
   "kind": "ok_or",
   "text": "Not signed in"
  },
  {
-  "id": "calls/voice.rs::join::ok_or::bad community id",
+  "id": "calls/voice.rs::join_with::ok_or::bad community id",
   "file": "calls/voice.rs",
-  "fn": "join",
-  "line": 329,
+  "fn": "join_with",
+  "line": 434,
   "kind": "ok_or",
   "text": "bad community id"
  },
  {
-  "id": "calls/voice.rs::join::ok_or::bad channel id",
+  "id": "calls/voice.rs::join_with::ok_or::bad channel id",
   "file": "calls/voice.rs",
-  "fn": "join",
-  "line": 330,
+  "fn": "join_with",
+  "line": 435,
   "kind": "ok_or",
   "text": "bad channel id"
  },
  {
-  "id": "calls/voice.rs::join::ok_or::No such channel",
+  "id": "calls/voice.rs::join_with::ok_or::No such channel",
   "file": "calls/voice.rs",
-  "fn": "join",
-  "line": 332,
+  "fn": "join_with",
+  "line": 437,
   "kind": "ok_or",
   "text": "No such channel"
  },
  {
-  "id": "calls/voice.rs::join::err::That isn't a voice channel",
+  "id": "calls/voice.rs::join_with::err::That isn't a voice channel",
   "file": "calls/voice.rs",
-  "fn": "join",
-  "line": 334,
+  "fn": "join_with",
+  "line": 439,
   "kind": "err",
   "text": "That isn't a voice channel"
  },
  {
-  "id": "calls/voice.rs::join::err::This channel's key hasn't arrived yet",
+  "id": "calls/voice.rs::join_with::err::This channel's key hasn't arrived yet",
   "file": "calls/voice.rs",
-  "fn": "join",
-  "line": 337,
+  "fn": "join_with",
+  "line": 442,
   "kind": "err",
   "text": "This channel's key hasn't arrived yet"
  },
  {
-  "id": "calls/voice.rs::join::err::You can't connect to this channel",
+  "id": "calls/voice.rs::join_with::err::You can't connect to this channel",
   "file": "calls/voice.rs",
-  "fn": "join",
-  "line": 340,
+  "fn": "join_with",
+  "line": 445,
   "kind": "err",
   "text": "You can't connect to this channel"
  },
@@ -323,7 +323,7 @@
   "id": "calls/voice.rs::set_video::ok_or::Not in a call",
   "file": "calls/voice.rs",
   "fn": "set_video",
-  "line": 449,
+  "line": 591,
   "kind": "ok_or",
   "text": "Not in a call"
  },
@@ -331,7 +331,7 @@
   "id": "calls/voice.rs::set_video::err::You can't share video in this channel",
   "file": "calls/voice.rs",
   "fn": "set_video",
-  "line": 451,
+  "line": 593,
   "kind": "err",
   "text": "You can't share video in this channel"
  },
@@ -339,7 +339,7 @@
   "id": "calls/voice.rs::watch::ok_or::Not in a call",
   "file": "calls/voice.rs",
   "fn": "watch",
-  "line": 461,
+  "line": 603,
   "kind": "ok_or",
   "text": "Not in a call"
  },
@@ -347,7 +347,7 @@
   "id": "calls/voice.rs::moderate::ok_or::unknown action",
   "file": "calls/voice.rs",
   "fn": "moderate",
-  "line": 593,
+  "line": 742,
   "kind": "ok_or",
   "text": "unknown action"
  },
@@ -355,7 +355,7 @@
   "id": "calls/voice.rs::moderate::ok_or::bad community id",
   "file": "calls/voice.rs",
   "fn": "moderate",
-  "line": 594,
+  "line": 743,
   "kind": "ok_or",
   "text": "bad community id"
  },
@@ -363,7 +363,7 @@
   "id": "calls/voice.rs::moderate::ok_or::bad channel id",
   "file": "calls/voice.rs",
   "fn": "moderate",
-  "line": 595,
+  "line": 744,
   "kind": "ok_or",
   "text": "bad channel id"
  },
@@ -371,7 +371,7 @@
   "id": "calls/voice.rs::moderate::ok_or::bad channel id#2",
   "file": "calls/voice.rs",
   "fn": "moderate",
-  "line": 596,
+  "line": 745,
   "kind": "ok_or",
   "text": "bad channel id"
  },
@@ -379,23 +379,31 @@
   "id": "calls/voice.rs::set_muted::ok_or::Not in a call",
   "file": "calls/voice.rs",
   "fn": "set_muted",
-  "line": 607,
+  "line": 766,
   "kind": "ok_or",
   "text": "Not in a call"
  },
  {
-  "id": "calls/voice.rs::set_muted::err::A moderator muted you in this call",
+  "id": "calls/voice.rs::set_muted_in::ok_or::Not in that call",
   "file": "calls/voice.rs",
-  "fn": "set_muted",
-  "line": 610,
+  "fn": "set_muted_in",
+  "line": 771,
+  "kind": "ok_or",
+  "text": "Not in that call"
+ },
+ {
+  "id": "calls/voice.rs::mute::err::A moderator muted you in this call",
+  "file": "calls/voice.rs",
+  "fn": "mute",
+  "line": 778,
   "kind": "err",
   "text": "A moderator muted you in this call"
  },
  {
-  "id": "calls/voice.rs::set_muted::err::A moderator deafened you in this call",
+  "id": "calls/voice.rs::mute::err::A moderator deafened you in this call",
   "file": "calls/voice.rs",
-  "fn": "set_muted",
-  "line": 613,
+  "fn": "mute",
+  "line": 781,
   "kind": "err",
   "text": "A moderator deafened you in this call"
  },
@@ -403,15 +411,23 @@
   "id": "calls/voice.rs::set_deafened::ok_or::Not in a call",
   "file": "calls/voice.rs",
   "fn": "set_deafened",
-  "line": 627,
+  "line": 797,
   "kind": "ok_or",
   "text": "Not in a call"
  },
  {
-  "id": "calls/voice.rs::set_deafened::err::A moderator deafened you in this call",
+  "id": "calls/voice.rs::set_deafened_in::ok_or::Not in that call",
   "file": "calls/voice.rs",
-  "fn": "set_deafened",
-  "line": 629,
+  "fn": "set_deafened_in",
+  "line": 802,
+  "kind": "ok_or",
+  "text": "Not in that call"
+ },
+ {
+  "id": "calls/voice.rs::deafen::err::A moderator deafened you in this call",
+  "file": "calls/voice.rs",
+  "fn": "deafen",
+  "line": 808,
   "kind": "err",
   "text": "A moderator deafened you in this call"
  },
@@ -459,7 +475,7 @@
   "id": "community/roles.rs::may_name::branch::everyone.is_none()",
   "file": "community/roles.rs",
   "fn": "may_name",
-  "line": 495,
+  "line": 543,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
@@ -467,7 +483,7 @@
   "id": "community/roles.rs::is_entitled::branch::everyone.is_some()",
   "file": "community/roles.rs",
   "fn": "is_entitled",
-  "line": 552,
+  "line": 600,
   "kind": "branch",
   "text": "everyone.is_some()"
  },
@@ -475,7 +491,7 @@
   "id": "community/roles.rs::reads_history::branch::everyone.is_none()",
   "file": "community/roles.rs",
   "fn": "reads_history",
-  "line": 561,
+  "line": 609,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
@@ -483,7 +499,7 @@
   "id": "community/transport.rs::durable_broadcast::err::no relays to broadcast to",
   "file": "community/transport.rs",
   "fn": "durable_broadcast",
-  "line": 297,
+  "line": 390,
   "kind": "err",
   "text": "no relays to broadcast to"
  },
@@ -491,7 +507,7 @@
   "id": "community/transport.rs::durable_broadcast::err::no relay accepted the event after {max_attempts} attempts each",
   "file": "community/transport.rs",
   "fn": "durable_broadcast",
-  "line": 315,
+  "line": 408,
   "kind": "err",
   "text": "no relay accepted the event after {max_attempts} attempts each"
  },
@@ -499,7 +515,7 @@
   "id": "community/transport.rs::drop_refused::err::None of this community's relays are reachable on {label}.",
   "file": "community/transport.rs",
   "fn": "drop_refused",
-  "line": 1329,
+  "line": 1433,
   "kind": "err",
   "text": "None of this community's relays are reachable on {label}."
  },
@@ -507,7 +523,7 @@
   "id": "community/transport.rs::warm_client::err::community has no relays configured",
   "file": "community/transport.rs",
   "fn": "warm_client",
-  "line": 1405,
+  "line": 1523,
   "kind": "err",
   "text": "community has no relays configured"
  },
@@ -515,7 +531,7 @@
   "id": "community/transport.rs::warm_client::err::no valid community relays could be added",
   "file": "community/transport.rs",
   "fn": "warm_client",
-  "line": 1442,
+  "line": 1560,
   "kind": "err",
   "text": "no valid community relays could be added"
  },
@@ -523,7 +539,7 @@
   "id": "community/transport.rs::fetch_counted::err::no valid relay to fetch from",
   "file": "community/transport.rs",
   "fn": "fetch_counted",
-  "line": 1629,
+  "line": 1763,
   "kind": "err",
   "text": "no valid relay to fetch from"
  },
@@ -531,7 +547,7 @@
   "id": "community/transport.rs::send_to_relay_why::err::not connected",
   "file": "community/transport.rs",
   "fn": "send_to_relay_why",
-  "line": 1792,
+  "line": 1936,
   "kind": "err",
   "text": "not connected"
  },
@@ -539,7 +555,7 @@
   "id": "community/transport.rs::publish::err::timed out",
   "file": "community/transport.rs",
   "fn": "publish",
-  "line": 1842,
+  "line": 1986,
   "kind": "err",
   "text": "timed out"
  },
@@ -547,7 +563,7 @@
   "id": "community/transport.rs::fetch_plane::err::no relay answered the plane fetch (0/{} attempted)",
   "file": "community/transport.rs",
   "fn": "fetch_plane",
-  "line": 1933,
+  "line": 2084,
   "kind": "err",
   "text": "no relay answered the plane fetch (0/{} attempted)"
  },
@@ -555,7 +571,7 @@
   "id": "community/transport.rs::publish_durable::err::no relays to broadcast to",
   "file": "community/transport.rs",
   "fn": "publish_durable",
-  "line": 1952,
+  "line": 2103,
   "kind": "err",
   "text": "no relays to broadcast to"
  },
@@ -563,7 +579,7 @@
   "id": "community/transport.rs::publish_durable::err::no relay accepted the event within {}s",
   "file": "community/transport.rs",
   "fn": "publish_durable",
-  "line": 1995,
+  "line": 2146,
   "kind": "err",
   "text": "no relay accepted the event within {}s"
  },
@@ -571,7 +587,7 @@
   "id": "community/v2/community.rs::parse_hex32::err::{field} is not 32-byte hex",
   "file": "community/v2/community.rs",
   "fn": "parse_hex32",
-  "line": 474,
+  "line": 647,
   "kind": "err",
   "text": "{field} is not 32-byte hex"
  },
@@ -587,7 +603,7 @@
   "id": "community/v2/control.rs::seal_channel_metadata::err::channel metadata isn't an object",
   "file": "community/v2/control.rs",
   "fn": "seal_channel_metadata",
-  "line": 614,
+  "line": 625,
   "kind": "err",
   "text": "channel metadata isn't an object"
  },
@@ -672,18 +688,18 @@
   "text": "a Role needs a rank key"
  },
  {
-  "id": "community/v2/service.rs::send_chat_message_at::branch::everyone.is_some()",
+  "id": "community/v2/service.rs::try_send_chat_message_at::branch::everyone.is_some()",
   "file": "community/v2/service.rs",
-  "fn": "send_chat_message_at",
-  "line": 227,
+  "fn": "try_send_chat_message_at",
+  "line": 289,
   "kind": "branch",
   "text": "everyone.is_some()"
  },
  {
-  "id": "community/v2/service.rs::send_chat_message_at::err::you can't send messages in this channel",
+  "id": "community/v2/service.rs::try_send_chat_message_at::err::you can't send messages in this channel",
   "file": "community/v2/service.rs",
-  "fn": "send_chat_message_at",
-  "line": 232,
+  "fn": "try_send_chat_message_at",
+  "line": 294,
   "kind": "err",
   "text": "you can't send messages in this channel"
  },
@@ -691,15 +707,39 @@
   "id": "community/v2/service.rs::refuse_while_timed_out::err::you're timed out here until {until}",
   "file": "community/v2/service.rs",
   "fn": "refuse_while_timed_out",
-  "line": 241,
+  "line": 303,
   "kind": "err",
   "text": "you're timed out here until {until}"
+ },
+ {
+  "id": "community/v2/service.rs::refuse_unless_reacting::branch::everyone.is_none()",
+  "file": "community/v2/service.rs",
+  "fn": "refuse_unless_reacting",
+  "line": 313,
+  "kind": "branch",
+  "text": "everyone.is_none()"
+ },
+ {
+  "id": "community/v2/service.rs::refuse_unless_reacting::ok_or::no such channel in this community",
+  "file": "community/v2/service.rs",
+  "fn": "refuse_unless_reacting",
+  "line": 316,
+  "kind": "ok_or",
+  "text": "no such channel in this community"
+ },
+ {
+  "id": "community/v2/service.rs::refuse_unless_reacting::err::you can't react in this channel",
+  "file": "community/v2/service.rs",
+  "fn": "refuse_unless_reacting",
+  "line": 318,
+  "kind": "err",
+  "text": "you can't react in this channel"
  },
  {
   "id": "community/v2/service.rs::moderation_delete::err::this community is dissolved — it accepts no new moderation actions",
   "file": "community/v2/service.rs",
   "fn": "moderation_delete",
-  "line": 365,
+  "line": 446,
   "kind": "err",
   "text": "this community is dissolved — it accepts no new moderation actions"
  },
@@ -707,7 +747,7 @@
   "id": "community/v2/service.rs::moderation_delete::err::you can't hide that message in this channel",
   "file": "community/v2/service.rs",
   "fn": "moderation_delete",
-  "line": 378,
+  "line": 459,
   "kind": "err",
   "text": "you can't hide that message in this channel"
  },
@@ -715,7 +755,7 @@
   "id": "community/v2/service.rs::send_voice_directive::err::you can't do that to this member",
   "file": "community/v2/service.rs",
   "fn": "send_voice_directive",
-  "line": 455,
+  "line": 536,
   "kind": "err",
   "text": "you can't do that to this member"
  },
@@ -723,7 +763,7 @@
   "id": "community/v2/service.rs::send_voice_directive::err::move them to a voice channel",
   "file": "community/v2/service.rs",
   "fn": "send_voice_directive",
-  "line": 458,
+  "line": 539,
   "kind": "err",
   "text": "move them to a voice channel"
  },
@@ -731,7 +771,7 @@
   "id": "community/v2/service.rs::chat_send_context::err::this community has been dissolved",
   "file": "community/v2/service.rs",
   "fn": "chat_send_context",
-  "line": 545,
+  "line": 626,
   "kind": "err",
   "text": "this community has been dissolved"
  },
@@ -739,7 +779,7 @@
   "id": "community/v2/service.rs::chat_send_context::err::you are banned from this community",
   "file": "community/v2/service.rs",
   "fn": "chat_send_context",
-  "line": 551,
+  "line": 632,
   "kind": "err",
   "text": "you are banned from this community"
  },
@@ -747,7 +787,7 @@
   "id": "community/v2/service.rs::chat_send_context::ok_or::no such channel in this community",
   "file": "community/v2/service.rs",
   "fn": "chat_send_context",
-  "line": 553,
+  "line": 634,
   "kind": "ok_or",
   "text": "no such channel in this community"
  },
@@ -755,47 +795,55 @@
   "id": "community/v2/service.rs::chat_send_context::err::this private channel has no key yet (awaiting rekey delivery)",
   "file": "community/v2/service.rs",
   "fn": "chat_send_context",
-  "line": 555,
+  "line": 636,
   "kind": "err",
   "text": "this private channel has no key yet (awaiting rekey delivery)"
  },
  {
-  "id": "community/v2/service.rs::publish_chat::ok_or::no such channel in this community",
+  "id": "community/v2/service.rs::publish_chat_tracked::ok_or::no such channel in this community",
   "file": "community/v2/service.rs",
-  "fn": "publish_chat",
-  "line": 594,
+  "fn": "publish_chat_tracked",
+  "line": 690,
   "kind": "ok_or",
   "text": "no such channel in this community"
  },
  {
-  "id": "community/v2/service.rs::publish_chat::ok_or::rumor has no id",
+  "id": "community/v2/service.rs::publish_chat_tracked::ok_or::rumor has no id",
   "file": "community/v2/service.rs",
-  "fn": "publish_chat",
-  "line": 601,
+  "fn": "publish_chat_tracked",
+  "line": 697,
   "kind": "ok_or",
   "text": "rumor has no id"
  },
  {
-  "id": "community/v2/service.rs::fetch_channel_history_paged::ok_or::no such channel in this community",
+  "id": "community/v2/service.rs::fetch_channel_history_since_epoch::ok_or::no such channel in this community",
   "file": "community/v2/service.rs",
-  "fn": "fetch_channel_history_paged",
-  "line": 885,
+  "fn": "fetch_channel_history_since_epoch",
+  "line": 1032,
   "kind": "ok_or",
   "text": "no such channel in this community"
  },
  {
-  "id": "community/v2/service.rs::mint_public_link::gate::minting a public invite link",
+  "id": "community/v2/service.rs::fetch_channel_history_since_epoch::err::no relay answered",
   "file": "community/v2/service.rs",
-  "fn": "mint_public_link",
-  "line": 1269,
+  "fn": "fetch_channel_history_since_epoch",
+  "line": 1228,
+  "kind": "err",
+  "text": "no relay answered"
+ },
+ {
+  "id": "community/v2/service.rs::publish_public_link::gate::minting a public invite link",
+  "file": "community/v2/service.rs",
+  "fn": "publish_public_link",
+  "line": 1560,
   "kind": "gate",
   "text": "minting a public invite link"
  },
  {
-  "id": "community/v2/service.rs::mint_public_link::err::Too many invite links to sync: revoke some, or let them expire, first",
+  "id": "community/v2/service.rs::publish_public_link::err::Too many invite links to sync: revoke some, or let them expire, first",
   "file": "community/v2/service.rs",
-  "fn": "mint_public_link",
-  "line": 1284,
+  "fn": "publish_public_link",
+  "line": 1578,
   "kind": "err",
   "text": "Too many invite links to sync: revoke some, or let them expire, first"
  },
@@ -803,7 +851,7 @@
   "id": "community/v2/service.rs::read_invite_list_with::err::a copy of your invite list couldn't be read, so it isn't written over: {err}",
   "file": "community/v2/service.rs",
   "fn": "read_invite_list_with",
-  "line": 1348,
+  "line": 1638,
   "kind": "err",
   "text": "a copy of your invite list couldn't be read, so it isn't written over: {err}"
  },
@@ -811,7 +859,7 @@
   "id": "community/v2/service.rs::revoke_public_link::ok_or::no invite list found to revoke from",
   "file": "community/v2/service.rs",
   "fn": "revoke_public_link",
-  "line": 1481,
+  "line": 1808,
   "kind": "ok_or",
   "text": "no invite list found to revoke from"
  },
@@ -819,15 +867,47 @@
   "id": "community/v2/service.rs::debug_control_editions::ok_or::the Control Plane couldn't be read whole",
   "file": "community/v2/service.rs",
   "fn": "debug_control_editions",
-  "line": 1905,
+  "line": 2236,
   "kind": "ok_or",
   "text": "the Control Plane couldn't be read whole"
+ },
+ {
+  "id": "community/v2/service.rs::whole_wraps_held::err::the community is not held",
+  "file": "community/v2/service.rs",
+  "fn": "whole_wraps_held",
+  "line": 2317,
+  "kind": "err",
+  "text": "the community is not held"
+ },
+ {
+  "id": "community/v2/service.rs::whole_wraps_held::err::more wraps than a pass reads",
+  "file": "community/v2/service.rs",
+  "fn": "whole_wraps_held",
+  "line": 2322,
+  "kind": "err",
+  "text": "more wraps than a pass reads"
+ },
+ {
+  "id": "community/v2/service.rs::whole_wraps_held::err::more wraps than a pass reads#2",
+  "file": "community/v2/service.rs",
+  "fn": "whole_wraps_held",
+  "line": 2325,
+  "kind": "err",
+  "text": "more wraps than a pass reads"
+ },
+ {
+  "id": "community/v2/service.rs::whole_wraps_held::err::a relay's whole set is not known",
+  "file": "community/v2/service.rs",
+  "fn": "whole_wraps_held",
+  "line": 2337,
+  "kind": "err",
+  "text": "a relay's whole set is not known"
  },
  {
   "id": "community/v2/service.rs::accept_bundle::err::this invite has expired",
   "file": "community/v2/service.rs",
   "fn": "accept_bundle",
-  "line": 2073,
+  "line": 2481,
   "kind": "err",
   "text": "this invite has expired"
  },
@@ -835,7 +915,7 @@
   "id": "community/v2/service.rs::accept_bundle::err::you are banned from this community",
   "file": "community/v2/service.rs",
   "fn": "accept_bundle",
-  "line": 2119,
+  "line": 2532,
   "kind": "err",
   "text": "you are banned from this community"
  },
@@ -843,7 +923,7 @@
   "id": "community/v2/service.rs::fetch_bundle_on::err::this invite link has been revoked",
   "file": "community/v2/service.rs",
   "fn": "fetch_bundle_on",
-  "line": 2518,
+  "line": 2950,
   "kind": "err",
   "text": "this invite link has been revoked"
  },
@@ -851,7 +931,7 @@
   "id": "community/v2/service.rs::kick_member::err::not authorized to kick this member",
   "file": "community/v2/service.rs",
   "fn": "kick_member",
-  "line": 2763,
+  "line": 3234,
   "kind": "err",
   "text": "not authorized to kick this member"
  },
@@ -859,7 +939,7 @@
   "id": "community/v2/service.rs::timeout_member::err::you can only time out members beneath you, with Timeout Members",
   "file": "community/v2/service.rs",
   "fn": "timeout_member",
-  "line": 2982,
+  "line": 3453,
   "kind": "err",
   "text": "you can only time out members beneath you, with Timeout Members"
  },
@@ -867,7 +947,7 @@
   "id": "community/v2/service.rs::clean_nickname::err::a nickname can't hold line breaks or control characters",
   "file": "community/v2/service.rs",
   "fn": "clean_nickname",
-  "line": 3063,
+  "line": 3544,
   "kind": "err",
   "text": "a nickname can't hold line breaks or control characters"
  },
@@ -875,7 +955,7 @@
   "id": "community/v2/service.rs::clean_nickname::err::a nickname is at most {} characters",
   "file": "community/v2/service.rs",
   "fn": "clean_nickname",
-  "line": 3066,
+  "line": 3547,
   "kind": "err",
   "text": "a nickname is at most {} characters"
  },
@@ -883,7 +963,7 @@
   "id": "community/v2/service.rs::rescue_stranded_members::err::rescuing stranded members requires rotation authority (owner or BAN)",
   "file": "community/v2/service.rs",
   "fn": "rescue_stranded_members",
-  "line": 3588,
+  "line": 4156,
   "kind": "err",
   "text": "rescuing stranded members requires rotation authority (owner or BAN)"
  },
@@ -891,7 +971,7 @@
   "id": "community/v2/service.rs::rescue_stranded_members::ok_or::rescue requires a split community (no control pk held)",
   "file": "community/v2/service.rs",
   "fn": "rescue_stranded_members",
-  "line": 3590,
+  "line": 4158,
   "kind": "ok_or",
   "text": "rescue requires a split community (no control pk held)"
  },
@@ -899,7 +979,7 @@
   "id": "community/v2/service.rs::dissolve_community::err::only the owner can dissolve a community",
   "file": "community/v2/service.rs",
   "fn": "dissolve_community",
-  "line": 4345,
+  "line": 4930,
   "kind": "err",
   "text": "only the owner can dissolve a community"
  },
@@ -907,7 +987,7 @@
   "id": "community/v2/service.rs::refound_community_with::err::this community has been dissolved; it cannot be re-founded",
   "file": "community/v2/service.rs",
   "fn": "refound_community_with",
-  "line": 4437,
+  "line": 5022,
   "kind": "err",
   "text": "this community has been dissolved; it cannot be re-founded"
  },
@@ -915,7 +995,7 @@
   "id": "community/v2/service.rs::refound_community_with::ok_or::community gone before re-founding",
   "file": "community/v2/service.rs",
   "fn": "refound_community_with",
-  "line": 4452,
+  "line": 5037,
   "kind": "ok_or",
   "text": "community gone before re-founding"
  },
@@ -923,7 +1003,7 @@
   "id": "community/v2/service.rs::refound_community_with::err::re-founding requires the BAN permission and outranking every removed member",
   "file": "community/v2/service.rs",
   "fn": "refound_community_with",
-  "line": 4479,
+  "line": 5064,
   "kind": "err",
   "text": "re-founding requires the BAN permission and outranking every removed member"
  },
@@ -931,7 +1011,7 @@
   "id": "community/v2/service.rs::refound_community_with::ok_or::root epoch overflow",
   "file": "community/v2/service.rs",
   "fn": "refound_community_with",
-  "line": 4553,
+  "line": 5150,
   "kind": "ok_or",
   "text": "root epoch overflow"
  },
@@ -939,7 +1019,7 @@
   "id": "community/v2/service.rs::refound_community_with::err::re-founding aborted: the roster fold did not settle; no state published",
   "file": "community/v2/service.rs",
   "fn": "refound_community_with",
-  "line": 4592,
+  "line": 5189,
   "kind": "err",
   "text": "re-founding aborted: the roster fold did not settle; no state published"
  },
@@ -947,7 +1027,7 @@
   "id": "community/v2/service.rs::refound_community_with::err::re-founding aborted: the roster fold of a reader holding no floor did not settle; no state published",
   "file": "community/v2/service.rs",
   "fn": "refound_community_with",
-  "line": 4606,
+  "line": 5203,
   "kind": "err",
   "text": "re-founding aborted: the roster fold of a reader holding no floor did not settle; no state published"
  },
@@ -955,7 +1035,7 @@
   "id": "community/v2/service.rs::refound_community_with::err::re-founding aborted: the committed head of control entity {floor_key} (v{}) was not served; no state published",
   "file": "community/v2/service.rs",
   "fn": "refound_community_with",
-  "line": 4642,
+  "line": 5239,
   "kind": "err",
   "text": "re-founding aborted: the committed head of control entity {floor_key} (v{}) was not served; no state published"
  },
@@ -963,7 +1043,7 @@
   "id": "community/v2/service.rs::refound_community_with::ok_or::channel epoch overflow",
   "file": "community/v2/service.rs",
   "fn": "refound_community_with",
-  "line": 4903,
+  "line": 5491,
   "kind": "ok_or",
   "text": "channel epoch overflow"
  },
@@ -971,7 +1051,7 @@
   "id": "community/v2/service.rs::read_fragments::err::no relay answered the list read (0/{})",
   "file": "community/v2/service.rs",
   "fn": "read_fragments",
-  "line": 5301,
+  "line": 5892,
   "kind": "err",
   "text": "no relay answered the list read (0/{})"
  },
@@ -979,7 +1059,7 @@
   "id": "community/v2/service.rs::publish_list_event::err::no relay that answered the read took the list",
   "file": "community/v2/service.rs",
   "fn": "publish_list_event",
-  "line": 5513,
+  "line": 6104,
   "kind": "err",
   "text": "no relay that answered the read took the list"
  },
@@ -987,7 +1067,7 @@
   "id": "community/v2/service.rs::tombstone_community_list::err::a fragment would not open, and it may be the newest copy — refusing to write",
   "file": "community/v2/service.rs",
   "fn": "tombstone_community_list",
-  "line": 5798,
+  "line": 6389,
   "kind": "err",
   "text": "a fragment would not open, and it may be the newest copy — refusing to write"
  },
@@ -995,7 +1075,7 @@
   "id": "community/v2/service.rs::tombstone_community_list::err::no relay we write to answered the read",
   "file": "community/v2/service.rs",
   "fn": "tombstone_community_list",
-  "line": 5802,
+  "line": 6393,
   "kind": "err",
   "text": "no relay we write to answered the read"
  },
@@ -1003,7 +1083,7 @@
   "id": "community/v2/service.rs::tombstone_community_list::err::hold {} of {} fragments — refusing to rewrite a set we haven't fully read",
   "file": "community/v2/service.rs",
   "fn": "tombstone_community_list",
-  "line": 5806,
+  "line": 6397,
   "kind": "err",
   "text": "hold {} of {} fragments — refusing to rewrite a set we haven't fully read"
  },
@@ -1011,7 +1091,7 @@
   "id": "community/v2/service.rs::tombstone_community_list::err::the tombstone was published but isn't on the relays",
   "file": "community/v2/service.rs",
   "fn": "tombstone_community_list",
-  "line": 5827,
+  "line": 6418,
   "kind": "err",
   "text": "the tombstone was published but isn't on the relays"
  },
@@ -1019,7 +1099,7 @@
   "id": "community/v2/service.rs::follow_fresh::ok_or::v2 community not found",
   "file": "community/v2/service.rs",
   "fn": "follow_fresh",
-  "line": 6414,
+  "line": 7005,
   "kind": "ok_or",
   "text": "v2 community not found"
  },
@@ -1027,7 +1107,7 @@
   "id": "community/v2/service.rs::follow_fresh::ok_or::v2 community not found#2",
   "file": "community/v2/service.rs",
   "fn": "follow_fresh",
-  "line": 6416,
+  "line": 7007,
   "kind": "ok_or",
   "text": "v2 community not found"
  },
@@ -1035,7 +1115,7 @@
   "id": "community/v2/service.rs::set_role::ok_or::role_id must be 32-byte hex",
   "file": "community/v2/service.rs",
   "fn": "set_role",
-  "line": 6553,
+  "line": 7145,
   "kind": "ok_or",
   "text": "role_id must be 32-byte hex"
  },
@@ -1043,7 +1123,7 @@
   "id": "community/v2/service.rs::control_wrap_owed::err::you don't hold this community's staff write key, so you can't promote to staff yet",
   "file": "community/v2/service.rs",
   "fn": "control_wrap_owed",
-  "line": 6612,
+  "line": 7204,
   "kind": "err",
   "text": "you don't hold this community's staff write key, so you can't promote to staff yet"
  },
@@ -1051,7 +1131,7 @@
   "id": "community/v2/service.rs::control_wrap_owed::err::this community's held staff write key is corrupt; re-sync before promoting",
   "file": "community/v2/service.rs",
   "fn": "control_wrap_owed",
-  "line": 6617,
+  "line": 7209,
   "kind": "err",
   "text": "this community's held staff write key is corrupt; re-sync before promoting"
  },
@@ -1059,7 +1139,7 @@
   "id": "community/v2/service.rs::grant_admin::err::only the community owner can grant @admin",
   "file": "community/v2/service.rs",
   "fn": "grant_admin",
-  "line": 6707,
+  "line": 7301,
   "kind": "err",
   "text": "only the community owner can grant @admin"
  },
@@ -1067,7 +1147,7 @@
   "id": "community/v2/service.rs::revoke_admin::err::only the community owner can revoke @admin",
   "file": "community/v2/service.rs",
   "fn": "revoke_admin",
-  "line": 6744,
+  "line": 7338,
   "kind": "err",
   "text": "only the community owner can revoke @admin"
  },
@@ -1075,7 +1155,7 @@
   "id": "community/v2/service.rs::role_author::err::you are banned from this community",
   "file": "community/v2/service.rs",
   "fn": "role_author",
-  "line": 6815,
+  "line": 7409,
   "kind": "err",
   "text": "you are banned from this community"
  },
@@ -1083,7 +1163,7 @@
   "id": "community/v2/service.rs::role_author::err::managing roles needs the Manage Roles permission",
   "file": "community/v2/service.rs",
   "fn": "role_author",
-  "line": 6818,
+  "line": 7412,
   "kind": "err",
   "text": "managing roles needs the Manage Roles permission"
  },
@@ -1091,7 +1171,7 @@
   "id": "community/v2/service.rs::require_role_head::err::this role's current state could not be fetched; try again once relays serve the control plane",
   "file": "community/v2/service.rs",
   "fn": "require_role_head",
-  "line": 6830,
+  "line": 7424,
   "kind": "err",
   "text": "this role's current state could not be fetched; try again once relays serve the control plane"
  },
@@ -1099,7 +1179,7 @@
   "id": "community/v2/service.rs::create_role::err::a community holds at most {} roles",
   "file": "community/v2/service.rs",
   "fn": "create_role",
-  "line": 6851,
+  "line": 7445,
   "kind": "err",
   "text": "a community holds at most {} roles"
  },
@@ -1107,7 +1187,7 @@
   "id": "community/v2/service.rs::create_role::err::a role needs a name",
   "file": "community/v2/service.rs",
   "fn": "create_role",
-  "line": 6855,
+  "line": 7449,
   "kind": "err",
   "text": "a role needs a name"
  },
@@ -1115,7 +1195,7 @@
   "id": "community/v2/service.rs::create_role::err::there's no room beneath your role for a new one; reorder the roles first",
   "file": "community/v2/service.rs",
   "fn": "create_role",
-  "line": 6870,
+  "line": 7464,
   "kind": "err",
   "text": "there's no room beneath your role for a new one; reorder the roles first"
  },
@@ -1123,7 +1203,7 @@
   "id": "community/v2/service.rs::create_role::err::you can't give a role permissions you don't hold",
   "file": "community/v2/service.rs",
   "fn": "create_role",
-  "line": 6873,
+  "line": 7467,
   "kind": "err",
   "text": "you can't give a role permissions you don't hold"
  },
@@ -1131,7 +1211,7 @@
   "id": "community/v2/service.rs::edit_role::ok_or::no such role",
   "file": "community/v2/service.rs",
   "fn": "edit_role",
-  "line": 6907,
+  "line": 7501,
   "kind": "ok_or",
   "text": "no such role"
  },
@@ -1139,7 +1219,7 @@
   "id": "community/v2/service.rs::edit_role::err::you can only edit roles beneath your own",
   "file": "community/v2/service.rs",
   "fn": "edit_role",
-  "line": 6910,
+  "line": 7504,
   "kind": "err",
   "text": "you can only edit roles beneath your own"
  },
@@ -1147,7 +1227,7 @@
   "id": "community/v2/service.rs::edit_role::err::you can't give a role permissions you don't hold",
   "file": "community/v2/service.rs",
   "fn": "edit_role",
-  "line": 6913,
+  "line": 7507,
   "kind": "err",
   "text": "you can't give a role permissions you don't hold"
  },
@@ -1155,7 +1235,7 @@
   "id": "community/v2/service.rs::edit_role::err::a role needs a name",
   "file": "community/v2/service.rs",
   "fn": "edit_role",
-  "line": 6917,
+  "line": 7511,
   "kind": "err",
   "text": "a role needs a name"
  },
@@ -1163,7 +1243,7 @@
   "id": "community/v2/service.rs::edit_role::err::a role's channel can't be changed once it's created",
   "file": "community/v2/service.rs",
   "fn": "edit_role",
-  "line": 6922,
+  "line": 7516,
   "kind": "err",
   "text": "a role's channel can't be changed once it's created"
  },
@@ -1171,7 +1251,7 @@
   "id": "community/v2/service.rs::reorder_roles::err::you can't move \\",
   "file": "community/v2/service.rs",
   "fn": "reorder_roles",
-  "line": 6972,
+  "line": 7566,
   "kind": "err",
   "text": "you can't move \\"
  },
@@ -1179,7 +1259,7 @@
   "id": "community/v2/service.rs::set_role_v2::err::role name over 64 bytes",
   "file": "community/v2/service.rs",
   "fn": "set_role_v2",
-  "line": 6991,
+  "line": 7585,
   "kind": "err",
   "text": "role name over 64 bytes"
  },
@@ -1187,7 +1267,7 @@
   "id": "community/v2/service.rs::set_role_v2::ok_or::role_id must be 32-byte hex",
   "file": "community/v2/service.rs",
   "fn": "set_role_v2",
-  "line": 6994,
+  "line": 7588,
   "kind": "ok_or",
   "text": "role_id must be 32-byte hex"
  },
@@ -1195,7 +1275,7 @@
   "id": "community/v2/service.rs::require_activated::err::this community still uses the legacy roster",
   "file": "community/v2/service.rs",
   "fn": "require_activated",
-  "line": 7017,
+  "line": 7611,
   "kind": "err",
   "text": "this community still uses the legacy roster"
  },
@@ -1203,7 +1283,7 @@
   "id": "community/v2/service.rs::require_activated::branch::everyone.is_none()",
   "file": "community/v2/service.rs",
   "fn": "require_activated",
-  "line": 7020,
+  "line": 7614,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
@@ -1211,7 +1291,7 @@
   "id": "community/v2/service.rs::require_activated::err::the community's roles couldn't be read; try again",
   "file": "community/v2/service.rs",
   "fn": "require_activated",
-  "line": 7021,
+  "line": 7615,
   "kind": "err",
   "text": "the community's roles couldn't be read; try again"
  },
@@ -1219,7 +1299,7 @@
   "id": "community/v2/service.rs::create_role_v2::err::a community holds at most {} roles",
   "file": "community/v2/service.rs",
   "fn": "create_role_v2",
-  "line": 7034,
+  "line": 7628,
   "kind": "err",
   "text": "a community holds at most {} roles"
  },
@@ -1227,7 +1307,7 @@
   "id": "community/v2/service.rs::create_role_v2::err::a role needs a name",
   "file": "community/v2/service.rs",
   "fn": "create_role_v2",
-  "line": 7038,
+  "line": 7632,
   "kind": "err",
   "text": "a role needs a name"
  },
@@ -1235,7 +1315,7 @@
   "id": "community/v2/service.rs::create_role_v2::err::you can't give a role permissions you don't hold",
   "file": "community/v2/service.rs",
   "fn": "create_role_v2",
-  "line": 7043,
+  "line": 7637,
   "kind": "err",
   "text": "you can't give a role permissions you don't hold"
  },
@@ -1243,7 +1323,7 @@
   "id": "community/v2/service.rs::create_role_v2::ok_or::no room left at the bottom; reorder the roles first",
   "file": "community/v2/service.rs",
   "fn": "create_role_v2",
-  "line": 7045,
+  "line": 7639,
   "kind": "ok_or",
   "text": "no room left at the bottom; reorder the roles first"
  },
@@ -1251,7 +1331,7 @@
   "id": "community/v2/service.rs::edit_role_v2::ok_or::no such role",
   "file": "community/v2/service.rs",
   "fn": "edit_role_v2",
-  "line": 7081,
+  "line": 7675,
   "kind": "ok_or",
   "text": "no such role"
  },
@@ -1259,7 +1339,7 @@
   "id": "community/v2/service.rs::edit_role_v2::err::you can only edit roles beneath your own",
   "file": "community/v2/service.rs",
   "fn": "edit_role_v2",
-  "line": 7084,
+  "line": 7678,
   "kind": "err",
   "text": "you can only edit roles beneath your own"
  },
@@ -1267,7 +1347,7 @@
   "id": "community/v2/service.rs::edit_role_v2::err::you can't give a role permissions you don't hold",
   "file": "community/v2/service.rs",
   "fn": "edit_role_v2",
-  "line": 7087,
+  "line": 7681,
   "kind": "err",
   "text": "you can't give a role permissions you don't hold"
  },
@@ -1275,7 +1355,7 @@
   "id": "community/v2/service.rs::edit_role_v2::err::a role needs a name",
   "file": "community/v2/service.rs",
   "fn": "edit_role_v2",
-  "line": 7091,
+  "line": 7685,
   "kind": "err",
   "text": "a role needs a name"
  },
@@ -1283,7 +1363,7 @@
   "id": "community/v2/service.rs::run_owed_settle::err::the roster couldn't be read whole; the settle stays owed",
   "file": "community/v2/service.rs",
   "fn": "run_owed_settle",
-  "line": 7217,
+  "line": 7811,
   "kind": "err",
   "text": "the roster couldn't be read whole; the settle stays owed"
  },
@@ -1291,7 +1371,7 @@
   "id": "community/v2/service.rs::move_role_in::ok_or::no such role",
   "file": "community/v2/service.rs",
   "fn": "move_role_in",
-  "line": 7228,
+  "line": 7822,
   "kind": "ok_or",
   "text": "no such role"
  },
@@ -1299,7 +1379,7 @@
   "id": "community/v2/service.rs::move_role_in::err::you can only move roles beneath your own, to a place beneath your own",
   "file": "community/v2/service.rs",
   "fn": "move_role_in",
-  "line": 7237,
+  "line": 7831,
   "kind": "err",
   "text": "you can only move roles beneath your own, to a place beneath your own"
  },
@@ -1307,7 +1387,7 @@
   "id": "community/v2/service.rs::move_role_in::err::you can't move \\",
   "file": "community/v2/service.rs",
   "fn": "move_role_in",
-  "line": 7240,
+  "line": 7834,
   "kind": "err",
   "text": "you can't move \\"
  },
@@ -1315,7 +1395,7 @@
   "id": "community/v2/service.rs::move_role_in::ok_or::no room between those roles; move a neighbour first",
   "file": "community/v2/service.rs",
   "fn": "move_role_in",
-  "line": 7243,
+  "line": 7837,
   "kind": "ok_or",
   "text": "no room between those roles; move a neighbour first"
  },
@@ -1323,7 +1403,7 @@
   "id": "community/v2/service.rs::move_role_in::err::moving \\",
   "file": "community/v2/service.rs",
   "fn": "move_role_in",
-  "line": 7259,
+  "line": 7853,
   "kind": "err",
   "text": "moving \\"
  },
@@ -1331,7 +1411,7 @@
   "id": "community/v2/service.rs::delete_role_v2::ok_or::no such role",
   "file": "community/v2/service.rs",
   "fn": "delete_role_v2",
-  "line": 7294,
+  "line": 7888,
   "kind": "ok_or",
   "text": "no such role"
  },
@@ -1339,7 +1419,7 @@
   "id": "community/v2/service.rs::delete_role_v2::err::you can only delete roles beneath your own",
   "file": "community/v2/service.rs",
   "fn": "delete_role_v2",
-  "line": 7297,
+  "line": 7891,
   "kind": "err",
   "text": "you can only delete roles beneath your own"
  },
@@ -1347,7 +1427,7 @@
   "id": "community/v2/service.rs::delete_role_v2::ok_or::role_id must be 32-byte hex",
   "file": "community/v2/service.rs",
   "fn": "delete_role_v2",
-  "line": 7300,
+  "line": 7894,
   "kind": "ok_or",
   "text": "role_id must be 32-byte hex"
  },
@@ -1355,7 +1435,7 @@
   "id": "community/v2/service.rs::set_everyone::err::this community still uses the legacy roster",
   "file": "community/v2/service.rs",
   "fn": "set_everyone",
-  "line": 7317,
+  "line": 7911,
   "kind": "err",
   "text": "this community still uses the legacy roster"
  },
@@ -1363,7 +1443,7 @@
   "id": "community/v2/service.rs::set_everyone::err::you can't give everyone permissions you don't hold",
   "file": "community/v2/service.rs",
   "fn": "set_everyone",
-  "line": 7321,
+  "line": 7915,
   "kind": "err",
   "text": "you can't give everyone permissions you don't hold"
  },
@@ -1371,7 +1451,7 @@
   "id": "community/v2/service.rs::set_overwrite::err::only channel permissions can be set per channel",
   "file": "community/v2/service.rs",
   "fn": "set_overwrite",
-  "line": 7350,
+  "line": 7944,
   "kind": "err",
   "text": "only channel permissions can be set per channel"
  },
@@ -1379,31 +1459,23 @@
   "id": "community/v2/service.rs::set_overwrite::err::no such channel or category",
   "file": "community/v2/service.rs",
   "fn": "set_overwrite",
-  "line": 7353,
+  "line": 7947,
   "kind": "err",
   "text": "no such channel or category"
  },
  {
-  "id": "community/v2/service.rs::set_overwrite::err::you can only change who reads a private channel you can read",
+  "id": "community/v2/service.rs::set_overwrite::err::no such role",
   "file": "community/v2/service.rs",
   "fn": "set_overwrite",
-  "line": 7359,
+  "line": 7958,
   "kind": "err",
-  "text": "you can only change who reads a private channel you can read"
- },
- {
-  "id": "community/v2/service.rs::set_overwrite::ok_or::no such role",
-  "file": "community/v2/service.rs",
-  "fn": "set_overwrite",
-  "line": 7365,
-  "kind": "ok_or",
   "text": "no such role"
  },
  {
   "id": "community/v2/service.rs::set_overwrite::err::the owner holds every permission everywhere",
   "file": "community/v2/service.rs",
   "fn": "set_overwrite",
-  "line": 7366,
+  "line": 7959,
   "kind": "err",
   "text": "the owner holds every permission everywhere"
  },
@@ -1411,7 +1483,7 @@
   "id": "community/v2/service.rs::set_overwrite::err::you can only set permissions you hold, for roles and members beneath you",
   "file": "community/v2/service.rs",
   "fn": "set_overwrite",
-  "line": 7372,
+  "line": 7967,
   "kind": "err",
   "text": "you can only set permissions you hold, for roles and members beneath you"
  },
@@ -1419,7 +1491,7 @@
   "id": "community/v2/service.rs::set_overwrite::ok_or::malformed target",
   "file": "community/v2/service.rs",
   "fn": "set_overwrite",
-  "line": 7374,
+  "line": 7969,
   "kind": "ok_or",
   "text": "malformed target"
  },
@@ -1427,23 +1499,15 @@
   "id": "community/v2/service.rs::set_channel_sync::ok_or::no such channel",
   "file": "community/v2/service.rs",
   "fn": "set_channel_sync",
-  "line": 7398,
+  "line": 7993,
   "kind": "ok_or",
   "text": "no such channel"
- },
- {
-  "id": "community/v2/service.rs::set_channel_sync::err::you can only change who reads a private channel you can read",
-  "file": "community/v2/service.rs",
-  "fn": "set_channel_sync",
-  "line": 7400,
-  "kind": "err",
-  "text": "you can only change who reads a private channel you can read"
  },
  {
   "id": "community/v2/service.rs::set_channel_sync::err::no such category",
   "file": "community/v2/service.rs",
   "fn": "set_channel_sync",
-  "line": 7403,
+  "line": 7998,
   "kind": "err",
   "text": "no such category"
  },
@@ -1451,7 +1515,7 @@
   "id": "community/v2/service.rs::set_channel_sync::err::syncing swaps permissions you can't set; ask someone who can",
   "file": "community/v2/service.rs",
   "fn": "set_channel_sync",
-  "line": 7411,
+  "line": 8006,
   "kind": "err",
   "text": "syncing swaps permissions you can't set; ask someone who can"
  },
@@ -1459,7 +1523,7 @@
   "id": "community/v2/service.rs::settle_access::branch::everyone.is_none()",
   "file": "community/v2/service.rs",
   "fn": "settle_access",
-  "line": 7439,
+  "line": 8037,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
@@ -1467,7 +1531,7 @@
   "id": "community/v2/service.rs::settle_access::ok_or::v2 community not found",
   "file": "community/v2/service.rs",
   "fn": "settle_access",
-  "line": 7521,
+  "line": 8139,
   "kind": "ok_or",
   "text": "v2 community not found"
  },
@@ -1475,7 +1539,15 @@
   "id": "community/v2/service.rs::settle_access::ok_or::v2 community not found#2",
   "file": "community/v2/service.rs",
   "fn": "settle_access",
-  "line": 7526,
+  "line": 8148,
+  "kind": "ok_or",
+  "text": "v2 community not found"
+ },
+ {
+  "id": "community/v2/service.rs::deliver_gained::ok_or::v2 community not found",
+  "file": "community/v2/service.rs",
+  "fn": "deliver_gained",
+  "line": 8172,
   "kind": "ok_or",
   "text": "v2 community not found"
  },
@@ -1483,7 +1555,7 @@
   "id": "community/v2/service.rs::deliver_access::ok_or::no such channel",
   "file": "community/v2/service.rs",
   "fn": "deliver_access",
-  "line": 7636,
+  "line": 8317,
   "kind": "ok_or",
   "text": "no such channel"
  },
@@ -1491,7 +1563,7 @@
   "id": "community/v2/service.rs::deliver_access::ok_or::this device doesn't hold that channel's key",
   "file": "community/v2/service.rs",
   "fn": "deliver_access",
-  "line": 7637,
+  "line": 8318,
   "kind": "ok_or",
   "text": "this device doesn't hold that channel's key"
  },
@@ -1499,7 +1571,7 @@
   "id": "community/v2/service.rs::build_deliveries::err::the active signer isn't this account",
   "file": "community/v2/service.rs",
   "fn": "build_deliveries",
-  "line": 7686,
+  "line": 8367,
   "kind": "err",
   "text": "the active signer isn't this account"
  },
@@ -1507,7 +1579,7 @@
   "id": "community/v2/service.rs::deliver_history::ok_or::no such channel",
   "file": "community/v2/service.rs",
   "fn": "deliver_history",
-  "line": 7713,
+  "line": 8403,
   "kind": "ok_or",
   "text": "no such channel"
  },
@@ -1515,31 +1587,31 @@
   "id": "community/v2/service.rs::deliver_history::err::the active signer isn't this account",
   "file": "community/v2/service.rs",
   "fn": "deliver_history",
-  "line": 7731,
+  "line": 8421,
   "kind": "err",
   "text": "the active signer isn't this account"
  },
  {
-  "id": "community/v2/service.rs::collect_history::branch::everyone.is_none()",
+  "id": "community/v2/service.rs::collect_history_rooms::branch::everyone.is_none()",
   "file": "community/v2/service.rs",
-  "fn": "collect_history",
-  "line": 7813,
+  "fn": "collect_history_rooms",
+  "line": 8486,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
  {
-  "id": "community/v2/service.rs::access_duty::branch::everyone.is_none()",
+  "id": "community/v2/service.rs::access_duty_once::branch::everyone.is_none()",
   "file": "community/v2/service.rs",
-  "fn": "access_duty",
-  "line": 7923,
+  "fn": "access_duty_once",
+  "line": 8640,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
  {
-  "id": "community/v2/service.rs::access_duty::err::the roster couldn't be read whole; no key was delivered",
+  "id": "community/v2/service.rs::access_duty_once::err::the roster couldn't be read whole; no key was delivered",
   "file": "community/v2/service.rs",
-  "fn": "access_duty",
-  "line": 7930,
+  "fn": "access_duty_once",
+  "line": 8647,
   "kind": "err",
   "text": "the roster couldn't be read whole; no key was delivered"
  },
@@ -1547,7 +1619,15 @@
   "id": "community/v2/service.rs::collect_access::branch::everyone.is_none()",
   "file": "community/v2/service.rs",
   "fn": "collect_access",
-  "line": 8026,
+  "line": 8750,
+  "kind": "branch",
+  "text": "everyone.is_none()"
+ },
+ {
+  "id": "community/v2/service.rs::owed_channel_keys::branch::everyone.is_none()",
+  "file": "community/v2/service.rs",
+  "fn": "owed_channel_keys",
+  "line": 8846,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
@@ -1555,7 +1635,7 @@
   "id": "community/v2/service.rs::activate_roles_v2::err::only the owner moves a community to the new roles",
   "file": "community/v2/service.rs",
   "fn": "activate_roles_v2",
-  "line": 8097,
+  "line": 8879,
   "kind": "err",
   "text": "only the owner moves a community to the new roles"
  },
@@ -1563,7 +1643,7 @@
   "id": "community/v2/service.rs::activate_roles_v2::err::this community already uses the new roles",
   "file": "community/v2/service.rs",
   "fn": "activate_roles_v2",
-  "line": 8101,
+  "line": 8883,
   "kind": "err",
   "text": "this community already uses the new roles"
  },
@@ -1571,7 +1651,7 @@
   "id": "community/v2/service.rs::activate_roles_v2::err::a community moves to the new roles with at most {} channels",
   "file": "community/v2/service.rs",
   "fn": "activate_roles_v2",
-  "line": 8106,
+  "line": 8888,
   "kind": "err",
   "text": "a community moves to the new roles with at most {} channels"
  },
@@ -1579,7 +1659,7 @@
   "id": "community/v2/service.rs::activate_roles_v2::ok_or::too many roles to carry across",
   "file": "community/v2/service.rs",
   "fn": "activate_roles_v2",
-  "line": 8117,
+  "line": 8899,
   "kind": "ok_or",
   "text": "too many roles to carry across"
  },
@@ -1587,7 +1667,7 @@
   "id": "community/v2/service.rs::activate_roles_v2::ok_or::malformed target",
   "file": "community/v2/service.rs",
   "fn": "activate_roles_v2",
-  "line": 8146,
+  "line": 8928,
   "kind": "ok_or",
   "text": "malformed target"
  },
@@ -1595,7 +1675,7 @@
   "id": "community/v2/service.rs::seal_standing::err::the control plane couldn't be read whole; nothing was changed",
   "file": "community/v2/service.rs",
   "fn": "seal_standing",
-  "line": 8200,
+  "line": 8989,
   "kind": "err",
   "text": "the control plane couldn't be read whole; nothing was changed"
  },
@@ -1603,7 +1683,7 @@
   "id": "community/v2/service.rs::seal_standing::err::this member holds permissions you don't, so their decisions can't be kept; ask someone who holds them",
   "file": "community/v2/service.rs",
   "fn": "seal_standing",
-  "line": 8254,
+  "line": 9043,
   "kind": "err",
   "text": "this member holds permissions you don't, so their decisions can't be kept; ask someone who holds them"
  },
@@ -1611,7 +1691,7 @@
   "id": "community/v2/service.rs::seal_standing::err::this member decided more than one record can keep; nothing was changed",
   "file": "community/v2/service.rs",
   "fn": "seal_standing",
-  "line": 8262,
+  "line": 9051,
   "kind": "err",
   "text": "this member decided more than one record can keep; nothing was changed"
  },
@@ -1619,63 +1699,95 @@
   "id": "community/v2/service.rs::seal_standing::err::this member's earlier record isn't being served; nothing was changed, try again shortly",
   "file": "community/v2/service.rs",
   "fn": "seal_standing",
-  "line": 8272,
+  "line": 9061,
   "kind": "err",
   "text": "this member's earlier record isn't being served; nothing was changed, try again shortly"
  },
  {
-  "id": "community/v2/service.rs::set_member_roles::err::the owner's standing isn't granted by roles",
+  "id": "community/v2/service.rs::change_member_roles::err::only the owner sets the owner's roles",
   "file": "community/v2/service.rs",
-  "fn": "set_member_roles",
-  "line": 8302,
+  "fn": "change_member_roles",
+  "line": 9104,
   "kind": "err",
-  "text": "the owner's standing isn't granted by roles"
+  "text": "only the owner sets the owner's roles"
  },
  {
-  "id": "community/v2/service.rs::set_member_roles::err::you can only change the roles of members beneath you",
+  "id": "community/v2/service.rs::change_member_roles::branch::everyone.is_none()",
   "file": "community/v2/service.rs",
-  "fn": "set_member_roles",
-  "line": 8307,
+  "fn": "change_member_roles",
+  "line": 9106,
+  "kind": "branch",
+  "text": "everyone.is_none()"
+ },
+ {
+  "id": "community/v2/service.rs::change_member_roles::err::the owner holds roles only on the new roles",
+  "file": "community/v2/service.rs",
+  "fn": "change_member_roles",
+  "line": 9107,
+  "kind": "err",
+  "text": "the owner holds roles only on the new roles"
+ },
+ {
+  "id": "community/v2/service.rs::change_member_roles::err::you can only change the roles of members beneath you",
+  "file": "community/v2/service.rs",
+  "fn": "change_member_roles",
+  "line": 9112,
   "kind": "err",
   "text": "you can only change the roles of members beneath you"
  },
  {
-  "id": "community/v2/service.rs::set_member_roles::ok_or::no such role",
+  "id": "community/v2/service.rs::change_member_roles::ok_or::no such role",
   "file": "community/v2/service.rs",
-  "fn": "set_member_roles",
-  "line": 8323,
+  "fn": "change_member_roles",
+  "line": 9129,
   "kind": "ok_or",
   "text": "no such role"
  },
  {
-  "id": "community/v2/service.rs::set_member_roles::err::you can't grant \\",
+  "id": "community/v2/service.rs::change_member_roles::err::you can't grant \\",
   "file": "community/v2/service.rs",
-  "fn": "set_member_roles",
-  "line": 8325,
+  "fn": "change_member_roles",
+  "line": 9131,
   "kind": "err",
   "text": "you can't grant \\"
  },
  {
-  "id": "community/v2/service.rs::set_member_roles::err::you can't remove \\",
+  "id": "community/v2/service.rs::change_member_roles::err::you can't remove \\",
   "file": "community/v2/service.rs",
-  "fn": "set_member_roles",
-  "line": 8333,
+  "fn": "change_member_roles",
+  "line": 9139,
   "kind": "err",
   "text": "you can't remove \\"
  },
  {
-  "id": "community/v2/service.rs::set_member_roles::err::a member holds at most {} roles",
+  "id": "community/v2/service.rs::change_member_roles::err::a member holds at most {} roles",
   "file": "community/v2/service.rs",
-  "fn": "set_member_roles",
-  "line": 8340,
+  "fn": "change_member_roles",
+  "line": 9146,
   "kind": "err",
   "text": "a member holds at most {} roles"
+ },
+ {
+  "id": "community/v2/service.rs::change_member_roles::branch::everyone.is_some()",
+  "file": "community/v2/service.rs",
+  "fn": "change_member_roles",
+  "line": 9157,
+  "kind": "branch",
+  "text": "everyone.is_some()"
+ },
+ {
+  "id": "community/v2/service.rs::change_member_roles::err::You can't give {what}: it opens {channels} you don't have access to. Someone with access has to, or get access first.",
+  "file": "community/v2/service.rs",
+  "fn": "change_member_roles",
+  "line": 9172,
+  "kind": "err",
+  "text": "You can't give {what}: it opens {channels} you don't have access to. Someone with access has to, or get access first."
  },
  {
   "id": "community/v2/service.rs::settle_channel_keys::branch::everyone.is_some()",
   "file": "community/v2/service.rs",
   "fn": "settle_channel_keys",
-  "line": 8371,
+  "line": 9200,
   "kind": "branch",
   "text": "everyone.is_some()"
  },
@@ -1683,7 +1795,7 @@
   "id": "community/v2/service.rs::require_grant_head::err::malformed member key",
   "file": "community/v2/service.rs",
   "fn": "require_grant_head",
-  "line": 8421,
+  "line": 9250,
   "kind": "err",
   "text": "malformed member key"
  },
@@ -1691,7 +1803,7 @@
   "id": "community/v2/service.rs::require_grant_head::err::this member's current grant could not be fetched; try again once relays serve the control plane",
   "file": "community/v2/service.rs",
   "fn": "require_grant_head",
-  "line": 8425,
+  "line": 9254,
   "kind": "err",
   "text": "this member's current grant could not be fetched; try again once relays serve the control plane"
  },
@@ -1699,7 +1811,7 @@
   "id": "community/v2/service.rs::set_banlist::err::you are banned from this community",
   "file": "community/v2/service.rs",
   "fn": "set_banlist",
-  "line": 8447,
+  "line": 9276,
   "kind": "err",
   "text": "you are banned from this community"
  },
@@ -1707,7 +1819,7 @@
   "id": "community/v2/service.rs::set_banlist::err::editing the banlist needs the BAN permission",
   "file": "community/v2/service.rs",
   "fn": "set_banlist",
-  "line": 8452,
+  "line": 9281,
   "kind": "err",
   "text": "editing the banlist needs the BAN permission"
  },
@@ -1715,7 +1827,7 @@
   "id": "community/v2/service.rs::set_banlist::err::you do not outrank a member this ban targets",
   "file": "community/v2/service.rs",
   "fn": "set_banlist",
-  "line": 8458,
+  "line": 9287,
   "kind": "err",
   "text": "you do not outrank a member this ban targets"
  },
@@ -1723,7 +1835,7 @@
   "id": "community/v2/service.rs::set_members_banned::err::moderation unit aborted before completing",
   "file": "community/v2/service.rs",
   "fn": "set_members_banned",
-  "line": 8601,
+  "line": 9430,
   "kind": "err",
   "text": "moderation unit aborted before completing"
  },
@@ -1731,7 +1843,7 @@
   "id": "community/v2/service.rs::run_moderation_batch::err::you are banned from this community",
   "file": "community/v2/service.rs",
   "fn": "run_moderation_batch",
-  "line": 8659,
+  "line": 9488,
   "kind": "err",
   "text": "you are banned from this community"
  },
@@ -1739,7 +1851,7 @@
   "id": "community/v2/service.rs::run_moderation_batch::err::editing the banlist needs the BAN permission",
   "file": "community/v2/service.rs",
   "fn": "run_moderation_batch",
-  "line": 8662,
+  "line": 9491,
   "kind": "err",
   "text": "editing the banlist needs the BAN permission"
  },
@@ -1747,7 +1859,7 @@
   "id": "community/v2/service.rs::run_moderation_batch::err::you do not outrank a member this ban targets",
   "file": "community/v2/service.rs",
   "fn": "run_moderation_batch",
-  "line": 8667,
+  "line": 9496,
   "kind": "err",
   "text": "you do not outrank a member this ban targets"
  },
@@ -1755,7 +1867,7 @@
   "id": "community/v2/service.rs::run_moderation_batch::err::leader intent missing from its own batch",
   "file": "community/v2/service.rs",
   "fn": "run_moderation_batch",
-  "line": 8779,
+  "line": 9608,
   "kind": "err",
   "text": "leader intent missing from its own batch"
  },
@@ -1763,7 +1875,7 @@
   "id": "community/v2/service.rs::run_moderation_batch::err::intent was never judged",
   "file": "community/v2/service.rs",
   "fn": "run_moderation_batch",
-  "line": 8783,
+  "line": 9612,
   "kind": "err",
   "text": "intent was never judged"
  },
@@ -1771,7 +1883,7 @@
   "id": "community/v2/service.rs::contain_raid::err::severing refound never attempted",
   "file": "community/v2/service.rs",
   "fn": "contain_raid",
-  "line": 8935,
+  "line": 9758,
   "kind": "err",
   "text": "severing refound never attempted"
  },
@@ -1779,7 +1891,7 @@
   "id": "community/v2/service.rs::edit_community_metadata::gate::editing the community metadata",
   "file": "community/v2/service.rs",
   "fn": "edit_community_metadata",
-  "line": 8976,
+  "line": 9799,
   "kind": "gate",
   "text": "editing the community metadata"
  },
@@ -1787,7 +1899,7 @@
   "id": "community/v2/service.rs::edit_channel_metadata_bound::err::make a channel private with privatize_channel",
   "file": "community/v2/service.rs",
   "fn": "edit_channel_metadata_bound",
-  "line": 9025,
+  "line": 9848,
   "kind": "err",
   "text": "make a channel private with privatize_channel"
  },
@@ -1795,7 +1907,7 @@
   "id": "community/v2/service.rs::edit_channel_metadata_bound::branch::roles_v2_held(",
   "file": "community/v2/service.rs",
   "fn": "edit_channel_metadata_bound",
-  "line": 9033,
+  "line": 9856,
   "kind": "branch",
   "text": "roles_v2_held("
  },
@@ -1803,7 +1915,7 @@
   "id": "community/v2/service.rs::edit_channel_metadata_bound::ok_or::v2 community not found",
   "file": "community/v2/service.rs",
   "fn": "edit_channel_metadata_bound",
-  "line": 9035,
+  "line": 9858,
   "kind": "ok_or",
   "text": "v2 community not found"
  },
@@ -1811,7 +1923,7 @@
   "id": "community/v2/service.rs::edit_channel_metadata_bound::err::this private channel's details are sealed under a key this device lacks",
   "file": "community/v2/service.rs",
   "fn": "edit_channel_metadata_bound",
-  "line": 9042,
+  "line": 9865,
   "kind": "err",
   "text": "this private channel's details are sealed under a key this device lacks"
  },
@@ -1819,7 +1931,7 @@
   "id": "community/v2/service.rs::ensure_folded_permission::err::you are banned from this community",
   "file": "community/v2/service.rs",
   "fn": "ensure_folded_permission",
-  "line": 9196,
+  "line": 10019,
   "kind": "err",
   "text": "you are banned from this community"
  },
@@ -1827,7 +1939,7 @@
   "id": "community/v2/service.rs::ensure_folded_permission::err::{verb} needs the {} permission",
   "file": "community/v2/service.rs",
   "fn": "ensure_folded_permission",
-  "line": 9202,
+  "line": 10025,
   "kind": "err",
   "text": "{verb} needs the {} permission"
  },
@@ -1835,7 +1947,7 @@
   "id": "community/v2/service.rs::ensure_channel_manager::gate::managing channels here",
   "file": "community/v2/service.rs",
   "fn": "ensure_channel_manager",
-  "line": 9220,
+  "line": 10043,
   "kind": "gate",
   "text": "managing channels here"
  },
@@ -1843,7 +1955,7 @@
   "id": "community/v2/service.rs::assert_channel_id_free::err::channel id is already live in another v2 community",
   "file": "community/v2/service.rs",
   "fn": "assert_channel_id_free",
-  "line": 9272,
+  "line": 10095,
   "kind": "err",
   "text": "channel id is already live in another v2 community"
  },
@@ -1851,7 +1963,7 @@
   "id": "community/v2/service.rs::set_category::err::a category needs a name",
   "file": "community/v2/service.rs",
   "fn": "set_category",
-  "line": 9282,
+  "line": 10105,
   "kind": "err",
   "text": "a category needs a name"
  },
@@ -1859,7 +1971,7 @@
   "id": "community/v2/service.rs::create_category::err::a community holds at most {} categories",
   "file": "community/v2/service.rs",
   "fn": "create_category",
-  "line": 9302,
+  "line": 10125,
   "kind": "err",
   "text": "a community holds at most {} categories"
  },
@@ -1867,7 +1979,7 @@
   "id": "community/v2/service.rs::create_category::ok_or::no room for another category",
   "file": "community/v2/service.rs",
   "fn": "create_category",
-  "line": 9305,
+  "line": 10128,
   "kind": "ok_or",
   "text": "no room for another category"
  },
@@ -1875,7 +1987,7 @@
   "id": "community/v2/service.rs::rename_category::ok_or::no such category",
   "file": "community/v2/service.rs",
   "fn": "rename_category",
-  "line": 9316,
+  "line": 10139,
   "kind": "ok_or",
   "text": "no such category"
  },
@@ -1883,7 +1995,7 @@
   "id": "community/v2/service.rs::delete_category::ok_or::no such category",
   "file": "community/v2/service.rs",
   "fn": "delete_category",
-  "line": 9327,
+  "line": 10150,
   "kind": "ok_or",
   "text": "no such category"
  },
@@ -1891,7 +2003,7 @@
   "id": "community/v2/service.rs::move_category::ok_or::no such category",
   "file": "community/v2/service.rs",
   "fn": "move_category",
-  "line": 9337,
+  "line": 10160,
   "kind": "ok_or",
   "text": "no such category"
  },
@@ -1899,7 +2011,7 @@
   "id": "community/v2/service.rs::move_category::ok_or::no room between those categories",
   "file": "community/v2/service.rs",
   "fn": "move_category",
-  "line": 9342,
+  "line": 10165,
   "kind": "ok_or",
   "text": "no room between those categories"
  },
@@ -1907,7 +2019,7 @@
   "id": "community/v2/service.rs::move_channel::ok_or::no such channel",
   "file": "community/v2/service.rs",
   "fn": "move_channel",
-  "line": 9354,
+  "line": 10177,
   "kind": "ok_or",
   "text": "no such channel"
  },
@@ -1915,7 +2027,7 @@
   "id": "community/v2/service.rs::move_channel::err::no such category",
   "file": "community/v2/service.rs",
   "fn": "move_channel",
-  "line": 9356,
+  "line": 10179,
   "kind": "err",
   "text": "no such category"
  },
@@ -1923,7 +2035,7 @@
   "id": "community/v2/service.rs::move_channel::ok_or::no room between those channels",
   "file": "community/v2/service.rs",
   "fn": "move_channel",
-  "line": 9367,
+  "line": 10190,
   "kind": "ok_or",
   "text": "no room between those channels"
  },
@@ -1931,7 +2043,7 @@
   "id": "community/v2/service.rs::edit_channel_details::ok_or::no such channel",
   "file": "community/v2/service.rs",
   "fn": "edit_channel_details",
-  "line": 9388,
+  "line": 10211,
   "kind": "ok_or",
   "text": "no such channel"
  },
@@ -1939,7 +2051,7 @@
   "id": "community/v2/service.rs::edit_channel_details::err::a channel needs a name",
   "file": "community/v2/service.rs",
   "fn": "edit_channel_details",
-  "line": 9391,
+  "line": 10214,
   "kind": "err",
   "text": "a channel needs a name"
  },
@@ -1947,7 +2059,7 @@
   "id": "community/v2/service.rs::create_channel_in::branch::roles_v2_held(",
   "file": "community/v2/service.rs",
   "fn": "create_channel_in",
-  "line": 9411,
+  "line": 10234,
   "kind": "branch",
   "text": "roles_v2_held("
  },
@@ -1955,7 +2067,7 @@
   "id": "community/v2/service.rs::create_channel_in::err::this category sets its own permissions, so a channel in it takes Manage Roles over them",
   "file": "community/v2/service.rs",
   "fn": "create_channel_in",
-  "line": 9416,
+  "line": 10239,
   "kind": "err",
   "text": "this category sets its own permissions, so a channel in it takes Manage Roles over them"
  },
@@ -1963,7 +2075,7 @@
   "id": "community/v2/service.rs::create_channel_in::ok_or::v2 community not found",
   "file": "community/v2/service.rs",
   "fn": "create_channel_in",
-  "line": 9422,
+  "line": 10245,
   "kind": "ok_or",
   "text": "v2 community not found"
  },
@@ -1971,15 +2083,55 @@
   "id": "community/v2/service.rs::create_channel_in::branch::roles_v2_held(#2",
   "file": "community/v2/service.rs",
   "fn": "create_channel_in",
-  "line": 9425,
+  "line": 10248,
   "kind": "branch",
   "text": "roles_v2_held("
+ },
+ {
+  "id": "community/v2/service.rs::duplicate_channel::err::a channel needs a name",
+  "file": "community/v2/service.rs",
+  "fn": "duplicate_channel",
+  "line": 10268,
+  "kind": "err",
+  "text": "a channel needs a name"
+ },
+ {
+  "id": "community/v2/service.rs::duplicate_channel::ok_or::no such channel",
+  "file": "community/v2/service.rs",
+  "fn": "duplicate_channel",
+  "line": 10272,
+  "kind": "ok_or",
+  "text": "no such channel"
+ },
+ {
+  "id": "community/v2/service.rs::duplicate_channel::err::you can't duplicate a private channel you can't read",
+  "file": "community/v2/service.rs",
+  "fn": "duplicate_channel",
+  "line": 10274,
+  "kind": "err",
+  "text": "you can't duplicate a private channel you can't read"
+ },
+ {
+  "id": "community/v2/service.rs::duplicate_channel::branch::roles_v2_held(",
+  "file": "community/v2/service.rs",
+  "fn": "duplicate_channel",
+  "line": 10279,
+  "kind": "branch",
+  "text": "roles_v2_held("
+ },
+ {
+  "id": "community/v2/service.rs::dress_duplicate::ok_or::the new channel isn't held",
+  "file": "community/v2/service.rs",
+  "fn": "dress_duplicate",
+  "line": 10329,
+  "kind": "ok_or",
+  "text": "the new channel isn't held"
  },
  {
   "id": "community/v2/service.rs::keyed::ok_or::no room to order these",
   "file": "community/v2/service.rs",
   "fn": "keyed",
-  "line": 9449,
+  "line": 10366,
   "kind": "ok_or",
   "text": "no room to order these"
  },
@@ -1987,7 +2139,7 @@
   "id": "community/v2/service.rs::privatize_channel::branch::roles_v2_held(",
   "file": "community/v2/service.rs",
   "fn": "privatize_channel",
-  "line": 9531,
+  "line": 10448,
   "kind": "branch",
   "text": "roles_v2_held("
  },
@@ -1995,7 +2147,7 @@
   "id": "community/v2/service.rs::privatize_channel::err::making a channel private needs the community on the new roles",
   "file": "community/v2/service.rs",
   "fn": "privatize_channel",
-  "line": 9532,
+  "line": 10449,
   "kind": "err",
   "text": "making a channel private needs the community on the new roles"
  },
@@ -2003,7 +2155,7 @@
   "id": "community/v2/service.rs::privatize_channel::ok_or::no such channel",
   "file": "community/v2/service.rs",
   "fn": "privatize_channel",
-  "line": 9534,
+  "line": 10451,
   "kind": "ok_or",
   "text": "no such channel"
  },
@@ -2011,7 +2163,7 @@
   "id": "community/v2/service.rs::privatize_channel::ok_or::channel epoch overflow",
   "file": "community/v2/service.rs",
   "fn": "privatize_channel",
-  "line": 9555,
+  "line": 10472,
   "kind": "ok_or",
   "text": "channel epoch overflow"
  },
@@ -2019,7 +2171,7 @@
   "id": "community/v2/service.rs::privatize_channel::ok_or::channel epoch overflow#2",
   "file": "community/v2/service.rs",
   "fn": "privatize_channel",
-  "line": 9574,
+  "line": 10491,
   "kind": "ok_or",
   "text": "channel epoch overflow"
  },
@@ -2027,7 +2179,7 @@
   "id": "community/v2/service.rs::privatize_channel::err::community removed while making the channel private",
   "file": "community/v2/service.rs",
   "fn": "privatize_channel",
-  "line": 9619,
+  "line": 10536,
   "kind": "err",
   "text": "community removed while making the channel private"
  },
@@ -2035,7 +2187,7 @@
   "id": "community/v2/service.rs::create_private_channel_with_id::branch::roles_v2_held(",
   "file": "community/v2/service.rs",
   "fn": "create_private_channel_with_id",
-  "line": 9653,
+  "line": 10570,
   "kind": "branch",
   "text": "roles_v2_held("
  },
@@ -2043,7 +2195,7 @@
   "id": "community/v2/service.rs::create_private_channel_with_id::err::community removed during channel create",
   "file": "community/v2/service.rs",
   "fn": "create_private_channel_with_id",
-  "line": 9702,
+  "line": 10619,
   "kind": "err",
   "text": "community removed during channel create"
  },
@@ -2051,7 +2203,7 @@
   "id": "community/v2/service.rs::create_private_channel_with_id::err::community removed during channel create#2",
   "file": "community/v2/service.rs",
   "fn": "create_private_channel_with_id",
-  "line": 9738,
+  "line": 10655,
   "kind": "err",
   "text": "community removed during channel create"
  },
@@ -2059,7 +2211,7 @@
   "id": "community/v2/service.rs::judge_channel_key_vend::vend::no active identity",
   "file": "community/v2/service.rs",
   "fn": "judge_channel_key_vend",
-  "line": 9790,
+  "line": 10707,
   "kind": "vend",
   "text": "no active identity"
  },
@@ -2067,7 +2219,7 @@
   "id": "community/v2/service.rs::judge_channel_key_vend::vend::community has no resolvable owner",
   "file": "community/v2/service.rs",
   "fn": "judge_channel_key_vend",
-  "line": 9794,
+  "line": 10711,
   "kind": "vend",
   "text": "community has no resolvable owner"
  },
@@ -2075,7 +2227,7 @@
   "id": "community/v2/service.rs::judge_channel_key_vend::vend::channel not in our fold yet",
   "file": "community/v2/service.rs",
   "fn": "judge_channel_key_vend",
-  "line": 9801,
+  "line": 10718,
   "kind": "vend",
   "text": "channel not in our fold yet"
  },
@@ -2083,7 +2235,7 @@
   "id": "community/v2/service.rs::judge_channel_key_vend::vend::vend names a channel our fold says is public",
   "file": "community/v2/service.rs",
   "fn": "judge_channel_key_vend",
-  "line": 9806,
+  "line": 10723,
   "kind": "vend",
   "text": "vend names a channel our fold says is public"
  },
@@ -2091,7 +2243,7 @@
   "id": "community/v2/service.rs::judge_channel_key_vend::vend::superseded: we already hold this epoch or newer",
   "file": "community/v2/service.rs",
   "fn": "judge_channel_key_vend",
-  "line": 9817,
+  "line": 10734,
   "kind": "vend",
   "text": "superseded: we already hold this epoch or newer"
  },
@@ -2099,7 +2251,7 @@
   "id": "community/v2/service.rs::judge_channel_key_vend::vend::vend epoch is implausibly far ahead of the channel head",
   "file": "community/v2/service.rs",
   "fn": "judge_channel_key_vend",
-  "line": 9820,
+  "line": 10737,
   "kind": "vend",
   "text": "vend epoch is implausibly far ahead of the channel head"
  },
@@ -2107,7 +2259,7 @@
   "id": "community/v2/service.rs::judge_channel_key_vend::vend::our grant for this channel has not folded yet",
   "file": "community/v2/service.rs",
   "fn": "judge_channel_key_vend",
-  "line": 9827,
+  "line": 10744,
   "kind": "vend",
   "text": "our grant for this channel has not folded yet"
  },
@@ -2115,7 +2267,7 @@
   "id": "community/v2/service.rs::judge_channel_key_vend::vend::vendor is banned",
   "file": "community/v2/service.rs",
   "fn": "judge_channel_key_vend",
-  "line": 9835,
+  "line": 10752,
   "kind": "vend",
   "text": "vendor is banned"
  },
@@ -2123,7 +2275,7 @@
   "id": "community/v2/service.rs::judge_channel_key_vend::vend::vendor's entitlement has not folded yet",
   "file": "community/v2/service.rs",
   "fn": "judge_channel_key_vend",
-  "line": 9839,
+  "line": 10756,
   "kind": "vend",
   "text": "vendor's entitlement has not folded yet"
  },
@@ -2131,7 +2283,7 @@
   "id": "community/v2/service.rs::channel_edition_content::branch::roles_v2_held(",
   "file": "community/v2/service.rs",
   "fn": "channel_edition_content",
-  "line": 9946,
+  "line": 10863,
   "kind": "branch",
   "text": "roles_v2_held("
  },
@@ -2139,7 +2291,7 @@
   "id": "community/v2/service.rs::channel_edition_content::ok_or::you can only edit a private channel you can read",
   "file": "community/v2/service.rs",
   "fn": "channel_edition_content",
-  "line": 9950,
+  "line": 10867,
   "kind": "ok_or",
   "text": "you can only edit a private channel you can read"
  },
@@ -2147,15 +2299,23 @@
   "id": "community/v2/service.rs::needs_reseal::branch::roles_v2_held(",
   "file": "community/v2/service.rs",
   "fn": "needs_reseal",
-  "line": 9976,
+  "line": 10893,
   "kind": "branch",
   "text": "roles_v2_held("
+ },
+ {
+  "id": "community/v2/service.rs::publicize_channel::ok_or::unknown channel",
+  "file": "community/v2/service.rs",
+  "fn": "publicize_channel",
+  "line": 11037,
+  "kind": "ok_or",
+  "text": "unknown channel"
  },
  {
   "id": "community/v2/service.rs::roles_v2_held::branch::roles_v2_held(",
   "file": "community/v2/service.rs",
   "fn": "roles_v2_held",
-  "line": 10035,
+  "line": 11128,
   "kind": "branch",
   "text": "roles_v2_held("
  },
@@ -2163,7 +2323,7 @@
   "id": "community/v2/service.rs::roles_v2_held::branch::everyone.is_some()",
   "file": "community/v2/service.rs",
   "fn": "roles_v2_held",
-  "line": 10038,
+  "line": 11131,
   "kind": "branch",
   "text": "everyone.is_some()"
  },
@@ -2171,7 +2331,7 @@
   "id": "community/v2/service.rs::member_view_overwrite::ok_or::unknown channel",
   "file": "community/v2/service.rs",
   "fn": "member_view_overwrite",
-  "line": 10046,
+  "line": 11139,
   "kind": "ok_or",
   "text": "unknown channel"
  },
@@ -2179,7 +2339,7 @@
   "id": "community/v2/service.rs::member_view_overwrite::err::channel is public: every member already reads it",
   "file": "community/v2/service.rs",
   "fn": "member_view_overwrite",
-  "line": 10048,
+  "line": 11141,
   "kind": "err",
   "text": "channel is public: every member already reads it"
  },
@@ -2187,7 +2347,7 @@
   "id": "community/v2/service.rs::grant_channel_access::branch::roles_v2_held(",
   "file": "community/v2/service.rs",
   "fn": "grant_channel_access",
-  "line": 10066,
+  "line": 11159,
   "kind": "branch",
   "text": "roles_v2_held("
  },
@@ -2195,7 +2355,7 @@
   "id": "community/v2/service.rs::grant_channel_access::ok_or::unknown channel",
   "file": "community/v2/service.rs",
   "fn": "grant_channel_access",
-  "line": 10071,
+  "line": 11164,
   "kind": "ok_or",
   "text": "unknown channel"
  },
@@ -2203,7 +2363,7 @@
   "id": "community/v2/service.rs::grant_channel_access::err::channel is public — every member already reads it",
   "file": "community/v2/service.rs",
   "fn": "grant_channel_access",
-  "line": 10073,
+  "line": 11166,
   "kind": "err",
   "text": "channel is public — every member already reads it"
  },
@@ -2211,7 +2371,7 @@
   "id": "community/v2/service.rs::grant_channel_access::err::we hold no key for this channel, so we cannot vend it",
   "file": "community/v2/service.rs",
   "fn": "grant_channel_access",
-  "line": 10076,
+  "line": 11169,
   "kind": "err",
   "text": "we hold no key for this channel, so we cannot vend it"
  },
@@ -2219,7 +2379,7 @@
   "id": "community/v2/service.rs::grant_channel_access::err::not authorized to manage this channel's access",
   "file": "community/v2/service.rs",
   "fn": "grant_channel_access",
-  "line": 10104,
+  "line": 11197,
   "kind": "err",
   "text": "not authorized to manage this channel's access"
  },
@@ -2227,7 +2387,7 @@
   "id": "community/v2/service.rs::grant_channel_access::err::you do not outrank this member",
   "file": "community/v2/service.rs",
   "fn": "grant_channel_access",
-  "line": 10112,
+  "line": 11205,
   "kind": "err",
   "text": "you do not outrank this member"
  },
@@ -2235,7 +2395,7 @@
   "id": "community/v2/service.rs::grant_channel_access::ok_or::channel has no permission-less access role to grant",
   "file": "community/v2/service.rs",
   "fn": "grant_channel_access",
-  "line": 10128,
+  "line": 11221,
   "kind": "ok_or",
   "text": "channel has no permission-less access role to grant"
  },
@@ -2243,7 +2403,7 @@
   "id": "community/v2/service.rs::revoke_channel_access::branch::roles_v2_held(",
   "file": "community/v2/service.rs",
   "fn": "revoke_channel_access",
-  "line": 10167,
+  "line": 11260,
   "kind": "branch",
   "text": "roles_v2_held("
  },
@@ -2251,7 +2411,7 @@
   "id": "community/v2/service.rs::revoke_channel_access::ok_or::unknown channel",
   "file": "community/v2/service.rs",
   "fn": "revoke_channel_access",
-  "line": 10172,
+  "line": 11265,
   "kind": "ok_or",
   "text": "unknown channel"
  },
@@ -2259,7 +2419,7 @@
   "id": "community/v2/service.rs::revoke_channel_access::err::channel is public — there is no access to revoke",
   "file": "community/v2/service.rs",
   "fn": "revoke_channel_access",
-  "line": 10174,
+  "line": 11267,
   "kind": "err",
   "text": "channel is public — there is no access to revoke"
  },
@@ -2267,7 +2427,7 @@
   "id": "community/v2/service.rs::revoke_channel_access::err::not authorized to manage this channel's access",
   "file": "community/v2/service.rs",
   "fn": "revoke_channel_access",
-  "line": 10197,
+  "line": 11290,
   "kind": "err",
   "text": "not authorized to manage this channel's access"
  },
@@ -2275,7 +2435,7 @@
   "id": "community/v2/service.rs::revoke_channel_access::err::the owner is supreme and cannot be removed",
   "file": "community/v2/service.rs",
   "fn": "revoke_channel_access",
-  "line": 10200,
+  "line": 11293,
   "kind": "err",
   "text": "the owner is supreme and cannot be removed"
  },
@@ -2283,7 +2443,7 @@
   "id": "community/v2/service.rs::revoke_channel_access::err::you do not outrank this member",
   "file": "community/v2/service.rs",
   "fn": "revoke_channel_access",
-  "line": 10206,
+  "line": 11299,
   "kind": "err",
   "text": "you do not outrank this member"
  },
@@ -2291,7 +2451,7 @@
   "id": "community/v2/service.rs::revoke_channel_access::err::this channel's access role has not folded yet — retry once the control plane serves it",
   "file": "community/v2/service.rs",
   "fn": "revoke_channel_access",
-  "line": 10215,
+  "line": 11308,
   "kind": "err",
   "text": "this channel's access role has not folded yet — retry once the control plane serves it"
  },
@@ -2299,7 +2459,7 @@
   "id": "community/v2/service.rs::rekey_channel_at::ok_or::v2 community not found",
   "file": "community/v2/service.rs",
   "fn": "rekey_channel_at",
-  "line": 10269,
+  "line": 11362,
   "kind": "ok_or",
   "text": "v2 community not found"
  },
@@ -2307,7 +2467,7 @@
   "id": "community/v2/service.rs::rekey_channel_at::ok_or::unknown channel",
   "file": "community/v2/service.rs",
   "fn": "rekey_channel_at",
-  "line": 10278,
+  "line": 11371,
   "kind": "ok_or",
   "text": "unknown channel"
  },
@@ -2315,7 +2475,7 @@
   "id": "community/v2/service.rs::rekey_channel_at::ok_or::we hold no key for this channel, so we cannot rotate it",
   "file": "community/v2/service.rs",
   "fn": "rekey_channel_at",
-  "line": 10279,
+  "line": 11372,
   "kind": "ok_or",
   "text": "we hold no key for this channel, so we cannot rotate it"
  },
@@ -2323,7 +2483,7 @@
   "id": "community/v2/service.rs::rekey_channel_at::ok_or::channel epoch overflow",
   "file": "community/v2/service.rs",
   "fn": "rekey_channel_at",
-  "line": 10280,
+  "line": 11373,
   "kind": "ok_or",
   "text": "channel epoch overflow"
  },
@@ -2331,7 +2491,7 @@
   "id": "community/v2/service.rs::rekey_channel_at::branch::everyone.is_some()",
   "file": "community/v2/service.rs",
   "fn": "rekey_channel_at",
-  "line": 10292,
+  "line": 11385,
   "kind": "branch",
   "text": "everyone.is_some()"
  },
@@ -2339,7 +2499,7 @@
   "id": "community/v2/service.rs::rekey_channel_at::branch::everyone.is_none()",
   "file": "community/v2/service.rs",
   "fn": "rekey_channel_at",
-  "line": 10304,
+  "line": 11397,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
@@ -2347,7 +2507,7 @@
   "id": "community/v2/service.rs::rekey_channel_at::err::community removed during channel rekey",
   "file": "community/v2/service.rs",
   "fn": "rekey_channel_at",
-  "line": 10338,
+  "line": 11431,
   "kind": "err",
   "text": "community removed during channel rekey"
  },
@@ -2355,7 +2515,7 @@
   "id": "community/v2/service.rs::sever_banned_private_reads::gate::severing a banned member's channel reads",
   "file": "community/v2/service.rs",
   "fn": "sever_banned_private_reads",
-  "line": 10407,
+  "line": 11506,
   "kind": "gate",
   "text": "severing a banned member's channel reads"
  },
@@ -2363,7 +2523,7 @@
   "id": "community/v2/service.rs::sever_banned_private_reads::gate::severing a banned member's channel reads#2",
   "file": "community/v2/service.rs",
   "fn": "sever_banned_private_reads",
-  "line": 10408,
+  "line": 11507,
   "kind": "gate",
   "text": "severing a banned member's channel reads"
  },
@@ -2371,7 +2531,7 @@
   "id": "community/v2/service.rs::sever_banned_private_reads::branch::everyone.is_some()",
   "file": "community/v2/service.rs",
   "fn": "sever_banned_private_reads",
-  "line": 10413,
+  "line": 11512,
   "kind": "branch",
   "text": "everyone.is_some()"
  },
@@ -2379,7 +2539,7 @@
   "id": "community/v2/service.rs::sever_banned_private_reads::branch::everyone.is_some()#2",
   "file": "community/v2/service.rs",
   "fn": "sever_banned_private_reads",
-  "line": 10433,
+  "line": 11532,
   "kind": "branch",
   "text": "everyone.is_some()"
  },
@@ -2387,7 +2547,7 @@
   "id": "community/v2/service.rs::sever_banned_private_reads::err::the roster couldn't be read whole, so no channel was rotated yet",
   "file": "community/v2/service.rs",
   "fn": "sever_banned_private_reads",
-  "line": 10437,
+  "line": 11536,
   "kind": "err",
   "text": "the roster couldn't be read whole, so no channel was rotated yet"
  },
@@ -2395,7 +2555,7 @@
   "id": "community/v2/service.rs::sever_banned_private_reads::err::community gone during ban severance",
   "file": "community/v2/service.rs",
   "fn": "sever_banned_private_reads",
-  "line": 10468,
+  "line": 11567,
   "kind": "err",
   "text": "community gone during ban severance"
  },
@@ -2403,7 +2563,7 @@
   "id": "community/v2/service.rs::sever_banned_private_reads::err::{rotated} rotated; failed: {}",
   "file": "community/v2/service.rs",
   "fn": "sever_banned_private_reads",
-  "line": 10478,
+  "line": 11577,
   "kind": "err",
   "text": "{rotated} rotated; failed: {}"
  },
@@ -2411,7 +2571,7 @@
   "id": "community/v2/service.rs::run_read_cuts::gate::severing a banned member's channel reads",
   "file": "community/v2/service.rs",
   "fn": "run_read_cuts",
-  "line": 10550,
+  "line": 11649,
   "kind": "gate",
   "text": "severing a banned member's channel reads"
  },
@@ -2419,7 +2579,7 @@
   "id": "community/v2/service.rs::run_read_cuts::gate::severing a banned member's channel reads#2",
   "file": "community/v2/service.rs",
   "fn": "run_read_cuts",
-  "line": 10551,
+  "line": 11650,
   "kind": "gate",
   "text": "severing a banned member's channel reads"
  },
@@ -2427,7 +2587,7 @@
   "id": "community/v2/service.rs::run_read_cuts::err::the roster couldn't be read whole, so no channel was rotated yet; retrying on the next follow",
   "file": "community/v2/service.rs",
   "fn": "run_read_cuts",
-  "line": 10560,
+  "line": 11659,
   "kind": "err",
   "text": "the roster couldn't be read whole, so no channel was rotated yet; retrying on the next follow"
  },
@@ -2435,7 +2595,7 @@
   "id": "community/v2/service.rs::run_read_cuts::ok_or::community gone during ban severance",
   "file": "community/v2/service.rs",
   "fn": "run_read_cuts",
-  "line": 10572,
+  "line": 11671,
   "kind": "ok_or",
   "text": "community gone during ban severance"
  },
@@ -2443,7 +2603,7 @@
   "id": "community/v2/service.rs::run_read_cuts::err::{rotated} rotated; failed: {}",
   "file": "community/v2/service.rs",
   "fn": "run_read_cuts",
-  "line": 10589,
+  "line": 11688,
   "kind": "err",
   "text": "{rotated} rotated; failed: {}"
  },
@@ -2451,7 +2611,7 @@
   "id": "community/v2/service.rs::delete_channel::ok_or::this channel's sealed details are malformed",
   "file": "community/v2/service.rs",
   "fn": "delete_channel",
-  "line": 10627,
+  "line": 11726,
   "kind": "ok_or",
   "text": "this channel's sealed details are malformed"
  },
@@ -2459,7 +2619,7 @@
   "id": "community/v2/service.rs::fold_authority::branch::everyone.is_none()",
   "file": "community/v2/service.rs",
   "fn": "fold_authority",
-  "line": 12566,
+  "line": 14033,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
@@ -2467,7 +2627,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::tenure: author banned",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13039,
+  "line": 14506,
   "kind": "refuse",
   "text": "tenure: author banned"
  },
@@ -2475,7 +2635,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::tenure: written by its own member, or for the owner",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13044,
+  "line": 14511,
   "kind": "refuse",
   "text": "tenure: written by its own member, or for the owner"
  },
@@ -2483,7 +2643,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::tenure: seals a standing its writer couldn't grant",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13054,
+  "line": 14521,
   "kind": "refuse",
   "text": "tenure: seals a standing its writer couldn't grant"
  },
@@ -2491,7 +2651,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::tenure: cited a grant we cannot resolve",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13059,
+  "line": 14526,
   "kind": "refuse",
   "text": "tenure: cited a grant we cannot resolve"
  },
@@ -2499,7 +2659,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::role: a vsk-1 edition after Roles v2 activated",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13096,
+  "line": 14563,
   "kind": "refuse",
   "text": "role: a vsk-1 edition after Roles v2 activated"
  },
@@ -2507,7 +2667,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::role: author banned or position 0",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13100,
+  "line": 14567,
   "kind": "refuse",
   "text": "role: author banned or position 0"
  },
@@ -2515,7 +2675,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::role: author holds no MANAGE_ROLES above what it touches",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13107,
+  "line": 14574,
   "kind": "refuse",
   "text": "role: author holds no MANAGE_ROLES above what it touches"
  },
@@ -2523,7 +2683,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::role: carries a permission its author lacks",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13112,
+  "line": 14579,
   "kind": "refuse",
   "text": "role: carries a permission its author lacks"
  },
@@ -2531,7 +2691,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::role: cited a grant we cannot resolve",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13119,
+  "line": 14586,
   "kind": "refuse",
   "text": "role: cited a grant we cannot resolve"
  },
@@ -2539,7 +2699,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::grant: author or member banned",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13188,
+  "line": 14655,
   "kind": "refuse",
   "text": "grant: author or member banned"
  },
@@ -2547,7 +2707,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::grant: cited a grant we cannot resolve",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13194,
+  "line": 14661,
   "kind": "refuse",
   "text": "grant: cited a grant we cannot resolve"
  },
@@ -2555,7 +2715,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::grant: UNCITED revocation — a strip must cite its authority",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13197,
+  "line": 14664,
   "kind": "refuse",
   "text": "grant: UNCITED revocation — a strip must cite its authority"
  },
@@ -2563,7 +2723,7 @@
   "id": "community/v2/service.rs::select_authorized::refuse::grant: author holds no MANAGE_ROLES above the roles or the member",
   "file": "community/v2/service.rs",
   "fn": "select_authorized",
-  "line": 13206,
+  "line": 14673,
   "kind": "refuse",
   "text": "grant: author holds no MANAGE_ROLES above the roles or the member"
  },
@@ -2571,7 +2731,7 @@
   "id": "community/v2/service.rs::read_channel_pins::ok_or::no such channel in this community",
   "file": "community/v2/service.rs",
   "fn": "read_channel_pins",
-  "line": 14798,
+  "line": 16304,
   "kind": "ok_or",
   "text": "no such channel in this community"
  },
@@ -2579,7 +2739,7 @@
   "id": "community/v2/service.rs::publish_pin_list::ok_or::this private channel's key has not arrived yet",
   "file": "community/v2/service.rs",
   "fn": "publish_pin_list",
-  "line": 14824,
+  "line": 16330,
   "kind": "ok_or",
   "text": "this private channel's key has not arrived yet"
  },
@@ -2587,7 +2747,7 @@
   "id": "community/v2/service.rs::writable_pin_entries::err::this channel's pins are sealed under a key you don't hold; pinning would erase them",
   "file": "community/v2/service.rs",
   "fn": "writable_pin_entries",
-  "line": 14893,
+  "line": 16399,
   "kind": "err",
   "text": "this channel's pins are sealed under a key you don't hold; pinning would erase them"
  },
@@ -2595,7 +2755,7 @@
   "id": "community/v2/service.rs::pin_message::ok_or::no such channel in this community",
   "file": "community/v2/service.rs",
   "fn": "pin_message",
-  "line": 14909,
+  "line": 16415,
   "kind": "ok_or",
   "text": "no such channel in this community"
  },
@@ -2603,7 +2763,7 @@
   "id": "community/v2/service.rs::pin_message::err::this channel already holds {} pins; unpin one first",
   "file": "community/v2/service.rs",
   "fn": "pin_message",
-  "line": 14914,
+  "line": 16420,
   "kind": "err",
   "text": "this channel already holds {} pins; unpin one first"
  },
@@ -2611,7 +2771,7 @@
   "id": "community/v2/service.rs::pin_message::ok_or::message not found in this device's history",
   "file": "community/v2/service.rs",
   "fn": "pin_message",
-  "line": 14926,
+  "line": 16432,
   "kind": "ok_or",
   "text": "message not found in this device's history"
  },
@@ -2619,7 +2779,7 @@
   "id": "community/v2/service.rs::pin_message::ok_or::this message's original wrap id was not recorded",
   "file": "community/v2/service.rs",
   "fn": "pin_message",
-  "line": 14927,
+  "line": 16433,
   "kind": "ok_or",
   "text": "this message's original wrap id was not recorded"
  },
@@ -2627,7 +2787,7 @@
   "id": "community/v2/service.rs::pin_message::ok_or::the message's wrap is no longer served by this community's relays",
   "file": "community/v2/service.rs",
   "fn": "pin_message",
-  "line": 14946,
+  "line": 16452,
   "kind": "ok_or",
   "text": "the message's wrap is no longer served by this community's relays"
  },
@@ -2635,7 +2795,7 @@
   "id": "community/v2/service.rs::pin_message::err::that message is from a key epoch this device no longer holds",
   "file": "community/v2/service.rs",
   "fn": "pin_message",
-  "line": 14990,
+  "line": 16496,
   "kind": "err",
   "text": "that message is from a key epoch this device no longer holds"
  },
@@ -2643,7 +2803,7 @@
   "id": "community/v2/service.rs::channel_conv_ikm::ok_or::this private channel's key has not arrived yet",
   "file": "community/v2/service.rs",
   "fn": "channel_conv_ikm",
-  "line": 15011,
+  "line": 16517,
   "kind": "ok_or",
   "text": "this private channel's key has not arrived yet"
  },
@@ -2651,7 +2811,7 @@
   "id": "community/v2/service.rs::channel_conv_ikm::ok_or::that message is from a key epoch this device no longer holds",
   "file": "community/v2/service.rs",
   "fn": "channel_conv_ikm",
-  "line": 15019,
+  "line": 16525,
   "kind": "ok_or",
   "text": "that message is from a key epoch this device no longer holds"
  },
@@ -2659,7 +2819,7 @@
   "id": "community/v2/service.rs::channel_conv_ikm::ok_or::that message is from a root epoch this device no longer holds",
   "file": "community/v2/service.rs",
   "fn": "channel_conv_ikm",
-  "line": 15028,
+  "line": 16534,
   "kind": "ok_or",
   "text": "that message is from a root epoch this device no longer holds"
  },
@@ -2667,7 +2827,7 @@
   "id": "community/v2/service.rs::unpin_message::ok_or::no such channel in this community",
   "file": "community/v2/service.rs",
   "fn": "unpin_message",
-  "line": 15039,
+  "line": 16545,
   "kind": "ok_or",
   "text": "no such channel in this community"
  },
@@ -2675,7 +2835,7 @@
   "id": "community/v2/service.rs::run_pin_duty::ok_or::no such channel",
   "file": "community/v2/service.rs",
   "fn": "run_pin_duty",
-  "line": 15127,
+  "line": 16633,
   "kind": "ok_or",
   "text": "no such channel"
  },
@@ -2683,9 +2843,33 @@
   "id": "community/v2/service/audit.rs::read_control_history::ok_or::this community's history couldn't be read in full; try again in a moment",
   "file": "community/v2/service/audit.rs",
   "fn": "read_control_history",
-  "line": 697,
+  "line": 734,
   "kind": "ok_or",
   "text": "this community's history couldn't be read in full; try again in a moment"
+ },
+ {
+  "id": "community/v2/service/control_store.rs::swapped_out::err::the account changed",
+  "file": "community/v2/service/control_store.rs",
+  "fn": "swapped_out",
+  "line": 87,
+  "kind": "err",
+  "text": "the account changed"
+ },
+ {
+  "id": "community/v2/service/control_store.rs::held_page::err::a wrap held did not decrypt",
+  "file": "community/v2/service/control_store.rs",
+  "fn": "held_page",
+  "line": 208,
+  "kind": "err",
+  "text": "a wrap held did not decrypt"
+ },
+ {
+  "id": "community/v2/service/control_sync.rs::ask_one::err::relay did not answer",
+  "file": "community/v2/service/control_sync.rs",
+  "fn": "ask_one",
+  "line": 439,
+  "kind": "err",
+  "text": "relay did not answer"
  },
  {
   "id": "community/v2/service/inspect.rs::read_messages::err::#{} is private and these keys don't read it",
@@ -2800,18 +2984,98 @@
   "text": "the community's relays changed while this move ran, so nothing was announced; try again"
  },
  {
-  "id": "community/v2/service/writing.rs::send_group::ok_or::only this channel's writers can post here",
-  "file": "community/v2/service/writing.rs",
-  "fn": "send_group",
-  "line": 126,
+  "id": "community/v2/service/sealing.rs::seal_history_at::ok_or::this channel keeps no writer ledger",
+  "file": "community/v2/service/sealing.rs",
+  "fn": "seal_history_at",
+  "line": 47,
   "kind": "ok_or",
-  "text": "only this channel's writers can post here"
+  "text": "this channel keeps no writer ledger"
+ },
+ {
+  "id": "community/v2/service/sealing.rs::seal_history_at::ok_or::this community is gone",
+  "file": "community/v2/service/sealing.rs",
+  "fn": "seal_history_at",
+  "line": 58,
+  "kind": "ok_or",
+  "text": "this community is gone"
+ },
+ {
+  "id": "community/v2/service/sealing.rs::seal_history_at::ok_or::a page's read plane has no key here",
+  "file": "community/v2/service/sealing.rs",
+  "fn": "seal_history_at",
+  "line": 99,
+  "kind": "ok_or",
+  "text": "a page's read plane has no key here"
+ },
+ {
+  "id": "community/v2/service/sealing.rs::seal_history_at::err::account changed while sealing a channel",
+  "file": "community/v2/service/sealing.rs",
+  "fn": "seal_history_at",
+  "line": 109,
+  "kind": "err",
+  "text": "account changed while sealing a channel"
+ },
+ {
+  "id": "community/v2/service/sealing.rs::seal_history_at::ok_or::this community is gone#2",
+  "file": "community/v2/service/sealing.rs",
+  "fn": "seal_history_at",
+  "line": 111,
+  "kind": "ok_or",
+  "text": "this community is gone"
+ },
+ {
+  "id": "community/v2/service/sealing.rs::seal_history_at::ok_or::no such channel",
+  "file": "community/v2/service/sealing.rs",
+  "fn": "seal_history_at",
+  "line": 112,
+  "kind": "ok_or",
+  "text": "no such channel"
+ },
+ {
+  "id": "community/v2/service/sealing.rs::seal_history_at::ok_or::this channel keeps no writer ledger#2",
+  "file": "community/v2/service/sealing.rs",
+  "fn": "seal_history_at",
+  "line": 113,
+  "kind": "ok_or",
+  "text": "this channel keeps no writer ledger"
+ },
+ {
+  "id": "community/v2/service/sealing.rs::seal_history_at::err::this channel's writer ledger moved; nothing sealed",
+  "file": "community/v2/service/sealing.rs",
+  "fn": "seal_history_at",
+  "line": 116,
+  "kind": "err",
+  "text": "this channel's writer ledger moved; nothing sealed"
+ },
+ {
+  "id": "community/v2/service/sealing.rs::read_whole_range::err::a relay didn't answer the whole read; nothing sealed",
+  "file": "community/v2/service/sealing.rs",
+  "fn": "read_whole_range",
+  "line": 141,
+  "kind": "err",
+  "text": "a relay didn't answer the whole read; nothing sealed"
+ },
+ {
+  "id": "community/v2/service/tests/control_sync.rs::fetch::err::relay did not answer the fetch",
+  "file": "community/v2/service/tests/control_sync.rs",
+  "fn": "fetch",
+  "line": 185,
+  "kind": "err",
+  "text": "relay did not answer the fetch"
+ },
+ {
+  "id": "community/v2/service/tests/relay_reads.rs::fetch::err::relay did not answer the fetch",
+  "file": "community/v2/service/tests/relay_reads.rs",
+  "fn": "fetch",
+  "line": 45,
+  "kind": "err",
+  "text": "relay did not answer the fetch"
  },
  {
   "id": "community/v2/service/writing.rs::mint_carrying::ok_or::this community is gone",
   "file": "community/v2/service/writing.rs",
   "fn": "mint_carrying",
-  "line": 206,
+  "line": 284,
   "kind": "ok_or",
   "text": "this community is gone"
  },
@@ -2819,7 +3083,7 @@
   "id": "community/v2/service/writing.rs::mint_carrying::ok_or::no such channel",
   "file": "community/v2/service/writing.rs",
   "fn": "mint_carrying",
-  "line": 207,
+  "line": 285,
   "kind": "ok_or",
   "text": "no such channel"
  },
@@ -2827,7 +3091,7 @@
   "id": "community/v2/service/writing.rs::carry_departures::ok_or::this community is gone",
   "file": "community/v2/service/writing.rs",
   "fn": "carry_departures",
-  "line": 240,
+  "line": 318,
   "kind": "ok_or",
   "text": "this community is gone"
  },
@@ -2835,7 +3099,7 @@
   "id": "community/v2/service/writing.rs::mint_over::err::this channel's writer ledger can't be read; nothing minted over it",
   "file": "community/v2/service/writing.rs",
   "fn": "mint_over",
-  "line": 247,
+  "line": 325,
   "kind": "err",
   "text": "this channel's writer ledger can't be read; nothing minted over it"
  },
@@ -2843,7 +3107,7 @@
   "id": "community/v2/service/writing.rs::mint_over::ok_or::this channel has no writer epochs left",
   "file": "community/v2/service/writing.rs",
   "fn": "mint_over",
-  "line": 251,
+  "line": 329,
   "kind": "ok_or",
   "text": "this channel has no writer epochs left"
  },
@@ -2851,7 +3115,7 @@
   "id": "community/v2/service/writing.rs::mint_over::ok_or::couldn't make a writer certifier",
   "file": "community/v2/service/writing.rs",
   "fn": "mint_over",
-  "line": 270,
+  "line": 348,
   "kind": "ok_or",
   "text": "couldn't make a writer certifier"
  },
@@ -2859,7 +3123,7 @@
   "id": "community/v2/service/writing.rs::mint_over::ok_or::this channel's writer ledger can't take another epoch",
   "file": "community/v2/service/writing.rs",
   "fn": "mint_over",
-  "line": 272,
+  "line": 351,
   "kind": "ok_or",
   "text": "this channel's writer ledger can't take another epoch"
  },
@@ -2867,7 +3131,7 @@
   "id": "community/v2/service/writing.rs::mint_over::err::account changed while minting a writer key",
   "file": "community/v2/service/writing.rs",
   "fn": "mint_over",
-  "line": 300,
+  "line": 381,
   "kind": "err",
   "text": "account changed while minting a writer key"
  },
@@ -2875,7 +3139,7 @@
   "id": "community/v2/service/writing.rs::reopen::err::this channel's writer ledger can't be read; nothing appended to it",
   "file": "community/v2/service/writing.rs",
   "fn": "reopen",
-  "line": 406,
+  "line": 517,
   "kind": "err",
   "text": "this channel's writer ledger can't be read; nothing appended to it"
  },
@@ -2883,7 +3147,7 @@
   "id": "community/v2/service/writing.rs::reopen::ok_or::this community is gone",
   "file": "community/v2/service/writing.rs",
   "fn": "reopen",
-  "line": 411,
+  "line": 522,
   "kind": "ok_or",
   "text": "this community is gone"
  },
@@ -2891,7 +3155,7 @@
   "id": "community/v2/service/writing.rs::reopen::ok_or::no such channel",
   "file": "community/v2/service/writing.rs",
   "fn": "reopen",
-  "line": 412,
+  "line": 523,
   "kind": "ok_or",
   "text": "no such channel"
  },
@@ -2899,7 +3163,7 @@
   "id": "community/v2/service/writing.rs::stop::err::this channel's writer ledger can't be read; nothing appended to it",
   "file": "community/v2/service/writing.rs",
   "fn": "stop",
-  "line": 424,
+  "line": 535,
   "kind": "err",
   "text": "this channel's writer ledger can't be read; nothing appended to it"
  },
@@ -2907,7 +3171,7 @@
   "id": "community/v2/service/writing.rs::stop::ok_or::this channel keeps no writer ledger",
   "file": "community/v2/service/writing.rs",
   "fn": "stop",
-  "line": 426,
+  "line": 537,
   "kind": "ok_or",
   "text": "this channel keeps no writer ledger"
  },
@@ -2915,7 +3179,7 @@
   "id": "community/v2/service/writing.rs::stop_from::ok_or::this channel keeps no writer ledger",
   "file": "community/v2/service/writing.rs",
   "fn": "stop_from",
-  "line": 433,
+  "line": 544,
   "kind": "ok_or",
   "text": "this channel keeps no writer ledger"
  },
@@ -2923,23 +3187,31 @@
   "id": "community/v2/service/writing.rs::publish_ledger::ok_or::this channel's writer ledger can't take that",
   "file": "community/v2/service/writing.rs",
   "fn": "publish_ledger",
-  "line": 466,
+  "line": 582,
   "kind": "ok_or",
   "text": "this channel's writer ledger can't take that"
  },
  {
-  "id": "community/v2/service/writing.rs::publish_ledger::err::account changed while moving a channel's writers",
+  "id": "community/v2/service/writing.rs::publish_seal::ok_or::this channel's writer ledger can't take that",
   "file": "community/v2/service/writing.rs",
-  "fn": "publish_ledger",
-  "line": 468,
+  "fn": "publish_seal",
+  "line": 588,
+  "kind": "ok_or",
+  "text": "this channel's writer ledger can't take that"
+ },
+ {
+  "id": "community/v2/service/writing.rs::publish_next::err::account changed while moving a channel's writers",
+  "file": "community/v2/service/writing.rs",
+  "fn": "publish_next",
+  "line": 594,
   "kind": "err",
   "text": "account changed while moving a channel's writers"
  },
  {
-  "id": "community/v2/service/writing.rs::settle_writers_moved::ok_or::v2 community not found",
+  "id": "community/v2/service/writing.rs::settle_writers_moved_once::ok_or::v2 community not found",
   "file": "community/v2/service/writing.rs",
-  "fn": "settle_writers_moved",
-  "line": 510,
+  "fn": "settle_writers_moved_once",
+  "line": 640,
   "kind": "ok_or",
   "text": "v2 community not found"
  },
@@ -2947,7 +3219,7 @@
   "id": "community/v2/service/writing.rs::writer_duty::ok_or::v2 community not found",
   "file": "community/v2/service/writing.rs",
   "fn": "writer_duty",
-  "line": 762,
+  "line": 932,
   "kind": "ok_or",
   "text": "v2 community not found"
  },
@@ -2955,7 +3227,7 @@
   "id": "community/v2/service/writing.rs::retract_since_bound::err::couldn't read the posts to take back",
   "file": "community/v2/service/writing.rs",
   "fn": "retract_since_bound",
-  "line": 1474,
+  "line": 1701,
   "kind": "err",
   "text": "couldn't read the posts to take back"
  },
@@ -2963,15 +3235,23 @@
   "id": "community/v2/service/writing.rs::retract_since_bound::err::account changed while taking posts back",
   "file": "community/v2/service/writing.rs",
   "fn": "retract_since_bound",
-  "line": 1477,
+  "line": 1704,
   "kind": "err",
   "text": "account changed while taking posts back"
+ },
+ {
+  "id": "community/v2/service/writing.rs::owed_writer_keys::branch::everyone.is_none()",
+  "file": "community/v2/service/writing.rs",
+  "fn": "owed_writer_keys",
+  "line": 1788,
+  "kind": "branch",
+  "text": "everyone.is_none()"
  },
  {
   "id": "community/v2/service/writing.rs::collect_writers_bound::branch::everyone.is_none()",
   "file": "community/v2/service/writing.rs",
   "fn": "collect_writers_bound",
-  "line": 1550,
+  "line": 1820,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
@@ -2979,7 +3259,7 @@
   "id": "lib.rs::fetch_answered::err::no relays to read from",
   "file": "lib.rs",
   "fn": "fetch_answered",
-  "line": 334,
+  "line": 340,
   "kind": "err",
   "text": "no relays to read from"
  },
@@ -2987,7 +3267,7 @@
   "id": "lib.rs::fetch_answered::err::none of your relays answered",
   "file": "lib.rs",
   "fn": "fetch_answered",
-  "line": 358,
+  "line": 364,
   "kind": "err",
   "text": "none of your relays answered"
  },
@@ -2995,7 +3275,7 @@
   "id": "lib.rs::my_channel_permissions::branch::everyone.is_none()",
   "file": "lib.rs",
   "fn": "my_channel_permissions",
-  "line": 1522,
+  "line": 1846,
   "kind": "branch",
   "text": "everyone.is_none()"
  },
@@ -3003,7 +3283,7 @@
   "id": "lib.rs::channel_access::branch::everyone.is_some()",
   "file": "lib.rs",
   "fn": "channel_access",
-  "line": 1972,
+  "line": 2394,
   "kind": "branch",
   "text": "everyone.is_some()"
  },
@@ -3011,7 +3291,7 @@
   "id": "lib.rs::community_role_graph::branch::everyone.is_some()",
   "file": "lib.rs",
   "fn": "community_role_graph",
-  "line": 4153,
+  "line": 4676,
   "kind": "branch",
   "text": "everyone.is_some()"
  },
@@ -3019,15 +3299,15 @@
   "id": "lib.rs::roles_v2_active::branch::everyone.is_some()",
   "file": "lib.rs",
   "fn": "roles_v2_active",
-  "line": 4361,
+  "line": 4884,
   "kind": "branch",
   "text": "everyone.is_some()"
  },
  {
-  "id": "lib.rs::channel_send_denied::branch::everyone.is_none()",
+  "id": "lib.rs::channel_denied::branch::everyone.is_none()",
   "file": "lib.rs",
-  "fn": "channel_send_denied",
-  "line": 4470,
+  "fn": "channel_denied",
+  "line": 5030,
   "kind": "branch",
   "text": "everyone.is_none()"
  }
