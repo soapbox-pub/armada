@@ -104,6 +104,11 @@ export interface SwPushConfig {
   concordReady?: boolean;
   /** Decrypt key (hex). Present for nsec logins only. */
   sk?: string;
+  /**
+   * A NIP-07 login: with no `sk`, the worker opens NIP-17 wraps through its
+   * own `self.nostr` (Din's service-worker signer), pinned to `self`.
+   */
+  nip07?: boolean;
   /** Current-epoch stream per watched channel (retired epochs must not notify). */
   concord?: SwConcordStream[];
   /** Media policy for avatar/icon fetches; absent = default policy. */

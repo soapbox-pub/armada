@@ -338,6 +338,7 @@ export function useNostrPush(): UsePushNotificationsReturn {
     dmLevels,
     roomMutes,
     dmSk,
+    dmNip07,
     notificationSettingsReady,
     dmConfigReady,
     concordConfigReady,
@@ -435,6 +436,7 @@ export function useNostrPush(): UsePushNotificationsReturn {
           }))
         ),
         ...(dmSk ? { sk: dmSk } : {}),
+        ...(!dmSk && dmNip07 ? { nip07: true } : {}),
         mediaPolicy,
         profileRelays,
         ...notificationLocale(locale),
@@ -457,6 +459,7 @@ export function useNostrPush(): UsePushNotificationsReturn {
     concord,
     concordConfigReady,
     dmSk,
+    dmNip07,
     mediaPolicy,
     profileRelays,
     locale,

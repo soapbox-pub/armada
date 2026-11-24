@@ -1,6 +1,8 @@
-import type { NostrSigner } from '@nostrify/types';
+import type { NostrEvent, NostrSigner } from '@nostrify/types';
 import { NSecSigner, NBrowserSigner } from '@nostrify/nostrify';
 import { nip44 } from 'nostr-tools';
+
+import { canPinNip07, globalNip07, pinNip07, type Nip07Crypto, type Nip07Provider } from '@/lib/nip07Pin';
 
 /** Conversation keys kept per nsec signer, and first sightings remembered. */
 const CONVERSATION_KEYS_MAX = 512;
@@ -76,15 +78,86 @@ export class NSecSignerBtc extends NSecSigner implements BtcSigner {
   }
 }
 
-/** `NBrowserSigner` with NIP-07 `window.nostr.signPsbt()` support. */
+/**
+ * `NBrowserSigner` with NIP-07 `window.nostr.signPsbt()` support. Given the
+ * login's `pubkey`, a provider with Din's `getSigner` is pinned to it, so
+ * switching the account in Din doesn't switch Armada's; any other provider is
+ * used as `NBrowserSigner` uses it.
+ */
 export class NBrowserSignerBtc extends NBrowserSigner implements BtcSigner {
-  constructor(opts?: { timeout?: number }) {
+  readonly #pubkey?: string;
+  #pinned?: Promise<Nip07Provider>;
+
+  constructor(opts?: { timeout?: number; pubkey?: string }) {
     super(opts);
+    this.#pubkey = opts?.pubkey;
+  }
+
+  /** The pinned provider, or undefined to behave as `NBrowserSigner`. */
+  #pin(): Promise<Nip07Provider> | undefined {
+    const nostr = globalNip07();
+    if (!this.#pubkey || !nostr || !canPinNip07(nostr)) return undefined;
+    if (!this.#pinned) {
+      const pinned = pinNip07(nostr, this.#pubkey);
+      this.#pinned = pinned;
+      // A refusal isn't kept: the user may connect the account again.
+      pinned.catch(() => {
+        if (this.#pinned === pinned) this.#pinned = undefined;
+      });
+    }
+    return this.#pinned;
+  }
+
+  override async getPublicKey(): Promise<string> {
+    if (this.#pin() && this.#pubkey) return this.#pubkey;
+    return super.getPublicKey();
+  }
+
+  override async signEvent(event: Parameters<NBrowserSigner['signEvent']>[0]): Promise<NostrEvent> {
+    const pinned = this.#pin();
+    if (!pinned) return super.signEvent(event);
+    const signed = await (await pinned).signEvent(event) as NostrEvent;
+    if (typeof signed !== 'object' || !signed?.id || !signed.pubkey || !signed.sig) {
+      throw new Error('Nostr event signing failed: the signer returned no signed event');
+    }
+    return signed;
+  }
+
+  override async getRelays(): Promise<Record<string, { read: boolean; write: boolean }>> {
+    const pinned = this.#pin();
+    if (!pinned) return super.getRelays();
+    const target = await pinned;
+    const relays = typeof target.getRelays === 'function' ? await target.getRelays() : {};
+    return relays && typeof relays === 'object' ? relays as Record<string, { read: boolean; write: boolean }> : {};
+  }
+
+  override get nip04(): NostrSigner['nip04'] {
+    return this.#pinnedCrypto('nip04') ?? super.nip04;
+  }
+
+  override get nip44(): NostrSigner['nip44'] {
+    return this.#pinnedCrypto('nip44') ?? super.nip44;
+  }
+
+  #pinnedCrypto(method: 'nip04' | 'nip44'): Nip07Crypto | undefined {
+    if (!this.#pin() || !globalNip07()?.[method]) return undefined;
+    const call = async (op: 'encrypt' | 'decrypt', pubkey: string, text: string) => {
+      const crypto = (await this.#pin())?.[method];
+      if (!crypto) throw new Error(`${method.toUpperCase()} is not supported by the signer`);
+      const result = await crypto[op](pubkey, text);
+      if (typeof result !== 'string') throw new Error(`${method.toUpperCase()} ${op} failed: expected a string`);
+      return result;
+    };
+    return {
+      encrypt: (pubkey, plaintext) => call('encrypt', pubkey, plaintext),
+      decrypt: (pubkey, ciphertext) => call('decrypt', pubkey, ciphertext),
+    };
   }
 
   async signPsbt(psbtHex: string): Promise<string> {
+    const pinned = this.#pin();
     // `awaitNostr` is TypeScript-private but JavaScript-public at runtime.
-    const nostr = await (this as unknown as { awaitNostr(): Promise<Record<string, unknown>> }).awaitNostr();
+    const nostr = (pinned ? await pinned : await (this as unknown as { awaitNostr(): Promise<Nip07Provider> }).awaitNostr()) as unknown as Record<string, unknown>;
 
     if (typeof nostr.signPsbt !== 'function') {
       throw new Error(
@@ -93,7 +166,7 @@ export class NBrowserSignerBtc extends NBrowserSigner implements BtcSigner {
     }
 
     const signPsbt = nostr.signPsbt as (hex: string) => Promise<string>;
-    return signPsbt(psbtHex);
+    return signPsbt.call(nostr, psbtHex);
   }
 }
 

@@ -651,9 +651,15 @@ either transport a presentation path of its own.
   relays only. Tenna on Android does honour them (and cannot answer NIP-42).
 - The page must not show its own OS notification while either path is live —
   `backgroundPushActive` is the one check, used by the foreground notifier —
-  except for an event the worker arbitrates with it by id. A worker that
-  cannot open an encrypted event (a bunker or NIP-07 login keeps the signer in
-  the page) hands the wrap to the open pages (`armada-push-open`); a page runs
+  except for an event the worker arbitrates with it by id. A NIP-07 login's
+  wraps are opened by the worker's own `self.nostr` where it has one (Din gives
+  service workers the signer their pages have), pinned to the config's account
+  with Din's `getSigner(pubkey)`, or used bare only while `getPublicKey()` is
+  that account (`nip07Pin.ts`); the page's `NBrowserSignerBtc` pins the same
+  way, so switching Din's account doesn't switch Armada's. A worker that
+  still cannot open an encrypted event (a bunker login, a NIP-07 one without
+  `self.nostr`, a signer that said no) hands the wrap to the open pages
+  (`armada-push-open`); a page runs
   it through its own ingest and answers by wrap id (`NotifyCandidate.wrapId`)
   with what its notifier did, and the worker's generic text is the fallback
   only when no page opens it.

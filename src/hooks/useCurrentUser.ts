@@ -92,7 +92,7 @@ export function useCurrentUser() {
         }
         case "extension":
           return cached(
-            new NUser(login.type, login.pubkey, new NBrowserSignerBtc()),
+            new NUser(login.type, login.pubkey, new NBrowserSignerBtc({ pubkey: login.pubkey })),
           );
         case "x-android-signer": {
           // NIP-55 Android signer (Amber…): seed the pubkey to avoid boot prompts;

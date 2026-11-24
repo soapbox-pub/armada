@@ -55,6 +55,7 @@ import { concordRoomIdentity, nip29RoomIdentity } from "@/lib/notificationRoom";
 import { roomMutedAt } from "@/lib/notifRecords";
 import { normalizeRelayUrl } from "@/lib/platform";
 import { openSealedConfig } from "@/lib/swSecretVault";
+import { globalNip07, pinNip07, type Nip07Provider } from "@/lib/nip07Pin";
 import { fetchProfiles } from "@/sw/profileFetch";
 
 import type { OpenedChat } from "@/concord/lib/chat";
@@ -125,6 +126,46 @@ function rawSigner(skHex: string) {
   };
 }
 
+type DmDecrypter = Parameters<typeof openDmWrap>[1];
+
+/** How long one NIP-07 decrypt may take: an unremembered answer is asked as a notification. */
+const NIP07_DECRYPT_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("the signer did not answer")), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * The worker's own NIP-07 signer (Din gives service workers `self.nostr`),
+ * pinned to `self`; undefined where there is none or it isn't that account.
+ */
+export async function workerNip07Signer(self: string): Promise<DmDecrypter | undefined> {
+  const nostr = globalNip07();
+  if (!nostr?.nip44) return undefined;
+  let pinned: Nip07Provider;
+  try {
+    pinned = await withTimeout(pinNip07(nostr, self), NIP07_DECRYPT_TIMEOUT_MS);
+  } catch {
+    return undefined;
+  }
+  const nip44 = pinned.nip44;
+  if (!nip44) return undefined;
+  return {
+    nip44: {
+      encrypt: () => Promise.reject(new Error("the push worker never encrypts")),
+      // NIP-07 takes exactly (pubkey, ciphertext); the app's cache options stay here.
+      decrypt: (pubkey: string, ciphertext: string) =>
+        withTimeout(nip44.decrypt(pubkey, ciphertext), NIP07_DECRYPT_TIMEOUT_MS),
+    },
+  } as DmDecrypter;
+}
+
 /**
  * Open an inlined NIP-17 wrap, or null (can't open, malformed, expired). Uses
  * `openDmWrap` so seal, anti-spoof, id-hash and expiry checks are identical to
@@ -132,11 +173,11 @@ function rawSigner(skHex: string) {
  */
 export async function openDm(
   wrap: NostrEvent,
-  skHex: string,
+  key: string | DmDecrypter,
   self: string,
 ): Promise<Awaited<ReturnType<typeof openDmWrap>>> {
   try {
-    return await openDmWrap(wrap, rawSigner(skHex), self);
+    return await openDmWrap(wrap, typeof key === "string" ? rawSigner(key) : key, self);
   } catch {
     return undefined;
   }
@@ -411,8 +452,12 @@ async function prepareDm(
   wrap: NostrEvent,
   cfg: SwPushConfig | null,
 ): Promise<PreparedPush | undefined> {
-  if (!cfg?.sk) return undefined; // non-nsec login → the worker can't decrypt
-  const unwrapped = await openDm(wrap, cfg.sk, cfg.self);
+  if (!cfg) return undefined;
+  // nsec: the key itself; NIP-07: the worker's own signer where it has one.
+  // Anything else (a bunker) leaves the wrap to an open page.
+  const key = cfg.sk ?? (cfg.nip07 ? await workerNip07Signer(cfg.self) : undefined);
+  if (!key) return undefined;
+  const unwrapped = await openDm(wrap, key, cfg.self);
   if (!unwrapped) return undefined;
   // A push is delivered as the message is published: time it by its arrival where the sender's clock was off.
   const opened = withArrival(unwrapped, Math.floor(Date.now() / 1000), cfg.self);

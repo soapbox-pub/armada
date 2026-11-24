@@ -1,5 +1,5 @@
 import { finalizeEvent, generateSecretKey, getEventHash, getPublicKey } from "nostr-tools/pure";
-import { getConversationKey, encrypt as nip44Encrypt } from "nostr-tools/nip44";
+import { getConversationKey, decrypt as nip44Decrypt, encrypt as nip44Encrypt } from "nostr-tools/nip44";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { nip19 } from "nostr-tools";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -715,6 +715,78 @@ describe("preparePush — DM request gating", () => {
   it("declines a login the worker has no key for (bunker / NIP-07)", async () => {
     const { sk: _sk, ...noKey } = cfg();
     expect(await push(dmWrap(), noKey as SwPushConfig)).toBeUndefined();
+  });
+
+  describe("a NIP-07 login, through the worker's own self.nostr", () => {
+    const nip07Cfg = (over: Partial<SwPushConfig> = {}) => {
+      const { sk: _sk, ...noKey } = cfg({ knownPeers: [senderPk], nip07: true, ...over });
+      return noKey as SwPushConfig;
+    };
+    /** A NIP-07 signer holding `secret`; `calls` records exactly what it was asked. */
+    const keySigner = (secret: Uint8Array, calls: unknown[][] = []) => ({
+      getPublicKey: async () => getPublicKey(secret),
+      signEvent: async () => { throw new Error("unused"); },
+      nip44: {
+        encrypt: async () => { throw new Error("unused"); },
+        decrypt: async (...args: unknown[]) => {
+          calls.push(args);
+          const [pubkey, ciphertext] = args as [string, string];
+          return nip44Decrypt(ciphertext, getConversationKey(secret, pubkey));
+        },
+      },
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("opens the wrap with the signer pinned to the config's account by getSigner", async () => {
+      const calls: unknown[][] = [];
+      const otherSk = generateSecretKey();
+      const getSigner = vi.fn(async (pubkey: string) => {
+        if (pubkey !== recipientPk) throw new DOMException("not held", "NotFoundError");
+        return keySigner(recipientSk, calls);
+      });
+      // Din's own account is someone else: only the pinned signer may open it.
+      vi.stubGlobal("nostr", { ...keySigner(otherSk), getSigner });
+
+      const p = await push(dmWrap(), nip07Cfg());
+      expect(p?.line).toContain("meet at 8");
+      expect(getSigner).toHaveBeenCalledWith(recipientPk);
+      // NIP-07's own two arguments, never the app's cache options.
+      expect(calls.every((args) => args.length === 2)).toBe(true);
+    });
+
+    it("uses a provider without getSigner only while it is the config's account", async () => {
+      vi.stubGlobal("nostr", keySigner(recipientSk));
+      expect((await push(dmWrap(), nip07Cfg()))?.line).toContain("meet at 8");
+
+      vi.stubGlobal("nostr", keySigner(generateSecretKey()));
+      expect(await push(dmWrap(), nip07Cfg())).toBeUndefined();
+    });
+
+    it("leaves the wrap to an open page when the site no longer holds the account", async () => {
+      vi.stubGlobal("nostr", {
+        ...keySigner(generateSecretKey()),
+        getSigner: async () => { throw new DOMException("not held", "NotFoundError"); },
+      });
+      expect(await push(dmWrap(), nip07Cfg())).toBeUndefined();
+    });
+
+    it("leaves it to an open page when the user says no", async () => {
+      const refusing = keySigner(recipientSk);
+      refusing.nip44.decrypt = async () => { throw new DOMException("no", "NotAllowedError"); };
+      vi.stubGlobal("nostr", { ...refusing, getSigner: async () => refusing });
+      expect(await push(dmWrap(), nip07Cfg())).toBeUndefined();
+    });
+
+    it("never asks self.nostr for a login that isn't NIP-07", async () => {
+      const getSigner = vi.fn(async () => keySigner(recipientSk));
+      vi.stubGlobal("nostr", { ...keySigner(recipientSk), getSigner });
+      expect(await push(dmWrap(), nip07Cfg({ nip07: undefined }))).toBeUndefined();
+      expect(getSigner).not.toHaveBeenCalled();
+    });
+
+    it("declines where the worker has no self.nostr", async () => {
+      expect(await push(dmWrap(), nip07Cfg())).toBeUndefined();
+    });
   });
 
   it("declines when no event was inlined", async () => {

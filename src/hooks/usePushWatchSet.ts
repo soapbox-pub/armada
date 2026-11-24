@@ -57,6 +57,8 @@ export interface PushWatchSet {
    * `Nip46Client` can ask the bunker to decrypt. Deliberately not given to the web worker.
    */
   dmBunker?: { clientSk: string; bunkerPubkey: string; relays: string[] };
+  /** A NIP-07 login: the web worker may ask its own `self.nostr` to decrypt, where it has one. */
+  dmNip07: boolean;
   /** Render-only; background replacement must use `dmPeersReady`. */
   dmPeersLoading: boolean;
   /** Follows, mutes, and the encrypted conversation index are authoritative. */
@@ -245,6 +247,8 @@ export function usePushWatchSet(prefs: PushPrefs, onDevice: TimedMutesOnDevice):
     return undefined;
   }, [logins]);
 
+  const dmNip07 = logins[0]?.type === "extension";
+
   const concord = useMemo(
     () =>
       allConcordSubs
@@ -317,6 +321,7 @@ export function usePushWatchSet(prefs: PushPrefs, onDevice: TimedMutesOnDevice):
     roomMutes,
     dmSk,
     dmBunker,
+    dmNip07,
     dmPeersLoading,
     dmPeersReady,
     concordReady,
