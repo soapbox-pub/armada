@@ -3285,6 +3285,13 @@ function ConcordCommunityPage() {
                     onClick: () => setInviteOpen(true),
                   },
                   {
+                    // The member card's own-name path, reached without finding oneself in the roster.
+                    show: !!user && !dissolved && standing.mayNickname(user.pubkey),
+                    icon: <Tag className="size-4" />,
+                    label: intl.formatMessage({ id: "concordPage.communityMenu.nickname", defaultMessage: "Change my nickname" }),
+                    onClick: () => user && setNicknameTarget(user.pubkey),
+                  },
+                  {
                     // Only a listed community has anything to boost.
                     show: !!user && !dissolved && discoverListed,
                     icon: <Gem className="size-4" />,

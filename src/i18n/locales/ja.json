@@ -1170,6 +1170,7 @@
   "concordPage.communityMenu.markAllRead": "すべて既読にする",
   "concordPage.communityMenu.moderation": "モデレーション",
   "concordPage.communityMenu.mute": "コミュニティをミュート",
+  "concordPage.communityMenu.nickname": "自分のニックネームを変更",
   "concordPage.communityMenu.remove": "コミュニティを削除",
   "concordPage.communityMenu.rotateKeys": "コミュニティの鍵をローテーション",
   "concordPage.communityMenu.settings": "コミュニティ設定",
