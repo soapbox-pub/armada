@@ -12,7 +12,7 @@ import {
   snapshotAuthorities,
   snapshotEpochs,
 } from "@/concord/lib/guestbook";
-import { canActOnMember, Permissions } from "@/concord/lib/roles";
+import { canActOnMember, hasPermission, Permissions } from "@/concord/lib/roles";
 import { queryPlane, withGuestbookStreams } from "@/concord/lib/rumorStore";
 import type { Community } from "@/concord/lib/types";
 import { clockNowMs } from "@/lib/relayClock";
@@ -26,8 +26,9 @@ export function guestbookFoldOptions(
 ): GuestbookFoldOptions {
   // A snapshot is honored only from the npub whose Refounding minted its epoch
   // (CORD-02 §5): judged per epoch where its address is known, else against the set
-  // of every held epoch's minter.
+  // of every held epoch's minter. A minter never recorded is the earliest rotator's.
   const epochs = snapshotEpochs(community);
+  const ownerHex = folded?.ownerHex ?? community.owner;
   return {
     nowMs: clockNowMs(),
     canKick: (actor, target, citation, atMs) =>
@@ -45,6 +46,9 @@ export function guestbookFoldOptions(
       ),
     snapshotAuthorities: snapshotAuthorities(community),
     snapshotAuthorityOf: epochs.authorityOf,
+    unrecorded: epochs.unrecorded,
+    mayRotate: (pk) =>
+      pk === ownerHex || Boolean(folded && !folded.banned.has(pk) && hasPermission(folded.roster, pk, Permissions.BAN)),
     live: epochs.live,
     banned: folded?.banned,
   };

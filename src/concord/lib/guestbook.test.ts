@@ -463,10 +463,12 @@ describe("whose snapshot an epoch takes (CORD-02 §5, Vector `snapshot_authority
     ...o,
   });
 
-  it("is the owner's where the epoch's minter was never recorded", () => {
+  it("leaves an epoch whose minter was never recorded to the joiner's rule", () => {
     const epochs = snapshotEpochs(community());
-    expect(epochs.live).toEqual({ pk: gb1.pk, refounder: owner.pubkey });
-    expect(epochs.authorityOf.get(gb1.pk)).toBe(owner.pubkey);
+    expect(epochs.live).toEqual({ pk: gb1.pk });
+    expect(epochs.authorityOf.has(gb1.pk)).toBe(false);
+    expect(epochs.unrecorded).toEqual(new Set([gb1.pk]));
+    // Where a snapshot's own address isn't known, the owner still stands in.
     expect(snapshotAuthorities(community())).toEqual(new Set([owner.pubkey]));
   });
 
@@ -487,19 +489,71 @@ describe("whose snapshot an epoch takes (CORD-02 §5, Vector `snapshot_authority
     expect(snapshotAuthorities(c).size).toBe(0);
   });
 
-  it("seats the members an owner's Refounding listed for someone who joined after it", async () => {
-    const alice = signer();
-    const wraps: NostrEvent[] = [];
-    for (const r of buildSnapshotRumors(owner.pubkey, [alice.pubkey], bytesToHex(random32()), 5000)) wraps.push(await sealGuestbook(r, gb1, owner));
-    const c = community({ heldRoots: [{ epoch: 1n, key: root1 }] });
+  const joinerOpts = (c: Community, rotators: string[], nowMs = 10_000) => {
     const epochs = snapshotEpochs(c);
-    const coalesced = coalesceGuestbook(openGuestbookWraps(wraps, [gb1]), {
-      nowMs: 10_000,
+    return {
+      nowMs,
       canKick: denyAllKicks,
       snapshotAuthorities: snapshotAuthorities(c),
       snapshotAuthorityOf: epochs.authorityOf,
+      unrecorded: epochs.unrecorded,
+      mayRotate: (pk: string) => pk === owner.pubkey || rotators.includes(pk),
       live: epochs.live,
-    });
+    };
+  };
+  const snapshot = async (by: ReturnType<typeof signer>, members: string[], ms: number) => {
+    const out: NostrEvent[] = [];
+    for (const r of buildSnapshotRumors(by.pubkey, members, bytesToHex(random32()), ms)) out.push(await sealGuestbook(r, gb1, by));
+    return out;
+  };
+
+  it("seats the members an owner's Refounding listed for someone who joined after it", async () => {
+    const alice = signer();
+    const c = community({ heldRoots: [{ epoch: 1n, key: root1 }] });
+    const coalesced = coalesceGuestbook(openGuestbookWraps(await snapshot(owner, [alice.pubkey], 5000), [gb1]), joinerOpts(c, []));
     expect(coalesced.get(alice.pubkey)?.state).toBe("join");
+  });
+
+  describe("a joiner, who never saw the epoch minted (concord#27)", () => {
+    const c = community({ heldRoots: [{ epoch: 1n, key: root1 }] });
+
+    it("honors the earliest snapshot from a BAN holder, not a later one from the owner", async () => {
+      const [alice, bob] = [signer(), signer()];
+      const wraps = [...(await snapshot(admin, [alice.pubkey], 5000)), ...(await snapshot(owner, [bob.pubkey], 6000))];
+      const opened = openGuestbookWraps(wraps, [gb1]);
+      const opts = joinerOpts(c, [admin.pubkey]);
+      const coalesced = coalesceGuestbook(opened, opts);
+      expect(coalesced.get(alice.pubkey)?.state).toBe("join");
+      expect(coalesced.has(bob.pubkey)).toBe(false);
+      // The live Refounding is that rotator's, so a member it left out is cut.
+      expect(liveRefound(opened, opts)?.base).toEqual(new Set([alice.pubkey]));
+    });
+
+    it("never seeds from a member who may not rotate, however early", async () => {
+      const [alice, mallory] = [signer(), signer()];
+      const wraps = [...(await snapshot(mallory, [mallory.pubkey], 1000)), ...(await snapshot(owner, [alice.pubkey], 5000))];
+      const coalesced = coalesceGuestbook(openGuestbookWraps(wraps, [gb1]), joinerOpts(c, []));
+      expect(coalesced.get(alice.pubkey)?.state).toBe("join");
+      expect(coalesced.has(mallory.pubkey)).toBe(false);
+    });
+
+    it("breaks a tie on time by the lower npub", async () => {
+      const [x, y] = [signer(), signer()];
+      const lower = x.pubkey < y.pubkey ? x : y;
+      const [alice, bob] = [signer(), signer()];
+      const wraps = [...(await snapshot(x, [x === lower ? alice.pubkey : bob.pubkey], 5000)), ...(await snapshot(y, [y === lower ? alice.pubkey : bob.pubkey], 5000))];
+      const coalesced = coalesceGuestbook(openGuestbookWraps(wraps, [gb1]), joinerOpts(c, [x.pubkey, y.pubkey]));
+      expect(coalesced.get(alice.pubkey)?.state).toBe("join");
+      expect(coalesced.has(bob.pubkey)).toBe(false);
+    });
+
+    it("keeps the Rotator a reader verified, whatever came earlier", async () => {
+      const [alice, bob] = [signer(), signer()];
+      const wraps = [...(await snapshot(admin, [alice.pubkey], 5000)), ...(await snapshot(owner, [bob.pubkey], 6000))];
+      const verified = community({ heldRoots: [{ epoch: 1n, key: root1, refounder: owner.pubkey }] });
+      const coalesced = coalesceGuestbook(openGuestbookWraps(wraps, [gb1]), joinerOpts(verified, [admin.pubkey]));
+      expect(coalesced.get(bob.pubkey)?.state).toBe("join");
+      expect(coalesced.has(alice.pubkey)).toBe(false);
+    });
   });
 });

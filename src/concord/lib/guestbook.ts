@@ -35,35 +35,53 @@ export function currentGuestbookGroup(community: Community): GroupKey {
 }
 
 /**
- * Whose snapshot an epoch takes (CORD-02 §5, Vector `snapshot_authority_for`): the
- * npub recorded as its minter when its rotation was adopted, else the owner, since
- * a member who joined after the Refounding was never told who minted it. Nobody's
- * at genesis.
+ * The npub this device recorded as minting `epoch` when it adopted the rotation
+ * (CORD-02 §5, Vector `snapshot_authority_for`). Nobody's at genesis, and unknown to
+ * a member who joined after the Refounding: {@link withJoinerAuthorities} decides those.
  */
-function epochMinter(community: Community, epoch: bigint, refounder: string | undefined): string | undefined {
-  return epoch > 0n ? refounder ?? community.owner : undefined;
+function epochMinter(epoch: bigint, refounder: string | undefined): string | undefined {
+  return epoch > 0n ? refounder : undefined;
 }
 
 /**
  * Each held epoch's Guestbook address → the npub whose Refounding minted it, and
  * the live epoch's: a snapshot counts only from its own epoch's minter (CORD-02 §5).
+ * `unrecorded` are the addresses of epochs past genesis whose minter this device
+ * never verified.
  */
-export function snapshotEpochs(community: Community): { authorityOf: Map<string, string>; live: { pk: string; refounder?: string } } {
+export function snapshotEpochs(community: Community): {
+  authorityOf: Map<string, string>;
+  unrecorded: Set<string>;
+  live: { pk: string; refounder?: string };
+} {
   const authorityOf = new Map<string, string>();
-  for (const r of community.heldRoots) {
-    const minter = epochMinter(community, r.epoch, r.refounder);
-    if (minter) authorityOf.set(guestbookGroupKey(r.key, community.id, r.epoch).pk, minter);
-  }
+  const unrecorded = new Set<string>();
+  const note = (pk: string, epoch: bigint, refounder: string | undefined) => {
+    const minter = epochMinter(epoch, refounder);
+    if (minter) {
+      authorityOf.set(pk, minter);
+      unrecorded.delete(pk);
+    } else if (epoch > 0n && !authorityOf.has(pk)) {
+      unrecorded.add(pk);
+    }
+  };
+  for (const r of community.heldRoots) note(guestbookGroupKey(r.key, community.id, r.epoch).pk, r.epoch, r.refounder);
   const live = currentGuestbookGroup(community).pk;
   const recorded = community.refounder ?? community.heldRoots.find((r) => r.epoch === community.rootEpoch)?.refounder;
-  const refounder = epochMinter(community, community.rootEpoch, recorded);
-  if (refounder) authorityOf.set(live, refounder);
-  return { authorityOf, live: { pk: live, ...(refounder ? { refounder } : {}) } };
+  note(live, community.rootEpoch, recorded);
+  const refounder = authorityOf.get(live);
+  return { authorityOf, unrecorded, live: { pk: live, ...(refounder ? { refounder } : {}) } };
 }
 
-/** Every {@link epochMinter} over the held epochs, for a snapshot whose own epoch isn't known. */
+/**
+ * Every recorded minter over the held epochs, and the owner for one never recorded,
+ * for a snapshot whose own epoch isn't known.
+ */
 export function snapshotAuthorities(community: Community): Set<string> {
-  return new Set(snapshotEpochs(community).authorityOf.values());
+  const epochs = snapshotEpochs(community);
+  const out = new Set(epochs.authorityOf.values());
+  if (epochs.unrecorded.size > 0) out.add(community.owner);
+  return out;
 }
 
 /** A self-signed Join, optionally attributing the invite link used (CORD-05 §1). */
@@ -165,7 +183,8 @@ export function openGuestbookOpened(opened: OpenedEvent[]): OpenedEvent[] {
  *   - latest ms wins; ties to the LOWER rumor id;
  *   - a Kick needs `canKick(actor, target)` (KICK bit + strict outrank);
  *   - a snapshot chunk counts only from its epoch's minter (`snapshotAuthorityOf`,
- *     else the `snapshotAuthorities` set where its address is unknown) and merely
+ *     named by {@link withJoinerAuthorities} where never recorded, else the
+ *     `snapshotAuthorities` set where its address is unknown) and merely
  *     SEEDS state that any newer firsthand entry supersedes.
  */
 export function coalesceGuestbook(
@@ -184,6 +203,13 @@ export function coalesceGuestbook(
     snapshotAuthorities?: ReadonlySet<string>;
     /** Guestbook address → its epoch's minter; where a snapshot's address is known, only that npub counts. */
     snapshotAuthorityOf?: ReadonlyMap<string, string>;
+    /**
+     * Guestbook addresses of epochs whose minter this device never verified, as a
+     * joiner holds them: {@link withJoinerAuthorities} names one from `mayRotate`.
+     */
+    unrecorded?: ReadonlySet<string>;
+    /** Whether the fold lets an npub rotate the base: the owner, or a `BAN` holder (CORD-06). */
+    mayRotate?: (pk: string) => boolean;
     /** The live epoch's Guestbook address and minter, for {@link liveRefound}. */
     live?: { pk: string; refounder?: string };
 
@@ -210,6 +236,46 @@ export function coalesceGuestbook(
   return byMember;
 }
 
+const joinerAuthorities = new WeakMap<OpenedEvent[], { opts: Parameters<typeof coalesceGuestbook>[1]; out: Parameters<typeof coalesceGuestbook>[1] }>();
+
+/**
+ * Names the minter of each epoch this device never saw minted (CORD-02 §5): a reader
+ * holding only that epoch, as a joiner does, can't learn who it was (the rotation is
+ * sealed under the prior root), so it honors the earliest snapshot there from an npub
+ * that may rotate the base, the lower npub breaking a tie. The Refounder writes its
+ * snapshot as it mints, and a racing Refounding's lands under its own root.
+ */
+export function withJoinerAuthorities(
+  opened: OpenedEvent[],
+  opts: Parameters<typeof coalesceGuestbook>[1],
+): Parameters<typeof coalesceGuestbook>[1] {
+  const { unrecorded, mayRotate } = opts;
+  if (!unrecorded?.size || !mayRotate) return opts;
+  const hit = joinerAuthorities.get(opened);
+  if (hit?.opts === opts) return hit.out;
+  const earliest = new Map<string, { author: string; ms: number }>();
+  for (const ev of opened) {
+    if (ev.kind !== KIND_SNAPSHOT || ev.streamPk === undefined || !unrecorded.has(ev.streamPk)) continue;
+    if (ev.ms > opts.nowMs + GUESTBOOK_MAX_FUTURE_MS || opts.banned?.has(ev.author)) continue;
+    if (ev.sealKind !== undefined && ev.sealKind !== KIND_SEAL_ENCRYPTED) continue;
+    if (!snapTag(ev.tags) || !mayRotate(ev.author)) continue;
+    const best = earliest.get(ev.streamPk);
+    if (!best || ev.ms < best.ms || (ev.ms === best.ms && ev.author < best.author)) earliest.set(ev.streamPk, { author: ev.author, ms: ev.ms });
+  }
+  // Resolved: a second pass over the same options finds nothing left to name.
+  const authorityOf = new Map(opts.snapshotAuthorityOf ?? []);
+  for (const [pk, { author }] of earliest) authorityOf.set(pk, author);
+  const liveMinter = opts.live && earliest.get(opts.live.pk)?.author;
+  const out = {
+    ...opts,
+    snapshotAuthorityOf: authorityOf,
+    unrecorded: undefined,
+    ...(liveMinter ? { live: { ...opts.live!, refounder: liveMinter } } : {}),
+  };
+  joinerAuthorities.set(opened, { opts, out });
+  return out;
+}
+
 /** The live epoch's Refounding: its complete snapshot's guest list and the moment it took effect. */
 export interface Refound {
   cut: number;
@@ -223,6 +289,7 @@ export interface Refound {
  * unless every snapshot is whole — a missing chunk is an absence, not a departure.
  */
 export function liveRefound(opened: OpenedEvent[], opts: Parameters<typeof coalesceGuestbook>[1]): Refound | undefined {
+  opts = withJoinerAuthorities(opened, opts);
   const authority = opts.live?.refounder;
   if (!authority || !opts.live) return undefined;
   const snapshots = new Map<string, { held: Set<number>; n: number; evs: OpenedEvent[] }>();
@@ -471,6 +538,7 @@ function guestbookEntries(
   opts: Parameters<typeof coalesceGuestbook>[1],
   apply: (candidate: CoalescedMember) => void,
 ): void {
+  opts = withJoinerAuthorities(opened, opts);
 
   for (const ev of opened) {
     if (ev.ms > opts.nowMs + GUESTBOOK_MAX_FUTURE_MS) continue;
