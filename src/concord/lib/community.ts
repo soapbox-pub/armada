@@ -15,6 +15,7 @@ import {
   voiceGroupKey,
   voiceMediaKey,
 } from "@/concord/lib/derive";
+import { publishedHistory } from "@/concord/lib/channelHistory";
 import { channelCategory } from "@/concord/lib/channelCategory";
 import { channelPosition, compareChannelOrder } from "@/concord/lib/channelOrder";
 import { channelView } from "@/concord/lib/channelView";
@@ -153,6 +154,11 @@ export function channelsView(community: Community, folded: FoldedControl | undef
     if (!def.isPrivate) {
       let voiceMemo: VoiceKeys | undefined;
       const ledger = folded?.writers?.get(def.channelIdHex);
+      // The earlier planes its metadata publishes (CORD-03 §2), last, so a held plane of the
+      // same epoch sorts ahead of them.
+      const published = publishedHistory(def.metadata)
+        .filter((p) => !rootStreams.some((s) => s.group.pk === p.group.pk) && !channelStreams.some((s) => s.group.pk === p.group.pk))
+        .map((p) => ({ epoch: p.epoch, group: p.group }));
       out.push({
         id,
         idHex: def.channelIdHex,
@@ -164,7 +170,7 @@ export function channelsView(community: Community, folded: FoldedControl | undef
           return (voiceMemo ??= voiceKeys(community.root, id, community.rootEpoch));
         },
         // Writes go to the root stream; private-era streams stay readable.
-        streams: [...rootStreams, ...channelStreams, ...writerStreams(ledger, rootStreams)],
+        streams: [...rootStreams, ...channelStreams, ...published, ...writerStreams(ledger, [...rootStreams, ...published])],
         current: rootStreams[0],
       });
       continue;

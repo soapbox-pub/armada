@@ -283,12 +283,41 @@ export function onGroupKeyMemoDirty(listener: () => void): void {
 export function clearGroupKeyMemo(): void {
   groupKeyMemo.clear();
   hydratedEntries.clear();
+  fromSecretMemo.clear();
 }
 
 /** Test seam: forget every derivation and the persist listener. */
 export function _resetGroupKeyMemoForTests(): void {
   clearGroupKeyMemo();
   memoDirtyListener = undefined;
+}
+
+/** Planes named by their own secret, by that secret's hex: the point multiplication is the cost. */
+const fromSecretMemo = new Map<string, GroupKey>();
+
+/**
+ * A plane's group key from its own secret, as a Channel's published history carries
+ * it (CORD-03 §2): it opens and signs that plane and no other. Undefined for bytes
+ * that are no secret key.
+ */
+export function groupKeyFromSecret(sk: Uint8Array): GroupKey | undefined {
+  if (sk.length !== 32 || !secp256k1.utils.isValidSecretKey(sk)) return undefined;
+  const memoKey = bytesToHex(sk);
+  const hit = fromSecretMemo.get(memoKey);
+  if (hit) return hit;
+  const pk = bytesToHex(schnorr.getPublicKey(sk));
+  const secret = Uint8Array.from(sk);
+  let convKey: Uint8Array | undefined;
+  const key: GroupKey = {
+    sk: secret,
+    pk,
+    get convKey() {
+      return (convKey ??= getConversationKey(secret, pk));
+    },
+  };
+  if (fromSecretMemo.size >= GROUP_KEY_MEMO_MAX) fromSecretMemo.delete(fromSecretMemo.keys().next().value as string);
+  fromSecretMemo.set(memoKey, key);
+  return key;
 }
 
 /**

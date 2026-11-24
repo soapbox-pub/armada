@@ -319,8 +319,9 @@ export function useChannelTimeline(
     () => (channelIdHex ? channelRules(control, channelIdHex, community?.id, timeouts, history, clockNowMs(), publicUntil) : NO_RULES),
     [control, channelIdHex, community?.id, timeouts, history, publicUntil],
   );
-  // Cutoffs included: retirement can change without the epoch set changing.
-  const epochSig = channel?.streams.map((s) => `${s.epoch}:${s.retiredAt ?? ""}`).join(",") ?? "";
+  // Cutoffs and addresses included: retirement can change without the epoch set changing,
+  // and a published plane (CORD-03 §2) can share an epoch number with a held one.
+  const epochSig = channel?.streams.map((s) => `${s.epoch}:${s.group.pk.slice(0, 16)}:${s.retiredAt ?? ""}`).join(",") ?? "";
   const queryKey = useMemo(() => channelKey(channelIdHex), [channelIdHex]);
   const focusIds = useMemo(
     () => [...new Set([focus?.threadRoot, focus?.messageId].filter((id): id is string => Boolean(id)))],

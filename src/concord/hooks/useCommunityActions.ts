@@ -21,12 +21,13 @@ import { preferPortableRelays, unusableRelaysReason } from "@/lib/relayUsability
 import { channelKeysToWire, holdsJoinMaterial, isLive, nextChannelEpoch, toJoinMaterial, rehydrateCommunity, type CommunityList, type CommunityListEntry, type JoinMaterial } from "@/concord/lib/communityList";
 import { channelsView, mintCommunity, visibleChannels } from "@/concord/lib/community";
 import { CHANNEL_TOPIC_MAX_BYTES, openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
+import { privatePlanes, withHistory } from "@/concord/lib/channelHistory";
 import { rekeyOrder } from "@/concord/lib/rankKey";
 import { planCreateCategory, planRenameCategory, planSync } from "@/concord/lib/rankedWrites";
 import { maySwapOverwrites } from "@/concord/lib/roster";
 import { publishChannelRotation } from "@/concord/lib/channelRotation";
 import { DEFAULT_MESSAGE_EXPIRATION_SECS } from "@/concord/lib/disappearing";
-import { accessRolePosition, channelPermissions, isAuthorized, MAX_ROLES_PER_COMMUNITY, Permissions } from "@/concord/lib/roles";
+import { accessRolePosition, channelPermissions, everyoneReadsHistory, isAuthorized, MAX_ROLES_PER_COMMUNITY, Permissions } from "@/concord/lib/roles";
 import { channelEpochFloor, channelRekeyAddressWindow } from "@/concord/lib/rekey";
 import {
   buildChannelContentEdition,
@@ -899,7 +900,7 @@ export function useCommunityManagement(community: Community | undefined) {
         }
         const meta = edit(opened.metadata);
         rumor = opts.publicise
-          ? buildChannelEdition(hex32(channelIdHex), { ...meta, private: false }, common)
+          ? buildChannelEdition(hex32(channelIdHex), publicised(meta, now, channelIdHex), common)
           : buildChannelContentEdition(
               hex32(channelIdHex),
               sealChannelMetadata(meta, held.key, held.id, held.epoch, head ? bytesToHex(head.hash) : undefined, {
@@ -910,7 +911,7 @@ export function useCommunityManagement(community: Community | undefined) {
             );
       } else {
         const meta = edit(def?.metadata ?? { name: "deleted", private: false });
-        const next = opts.deleted ? { ...meta, deleted: true } : opts.publicise ? { ...meta, private: false } : meta;
+        const next = opts.deleted ? { ...meta, deleted: true } : opts.publicise ? publicised(meta, now, channelIdHex) : meta;
         // On Roles v2 a Private Channel's details are always sealed (CORD-03 §2, Vector `channel_edition_content`).
         if (now?.rankedRoster && next.private && !opts.deleted) {
           const held = community.privateChannels.find((c) => bytesToHex(c.id) === channelIdHex);
@@ -926,6 +927,17 @@ export function useCommunityManagement(community: Community | undefined) {
       }
       await publishEdition(nostr, community, user.signer, rumor);
     });
+  };
+
+  /**
+   * A Private Channel's details made public (CORD-03 §2, Vector `publicize_channel`): while
+   * `@everyone` there reads history, they publish its private epochs, so a member who never
+   * held the key reads what was said while it was private.
+   */
+  const publicised = (meta: ChannelMetadata, view: FoldedControl | undefined, channelIdHex: string): ChannelMetadata => {
+    const next = { ...meta, private: false };
+    if (!community || (view && !everyoneReadsHistory(view.roster, channelIdHex))) return next;
+    return withHistory(next, privatePlanes(community, channelIdHex)) ?? next;
   };
 
   /** Refuse before publishing what every reader drops, which would wedge this member's later edits (Vector `ensure_channel_manager`). */

@@ -14,6 +14,7 @@ import { ACCESS_QUORUM_GRACE_MS, queryRelayStrict, readAccessPlanes } from "@/co
 import { citationFor, foldStoredControl, publishEdition, useControlFold, useDissolved, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { guestbookWalked, useGuestbook } from "@/concord/hooks/useGuestbook";
 import { runWriterDuty } from "@/concord/hooks/writerDutyRun";
+import { historyBackstop } from "@/concord/hooks/historyBackstop";
 import { useChannelRekey } from "@/concord/hooks/useRekey";
 import { onDutyNow } from "@/concord/lib/dutyNow";
 import { sweepControl, sweepGuestbook, whenAuthSettled } from "@/concord/lib/planeSync";
@@ -318,6 +319,7 @@ export function useAccessDuty(community: Community | undefined): void {
         }).catch(failed("writer duty"));
         settled = judged === true && !failedAny && !controller.signal.aborted;
         await resealBackstop(nostr, () => latest.current, user, controller.signal, freshen).catch(failed("reseal backstop"));
+        await historyBackstop(nostr, () => latest.current, user, controller.signal, freshen).catch(failed("history backstop"));
       } finally {
         const again = await book.end(settled);
         running.delete(idHex);

@@ -740,12 +740,35 @@ export function channelPermissions(
  * where it can't is restricted (CORD-03 §1). A legacy Roster restricts nothing.
  */
 export function everyoneSends(roles: CommunityRoles, channelHex: string): boolean {
-  if (roles.everyone === undefined) return true;
+  const p = everyoneIn(roles, channelHex);
+  return p === undefined || (p & Permissions.SEND_MESSAGES) !== 0n;
+}
+
+/**
+ * Whether a restricted Channel is also Locked (CORD-03 §1): `@everyone`, resolved as
+ * {@link everyoneSends} does, can't post, react or join calls there. Never on a legacy Roster.
+ */
+export function everyoneLocked(roles: CommunityRoles, channelHex: string): boolean {
+  const p = everyoneIn(roles, channelHex);
+  return p !== undefined && (p & (Permissions.SEND_MESSAGES | Permissions.ADD_REACTIONS | Permissions.CONNECT)) === 0n;
+}
+
+/**
+ * Whether `@everyone`, resolved the same way, reads a Channel's history: its earlier
+ * planes are then every member's (CORD-03 §2). A legacy Roster reads it.
+ */
+export function everyoneReadsHistory(roles: CommunityRoles, channelHex: string): boolean {
+  const p = everyoneIn(roles, channelHex);
+  return p === undefined || (p & Permissions.READ_MESSAGE_HISTORY) !== 0n;
+}
+
+/** `@everyone`'s bits in a Channel with only its own overwrite applied (its Category's when synced); undefined on a legacy Roster. */
+function everyoneIn(roles: CommunityRoles, channelHex: string): bigint | undefined {
+  if (roles.everyone === undefined) return undefined;
   const channel = channelHex.toLowerCase();
   const scope = roles.syncs?.[channel] ?? channel;
   const row = (roles.overwrites ?? []).find((o) => o.scope === scope && o.target.kind === "everyone");
-  const p = row ? (roles.everyone & ~row.deny) | row.allow : roles.everyone;
-  return (p & Permissions.SEND_MESSAGES) !== 0n;
+  return row ? (roles.everyone & ~row.deny) | row.allow : roles.everyone;
 }
 
 /**
