@@ -8,6 +8,7 @@
  */
 
 import type { GroupKey, StreamKeyView } from "@/concord/lib/derive";
+import type { SealRef } from "@/concord/lib/writers";
 import {
   normalizeGitRepositoryAttachments,
   parseGitRepositoryAddress,
@@ -313,6 +314,18 @@ export interface WriterWindow {
   certifier?: string;
 }
 
+/**
+ * How a Channel's read address is read once its Writers ledger has Locked it (CORD-03 §1):
+ * nothing by date inside a quiet span, and below its seal only the wrap ids the seal names.
+ */
+export interface ReadGate {
+  /** Whether the read address takes nothing at `atMs`. */
+  quiet(atMs: number): boolean;
+  /** The dates at or below `topMs` the read address is read by, `[floor, top]`; undefined when only the seal is left. */
+  range(topMs: number): [number, number] | undefined;
+  seal?: SealRef;
+}
+
 /** One channel as the UI consumes it: folded definition + derived stream keys. */
 export interface Channel {
   id: Uint8Array;
@@ -333,6 +346,10 @@ export interface Channel {
   view?: ChannelView;
   /** When a converted Private Channel went private (`public_until`, unix ms; CORD-03 §2). */
   publicUntil?: number;
+  /** Locked (CORD-03 §1): every write rides the live writer address, and its read address takes nothing new. */
+  locked?: true;
+  /** Present where the ledger has a quiet span or a seal. */
+  readGate?: ReadGate;
   /** Current-epoch call coordinates (CORD-07 §1), lazily derived (costs a point multiplication). */
   readonly voice: VoiceKeys;
   /**

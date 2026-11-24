@@ -109,7 +109,7 @@ describe("the writer duty (Vector fixture)", () => {
     const control = fold(editionsOf(before));
     const plan = planFor(control, deliveriesIn(before));
     expect(plan).toEqual({ kind: "deliver", epoch: actors.writer_epoch, recipients: [actors.member] });
-    const certs = certify(community.id, actors.general, actors.writer_epoch, hex32(actors.certifier_secret), [actors.member]);
+    const { certs } = certify(community.id, actors.general, actors.writer_epoch, hex32(actors.certifier_secret), [actors.member]);
     const vector = deliveriesIn(at(actors.after_grant)).find((d) => d.scopeIdHex === writerScopeHex && new Map(d.certs).has(actors.member))!;
     const certifier = (control.writers!.get(actors.general)!.entries[0].spell as { certifier: string }).certifier;
     const digest = certDigest(community.id, hex32(actors.general), actors.writer_epoch, hex32(actors.member));
@@ -124,7 +124,7 @@ describe("the writer duty (Vector fixture)", () => {
     const eds = editionsOf(at(actors.after_lose));
     const last = ledgers(eds).at(-1)!;
     const before = fold(eds.filter((e) => e !== last));
-    expect(planFor(before, deliveriesIn(at(actors.after_lose)))).toEqual({ kind: "backstop", act: { kind: "stop", writer: actors.member }, lanes: [{ kind: "cut", member: actors.member }] });
+    expect(planFor(before, deliveriesIn(at(actors.after_lose)))).toEqual({ kind: "backstop", act: { kind: "stop", writer: actors.member, had: "full" }, lanes: [{ kind: "cut", member: actors.member }] });
     const vector = parseLedger(last.content)!;
     expect(vector.entries.at(-1)!.spell).toEqual({ kind: "stop", writer: actors.member });
     const ours = ledgerEdition({ communityId: community.id, control: before, channelIdHex: actors.general, base: before.writers!.get(actors.general)!, spell: { kind: "stop", writer: actors.member }, entryAtMs: Date.now(), nowMs: Date.now(), me: actors.owner })!;

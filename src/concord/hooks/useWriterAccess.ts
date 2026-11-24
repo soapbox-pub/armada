@@ -17,7 +17,7 @@ import { accessPlane, parseDelivery, type ParsedDelivery } from "@/concord/lib/d
 import { hex32 } from "@/concord/lib/derive";
 import { rereadOnBackoff } from "@/concord/lib/quorum";
 import type { Community } from "@/concord/lib/types";
-import { adoptWriterDeliveries, canPostIn, subscribeWriterKeys, writerKeysReady, writerNeeds } from "@/concord/lib/writerKeys";
+import { adoptWriterDeliveries, canPostIn, canReactIn, subscribeWriterKeys, writerKeysReady, writerNeeds } from "@/concord/lib/writerKeys";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 let warmedSig = 0;
@@ -121,4 +121,13 @@ export function useCanPost(community: Community | undefined, channelIdHex: strin
   const { history } = useGuestbook(folded?.rankedRoster ? community : undefined);
   useSyncExternalStore(bumpOnWarm, () => warmedSig);
   return canPostIn(folded, community?.id, channelIdHex, user?.pubkey, history);
+}
+
+/** Whether this member's reactions can reach readers in the Channel now, re-read as writer keys land. */
+export function useCanReact(community: Community | undefined, channelIdHex: string | undefined): boolean {
+  const { user } = useCurrentUser();
+  const { data: folded } = useControlFold(community);
+  const { history } = useGuestbook(folded?.rankedRoster ? community : undefined);
+  useSyncExternalStore(bumpOnWarm, () => warmedSig);
+  return canReactIn(folded, community?.id, channelIdHex, user?.pubkey, history);
 }

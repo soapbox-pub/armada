@@ -31,6 +31,8 @@ export interface ParsedDelivery {
   writer?: string;
   /** Writer certificates as carried, `[recipient, cert]`, repeats kept (CORD-03 §1, Vector `certs`). */
   certs: Array<[string, string]>;
+  /** Scoped writer certificates, `[recipient, cert, rights]`, for a Locked Channel's members who may react or join calls but not post. */
+  scoped: Array<[string, string, bigint]>;
   /** Part of a writer epoch's minting delivery, `[part, parts]`. */
   mint?: [number, number];
   blobs: RekeyBlob[];
@@ -57,6 +59,13 @@ export function parseDelivery(opened: OpenedEvent): ParsedDelivery | undefined {
     if (certs.length >= MAX_REKEY_BLOBS_RECEIVED) break;
     if (t.length === 3 && t[0] === "cert" && HEX64.test(t[1]) && /^[0-9a-f]{128}$/i.test(t[2])) certs.push([t[1].toLowerCase(), t[2].toLowerCase()]);
   }
+  const scoped: Array<[string, string, bigint]> = [];
+  for (const t of opened.tags) {
+    if (scoped.length >= MAX_REKEY_BLOBS_RECEIVED) break;
+    if (t.length !== 4 || t[0] !== "rcert" || !HEX64.test(t[1]) || !/^[0-9a-f]{128}$/i.test(t[2]) || !DECIMAL.test(t[3])) continue;
+    const rights = BigInt(t[3]);
+    if (rights < 1n << 64n) scoped.push([t[1].toLowerCase(), t[2].toLowerCase(), rights]);
+  }
   const mintTag = opened.tags.find((t) => t[0] === "mint");
   let mint: [number, number] | undefined;
   // As Rust's `u32::from_str` reads them: a leading `+` or zeros allowed.
@@ -74,6 +83,7 @@ export function parseDelivery(opened: OpenedEvent): ParsedDelivery | undefined {
     newEpoch: BigInt(epoch),
     ...(writer ? { writer: writer.toLowerCase() } : {}),
     certs,
+    scoped,
     ...(mint ? { mint } : {}),
     blobs,
   };
@@ -155,13 +165,16 @@ export async function buildAccessDeliveries(
     atSecs: number;
     writer?: string;
     certs?: ReadonlyMap<string, string>;
+    /** Scoped certificates by recipient, each with the CORD-04 bits it covers. */
+    scoped?: ReadonlyMap<string, { cert: string; rights: bigint }>;
     mint?: boolean;
   },
 ): Promise<NostrRumor[]> {
   const plain = bytesToBase64(encodeWrappedKey(hex32(o.scopeIdHex), o.epoch, o.key));
   const blobs: RekeyBlob[] = [];
   for (const r of o.recipients) blobs.push({ locator: myLocator(deliverer, r, o.scopeIdHex, o.epoch), wrapped: await encrypt(r, plain) });
-  const perEvent = o.certs && o.certs.size > 0 ? MAX_CERTIFIED_BLOBS_PER_EVENT : REKEY_BLOBS_PER_EVENT;
+  // Scoped certificates count with whole ones toward what an event holds.
+  const perEvent = (o.certs?.size ?? 0) + (o.scoped?.size ?? 0) > 0 ? MAX_CERTIFIED_BLOBS_PER_EVENT : REKEY_BLOBS_PER_EVENT;
   const parts = Math.max(1, Math.ceil(blobs.length / perEvent));
   const out: NostrRumor[] = [];
   for (let i = 0; i < parts; i++) {
@@ -171,6 +184,10 @@ export async function buildAccessDeliveries(
     for (const r of who) {
       const cert = o.certs?.get(r);
       if (cert) tags.push(["cert", r, cert]);
+    }
+    for (const r of who) {
+      const scoped = o.scoped?.get(r);
+      if (scoped) tags.push(["rcert", r, scoped.cert, scoped.rights.toString()]);
     }
     if (o.mint) tags.push(["mint", String(i + 1), String(parts)]);
     out.push(buildRumor({ kind: KIND_REKEY, content: JSON.stringify(blobs.slice(i * perEvent, (i + 1) * perEvent)), tags, pubkey: deliverer, createdAtSecs: o.atSecs }));

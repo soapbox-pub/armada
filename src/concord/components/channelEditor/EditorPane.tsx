@@ -1,4 +1,4 @@
-import { ChevronRight, Folder, FolderX, KeyRound, Loader2, Plus, RefreshCw, RotateCw, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ChevronRight, Folder, FolderX, KeyRound, Loader2, Lock, LockOpen, Plus, RefreshCw, RotateCw, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useId, useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -193,6 +193,32 @@ export function EditorPane({
     </div>
   );
 
+  // Locked: @everyone may post, react and join calls nowhere here, so every write takes the
+  // Channel's writer key and nothing anyone else sends reaches its readers (CORD-03 §1).
+  const lockdown = model.ranked && (
+    <div className={cn("flex items-center gap-3 p-3", CARD)}>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">
+          <FormattedMessage {...m.lockdown} />
+        </span>
+        <span className="block text-xs text-muted-foreground">
+          <FormattedMessage {...m.lockdownHint} values={{ locked: String(model.locked) }} />
+        </span>
+      </span>
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        className="clip-corner-lg"
+        disabled={model.busy || !model.canLock}
+        onClick={() => model.setLocked(!model.locked)}
+      >
+        {model.locked ? <LockOpen className="size-4" /> : <Lock className="size-4" />}
+        {model.locked ? <FormattedMessage {...m.unlock} /> : <FormattedMessage {...m.lock} values={{ scope: scope.kind }} />}
+      </Button>
+    </div>
+  );
+
   const privateRow = (
     <SwitchCardRow
       title={<FormattedMessage {...m.private} />}
@@ -255,7 +281,10 @@ export function EditorPane({
             <FormattedMessage {...m.syncedNote} values={{ category: model.categoryName ?? "" }} />
           </p>
         ) : (
-          targets
+          <>
+            {lockdown}
+            {targets}
+          </>
         )}
         {rotate}
       </div>
@@ -277,6 +306,7 @@ export function EditorPane({
       {model.ranked && model.canManageRoles && (
         <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-2">
           <div className="space-y-4">
+            {lockdown}
             {targets}
             {model.unsyncedCount > 0 && (
               <div className={cn("flex items-center gap-3 p-3", CARD)}>

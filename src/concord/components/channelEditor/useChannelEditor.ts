@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   EMPTY_DRAFT,
   EVERYONE,
+  LOCK_BITS,
   NO_RULE,
   editorValues,
   pendingSteps,
@@ -108,6 +109,11 @@ export interface EditorModel {
   setPrivate: (isPrivate: boolean) => void;
   targets: EditorTarget[];
   setRule: (key: string, bit: bigint, state: RuleState) => void;
+  /** `@everyone`'s rule here denies posting, reacting and joining calls, which Locks a restricted Channel (CORD-03 §1). */
+  locked: boolean;
+  /** The viewer may set every one of those bits on `@everyone`. */
+  canLock: boolean;
+  setLocked: (locked: boolean) => void;
   removeTarget: (key: string) => void;
   addTargets: (keys: readonly string[]) => void;
   /** Whether the viewer may write a rule for a target not listed yet. */
@@ -299,6 +305,18 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
   const setRule = (key: string, bit: bigint, state: RuleState) => {
     setError(null);
     setDraft((d) => ({ ...d, rules: { ...d.rules, [key]: withRuleState(ruleOf(base, d, key), bit, state) } }));
+  };
+  const everyoneRule = ruleOf(base, draft, EVERYONE);
+  const locked = LOCK_BITS.every((bit) => (everyoneRule.deny & bit) !== 0n);
+  const lockReach = reachOf(EVERYONE).bits;
+  const canLock = LOCK_BITS.every((bit) => (lockReach & bit) !== 0n);
+  const setLocked = (on: boolean) => {
+    setError(null);
+    setDraft((d) => {
+      let rule = ruleOf(base, d, EVERYONE);
+      for (const bit of LOCK_BITS) rule = withRuleState(rule, bit, on ? "deny" : "inherit");
+      return { ...d, rules: { ...d.rules, [EVERYONE]: rule } };
+    });
   };
   const removeTarget = (key: string) => {
     setError(null);
@@ -502,6 +520,9 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
     setRule,
     removeTarget,
     addTargets,
+    locked,
+    canLock,
+    setLocked,
     mayTarget: (key) => reachOf(key).bits !== 0n,
     candidates,
     ownerHex,

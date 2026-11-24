@@ -23,6 +23,13 @@ export const editorMessages = defineMessages({
   unkeyed: { id: "channelEditor.unkeyed", defaultMessage: "You can only change who reads a private channel you can read." },
   private: { id: "channelEditor.private", defaultMessage: "Private channel" },
   privateHint: { id: "channelEditor.privateHint", defaultMessage: "Its own key, for only those allowed to view it." },
+  lockdown: { id: "channelEditor.lockdown", defaultMessage: "Lockdown" },
+  lockdownHint: {
+    id: "channelEditor.lockdownHint",
+    defaultMessage: "{locked, select, true {Locked. Only the roles and members you allow can post, react or join calls here.} other {Only the roles and members you allow can post, react or join calls, and nothing anyone else sends reaches its readers.}}",
+  },
+  lock: { id: "channelEditor.lock", defaultMessage: "{scope, select, category {Lock category} other {Lock channel}}" },
+  unlock: { id: "channelEditor.unlock", defaultMessage: "Unlock" },
   rotate: { id: "channelEditor.rotate", defaultMessage: "Rotate key" },
   rotateHint: { id: "channelEditor.rotateHint", defaultMessage: "A fresh key for exactly who is let in today." },
   syncAll: { id: "channelEditor.syncAll", defaultMessage: "Sync all channels" },

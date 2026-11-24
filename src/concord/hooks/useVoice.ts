@@ -21,6 +21,10 @@ import type { StreamKeyView } from "@/concord/lib/derive";
 import { verifyEventsOnce } from "@/lib/verifyCache";
 import { ecDecryptBatch, ecVerifyBatch } from "@/lib/verifyPool";
 import { citationFor, useControlFold } from "@/concord/hooks/useControlPlane";
+import { writerJudge } from "@/concord/lib/channelJudges";
+import type { FoldedControl } from "@/concord/lib/control";
+import { sendTarget } from "@/concord/lib/writerKeys";
+import { currentWriterOf, ledgerLocked } from "@/concord/lib/writers";
 import { mayConnect } from "@/concord/lib/callGate";
 import { citationToTag } from "@/concord/lib/edition";
 import {
@@ -120,6 +124,46 @@ function batchedOpener(group: StreamKeyView, handle: (opened: OpenedWireEvent) =
   };
 }
 
+/**
+ * Where a Channel's call signals ride (CORD-03 §1): its read address, or in a Locked
+ * window its live writer address, signed by the writer key and encrypted to the read key.
+ */
+function callAddress(folded: FoldedControl | undefined, channel: Channel): StreamKeyView {
+  const ledger = folded?.writers?.get(channel.idHex);
+  const writer = ledgerLocked(ledger) ? currentWriterOf(ledger) : undefined;
+  const read = channel.current.group;
+  return writer ? { pk: writer.pk, get convKey() { return read.convKey; }, restricted: true } : read;
+}
+
+/** Whether a call signal stands by the Channel's Writers ledger: in a Locked window, only on a certificate covering Connect. */
+function signalStands(folded: FoldedControl | undefined, channelIdHex: string, communityId: Uint8Array, opened: OpenedWireEvent): boolean {
+  const judge = writerJudge(folded, channelIdHex, communityId);
+  return !judge || judge.stands(opened);
+}
+
+/** Seal and wrap a call signal where it rides (Vector `send_group`), or nothing when this member may not send it there. */
+async function sealCallSignal(
+  folded: FoldedControl | undefined,
+  community: Community,
+  channel: Channel,
+  user: { pubkey: string; signer: Parameters<typeof sealRumor>[3] },
+  kind: number,
+  content: string,
+  tags: string[][],
+): Promise<NostrEvent | undefined> {
+  const at = sendTarget(channel.current.group, kind, folded, community.id, channel.idHex, user.pubkey);
+  if (!at) return undefined;
+  const rumor = buildRumor({
+    kind,
+    content,
+    tags: [...channelBindingTags(channel.idHex, channel.current.epoch), ...tags, ...at.tags],
+    pubkey: user.pubkey,
+    ms: clockNowMs(),
+  });
+  const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, at.group, user.signer);
+  return wrapSeal(seal, at.group, { ephemeral: true });
+}
+
 export function clearVoicePresenceMemory(): void {
   sharedLatest.clear();
   standingDirectives.clear();
@@ -181,16 +225,17 @@ export function useVoicePresence(
 
   const channelIdHex = channel?.idHex ?? null;
   const currentPk = channel?.current.group.pk;
+  const listenPk = channel ? callAddress(folded, channel).pk : undefined;
 
   useEffect(() => {
     setFold(EMPTY_FOLD);
-    if (!community || !channel || !channelIdHex || !currentPk) {
+    if (!community || !channel || !channelIdHex || !currentPk || !listenPk) {
       latest.current = new Map();
       return;
     }
     // Seed from the shared per-channel memory (see `sharedLatest`).
     latest.current = latestFor(currentPk);
-    const group = channel.current.group;
+    const group = callAddress(foldedRef.current, channel);
     const epoch = channel.current.epoch;
 
     const recompute = () => {
@@ -251,6 +296,7 @@ export function useVoicePresence(
     const handle = (opened: OpenedWireEvent) => {
       try {
         if (opened.sealKind !== KIND_SEAL_ENCRYPTED) return;
+        if (!signalStands(foldedRef.current, channelIdHex, community.id, opened)) return;
         if (opened.kind === KIND_VOICE_DIRECTIVE) {
           checkChannelBinding(opened, channelIdHex, epoch);
           const d = parseDirective(opened);
@@ -287,7 +333,7 @@ export function useVoicePresence(
     const opener = batchedOpener(group, handle);
 
     // One shared 21059 REQ per relay across channels (see `ephemeralSub.ts`).
-    const unsubs = community.relays.map((url) => subscribeEphemeral(nostr, url, currentPk, opener.push));
+    const unsubs = community.relays.map((url) => subscribeEphemeral(nostr, url, listenPk, opener.push));
 
     // Staleness decay: three missed heartbeats age a participant out.
     const decay = setInterval(recompute, VOICE_STALE_MS / 6);
@@ -297,7 +343,7 @@ export function useVoicePresence(
       clearInterval(decay);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nostr, community?.idHex, channelIdHex, currentPk]);
+  }, [nostr, community?.idHex, channelIdHex, currentPk, listenPk]);
 
   return fold;
 }
@@ -329,19 +375,11 @@ export function useVoiceModeration(community: Community | undefined, channel: Ch
     async (target: string, verb: VoiceDirectiveVerb, to?: string) => {
       if (!user || !community || !channel || !currentPk) return false;
       const citation = citationFor(community, folded, user.pubkey);
-      const rumor = buildRumor({
-        kind: KIND_VOICE_DIRECTIVE,
-        content: "",
-        tags: [
-          ...channelBindingTags(channel.idHex, channel.current.epoch),
-          ...directiveTags(target, verb, to),
-          ...(citation ? [citationToTag(citation)] : []),
-        ],
-        pubkey: user.pubkey,
-        ms: clockNowMs(),
-      });
-      const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, user.signer);
-      const wrap = await wrapSeal(seal, channel.current.group, { ephemeral: true });
+      const wrap = await sealCallSignal(folded, community, channel, user, KIND_VOICE_DIRECTIVE, "", [
+        ...directiveTags(target, verb, to),
+        ...(citation ? [citationToTag(citation)] : []),
+      ]);
+      if (!wrap) return false;
       const results = await Promise.allSettled(
         community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(6000) })),
       );
@@ -433,6 +471,9 @@ export function useVoiceHeartbeat(
 } {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
+  const { data: folded } = useControlFold(community);
+  const foldedRef = useRef(folded);
+  foldedRef.current = folded;
 
   // Read hand state through a ref so a toggle doesn't re-arm the heartbeat (a
   // transient `left` would flicker every remote roster).
@@ -469,26 +510,19 @@ export function useVoiceHeartbeat(
       if (!user || !community || !channel) return false;
       // A `joined` naming neither an SFU identity nor an endpoint says nothing yet.
       if (status === "joined" && !id && !irohRef.current) return false;
-      const rumor = buildRumor({
-        kind: KIND_VOICE_PRESENCE,
-        content: status,
-        tags: [
-          ...channelBindingTags(channel.idHex, channel.current.epoch),
-          ...presenceTags(status, id, origin, {
-            hand: handRef.current,
-            recording: recordingRef.current,
-            noRecord: noRecordRef.current,
-            additionalIdentities: additionalIdentitiesRef.current,
-            iroh: irohRef.current,
-            ...mediaRef.current,
-          }),
-          ...(reaction ? [reactionTag(reaction.emoji, reaction.nonce)] : []),
-        ],
-        pubkey: user.pubkey,
-        ms: clockNowMs(),
-      });
-      const seal = await sealRumor(rumor, KIND_SEAL_ENCRYPTED, channel.current.group, user.signer);
-      const wrap = await wrapSeal(seal, channel.current.group, { ephemeral: true });
+      // In a Locked window presence rides the writer key, on a certificate covering Connect (CORD-03 §1).
+      const wrap = await sealCallSignal(foldedRef.current, community, channel, user, KIND_VOICE_PRESENCE, status, [
+        ...presenceTags(status, id, origin, {
+          hand: handRef.current,
+          recording: recordingRef.current,
+          noRecord: noRecordRef.current,
+          additionalIdentities: additionalIdentitiesRef.current,
+          iroh: irohRef.current,
+          ...mediaRef.current,
+        }),
+        ...(reaction ? [reactionTag(reaction.emoji, reaction.nonce)] : []),
+      ]);
+      if (!wrap) return false;
       const results = await Promise.allSettled(
         community.relays.map((url) => nostr.relay(url).event(wrap, { signal: AbortSignal.timeout(6000) })),
       );
@@ -610,15 +644,19 @@ export function useVoiceReactions(
   const { nostr } = useNostr();
   const [reactions, setReactions] = useState<VoiceReactionEntry[]>([]);
   const seen = useRef(new Set<string>());
+  const { data: folded } = useControlFold(community);
+  const foldedRef = useRef(folded);
+  foldedRef.current = folded;
 
   const channelIdHex = channel?.idHex ?? null;
   const currentPk = channel?.current.group.pk;
+  const listenPk = channel ? callAddress(folded, channel).pk : undefined;
 
   useEffect(() => {
     seen.current = new Set();
     setReactions([]);
-    if (!community || !channel || !channelIdHex || !currentPk) return;
-    const group = channel.current.group;
+    if (!community || !channel || !channelIdHex || !currentPk || !listenPk) return;
+    const group = callAddress(foldedRef.current, channel);
     const epoch = channel.current.epoch;
 
     const decay = () => {
@@ -633,6 +671,7 @@ export function useVoiceReactions(
       try {
         if (opened.kind !== KIND_VOICE_PRESENCE) return;
         checkChannelBinding(opened, channelIdHex, epoch);
+        if (!signalStands(foldedRef.current, channelIdHex, community.id, opened)) return;
         const entry = parseReaction(opened);
         if (!entry) return;
         // Fire once per nonce; drop replays, and float it from arrival (a sender's clock may be off).
@@ -652,7 +691,7 @@ export function useVoiceReactions(
     const opener = batchedOpener(group, handle);
 
     // Shares the presence hook's per-relay 21059 REQ (see `ephemeralSub.ts`).
-    const unsubs = community.relays.map((url) => subscribeEphemeral(nostr, url, currentPk, opener.push));
+    const unsubs = community.relays.map((url) => subscribeEphemeral(nostr, url, listenPk, opener.push));
 
     const timer = setInterval(decay, REACTION_TTL_MS / 2);
     return () => {
@@ -661,7 +700,7 @@ export function useVoiceReactions(
       clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nostr, community?.idHex, channelIdHex, currentPk]);
+  }, [nostr, community?.idHex, channelIdHex, currentPk, listenPk]);
 
   return reactions;
 }

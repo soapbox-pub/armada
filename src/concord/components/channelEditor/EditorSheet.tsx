@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Folder, FolderX, KeyRound, Loader2, Lock, Plus, RefreshCw, RotateCw, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Check, ChevronRight, Folder, FolderX, KeyRound, Loader2, Lock, Plus, RefreshCw, RotateCw, ShieldBan, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useId, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -190,6 +190,18 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
     </>
   );
 
+  // Locked: nothing anyone without a Role or overwrite sends reaches its readers (CORD-03 §1).
+  const lockdownSwitch = model.ranked && (
+    <SwitchRow
+      icon={ShieldBan}
+      title={<FormattedMessage {...m.lockdown} />}
+      hint={<FormattedMessage {...m.lockdownHint} values={{ locked: String(model.locked) }} />}
+      checked={model.locked}
+      onCheckedChange={model.setLocked}
+      disabled={model.busy || !model.canLock}
+    />
+  );
+
   const privateSwitch = (
     <SwitchRow
       icon={Lock}
@@ -243,7 +255,10 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
           />
         </p>
       ) : (
-        targetRows
+        <>
+          {lockdownSwitch}
+          {targetRows}
+        </>
       )}
       {rotateRow}
     </>
@@ -266,6 +281,7 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
       {model.ranked && model.canManageRoles && (
         <>
           <Divider />
+          {lockdownSwitch}
           {targetRows}
           {model.unsyncedCount > 0 && (
             <>

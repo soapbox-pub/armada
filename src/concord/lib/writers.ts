@@ -11,6 +11,7 @@ import { getEventHash } from "nostr-tools/pure";
 
 import { bytesToHex, hex32 } from "@/concord/lib/derive";
 import { KIND_DELETE, KIND_REACTION, KIND_VOICE_DIRECTIVE, KIND_VOICE_PRESENCE } from "@/concord/lib/kinds";
+import { Permissions } from "@/concord/lib/roles";
 
 /** At most this many entries, and retired windows (CORD-03 §1). */
 export const MAX_LEDGER = 64;
@@ -38,11 +39,46 @@ export interface RetiredWriter {
   certifier?: string;
 }
 
+/**
+ * A Channel's sealed history (CORD-03 §1): what its read address held before `until`
+ * (unix ms) is exactly the wrap ids its pages list, from the first, `page`, opened under
+ * read epoch `read`. `run` is when the run of Locked windows it was made in began. It
+ * rides the ledger's top level, where the cap never reaches.
+ */
+export interface SealRef {
+  /** Absent for a seal of nothing. */
+  page?: string;
+  read: number;
+  until: number;
+  run: number;
+  count: number;
+  /** Fields this build doesn't know, carried through its own editions (CORD-02 §6). */
+  extra: Record<string, unknown>;
+}
+
 export interface Ledger {
   channel: string;
   entries: LedgerEntry[];
   retired: RetiredWriter[];
+  /** The newest seal of its history. */
+  seal?: SealRef;
   extra: Record<string, unknown>;
+}
+
+/** How far past an entry a client that hadn't read it may still act on the ledger before it (CORD-03 §1). */
+export const LEDGER_SKEW_MS = 10 * 60_000;
+
+/** A seal as carried, or undefined for one that lacks a field or reaches past ten minutes into its run. */
+function parseSealRef(v: unknown): SealRef | undefined {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  const { page, read, until, run, count, ...extra } = v as Record<string, unknown>;
+  if (page !== null && !(typeof page === "string" && HEX64.test(page))) return undefined;
+  if (!u64(read) || !u64(until) || !u64(run) || !u64(count) || until > run + LEDGER_SKEW_MS) return undefined;
+  return { ...(page ? { page: page.toLowerCase() } : {}), read, until, run, count, extra };
+}
+
+function sealToJson(s: SealRef): Record<string, unknown> {
+  return { ...s.extra, page: s.page ?? null, read: s.read, until: s.until, run: s.run, count: s.count };
 }
 
 const HEX64 = /^[0-9a-fA-F]{64}$/;
@@ -90,6 +126,9 @@ export function parseLedger(content: string, keys: KeyCheck = new Map()): Ledger
   const top = parseStrictValue(content);
   if (!top || typeof top !== "object" || Array.isArray(top)) return undefined;
   const { channel, ledger, retired: rawRetired, ...extra } = top as Record<string, unknown>;
+  // A seal this reader can't read is carried as it came.
+  const seal = parseSealRef(extra.seal);
+  if (seal) delete extra.seal;
   if (typeof channel !== "string" || !HEX64.test(channel) || !Array.isArray(ledger)) return undefined;
   const retired: RetiredWriter[] = [];
   if (rawRetired !== undefined) {
@@ -128,7 +167,7 @@ export function parseLedger(content: string, keys: KeyCheck = new Map()): Ledger
     } else return undefined;
     entries.push({ at, spell, extra: rest });
   }
-  const out: Ledger = { channel: channel.toLowerCase(), entries, retired, extra };
+  const out: Ledger = { channel: channel.toLowerCase(), entries, retired, ...(seal ? { seal } : {}), extra };
   return wellFormed(out) ? out : undefined;
 }
 
@@ -209,11 +248,123 @@ export function emptyLedger(channelIdHex: string): Ledger {
  * `l` with `spell` appended at `at`, never before the last entry, a stop recording a
  * departure from `from` when that came first (Vector `appended_from`).
  */
-export function ledgerAppended(l: Ledger, at: number, spell: Spell, from?: number): Ledger | undefined {
+export function ledgerAppended(l: Ledger, at: number, spell: Spell, from?: number, locked = false): Ledger | undefined {
   const last = l.entries[l.entries.length - 1];
   const when = last ? Math.max(at, last.at) : at;
   const extra: Record<string, unknown> = spell.kind === "stop" && from !== undefined && from < when ? { from } : {};
+  if (locked && spell.kind === "writer") extra.locked = true;
   return ledgerWith(l, { at: when, spell, extra });
+}
+
+/**
+ * `l` sealed by `seal` (Vector `appended_seal`): the edition appends an entry of no known
+ * kind, which the cap may drop, and the seal itself rides the top level.
+ */
+export function ledgerAppendedSeal(l: Ledger, at: number, seal: SealRef): Ledger | undefined {
+  const last = l.entries[l.entries.length - 1];
+  const next = ledgerWith(l, { at: last ? Math.max(at, last.at) : at, spell: { kind: "other" }, extra: { sealed: seal.count } });
+  return next ? { ...next, seal } : undefined;
+}
+
+/** Whether `e` is a writer entry whose window is Locked: only `"locked": true` is. */
+export function entryLocked(e: LedgerEntry): boolean {
+  return e.spell.kind === "writer" && e.extra.locked === true;
+}
+
+/** Whether every write lands at a writer address now (CORD-03 §1). */
+export function ledgerLocked(l: Ledger | undefined): boolean {
+  const last = l ? [...l.entries].reverse().find((e) => moves(e.spell)) : undefined;
+  return last !== undefined && entryLocked(last);
+}
+
+/** Whether `atMs` falls in a Locked window the ledger still holds whole; a retired window keeps no flag. */
+export function lockedAt(l: Ledger, atMs: number): boolean {
+  const e = [...l.entries].reverse().find((x) => x.at <= atMs && moves(x.spell));
+  return e !== undefined && entryLocked(e);
+}
+
+/**
+ * The dates the read address holds nothing a reader needs (Vector `quiet_spans`): each run
+ * of Locked windows from ten minutes past its start, and the seal's run likewise, which
+ * holds even once its early entries retire. Sorted and disjoint; `to` absent while running.
+ */
+export function quietSpans(l: Ledger): Array<{ from: number; to?: number }> {
+  const moving = l.entries.filter((e) => moves(e.spell));
+  const endAfter = (at: number) => moving.find((e) => e.at > at && !entryLocked(e))?.at;
+  const spans: Array<{ from: number; to?: number }> = [];
+  moving.forEach((e, i) => {
+    if (entryLocked(e) && (i === 0 || !entryLocked(moving[i - 1]))) spans.push({ from: e.at + LEDGER_SKEW_MS, to: endAfter(e.at) });
+  });
+  if (l.seal) spans.push({ from: l.seal.run + LEDGER_SKEW_MS, to: endAfter(l.seal.run) });
+  const kept = spans.filter((s) => s.to === undefined || s.to > s.from).sort((a, b) => a.from - b.from);
+  const out: Array<{ from: number; to?: number }> = [];
+  for (const s of kept) {
+    const last = out[out.length - 1];
+    if (last && (last.to === undefined || last.to >= s.from)) {
+      last.to = last.to === undefined || s.to === undefined ? undefined : Math.max(last.to, s.to);
+    } else {
+      out.push({ ...s });
+    }
+  }
+  return out;
+}
+
+/** Whether nothing a reader needs sits at the read address at `atMs`. */
+export function readAddressQuiet(l: Ledger | undefined, atMs: number): boolean {
+  return l !== undefined && quietSpans(l).some((s) => s.from <= atMs && (s.to === undefined || atMs < s.to));
+}
+
+/**
+ * The dates at or below `topMs` the read address is read by, as `[floor, top]` (Vector
+ * `read_range`): the top lowered out of any quiet span, the floor the nearest quiet span
+ * below it or the seal's end. Undefined when nothing above the seal is left.
+ */
+export function readRange(l: Ledger | undefined, topMs: number): [number, number] | undefined {
+  if (!l) return [0, topMs];
+  const spans = quietSpans(l);
+  let top = topMs;
+  const inside = spans.find((s) => s.from <= top && (s.to === undefined || top < s.to));
+  if (inside) {
+    if (inside.from === 0) return undefined;
+    top = inside.from - 1;
+  }
+  const below = Math.max(0, ...spans.flatMap((s) => (s.to !== undefined && s.to <= top ? [s.to] : [])));
+  const floor = Math.max(below, l.seal?.until ?? 0);
+  return floor <= top ? [floor, top] : undefined;
+}
+
+/** When the live run of Locked windows began, while the live window is Locked. */
+export function runStart(l: Ledger | undefined): number | undefined {
+  if (!l) return undefined;
+  const moving = l.entries.filter((e) => moves(e.spell));
+  let start: number | undefined;
+  for (let i = moving.length - 1; i >= 0 && entryLocked(moving[i]); i--) start = moving[i].at;
+  return start;
+}
+
+/** The live seal, while it still holds the live run: no window that isn't Locked followed it. */
+function sealInRun(l: Ledger): SealRef | undefined {
+  const s = l.seal;
+  return s && !l.entries.some((e) => moves(e.spell) && e.at > s.run && !entryLocked(e)) ? s : undefined;
+}
+
+/**
+ * Where the live run of Locked windows is owed a seal to at `nowMs` (Vector `seal_target`):
+ * up to its start once it begins, then across its first ten minutes once they pass.
+ */
+export function sealTarget(l: Ledger | undefined, nowMs: number): number | undefined {
+  const start = runStart(l);
+  if (!l || start === undefined) return undefined;
+  const s = sealInRun(l);
+  if (!s) return start;
+  return s.until < s.run + LEDGER_SKEW_MS && nowMs >= s.run + LEDGER_SKEW_MS ? s.run + LEDGER_SKEW_MS : undefined;
+}
+
+/** When the run the next seal belongs to began: the live seal's own while it holds the run, else the live run's start. */
+export function sealRun(l: Ledger | undefined): number | undefined {
+  const start = runStart(l);
+  if (!l || start === undefined) return undefined;
+  return sealInRun(l)?.run ?? start;
 }
 
 /** The writer epoch taking posts now, and its address. */
@@ -276,13 +427,44 @@ export function ledgerToJson(l: Ledger): string {
     return o;
   });
   const top: Record<string, unknown> = { ...l.extra, channel: l.channel, ledger: entries };
+  if (l.seal) top.seal = sealToJson(l.seal);
   if (l.retired.length > 0) top.retired = l.retired.map((r) => (r.certifier ? [r.epoch, r.pk, r.from, r.to, r.certifier] : [r.epoch, r.pk, r.from, r.to]));
   return JSON.stringify(sortKeys(top));
 }
 
-/** Whether a kind moves to the writer address with posting; the rest stay at the read address (Vector `rides_writer_address`). */
-export function ridesWriterAddress(kind: number): boolean {
-  return kind !== KIND_REACTION && kind !== KIND_DELETE && kind !== KIND_VOICE_PRESENCE && kind !== KIND_VOICE_DIRECTIVE;
+/**
+ * Whether a kind moves to the writer address with posting; the rest stay at the read
+ * address, except in a Locked window, where everything moves (Vector `rides_writer_address`).
+ */
+export function ridesWriterAddress(kind: number, locked = false): boolean {
+  return locked || (kind !== KIND_REACTION && kind !== KIND_DELETE && kind !== KIND_VOICE_PRESENCE && kind !== KIND_VOICE_DIRECTIVE);
+}
+
+/** The CORD-04 bit a write of `kind` needs at a writer address; undefined for a deletion, judged by its signer's authority. */
+export function writerBit(kind: number): bigint | undefined {
+  if (kind === KIND_REACTION) return Permissions.ADD_REACTIONS;
+  if (kind === KIND_VOICE_PRESENCE || kind === KIND_VOICE_DIRECTIVE) return Permissions.CONNECT;
+  if (kind === KIND_DELETE) return undefined;
+  return Permissions.SEND_MESSAGES;
+}
+
+/** The bits a scoped certificate may carry (CORD-03 §1). */
+export const SCOPED_BITS = Permissions.ADD_REACTIONS | Permissions.CONNECT;
+
+/** Whether a scoped certificate for `rights` covers a write of `kind`: never a post. */
+export function scopeCovers(rights: bigint, kind: number): boolean {
+  const bit = writerBit(kind);
+  return bit === undefined || (bit !== Permissions.SEND_MESSAGES && (rights & bit) !== 0n);
+}
+
+const U64_TEXT = /^(0|[1-9][0-9]*)$/;
+
+/** The scoped certificate a write carries, `["rcert", <sig hex>, <rights decimal>]`, if its first one is well-formed. */
+export function scopedCertOf(tags: string[][]): { sig: string; rights: bigint } | undefined {
+  const t = tags.find((x) => x[0] === "rcert");
+  if (!t || !/^[0-9a-fA-F]{128}$/.test(t[1] ?? "") || !U64_TEXT.test(t[2] ?? "")) return undefined;
+  const rights = BigInt(t[2]);
+  return rights < 1n << 64n ? { sig: t[1].toLowerCase(), rights } : undefined;
 }
 
 /** Whether posts land at a writer address now. */
@@ -340,6 +522,22 @@ export function certDigest(communityId: Uint8Array, channelId: Uint8Array, epoch
   return sha256(out);
 }
 
+const SCOPED_CERT_LABEL = new TextEncoder().encode("concord/writer-cert-scoped");
+
+/** What a scoped writer certificate signs: one member's place at one epoch, for only the writes `rights` names (CORD-03 §1). */
+export function scopedCertDigest(communityId: Uint8Array, channelId: Uint8Array, epoch: number, writer: Uint8Array, rights: bigint): Uint8Array {
+  const n = SCOPED_CERT_LABEL.length;
+  const out = new Uint8Array(n + 32 + 32 + 8 + 32 + 8);
+  out.set(SCOPED_CERT_LABEL, 0);
+  out.set(communityId, n);
+  out.set(channelId, n + 32);
+  const view = new DataView(out.buffer);
+  view.setBigUint64(n + 64, BigInt(epoch), false);
+  out.set(writer, n + 72);
+  view.setBigUint64(n + 104, rights, false);
+  return sha256(out);
+}
+
 /** The id of the never-published kind-3320 event a certificate signs. */
 export function certEventId(certifier: string, digest: Uint8Array): string {
   return getEventHash({ pubkey: certifier, created_at: 0, kind: 3320, tags: [["digest", bytesToHex(digest)]], content: "" });
@@ -381,24 +579,31 @@ function hex32Sig(hex: string): Uint8Array {
 }
 
 /**
- * Whether a restricted Channel's post stands by the ledger (CORD-03 §1): at a
- * writer address (its `wepoch`), within the window, certified for its author if
- * the epoch names a certifier, and not stopped; at the read address, outside any
- * writer window. The owner's and a manager's posts stand regardless (the caller's).
+ * Whether a write at writer `epoch`'s address stands by the ledger (CORD-03 §1): within
+ * the window, not stopped, and, where the epoch names a certifier, carrying a certificate
+ * that covers it, whole or scoped to the bit its kind needs. At the read address (no
+ * `wepoch`), outside any writer window. The owner's and a manager's stand regardless (the caller's).
  */
 export function postStands(
   l: Ledger,
   communityId: Uint8Array,
-  post: { author: string; ms: number; tags: string[][] },
+  post: { author: string; ms: number; tags: string[][]; kind: number },
 ): boolean {
   const wepoch = post.tags.find((t) => t[0] === "wepoch")?.[1];
   if (wepoch === undefined) return readAddressTakes(l, post.ms);
   const epoch = Number(wepoch);
   if (!writerAddressTakes(l, epoch, post.ms)) return false;
   if (stopped(l, epoch, post.author, post.ms)) return false;
+  return certifiedFor(l, communityId, epoch, post);
+}
+
+/** Whether a write at writer `epoch` carries a certificate the epoch's certifier signed that covers it; true where it names none. */
+export function certifiedFor(l: Ledger, communityId: Uint8Array, epoch: number, post: { author: string; tags: string[][]; kind: number }): boolean {
   const certifier = certifierOf(l, epoch);
   if (!certifier) return true;
-  const cert = post.tags.find((t) => t[0] === "wcert")?.[1];
-  if (!cert) return false;
-  return verifyWriterCert(certifier, certDigest(communityId, hex32(l.channel), epoch, hex32(post.author)), cert);
+  const [channel, writer] = [hex32(l.channel), hex32(post.author)];
+  const whole = post.tags.find((t) => t[0] === "wcert")?.[1];
+  if (whole && verifyWriterCert(certifier, certDigest(communityId, channel, epoch, writer), whole)) return true;
+  const scoped = scopedCertOf(post.tags);
+  return scoped !== undefined && scopeCovers(scoped.rights, post.kind) && verifyWriterCert(certifier, scopedCertDigest(communityId, channel, epoch, writer, scoped.rights), scoped.sig);
 }

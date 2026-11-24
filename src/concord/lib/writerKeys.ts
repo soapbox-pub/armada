@@ -13,7 +13,9 @@ import type { ParsedDelivery } from "@/concord/lib/delivery";
 import { kickedInto, type GuestbookHistory } from "@/concord/lib/guestbook";
 import { base64ToBytes, decodeWrappedKey, myLocator } from "@/concord/lib/rekey";
 import { channelPermissions, hasPermission, Permissions } from "@/concord/lib/roles";
-import { certDigest, certifierOf, ledgerRestricted, ridesWriterAddress, stopped, verifyWriterCert, writerWindows, type Ledger } from "@/concord/lib/writers";
+import { KIND_MESSAGE, KIND_REACTION } from "@/concord/lib/kinds";
+import { maySendKind, rightsCover, rightsOf } from "@/concord/lib/writerRights";
+import { certDigest, certifierOf, ledgerLocked, ledgerRestricted, ridesWriterAddress, scopeCovers, scopedCertDigest, stopped, verifyWriterCert, writerWindows, type Ledger } from "@/concord/lib/writers";
 import { schnorr } from "@noble/curves/secp256k1.js";
 
 import { KvPrefixCache } from "@/lib/db/kvCache";
@@ -26,6 +28,9 @@ import { KvPrefixCache } from "@/lib/db/kvCache";
 interface HeldWriter {
   secret?: string;
   cert?: string;
+  /** A Locked Channel's scoped certificate, and the CORD-04 bits it covers in decimal. */
+  rcert?: string;
+  rights?: string;
   minted?: string;
   mintedCertifier?: string;
   certifier?: string;
@@ -97,9 +102,20 @@ export function mintedSecrets(communityIdHex: string, channelIdHex: string, epoc
 }
 
 /** Record this device's own writer secret and certificate for `epoch`, as a minter that is among its writers. */
-export function storeOwnWriter(communityIdHex: string, channelIdHex: string, epoch: number, secret: Uint8Array, cert?: string): void {
+export function storeOwnWriter(communityIdHex: string, channelIdHex: string, epoch: number, secret: Uint8Array, cert?: string, scoped?: ScopedCert): void {
   const id = heldId(communityIdHex, channelIdHex, epoch);
-  held.set(id, { ...(held.get(id) ?? {}), secret: bytesToHex(secret), ...(cert ? { cert } : {}) });
+  held.set(id, {
+    ...(held.get(id) ?? {}),
+    secret: bytesToHex(secret),
+    ...(cert ? { cert } : {}),
+    ...(scoped ? { rcert: scoped.cert, rights: scoped.rights.toString() } : {}),
+  });
+}
+
+/** A scoped writer certificate and the CORD-04 bits it covers (CORD-03 §1). */
+export interface ScopedCert {
+  cert: string;
+  rights: bigint;
 }
 
 /** The certifier secret held for writer `epoch`, minted or handed over, when it is the one the ledger names (Vector `certifier_held`). */
@@ -125,6 +141,12 @@ export function heldLiveSecret(communityIdHex: string, ledger: Ledger | undefine
   return undefined;
 }
 
+function popcount(n: bigint): number {
+  let c = 0;
+  for (let x = n; x > 0n; x >>= 1n) c += Number(x & 1n);
+  return c;
+}
+
 function randomSecret(): Uint8Array {
   return schnorr.utils.randomSecretKey();
 }
@@ -142,10 +164,17 @@ function verifyCert(communityId: Uint8Array, ledger: Ledger, epoch: number, writ
   return certifier !== undefined && verifyWriterCert(certifier, certDigest(communityId, hex32(ledger.channel), epoch, hex32(writer)), cert);
 }
 
-/** Whether `me` holds SEND_MESSAGES in the Channel, or manages it (Vector `may_write`, `manages`). */
-function mayWrite(control: FoldedControl, channelIdHex: string, me: string): boolean {
-  const isPrivate = control.channels.get(channelIdHex)?.isPrivate ?? false;
-  return (channelPermissions(control.roster, control.ownerHex, me, channelIdHex, isPrivate) & Permissions.SEND_MESSAGES) !== 0n;
+function verifyScopedCert(communityId: Uint8Array, ledger: Ledger, epoch: number, writer: string, scoped: ScopedCert): boolean {
+  const certifier = certifierOf(ledger, epoch);
+  return certifier !== undefined && verifyWriterCert(certifier, scopedCertDigest(communityId, hex32(ledger.channel), epoch, hex32(writer), scoped.rights), scoped.cert);
+}
+
+/** This member's scoped certificate for writer `epoch`, when the ledger's certifier signed it (Vector `my_scoped_cert`). */
+function heldScopedCert(communityId: Uint8Array, ledger: Ledger, epoch: number, me: string): ScopedCert | undefined {
+  const h = held.get(heldId(bytesToHex(communityId), ledger.channel, epoch));
+  if (!h?.rcert || !h.rights || !/^(0|[1-9][0-9]*)$/.test(h.rights)) return undefined;
+  const scoped = { cert: h.rcert, rights: BigInt(h.rights) };
+  return verifyScopedCert(communityId, ledger, epoch, me, scoped) ? scoped : undefined;
 }
 
 function manages(control: FoldedControl, me: string): boolean {
@@ -156,6 +185,8 @@ function manages(control: FoldedControl, me: string): boolean {
 export interface UsableWriter {
   epoch: number;
   cert?: string;
+  /** A scoped certificate covering the write, where no whole one is held. */
+  scoped?: ScopedCert;
   /** The epoch's writer secret; `sk` and `pk` are the address it derives. */
   secret: Uint8Array;
   sk: Uint8Array;
@@ -163,9 +194,10 @@ export interface UsableWriter {
 }
 
 /**
- * The live writer key this member may post with (Vector `usable_writer`): the Roster
- * lets them send, the secret is held, the certificate too where the epoch names a
- * certifier, they weren't stopped, and, unless they manage, weren't kicked while it held.
+ * The live writer key this member may make a write of `kind` with (Vector `usable_writer`):
+ * the Roster lets them make it, the secret is held, a certificate covering it too where the
+ * epoch names a certifier, they weren't stopped, and, unless they manage, weren't kicked
+ * while it held.
  */
 export function usableWriter(
   control: FoldedControl | undefined,
@@ -173,18 +205,21 @@ export function usableWriter(
   channelIdHex: string,
   me: string,
   history?: GuestbookHistory,
+  kind: number = KIND_MESSAGE,
 ): UsableWriter | undefined {
   const ledger = control?.writers?.get(channelIdHex);
   const live = currentWriter(ledger);
-  if (!control || !ledger || !live || !mayWrite(control, channelIdHex, me)) return undefined;
+  if (!control || !ledger || !live || !maySendKind(control, me, channelIdHex, kind)) return undefined;
   const secret = heldSecret(bytesToHex(communityId), channelIdHex, live.epoch, live.pk);
   if (!secret) return undefined;
   const cert = heldCert(communityId, ledger, live.epoch, me);
-  if (certifierOf(ledger, live.epoch) && !cert) return undefined;
+  const scoped = cert ? undefined : heldScopedCert(communityId, ledger, live.epoch, me);
+  const covering = scoped && scopeCovers(scoped.rights, kind) ? scoped : undefined;
+  if (certifierOf(ledger, live.epoch) && !cert && !covering) return undefined;
   if (stopped(ledger, live.epoch, me, Number.MAX_SAFE_INTEGER)) return undefined;
   if (!manages(control, me) && history !== undefined && kickedInto(history, me, live.from)) return undefined;
   const address = channelWriterGroupKey(secret, hex32(channelIdHex), live.epoch);
-  return { epoch: live.epoch, ...(cert ? { cert } : {}), secret, sk: address.sk, pk: address.pk };
+  return { epoch: live.epoch, ...(cert ? { cert } : {}), ...(covering ? { scoped: covering } : {}), secret, sk: address.sk, pk: address.pk };
 }
 
 /** Whether the Channel resolves Send Messages for this member; a legacy Roster holds no such bit (Vector `send_chat_message_at`). */
@@ -200,6 +235,13 @@ export function canPostIn(control: FoldedControl | undefined, communityId: Uint8
   if (!sendsIn(control, channelIdHex, me)) return false;
   if (!ledgerRestricted(control.writers?.get(channelIdHex))) return true;
   return usableWriter(control, communityId, channelIdHex, me, history) !== undefined;
+}
+
+/** Whether this member's reaction can reach readers: in a Locked Channel only on the writer key and a certificate covering it (CORD-03 §1). */
+export function canReactIn(control: FoldedControl | undefined, communityId: Uint8Array | undefined, channelIdHex: string | undefined, me: string | undefined, history?: GuestbookHistory): boolean {
+  if (!control || !communityId || !channelIdHex || !me) return true;
+  if (!ledgerLocked(control.writers?.get(channelIdHex))) return true;
+  return usableWriter(control, communityId, channelIdHex, me, history, KIND_REACTION) !== undefined;
 }
 
 /**
@@ -228,10 +270,11 @@ export function sendTarget(
   me: string,
   history?: GuestbookHistory,
 ): { group: GroupKey; tags: string[][] } | undefined {
-  if (!control || !ledgerRestricted(control.writers?.get(channelIdHex)) || !ridesWriterAddress(kind)) return { group: read, tags: [] };
-  const w = usableWriter(control, communityId, channelIdHex, me, history);
+  const ledger = control?.writers?.get(channelIdHex);
+  if (!control || !ledgerRestricted(ledger) || !ridesWriterAddress(kind, ledgerLocked(ledger))) return { group: read, tags: [] };
+  const w = usableWriter(control, communityId, channelIdHex, me, history, kind);
   if (!w) return undefined;
-  return { group: writerGroup(w, read), tags: writerTags(w.epoch, w.cert) };
+  return { group: writerGroup(w, read), tags: writerTags(w.epoch, w.cert, w.scoped) };
 }
 
 /** The wrap key a writer at `w` sends with: its own signer, the read key's encryption. */
@@ -239,9 +282,10 @@ export function writerGroup(w: { sk: Uint8Array; pk: string }, read: GroupKey): 
   return { sk: w.sk, pk: w.pk, get convKey() { return read.convKey; } };
 }
 
-/** The tags a post at a writer address carries (CORD-03 §1, Vector `with_writer`). */
-export function writerTags(epoch: number, cert?: string): string[][] {
-  return [["wepoch", String(epoch)], ...(cert ? [["wcert", cert]] : [])];
+/** The tags a write at a writer address carries (CORD-03 §1, Vector `with_writer_cert`): its whole certificate, else a scoped one. */
+export function writerTags(epoch: number, cert?: string, scoped?: ScopedCert): string[][] {
+  if (cert) return [["wepoch", String(epoch)], ["wcert", cert]];
+  return [["wepoch", String(epoch)], ...(scoped ? [["rcert", scoped.cert, scoped.rights.toString()]] : [])];
 }
 
 /** The writer key that signed at `wepoch` in a Channel, when held: for re-sending what was sent there (Vector `writer_keys_at`). */
@@ -262,9 +306,11 @@ export function writerNeeds(
   const ledger = control.writers?.get(channelIdHex);
   const live = currentWriter(ledger);
   if (!ledger || !live) return undefined;
-  const writes = mayWrite(control, channelIdHex, me);
-  const key = (writes || manages(control, me)) && !heldSecret(bytesToHex(communityId), channelIdHex, live.epoch, live.pk);
-  const cert = writes && certifierOf(ledger, live.epoch) !== undefined && !heldCert(communityId, ledger, live.epoch, me);
+  const rights = rightsOf(control, me, channelIdHex, ledgerLocked(ledger));
+  const key = (rights !== undefined || manages(control, me)) && !heldSecret(bytesToHex(communityId), channelIdHex, live.epoch, live.pk);
+  const scoped = heldScopedCert(communityId, ledger, live.epoch, me);
+  const covered = heldCert(communityId, ledger, live.epoch, me) !== undefined || (rights !== undefined && scoped !== undefined && rightsCover(scoped.rights, rights));
+  const cert = rights !== undefined && certifierOf(ledger, live.epoch) !== undefined && !covered;
   // A manager takes the epoch's certifier too, so any of them can let a writer in.
   const certifier = manages(control, me) && certifierOf(ledger, live.epoch) !== undefined && !heldCertifier(bytesToHex(communityId), ledger, live.epoch);
   return key || cert || certifier ? { epoch: live.epoch, pk: live.pk, key, cert, certifier } : undefined;
@@ -295,6 +341,14 @@ export async function adoptWriterDeliveries(
   if (need.cert) {
     const cert = named.flatMap((d) => d.certs.filter(([w]) => w === me).map(([, c]) => c)).find((c) => verifyCert(communityId, ledger, need.epoch, me, c));
     if (cert) next = { ...next, cert };
+    else {
+      // The widest scoped certificate the certifier signed for this member, whoever carried it.
+      const scoped = named
+        .flatMap((d) => d.scoped.filter(([w]) => w === me).map(([, c, rights]) => ({ cert: c, rights })))
+        .filter((c) => verifyScopedCert(communityId, ledger, need.epoch, me, c))
+        .sort((a, b) => popcount(b.rights) - popcount(a.rights))[0];
+      if (scoped) next = { ...next, rcert: scoped.cert, rights: scoped.rights.toString() };
+    }
   }
   if (need.key) {
     outer: for (const d of named) {

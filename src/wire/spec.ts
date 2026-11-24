@@ -276,7 +276,8 @@ export function buildWireSpec(inputs: WireInputs): WireSpec {
       if (!relay) continue;
       let set = pksByRelay.get(relay);
       if (!set) pksByRelay.set(relay, (set = new Set()));
-      set.add(channel.current.group.pk);
+      // A Locked Channel takes nothing new at its read address: nobody listens there (CORD-03 §1).
+      if (!channel.locked) set.add(channel.current.group.pk);
       // A restricted Channel's posts arrive at its live writer address (CORD-03 §1).
       for (const s of liveWriterStreams(channel)) set.add(s.group.pk);
     }

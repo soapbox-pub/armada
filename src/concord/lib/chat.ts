@@ -16,7 +16,8 @@ import type { NostrEvent } from "@nostrify/nostrify";
 import { getEventHash } from "nostr-tools/pure";
 import type { NostrRumor } from "@/lib/nostrRumor";
 
-import { KIND_CALENDAR_DATE, KIND_CALENDAR_RSVP, KIND_CALENDAR_TIME, KIND_COMMENT, KIND_DELETE, KIND_EDIT, KIND_MESSAGE, KIND_ONCHAIN_ZAP, KIND_POLL, KIND_POLL_VOTE, KIND_REACTION, KIND_SEAL_ENCRYPTED, KIND_TIMER_NOTICE, KIND_ZAP } from "@/concord/lib/kinds";
+import { KIND_CALENDAR_DATE, KIND_CALENDAR_RSVP, KIND_CALENDAR_TIME, KIND_COMMENT, KIND_DELETE, KIND_EDIT, KIND_MESSAGE, KIND_ONCHAIN_ZAP, KIND_POLL, KIND_POLL_VOTE, KIND_REACTION, KIND_SEAL_ENCRYPTED, KIND_SEAL_PAGE, KIND_TIMER_NOTICE, KIND_ZAP } from "@/concord/lib/kinds";
+import { isSealedWrap } from "@/concord/lib/sealWalk";
 import { dmTimerSeconds, isExpired } from "@/lib/nip17/protocol";
 import { reactionContentKey } from "@/hooks/useReactions";
 import { isRenderableReaction } from "@/concord/lib/reactionContent";
@@ -126,6 +127,8 @@ export function _chatDecodeMemoSizeForTests(): number {
  */
 interface PendingChat {
   memoKey: string;
+  /** Read below a seal that doesn't name it (CORD-03 §1) once its own date is known. */
+  belowSeal?: number;
   epoch: bigint;
   /** The writer epoch whose address served it (CORD-03 §1), on a restricted Channel. */
   writerEpoch?: bigint;
@@ -144,8 +147,17 @@ function openChatToSeal(
   channel: Channel,
 ): { done: OpenedChat | null } | { pending: PendingChat } {
   const memoKey = `${wrap.id}|${channel.idHex}`;
+  // A Locked Channel's read address takes nothing in a quiet span, and below its seal only
+  // what the seal names (CORD-03 §1): never worth opening. A writer address is never gated.
+  const gate = channel.readGate;
+  const gated = gate !== undefined && !isSealedWrap(channel.idHex, wrap.id) && channel.streams.some((s) => s.group.pk === wrap.pubkey && !s.writer);
+  if (gated) {
+    const at = wrap.created_at * 1000;
+    if (gate.quiet(at) || (gate.seal !== undefined && at + 999 < gate.seal.until)) return { done: null };
+  }
   const cached = decodeMemo.get(memoKey);
   if (cached !== undefined) {
+    if (gated && cached && gate.seal && cached.ms < gate.seal.until) return { done: null };
     const cut = cutOff.get(memoKey);
     const lifted = cut !== undefined && channel.streams.some((s) => s.group.pk === wrap.pubkey && (s.retiredAt === undefined || s.retiredAt > cut));
     if (!lifted) return { done: cached };
@@ -169,7 +181,7 @@ function openChatToSeal(
       // Chat seals MUST be encrypted (CORD-02 §5), or the message is a standalone
       // signed artifact any relay could display.
       if (seal.kind !== KIND_SEAL_ENCRYPTED) throw new Error("chat seal must be encrypted");
-      return { pending: { memoKey, epoch: stream.epoch, writerEpoch: stream.writer?.epoch, retiredAt: stream.retiredAt, seal, finish } };
+      return { pending: { memoKey, epoch: stream.epoch, writerEpoch: stream.writer?.epoch, retiredAt: stream.retiredAt, seal, finish, ...(gated && gate.seal ? { belowSeal: gate.seal.until } : {}) } };
     } catch {
       // not this read key
     }
@@ -199,6 +211,9 @@ function finishChat(pending: PendingChat, channel: Channel, remember: boolean): 
   let opened: OpenedChat | null = null;
   try {
     const ev = pending.finish();
+    // Set aside, not remembered: the seal may name it once a walk reaches it.
+    if (pending.belowSeal !== undefined && ev.ms < pending.belowSeal) return null;
+    if (ev.kind === KIND_SEAL_PAGE) throw new Error("a seal page is no chat");
     checkChannelBinding(ev, channel.idHex, pending.epoch);
     checkWriterBinding(ev.tags, pending.writerEpoch);
     // A retired epoch's rotation time is a hard cutoff: key possession alone must
@@ -628,6 +643,8 @@ export function foldTimeline(
       continue;
     }
     if (ev.kind === KIND_DELETE) {
+      // In a Locked window a deletion is judged like any write (CORD-03 §1).
+      if (opts?.hold?.(ev)) continue;
       for (const t of ev.tags) {
         if (t[0] !== "e" || !t[1]) continue;
         const target = t[1];
@@ -661,7 +678,7 @@ export function foldTimeline(
       const target = eTargetOf(ev);
       if (!target || !ev.content || !isRenderableReaction(ev.content)) continue;
       if (deletedReactionIds.has(ev.rumorId)) continue;
-      if (opts?.ignoreReaction?.(ev.author)) continue;
+      if (opts?.ignoreReaction?.(ev.author) || opts?.hold?.(ev)) continue;
       const key = reactionContentKey(ev.content);
       // NIP-30: only the tag naming this reaction's own `:shortcode:` is its image (Vector `parse_chat_rumor`).
       const code = /^:(.+):$/.exec(ev.content)?.[1];

@@ -13,18 +13,23 @@ import type { AuthorityCitation } from "@/concord/lib/edition";
 import { buildEditionRumor } from "@/concord/lib/edition";
 import { VSK_WRITERS } from "@/concord/lib/roster";
 import type { Posters } from "@/concord/lib/writerDuty";
+import type { ScopedCert } from "@/concord/lib/writerKeys";
+import { locksChannel, type Rights } from "@/concord/lib/writerRights";
 import {
   certDigest,
   currentWriterOf,
   emptyLedger,
   ledgerAppended,
+  ledgerAppendedSeal,
   ledgerNotAhead,
   ledgerTailFits,
   ledgerToJson,
   nextWriterEpoch,
+  scopedCertDigest,
   signWriterCert,
   stopped,
   type Ledger,
+  type SealRef,
   type Spell,
 } from "@/concord/lib/writers";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -44,14 +49,18 @@ export function ledgerEdition(o: {
   control: FoldedControl;
   channelIdHex: string;
   base: Ledger;
-  spell: Spell;
+  spell?: Spell;
+  /** Seal the Channel's history instead of appending a spell (CORD-03 §1). */
+  seal?: SealRef;
   from?: number;
+  /** A writer entry whose window is Locked (CORD-03 §1). */
+  locked?: boolean;
   entryAtMs: number;
   nowMs: number;
   me: string;
   authority?: AuthorityCitation;
 }): { rumor: NostrRumor; ledger: Ledger } | undefined {
-  const next = ledgerAppended(o.base, o.entryAtMs, o.spell, o.from);
+  const next = o.seal ? ledgerAppendedSeal(o.base, o.entryAtMs, o.seal) : o.spell ? ledgerAppended(o.base, o.entryAtMs, o.spell, o.from, o.locked) : undefined;
   if (!next) return undefined;
   const eid = writersLocator(o.communityId, hex32(o.channelIdHex));
   const head = o.control.heads.get(bytesToHex(eid));
@@ -81,9 +90,27 @@ export function stopFits(ledger: Ledger | undefined, writer: string, nowMs: numb
   return !stopped(ledger, live.epoch, writer, Number.MAX_SAFE_INTEGER) && ledgerAppended(ledger, nowMs, { kind: "stop", writer }) !== undefined;
 }
 
-/** A writer certificate for each of `writers` at `epoch` (Vector `certify`). */
-export function certify(communityId: Uint8Array, channelIdHex: string, epoch: number, certifying: Uint8Array, writers: readonly string[]): Map<string, string> {
-  return new Map(writers.map((w) => [w, signWriterCert(certifying, certDigest(communityId, hex32(channelIdHex), epoch, hex32(w)))]));
+/**
+ * A writer certificate for each of `writers` at `epoch`, for the rights `owed` gives them
+ * (Vector `certify`): whole, or in a Locked Channel scoped to the bits they may write.
+ */
+export function certify(
+  communityId: Uint8Array,
+  channelIdHex: string,
+  epoch: number,
+  certifying: Uint8Array,
+  writers: readonly string[],
+  owed: (p: string) => Rights = () => "full",
+): { certs: Map<string, string>; scoped: Map<string, ScopedCert> } {
+  const certs = new Map<string, string>();
+  const scoped = new Map<string, ScopedCert>();
+  const channel = hex32(channelIdHex);
+  for (const w of writers) {
+    const rights = owed(w);
+    if (rights === "full") certs.set(w, signWriterCert(certifying, certDigest(communityId, channel, epoch, hex32(w))));
+    else scoped.set(w, { cert: signWriterCert(certifying, scopedCertDigest(communityId, channel, epoch, hex32(w), rights)), rights });
+  }
+  return { certs, scoped };
 }
 
 export interface Mint {
@@ -93,7 +120,7 @@ export interface Mint {
   /** The writer secret's deliveries, certified and tagged as its mint, then the certifier's to the other managers. */
   deliveries: NostrRumor[];
   /** What this device keeps of it, when it is among the writers. */
-  own?: { secret: Uint8Array; cert?: string };
+  own?: { secret: Uint8Array; cert?: string; scoped?: ScopedCert };
 }
 
 /**
@@ -123,12 +150,12 @@ export async function buildMint(o: {
   const pk = channelWriterGroupKey(secret, hex32(o.channelIdHex), epoch).pk;
   const certifier = bytesToHex(schnorr.getPublicKey(certifying));
   const spell: Spell = { kind: "writer", epoch, pk, root: o.rootEpoch, by: o.me, certifier };
-  const built = ledgerEdition({ ...o, base, spell });
+  const built = ledgerEdition({ ...o, base, spell, locked: locksChannel(o.control, o.channelIdHex) });
   if (!built) return undefined;
   // Managers hold the key and its certifier too, so any of them can let a writer in.
   const recipients = o.candidates.filter((p) => o.posters.manages(p) || (!o.cut.includes(p) && o.posters.writes(p)));
   const managers = recipients.filter((p) => p !== o.me && o.posters.manages(p));
-  const certs = certify(o.communityId, o.channelIdHex, epoch, certifying, recipients);
+  const { certs, scoped } = certify(o.communityId, o.channelIdHex, epoch, certifying, recipients, o.posters.owed);
   const atSecs = Math.floor(o.nowMs / 1000);
   const deliveries = [
     ...(await buildAccessDeliveries(o.me, o.encrypt, {
@@ -139,6 +166,7 @@ export async function buildMint(o: {
       atSecs,
       writer: pk,
       certs,
+      scoped,
       mint: true,
     })),
     ...(managers.length > 0
@@ -156,6 +184,6 @@ export async function buildMint(o: {
     epoch,
     edition: built.rumor,
     deliveries,
-    ...(recipients.includes(o.me) ? { own: { secret, cert: certs.get(o.me) } } : {}),
+    ...(recipients.includes(o.me) ? { own: { secret, cert: certs.get(o.me), scoped: scoped.get(o.me) } } : {}),
   };
 }

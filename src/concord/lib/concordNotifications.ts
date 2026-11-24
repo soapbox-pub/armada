@@ -158,7 +158,8 @@ export function buildConcordSubs(
       timerSecs,
       gitAttachments: channelGitRepositoryAttachments(folded?.channels.get(channel.idHex)?.metadata ?? { name: channel.name, private: channel.isPrivate }),
     };
-    subs.push(sub);
+    // A Locked Channel's read address takes nothing new, so nothing listens there (CORD-03 §1).
+    if (!channel.locked) subs.push(sub);
     // A restricted Channel's posts arrive at its live writer address, which takes its
     // own posters (CORD-03 §1): a second sub, since a notifier filters per stream.
     const writers = restrictedWritersIn(folded, channel.idHex);

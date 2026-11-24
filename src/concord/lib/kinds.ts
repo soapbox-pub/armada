@@ -77,6 +77,8 @@ export const KIND_SNAPSHOT = 3312;
 export const KIND_TIMEOUT = 3314;
 /** Nickname (CORD-04 §10): what its target goes by in this Community. */
 export const KIND_NICKNAME = 3315;
+/** One page of a Locked Channel's sealed history (CORD-03 §1), on the read plane it lists, fetched by id. */
+export const KIND_SEAL_PAGE = 3321;
 
 // Person-addressed rumor kinds (standard NIP-59, not stream traffic)
 /**

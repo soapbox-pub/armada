@@ -25,6 +25,11 @@ vi.mock("@nostrify/react", () => ({
   useNostr: () => ({ nostr: { relay: () => ({ event: async (e: NostrEvent) => void h.sent.push(e) }) } }),
 }));
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: h.user }) }));
+// An open Channel: presence rides its read address (CORD-03 §1).
+vi.mock("@/concord/hooks/useControlPlane", async (orig) => ({
+  ...(await orig<typeof import("@/concord/hooks/useControlPlane")>()),
+  useControlFold: () => ({ data: undefined }),
+}));
 
 const CHANNEL = random32();
 const group = channelGroupKey(random32(), CHANNEL, 0);

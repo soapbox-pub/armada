@@ -64,6 +64,9 @@ export const RULE_GROUPS: ReadonlyArray<{ id: "messages" | "voice" | "moderation
   bits: readonly bigint[];
 }>;
 
+/** What `@everyone` lacking every one of them Locks (CORD-03 §1): posting, reacting and joining calls. */
+export const LOCK_BITS: readonly bigint[] = [Permissions.SEND_MESSAGES, Permissions.ADD_REACTIONS, Permissions.CONNECT];
+
 export const ruleState = (rule: Rule, bit: bigint): RuleState =>
   (rule.allow & bit) !== 0n ? "allow" : (rule.deny & bit) !== 0n ? "deny" : "inherit";
 

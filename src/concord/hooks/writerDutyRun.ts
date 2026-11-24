@@ -24,17 +24,21 @@ import { heldCertifier, heldLiveSecret, mintedSecrets, postableSince, storeOwnWr
 import {
   laneKey,
   lanePeriod,
-  lostSend,
+  lostRights,
   planWriterDuty,
   postersOf,
   RANK_STAGGER_MS,
+  remodes,
   restrictsChannel,
   writerCandidates,
   type Act,
   type Lane,
 } from "@/concord/lib/writerDuty";
+import { locksChannel, rightsCover, rightsOf, type Rights } from "@/concord/lib/writerRights";
 import { buildMint, certify, entryTime, ledgerEdition, stopFits } from "@/concord/lib/writerMint";
-import { certifierOf, currentWriterOf, ledgerRestricted, ledgerToJson, stopped, writerStart, type Ledger } from "@/concord/lib/writers";
+import { certifierOf, currentWriterOf, ledgerRestricted, ledgerToJson, sealTarget, stopped, writerStart, type Ledger } from "@/concord/lib/writers";
+import { channelsView } from "@/concord/lib/community";
+import { sealHistory } from "@/concord/hooks/sealHistory";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { clockNowMs } from "@/lib/relayClock";
 import { logSync } from "@/lib/syncLog";
@@ -155,9 +159,10 @@ export async function runWriterDuty(env: WriterDutyEnv): Promise<void> {
  * there, or stopped managing Channels.
  */
 function settleMoves(before: FoldedControl, after: FoldedControl, ch: string, members: ReadonlySet<string>, candidates: readonly string[]): boolean {
-  if (restrictsChannel(before, ch) !== restrictsChannel(after, ch)) return true;
+  if (restrictsChannel(before, ch) !== restrictsChannel(after, ch) || locksChannel(before, ch) !== locksChannel(after, ch)) return true;
   const [was, now] = [postersOf(before, members, ch), postersOf(after, members, ch)];
-  return candidates.some((p) => was.writes(p) !== now.writes(p) || (was.manages(p) && !now.manages(p)));
+  const same = (a: Rights | undefined, b: Rights | undefined) => (a === undefined ? b === undefined : b !== undefined && rightsCover(a, b) && rightsCover(b, a));
+  return candidates.some((p) => !same(was.rights(p), now.rights(p)) || (was.manages(p) && !now.manages(p)));
 }
 
 async function dutyFor(
@@ -225,7 +230,7 @@ async function dutyFor(
   };
   if (plan.handover) await handOver(plan.handover);
   if (plan.kind === "deliver" && live && certifying && ledger) {
-    const certs = certify(community.id, ch, plan.epoch, certifying, plan.recipients);
+    const { certs, scoped } = certify(community.id, ch, plan.epoch, certifying, plan.recipients, posters.owed);
     const rumors = await buildAccessDeliveries(me, encrypt, {
       scopeIdHex: bytesToHex(writerScope(hex32(ch))),
       epoch: BigInt(plan.epoch),
@@ -234,6 +239,7 @@ async function dutyFor(
       atSecs: Math.floor(nowMs / 1000),
       writer: live.pk,
       certs,
+      scoped,
     });
     if (mustStop(env)) return;
     await publishOnPlane(env, community, hex32(ch), rumors);
@@ -241,6 +247,11 @@ async function dutyFor(
     logSync("writers", `${community.idHex.slice(0, 8)} #${ch.slice(0, 8)}: handed the writer key to ${plan.recipients.length} writer(s)`);
   } else if (plan.kind === "certifier") {
     await handOver(plan);
+  } else if (plan.kind === "seal") {
+    tried.set(laneId({ kind: "seal" }), nowMs);
+    if (!plan.mine && !env.settle) await rankWait(me, folded);
+    const result = await seal(env, ch).catch((err: unknown) => `failed (retried later): ${err instanceof Error ? err.message : String(err)}`);
+    if (result !== undefined) logSync("writers", `${community.idHex.slice(0, 8)} #${ch.slice(0, 8)}: ${typeof result === "number" ? `sealed ${result} post(s) before the lock` : `sealing ${result}`}`);
   } else if (plan.kind === "backstop") {
     if (!due({ kind: "retry" })) return;
     const result = await backstop(env, ch, ledger, folded, plan.act);
@@ -253,11 +264,64 @@ async function dutyFor(
 
 type BackstopResult = "acted" | "moved" | "short" | "stood-down" | "failed";
 
+/** Wait by this device's rank, so the highest manager acts first; managers of one rank spread out too. */
+async function rankWait(me: string, judgedOn: FoldedControl): Promise<void> {
+  const steps = me === judgedOn.ownerHex ? 0 : Math.min(10, (highestPosition(judgedOn.roster, me) ?? 9) + 1);
+  if (steps > 0) await new Promise((r) => setTimeout(r, RANK_STAGGER_MS * steps + Math.random() * RANK_STAGGER_MS));
+}
+
+/**
+ * Seal a Locked run's history as far as it is owed (CORD-03 §1, Vector `seal_history`): on a
+ * Guestbook read whole, by a device holding every read plane's key, the ledger edition going
+ * out only if no other seal or move came first.
+ */
+async function seal(env: WriterDutyEnv, ch: string): Promise<number | undefined> {
+  if (env.freshen && !(await env.freshen(true))) throw new Error("the Control Plane or Guestbook read short");
+  const { community, folded, history, walked } = env.now();
+  if (!community || !folded || !history || !walked || mustStop(env)) return undefined;
+  const channel = channelsView(community, folded).find((c) => c.idHex === ch);
+  if (!channel) return undefined;
+  const nowMs = clockNowMs();
+  return sealHistory({
+    nostr: env.nostr,
+    community,
+    folded,
+    channel,
+    history,
+    nowMs,
+    signal: env.signal,
+    publish: async (sealed, until) => {
+      if (env.freshen && !(await env.freshen(false))) return false;
+      const seen = env.now().folded;
+      if (!seen || mustStop(env)) return false;
+      return withControlWrite(community.idHex, async () => {
+        const held = await heldFold(env, seen);
+        const base = held.writers?.get(ch);
+        // Another manager, or a lock moving under the read, makes this seal no longer the one owed.
+        if (!base || sealTarget(base, nowMs) !== until || mustStop(env)) return false;
+        const at = clockNowMs();
+        const built = ledgerEdition({
+          communityId: community.id,
+          control: held,
+          channelIdHex: ch,
+          base,
+          seal: sealed,
+          entryAtMs: at,
+          nowMs: at,
+          me: env.user.pubkey,
+          authority: citationFor(community, held, env.user.pubkey),
+        });
+        if (!built) return false;
+        await publishEdition(env.nostr, community, env.user.signer, built.rumor);
+        return true;
+      });
+    },
+  });
+}
+
 async function backstop(env: WriterDutyEnv, ch: string, seen: Ledger | undefined, judgedOn: FoldedControl, act: Act): Promise<BackstopResult> {
   const me = env.user.pubkey;
-  const steps = me === judgedOn.ownerHex || env.settle ? 0 : Math.min(10, (highestPosition(judgedOn.roster, me) ?? 9) + 1);
-  // Managers of one rank spread out too.
-  if (steps > 0) await new Promise((r) => setTimeout(r, RANK_STAGGER_MS * steps + Math.random() * RANK_STAGGER_MS));
+  if (!env.settle) await rankWait(me, judgedOn);
   if (env.signal.aborted) return "moved";
   // Acting on one writer is judged on the Guestbook caught up too.
   const judgesWriter = act.kind === "stop" || act.kind === "restart" || (act.kind === "mint" && act.cut.length > 0);
@@ -268,28 +332,33 @@ async function backstop(env: WriterDutyEnv, ch: string, seen: Ledger | undefined
   if ((ledger ? ledgerToJson(ledger) : "") !== (seen ? ledgerToJson(seen) : "")) return "moved";
   // The Roster the pass read may predate the change that moved the ledger.
   if (fresh.folded.incomplete.length > 0) return "short";
-  if (restrictsChannel(fresh.folded, ch) !== restrictsChannel(judgedOn, ch)) return "stood-down";
+  const now = fresh.folded;
+  if (restrictsChannel(now, ch) !== restrictsChannel(judgedOn, ch) || locksChannel(now, ch) !== locksChannel(judgedOn, ch)) return "stood-down";
   // What justified acting on one writer must hold on what was just read too.
-  const lost = (p: string) => lostSend(fresh.folded!, p, ch);
-  let keptOut: string[] = [];
-  if (act.kind === "stop" && !lost(act.writer)) return "stood-down";
-  if (act.kind === "restart" && lost(act.writer)) return "stood-down";
+  const lost = (p: string, had: Rights) => lostRights(now, p, ch, had);
+  let keptOut: Array<[string, Rights]> = [];
+  if (act.kind === "stop" && !lost(act.writer, act.had)) return "stood-down";
+  if (act.kind === "restart" && (now.banned.has(act.writer) || rightsOf(now, act.writer, ch, locksChannel(now, ch)) === undefined)) return "stood-down";
   if (act.kind === "mint" && act.cut.length > 0) {
-    keptOut = act.cut.filter(lost);
+    keptOut = act.cut.filter(([p, had]) => lost(p, had));
     if (keptOut.length === 0) return "stood-down";
-    if (keptOut.length === 1) act = { kind: "stop", writer: keptOut[0] };
+    if (keptOut.length === 1) act = { kind: "stop", writer: keptOut[0][0], had: keptOut[0][1] };
     else act = { kind: "mint", cut: [] };
   }
+  // A fresh epoch leaves out only who may write nothing now; the narrowed it certifies anew.
+  const gone = (list: ReadonlyArray<[string, Rights]>) =>
+    list.map(([p]) => p).filter((p) => now.banned.has(p) || rightsOf(now, p, ch, locksChannel(now, ch)) === undefined);
   const restrict = restrictsChannel(judgedOn, ch);
   const isRestricted = ledgerRestricted(ledger);
   try {
     if (!restrict && isRestricted) return (await reopen(env, ch)) ? "acted" : "moved";
     if (!restrict) return "moved";
+    if (isRestricted && remodes(judgedOn, ledger, ch)) return (await mint(env, ch, gone(keptOut))) ? "acted" : "moved";
     if (isRestricted && act.kind === "stop") {
       if (stopFits(ledger, act.writer, clockNowMs())) return (await stopWriter(env, ch, act.writer)) ? "acted" : "moved";
-      return (await mint(env, ch, [act.writer])) ? "acted" : "moved";
+      return (await mint(env, ch, gone([[act.writer, act.had]]))) ? "acted" : "moved";
     }
-    if (isRestricted && act.kind === "mint") return (await mint(env, ch, keptOut.length > 0 ? keptOut : act.cut)) ? "acted" : "moved";
+    if (isRestricted && act.kind === "mint") return (await mint(env, ch, gone(keptOut.length > 0 ? keptOut : act.cut))) ? "acted" : "moved";
     return (await mint(env, ch, [])) ? "acted" : "moved";
   } catch (err) {
     logSync("writers", `#${ch.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`);
@@ -412,7 +481,7 @@ async function mint(env: WriterDutyEnv, ch: string, cut: readonly string[]): Pro
   const published = await withControlWrite(community.idHex, async () => {
     // …or this device's own last write did.
     if (!sameLedger(await heldFold(env, folded), folded, ch) || mustStop(env)) return false;
-    if (built.own) storeOwnWriter(community.idHex, ch, built.epoch, built.own.secret, built.own.cert);
+    if (built.own) storeOwnWriter(community.idHex, ch, built.epoch, built.own.secret, built.own.cert, built.own.scoped);
     // The ledger goes first, so a manager that sees it moved stands down; then every part of the mint.
     await publishEdition(env.nostr, community, env.user.signer, built.edition);
     return true;

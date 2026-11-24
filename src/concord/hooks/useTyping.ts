@@ -32,8 +32,9 @@ export function useTyping(community: Community | undefined, channel: Channel | u
 
   const channelIdHex = channel?.idHex ?? null;
   const currentPk = channel?.current.group.pk;
+  // A Locked Channel's read address carries nothing a reader needs (CORD-03 §1).
   const listened = channel
-    ? [channel.current.group, ...channel.streams.filter((st) => st.writer && st.epoch === channel.current.epoch && st.writer.to === undefined).map((st) => st.group)]
+    ? [...(channel.locked ? [] : [channel.current.group]), ...channel.streams.filter((st) => st.writer && st.epoch === channel.current.epoch && st.writer.to === undefined).map((st) => st.group)]
     : [];
   const listenedSig = listened.map((g) => g.pk).join(",");
 

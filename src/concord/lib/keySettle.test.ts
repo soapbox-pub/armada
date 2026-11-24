@@ -59,6 +59,7 @@ const delivery = (deliverer: string, channel: string, epoch: bigint, to: string[
   scopeIdHex: channel,
   newEpoch: epoch,
   certs: [],
+  scoped: [],
   blobs: to.map((pk) => ({ locator: myLocator(deliverer, pk, channel, epoch), wrapped: "" })),
 });
 

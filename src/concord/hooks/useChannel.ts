@@ -1307,7 +1307,11 @@ export function useSendMessage(community: Community | undefined, channel: Channe
       }
       // In a restricted Channel a post lands at the live writer address, or not at all (Vector `send_group`).
       const at = sendTarget(channel.current.group, effectiveKind, folded, community.id, channel.idHex, user.pubkey, history);
-      if (!at) throw new Error(t({ id: "useChannel.writersOnly", defaultMessage: "Only this channel's writers can post here." }));
+      if (!at) {
+        throw new Error(effectiveKind === KIND_REACTION
+          ? t({ id: "useTransport.reactDenied", defaultMessage: "You can't react in this channel" })
+          : t({ id: "useChannel.writersOnly", defaultMessage: "Only this channel's writers can post here." }));
+      }
       const sendGroup = at.group;
       const effectiveMs = ms ?? clockNowMs();
       const tags: string[][] = [...channelBindingTags(channel.idHex, channel.current.epoch)];
@@ -1569,6 +1573,9 @@ export function useMessageActions(community: Community | undefined, channel: Cha
         old.includes(id) ? old : [...old, id],
       );
       void (async () => {
+        // Asked first: scrubbing the relay copy for a delete that can't be sent splits what
+        // readers see, as in a Locked Channel without a write right (CORD-03 §1).
+        if (!sendTarget(channel.current.group, KIND_DELETE, folded, community.id, channel.idHex, user.pubkey)) throw new Error("this delete can't be sent here");
         // One's own message leaves the relays too, with its edits (they carry its text), by the
         // derived wrap owner; only then may the in-plane delete expire (CORD-01 §Deletions).
         let expiration: number | null = null;

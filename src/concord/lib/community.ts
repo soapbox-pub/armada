@@ -23,9 +23,9 @@ import { openChannelSeal } from "@/concord/lib/channelSeal";
 import type { FoldedControl } from "@/concord/lib/control";
 import { isRankKey } from "@/concord/lib/rankKey";
 import { channelPermissions, Permissions } from "@/concord/lib/roles";
-import { capRelays, type Channel, type ChannelMetadata, type Community, type VoiceKeys, type WriterWindow } from "@/concord/lib/types";
+import { capRelays, type Channel, type ChannelMetadata, type Community, type ReadGate, type VoiceKeys, type WriterWindow } from "@/concord/lib/types";
 import { heldHistoryViews, historyGroup } from "@/concord/lib/history";
-import { writerWindows, type Ledger } from "@/concord/lib/writers";
+import { ledgerLocked, quietSpans, readAddressQuiet, readRange, writerWindows, type Ledger } from "@/concord/lib/writers";
 
 /**
  * Mint a new community: a random `owner_salt` commits the owner into the
@@ -166,6 +166,8 @@ export function channelsView(community: Community, folded: FoldedControl | undef
         isPrivate: false,
         ...placement(def.metadata),
         view: channelView(def.metadata),
+        ...(ledgerLocked(ledger) ? { locked: true as const } : {}),
+        ...readGateOf(ledger),
         get voice() {
           return (voiceMemo ??= voiceKeys(community.root, id, community.rootEpoch));
         },
@@ -194,6 +196,8 @@ export function channelsView(community: Community, folded: FoldedControl | undef
       ...(meta ? placement(meta) : {}),
       view: meta ? channelView(meta) : "chat",
       ...(opened?.publicUntil !== undefined ? { publicUntil: opened.publicUntil } : {}),
+      ...(ledgerLocked(folded?.writers?.get(def.channelIdHex)) ? { locked: true as const } : {}),
+      ...readGateOf(folded?.writers?.get(def.channelIdHex)),
       get voice() {
         return (voiceMemo ??= voiceKeys(held.key, id, held.epoch));
       },
@@ -242,6 +246,18 @@ export function channelsView(community: Community, folded: FoldedControl | undef
 }
 
 const UNKEYED = "\u{10FFFF}";
+
+/** A Channel's read gate (CORD-03 §1), where its ledger has a quiet span or a seal. */
+function readGateOf(ledger: Ledger | undefined): { readGate?: ReadGate } {
+  if (!ledger || (!ledger.seal && quietSpans(ledger).length === 0)) return {};
+  return {
+    readGate: {
+      quiet: (atMs) => readAddressQuiet(ledger, atMs),
+      range: (topMs) => readRange(ledger, topMs),
+      ...(ledger.seal ? { seal: ledger.seal } : {}),
+    },
+  };
+}
 
 /**
  * A restricted Channel's writer addresses as read-only streams (CORD-03 §1): each

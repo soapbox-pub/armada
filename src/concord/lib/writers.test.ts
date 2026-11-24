@@ -64,10 +64,10 @@ describe("the Writers ledger", () => {
     const l = parseLedger(JSON.stringify(ledger))!;
     const author = pk(0x30);
     const good = signWriterCert(fill(0x11), certDigest(fill(0x01), fill(0x02), 1, hexBytes(author)));
-    expect(postStands(l, fill(0x01), { author, ms: 1500, tags: [["wepoch", "1"], ["wcert", good]] })).toBe(true);
-    expect(postStands(l, fill(0x01), { author, ms: 1500, tags: [["wepoch", "1"]] })).toBe(false);
-    expect(postStands(l, fill(0x01), { author, ms: 3500, tags: [["wepoch", "1"], ["wcert", good]] })).toBe(false);
-    expect(postStands(l, fill(0x01), { author, ms: 1500, tags: [] })).toBe(false);
+    expect(postStands(l, fill(0x01), { author, kind: 9, ms: 1500, tags: [["wepoch", "1"], ["wcert", good]] })).toBe(true);
+    expect(postStands(l, fill(0x01), { author, kind: 9, ms: 1500, tags: [["wepoch", "1"]] })).toBe(false);
+    expect(postStands(l, fill(0x01), { author, kind: 9, ms: 3500, tags: [["wepoch", "1"], ["wcert", good]] })).toBe(false);
+    expect(postStands(l, fill(0x01), { author, kind: 9, ms: 1500, tags: [] })).toBe(false);
   });
 });
 

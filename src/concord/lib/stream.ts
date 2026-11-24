@@ -137,7 +137,7 @@ export async function sealRumor(
 export function wrapSeal(
   seal: NostrEvent,
   stream: GroupKey,
-  opts?: { ephemeral?: boolean; ephemeralSk?: Uint8Array; expiration?: number },
+  opts?: { ephemeral?: boolean; ephemeralSk?: Uint8Array; expiration?: number; createdAt?: number },
 ): Promise<NostrEvent> {
   const ephemeralSk = opts?.ephemeralSk ?? generateSecretKey();
   const ephemeralPk = getPublicKey(ephemeralSk);
@@ -148,7 +148,7 @@ export function wrapSeal(
       kind: opts?.ephemeral ? KIND_WRAP_EPHEMERAL : KIND_WRAP,
       content: encryptChecked(stream.convKey, JSON.stringify(seal)),
       tags,
-      created_at: nowSecs(),
+      created_at: opts?.createdAt ?? nowSecs(),
     },
     stream.sk,
   );

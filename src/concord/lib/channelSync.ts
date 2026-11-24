@@ -12,6 +12,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
 import { openChatBatch } from "@/concord/lib/chat";
+import { SealWalk } from "@/concord/lib/sealWalk";
 import { KIND_WRAP } from "@/concord/lib/kinds";
 import { notePlaneWrapsSeen, unseenPlaneWraps, whenAuthSettled } from "@/concord/lib/planeSync";
 import {
@@ -95,16 +96,52 @@ export function channelFilters(
   channel: Channel,
   opts: { limit: number; cursor?: number; since?: number; freezeRetired?: boolean },
 ): NostrFilter[] {
-  const authors: string[] = [];
+  return pageFilters(channel, opts).filters;
+}
+
+/** One page's filters, and for a gated read address (CORD-03 §1) where its stretch ends. */
+interface PageFilters {
+  filters: NostrFilter[];
+  /** The read planes' own filter: their addresses, and the second its stretch reaches down to. */
+  read?: { authors: ReadonlySet<string>; floor: number };
+  /** Nothing is left of the read address above the seal at this cursor: below, it is read by id. */
+  sealed: boolean;
+}
+
+/**
+ * {@link channelFilters}, where a Locked Channel's read address is read only in the
+ * stretches it took things in (Vector `read_range`): never inside a quiet span, never
+ * below the seal. Its writer addresses page as ever, in a filter of their own.
+ */
+function pageFilters(
+  channel: Channel,
+  opts: { limit: number; cursor?: number; since?: number; freezeRetired?: boolean },
+): PageFilters {
+  const gate = channel.readGate;
+  const reads: string[] = [];
+  const others: string[] = [];
   for (const s of channel.streams) {
     if (s.retiredAt !== undefined && opts.freezeRetired) continue;
-    authors.push(s.group.pk);
+    (gate && !s.writer ? reads : others).push(s.group.pk);
   }
-  if (authors.length === 0) return [];
-  const f: NostrFilter = { kinds: [KIND_WRAP], authors, limit: opts.limit };
-  if (opts.cursor !== undefined) f.until = opts.cursor;
-  if (opts.since !== undefined) f.since = opts.since;
-  return [f];
+  const filter = (authors: string[], until: number | undefined, since: number | undefined): NostrFilter => ({
+    kinds: [KIND_WRAP],
+    authors,
+    limit: opts.limit,
+    ...(until !== undefined ? { until } : {}),
+    ...(since !== undefined ? { since } : {}),
+  });
+  const filters = others.length > 0 ? [filter(others, opts.cursor, opts.since)] : [];
+  if (!gate || reads.length === 0) return { filters, sealed: false };
+  const topMs = opts.cursor === undefined ? nowSecs() * 1000 + 999 : opts.cursor * 1000 + 999;
+  const range = gate.range(topMs);
+  if (!range) return { filters, sealed: true };
+  const floor = Math.floor(range[0] / 1000);
+  const since = Math.max(opts.since ?? 0, floor);
+  const until = range[1] < topMs ? Math.floor(range[1] / 1000) : opts.cursor;
+  if (until !== undefined && since > until) return { filters, sealed: false };
+  filters.push(filter(reads, until, since > 0 ? since : undefined));
+  return { filters, read: { authors: new Set(reads), floor }, sealed: false };
 }
 
 /**
@@ -145,6 +182,10 @@ export async function backfillStore(
   let oldest: number | undefined;
   let newest: number | undefined;
   let active = relays.map((url) => ({ url, cursor: opts.until }));
+  // Below a seal the read address is read by the ids it names (CORD-03 §1).
+  const gate = channel.readGate;
+  const sealUntil = gate?.seal?.until;
+  const walk = gate?.seal ? new SealWalk(gate.seal, opts.until === undefined ? Number.MAX_SAFE_INTEGER : opts.until * 1000 + 999) : undefined;
   const collected: NostrEvent[] = [];
   let count = 0;
   let failed = false;
@@ -163,17 +204,18 @@ export async function backfillStore(
 
     const results = await Promise.all(
       active.map(async (relay) => {
-        const filters = channelFilters(channel, {
+        const pf = pageFilters(channel, {
           limit: BACKFILL_PAGE,
           cursor: relay.cursor,
           since: opts.since,
           freezeRetired: opts.freezeRetired,
         });
-        if (filters.length === 0) return { relay, events: [] as NostrEvent[], ok: true };
+        const filters = pf.filters;
+        if (filters.length === 0) return { relay, events: [] as NostrEvent[], ok: true, pf };
         try {
           // Per-relay auth gate: each relay waits only for ITS OWN stream AUTHs.
           await opts.beforeRelay?.(relay.url);
-          if (pageSignal.aborted) return { relay, events: [] as NostrEvent[], ok: false };
+          if (pageSignal.aborted) return { relay, events: [] as NostrEvent[], ok: false, pf };
           const handle = nostr.relay(relay.url);
           const querySignal = AbortSignal.any([pageSignal, AbortSignal.timeout(8000)]);
           // A CLOSED page ("too many subscriptions", rate-limited) must fail, not
@@ -184,9 +226,9 @@ export async function backfillStore(
           // Only a relay that HAS events starts the race clock; an instant empty EOSE must
           // not abort relays still mid-AUTH.
           if (events.length > 0) armGrace();
-          return { relay, events, ok: true };
+          return { relay, events, ok: true, pf };
         } catch {
-          return { relay, events: [] as NostrEvent[], ok: false };
+          return { relay, events: [] as NostrEvent[], ok: false, pf };
         }
       }),
     );
@@ -194,13 +236,40 @@ export async function backfillStore(
 
     const next: typeof active = [];
     const pageEvents: NostrEvent[] = [];
-    for (const { relay, events, ok } of results) {
+    // Once a relay's read reaches the seal, the next of its ids, newest first; the walk goes
+    // on from its pages' own dates, whatever the ids came back as.
+    let sealOn: number | undefined;
+    if (walk && sealUntil !== undefined && !walk.done() && results.some((r) => r.ok && r.pf.sealed) && (opts.since === undefined || opts.since * 1000 < sealUntil)) {
+      try {
+        const step = await walk.step(nostr, relays, channel, BACKFILL_PAGE, signal);
+        // A page owed and not served leaves what lies past it unread, not absent.
+        if (walk.broken) failed = true;
+        pageEvents.push(...step.wraps);
+        for (const ev of step.wraps) {
+          if (newest === undefined || ev.created_at > newest) newest = ev.created_at;
+          if (oldest === undefined || ev.created_at < oldest) oldest = ev.created_at;
+        }
+        if (!walk.done() && step.bottomMs !== undefined) sealOn = Math.floor(step.bottomMs / 1000);
+      } catch {
+        failed = true;
+      }
+    }
+    for (const { relay, events, ok, pf } of results) {
       if (!ok) {
         // This relay's region was NOT read: block exhaustion/cursor advancement; retry later.
         failed = true;
         continue;
       }
       pageEvents.push(...events);
+      if (gate) {
+        const cursor = gatedCursor(relay.cursor, events, pf, sealOn, opts.since);
+        for (const ev of events) {
+          if (newest === undefined || ev.created_at > newest) newest = ev.created_at;
+          if ((relay.cursor === undefined || ev.created_at < relay.cursor) && (oldest === undefined || ev.created_at < oldest)) oldest = ev.created_at;
+        }
+        if (cursor !== undefined) next.push({ url: relay.url, cursor });
+        continue;
+      }
       let relayOldest = Infinity;
       let progressed = 0;
       for (const ev of events) {
@@ -254,6 +323,36 @@ export async function backfillStore(
     exhausted,
     failed: failed || (reachedBottom && count === 0 && !opts.emptyOk),
   };
+}
+
+/**
+ * Where a relay goes on from below a gated page (Vector `fetch_channel_history_paged`): the
+ * shallowest frontier of each filter that came back full, and where its read address hands
+ * on, below a stretch run dry or into the seal. Undefined once nothing is left to read.
+ */
+function gatedCursor(cursor: number | undefined, events: readonly NostrEvent[], pf: PageFilters, sealOn: number | undefined, since: number | undefined): number | undefined {
+  const frontier = (evs: readonly NostrEvent[]) => {
+    let low: number | undefined;
+    for (const ev of evs) if ((cursor === undefined || ev.created_at < cursor) && (low === undefined || ev.created_at < low)) low = ev.created_at;
+    return evs.length >= BACKFILL_PAGE && low !== undefined && low > 0 ? low - 1 : undefined;
+  };
+  const read = pf.read;
+  const readEvs = read ? events.filter((e) => read.authors.has(e.pubkey)) : [];
+  const otherEvs = read ? events.filter((e) => !read.authors.has(e.pubkey)) : events;
+  const candidates: number[] = [];
+  const other = frontier(otherEvs);
+  if (other !== undefined) candidates.push(other);
+  if (read) {
+    const full = frontier(readEvs);
+    if (full !== undefined) candidates.push(full);
+    else if (readEvs.length < BACKFILL_PAGE && read.floor > 0 && (since === undefined || since <= read.floor - 1)) candidates.push(read.floor - 1);
+  }
+  if (pf.sealed && sealOn !== undefined) candidates.push(sealOn);
+  if (candidates.length === 0) return undefined;
+  const nextCursor = Math.max(...candidates);
+  if (cursor === undefined || nextCursor < cursor) return nextCursor;
+  // The walk moves through a page's ids while its date holds: it keeps its own place.
+  return pf.sealed && nextCursor === sealOn ? cursor : undefined;
 }
 
 export interface BackfillResult {

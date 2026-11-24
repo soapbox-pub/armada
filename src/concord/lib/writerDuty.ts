@@ -14,15 +14,20 @@ import { bytesToHex, certifierScope, hex32, writerScope } from "@/concord/lib/de
 import type { ParsedDelivery } from "@/concord/lib/delivery";
 import { kickedInto, type GuestbookHistory } from "@/concord/lib/guestbook";
 import { myLocator } from "@/concord/lib/rekey";
-import { canActOnMember, channelPermissions, everyoneSends, hasPermission, Permissions } from "@/concord/lib/roles";
+import { canActOnMember, everyoneSends, hasPermission, Permissions } from "@/concord/lib/roles";
+import { locksChannel, rightsCover, rightsOf, widenRights, type Rights } from "@/concord/lib/writerRights";
 import {
   certDigest,
   certifierOf,
   currentWriterOf,
+  ledgerLocked,
   ledgerRestricted,
   liveWriterEntry,
   minterOf,
   previousWriterEpoch,
+  runStart,
+  scopedCertDigest,
+  sealTarget,
   stopped,
   verifyWriterCert,
   writerStart,
@@ -40,9 +45,11 @@ export const BACKSTOP_RETRY_MS = 10 * 60_000;
 export const STARVED_MS = 10 * 60_000;
 /** Each rank step down waits this much longer before a backstop mint, so one manager acts. */
 export const RANK_STAGGER_MS = 2_000;
+/** How long a Locked run waits on its minter's seal before another manager makes it (CORD-03 §1). */
+export const SEAL_BACKSTOP_MS = 3600_000;
 
 /** A backstop's lane in one Channel, each damped on its own once it tried. */
-export type Lane = { kind: "cut"; member: string } | { kind: "starved" } | { kind: "move" } | { kind: "retry" } | { kind: "unserved" } | { kind: "certifier" };
+export type Lane = { kind: "cut"; member: string } | { kind: "starved" } | { kind: "move" } | { kind: "retry" } | { kind: "unserved" } | { kind: "certifier" } | { kind: "seal" };
 
 export function laneKey(lane: Lane): string {
   return lane.kind === "cut" ? `cut:${lane.member}` : lane.kind;
@@ -54,41 +61,56 @@ export function lanePeriod(lane: Lane): number {
     case "starved":
       return BACKSTOP_DAMP_MS;
     case "retry":
+    case "seal":
       return BACKSTOP_RETRY_MS;
     default:
       return BACKSTOP_MOVE_MS;
   }
 }
 
-/** What a backstop does to a restricted Channel's ledger. */
-export type Act = { kind: "mint"; cut: string[] } | { kind: "stop"; writer: string } | { kind: "restart"; writer: string };
+/**
+ * What a backstop does to a restricted Channel's ledger: mint leaving out those of `cut`
+ * who may write nothing now, or stop one writer, each with the rights its certificate held.
+ */
+export type Act = { kind: "mint"; cut: Array<[string, Rights]> } | { kind: "stop"; writer: string; had: Rights } | { kind: "restart"; writer: string };
 
 /** What one pass of the duty does for a Channel. */
 export type WriterPlan = (
   | { kind: "backstop"; act: Act; lanes: Lane[] }
   | { kind: "deliver"; epoch: number; recipients: string[] }
   | { kind: "certifier"; epoch: number; recipients: string[] }
+  /** Seal a Locked run's history; `mine` when this device minted its live window. */
+  | { kind: "seal"; mine: boolean }
   | { kind: "none" }
 ) & {
   /** The certifier handed to managers who lack it, in the same pass as what follows (Vector `duty_for`). */
   handover?: { epoch: number; recipients: string[] };
 };
 
-/** Who may post, and who manages, in a Channel by a Roster (Vector `Posters`). */
+/** Who may write, and who manages, in a Channel by a Roster (Vector `Posters`). */
 export interface Posters {
+  /** Whether `p` is owed the writer key: they may write anything there. */
   writes(p: string): boolean;
+  /** What `p` may write at the writer address, read at the mode this Roster gives the Channel. */
+  rights(p: string): Rights | undefined;
+  /** The certificate `p` is owed: a manager's is whole, since a manager holds the key by design. */
+  owed(p: string): Rights;
   manages(p: string): boolean;
   vouchesAsManager(p: string): boolean;
 }
 
 export function postersOf(control: FoldedControl, members: ReadonlySet<string>, channelIdHex: string): Posters {
   const owner = control.ownerHex;
-  const isPrivate = control.channels.get(channelIdHex)?.isPrivate ?? false;
+  const locked = locksChannel(control, channelIdHex);
   const inMembers = (p: string) => p === owner || members.has(p);
   const vouchesAsManager = (p: string) => p === owner || (!control.banned.has(p) && hasPermission(control.roster, p, Permissions.MANAGE_CHANNELS));
+  const rights = (p: string) => (inMembers(p) && !control.banned.has(p) ? rightsOf(control, p, channelIdHex, locked) : undefined);
+  const manages = (p: string) => (inMembers(p) && vouchesAsManager(p)) || p === owner;
   return {
-    writes: (p) => inMembers(p) && !control.banned.has(p) && (channelPermissions(control.roster, owner, p, channelIdHex, isPrivate) & Permissions.SEND_MESSAGES) !== 0n,
-    manages: (p) => (inMembers(p) && vouchesAsManager(p)) || p === owner,
+    writes: (p) => rights(p) !== undefined,
+    rights,
+    owed: (p) => (manages(p) ? "full" : rights(p) ?? "full"),
+    manages,
     vouchesAsManager,
   };
 }
@@ -98,10 +120,19 @@ export function restrictsChannel(control: FoldedControl, channelIdHex: string): 
   return !everyoneSends(control.roster, channelIdHex);
 }
 
-/** Whether `p` may no longer post: the Roster takes SEND, or a ban (Vector `lost_send`). */
-export function lostSend(control: FoldedControl, p: string, channelIdHex: string): boolean {
-  const isPrivate = control.channels.get(channelIdHex)?.isPrivate ?? false;
-  return control.banned.has(p) || (channelPermissions(control.roster, control.ownerHex, p, channelIdHex, isPrivate) & Permissions.SEND_MESSAGES) === 0n;
+/**
+ * Whether `p` may no longer write all that `had` covered: the Roster narrows or takes their
+ * rights, or a ban (Vector `lost_rights`).
+ */
+export function lostRights(control: FoldedControl, p: string, channelIdHex: string, had: Rights): boolean {
+  if (control.banned.has(p)) return true;
+  const now = rightsOf(control, p, channelIdHex, locksChannel(control, channelIdHex));
+  return now === undefined || !rightsCover(now, had);
+}
+
+/** Whether a Roster locks a restricted Channel its ledger doesn't, or the other way: that takes a fresh epoch. */
+export function remodes(control: FoldedControl, ledger: Ledger | undefined, channelIdHex: string): boolean {
+  return restrictsChannel(control, channelIdHex) && ledgerRestricted(ledger) && ledgerLocked(ledger) !== locksChannel(control, channelIdHex);
 }
 
 /** Everyone a writer secret could be owed to: the access candidates, the owner and this member (Vector `writer_candidates`). */
@@ -121,19 +152,29 @@ function certifies(communityId: Uint8Array, ledger: Ledger, epoch: number, write
   return certifier !== undefined && verifyWriterCert(certifier, certDigest(communityId, hex32(ledger.channel), epoch, hex32(writer)), cert);
 }
 
+function certifiesScoped(communityId: Uint8Array, ledger: Ledger, epoch: number, writer: string, rights: bigint, cert: string): boolean {
+  const certifier = certifierOf(ledger, epoch);
+  return certifier !== undefined && verifyWriterCert(certifier, scopedCertDigest(communityId, hex32(ledger.channel), epoch, hex32(writer), rights), cert);
+}
+
 function blobFor(d: ParsedDelivery, member: string, scopeHex: string, epoch: number): boolean {
   const locator = myLocator(d.deliverer, member, scopeHex, BigInt(epoch));
   return d.blobs.some((b) => b.locator.toLowerCase() === locator);
 }
 
-/** Who epoch `e` vouches for: its minter, and each writer a vouching delivery certified (Vector `vouched_at`). */
-function vouchedAt(communityId: Uint8Array, ledger: Ledger, deliveries: readonly ParsedDelivery[], vouching: (d: string, e: number) => boolean, e: number): Set<string> {
-  const out = new Set<string>();
+/**
+ * Who epoch `e` vouches for, and for what: its minter whole, and each writer a vouching
+ * delivery certified, at the widest rights its certificates cover (Vector `vouched_at`).
+ */
+function vouchedAt(communityId: Uint8Array, ledger: Ledger, deliveries: readonly ParsedDelivery[], vouching: (d: string, e: number) => boolean, e: number): Map<string, Rights> {
+  const out = new Map<string, Rights>();
+  const widen = (p: string, r: Rights) => out.set(p, widenRights(out.get(p), r));
   const minter = minterOf(ledger, e);
-  if (minter) out.add(minter);
+  if (minter) widen(minter, "full");
   for (const d of deliveries) {
     if (Number(d.newEpoch) !== e || !vouching(d.deliverer, e)) continue;
-    for (const [w, c] of d.certs) if (certifies(communityId, ledger, e, w, c)) out.add(w);
+    for (const [w, c] of d.certs) if (certifies(communityId, ledger, e, w, c)) widen(w, "full");
+    for (const [w, c, r] of d.scoped) if (certifiesScoped(communityId, ledger, e, w, r, c)) widen(w, r);
   }
   return out;
 }
@@ -152,7 +193,7 @@ function leftOut(communityId: Uint8Array, ledger: Ledger, deliveries: readonly P
   for (let i = 1; i <= parts; i++) if (!minting.some((d) => d.mint![0] === i)) return new Set();
   const prev = previousWriterEpoch(ledger);
   if (prev === undefined) return new Set();
-  return new Set([...vouchedAt(communityId, ledger, deliveries, vouching, prev)].filter((p) => !minting.some((d) => blobFor(d, p, scopeHex, live.epoch))));
+  return new Set([...vouchedAt(communityId, ledger, deliveries, vouching, prev).keys()].filter((p) => !minting.some((d) => blobFor(d, p, scopeHex, live.epoch))));
 }
 
 /** Who holds the live certifier: its minter, and whom a certifier-scope delivery from the minter or a manager served (Vector `certifier_holders`). */
@@ -210,7 +251,8 @@ export function planWriterDuty(i: WriterDutyInput): WriterPlan {
   const current = currentWriterOf(ledger);
   // A Refounding retires the live writer epoch; one naming no certifier predates certificates.
   const retired = (live !== undefined && live.root < i.rootEpoch) || (current !== undefined && ledger !== undefined && certifierOf(ledger, current.epoch) === undefined);
-  if (mayManage && i.due({ kind: "move" }) && ((restrict && retired) || restrict !== isRestricted)) {
+  // Locking or unlocking a restricted Channel takes a fresh epoch: the flag is the window's.
+  if (mayManage && i.due({ kind: "move" }) && ((restrict && retired) || restrict !== isRestricted || remodes(control, ledger, ch))) {
     return { kind: "backstop", act: { kind: "mint", cut: [] }, lanes: [{ kind: "move" }] };
   }
   if (!ledger || !live || !current || !restrict || live.root < i.rootEpoch) return none;
@@ -220,9 +262,12 @@ export function planWriterDuty(i: WriterDutyInput): WriterPlan {
   const minted = (d: string, e: number) => d === minterOf(ledger, e);
   const trusted = (d: string, e: number) => minted(d, e) || posters.manages(d);
   const vouching = (d: string, e: number) => minted(d, e) || posters.vouchesAsManager(d);
+  // At a certified epoch, served means handed a certificate too, one covering all they may write.
   const certified = (p: string, e: number) =>
     certifierOf(ledger, e) === undefined ||
-    named.some((d) => Number(d.newEpoch) === e && trusted(d.deliverer, e) && [...d.certs].some(([w, c]) => w === p && certifies(i.communityId, ledger, e, w, c)));
+    named.some((d) => Number(d.newEpoch) === e && trusted(d.deliverer, e) && (
+      d.certs.some(([w, c]) => w === p && certifies(i.communityId, ledger, e, w, c)) ||
+      d.scoped.some(([w, c, r]) => w === p && rightsCover(r, posters.owed(p)) && certifiesScoped(i.communityId, ledger, e, w, r, c))));
   const served = (p: string, e: number) => named.some((d) => Number(d.newEpoch) === e && trusted(d.deliverer, e) && blobFor(d, p, scope, e)) && certified(p, e);
   let handover: { epoch: number; recipients: string[] } | undefined;
   const finish = (p: WriterPlan): WriterPlan => {
@@ -237,13 +282,14 @@ export function planWriterDuty(i: WriterDutyInput): WriterPlan {
       return { kind: "backstop", act: { kind: "mint", cut: [] }, lanes: [{ kind: "certifier" }] };
     }
     const out = [...vouchedAt(i.communityId, ledger, named, vouching, epoch)]
-      .filter((p) => i.walked && p !== me && !posters.manages(p) && !stopped(ledger, epoch, p, now))
-      .filter((p) => lostSend(control, p, ch))
-      .filter((p) => me === owner || canActOnMember(control.roster, me, owner, p, Permissions.MANAGE_CHANNELS))
-      .filter((p) => i.due({ kind: "cut", member: p }))
-      .sort();
+      .filter(([p]) => i.walked && p !== me && !posters.manages(p) && !stopped(ledger, epoch, p, now))
+      .filter(([p, had]) => lostRights(control, p, ch, had))
+      .filter(([p]) => me === owner || canActOnMember(control.roster, me, owner, p, Permissions.MANAGE_CHANNELS))
+      .filter(([p]) => i.due({ kind: "cut", member: p }))
+      .sort(([a], [b]) => (a < b ? -1 : 1));
     if (out.length > 0) {
-      return { kind: "backstop", act: out.length === 1 ? { kind: "stop", writer: out[0] } : { kind: "mint", cut: out }, lanes: out.map((member) => ({ kind: "cut", member })) };
+      const act: Act = out.length === 1 ? { kind: "stop", writer: out[0][0], had: out[0][1] } : { kind: "mint", cut: out };
+      return { kind: "backstop", act, lanes: out.map(([member]) => ({ kind: "cut", member })) };
     }
     if (i.holdsCertifier) {
       const owed = i.candidates.filter((p) => p !== me && posters.manages(p) && !holding.has(p) && !i.sentCertifier.has(p));
@@ -252,6 +298,14 @@ export function planWriterDuty(i: WriterDutyInput): WriterPlan {
     const starved = now - Math.max(live.at, i.postableSince) > STARVED_MS;
     if (keyless && starved && i.due({ kind: "starved" })) {
       return finish({ kind: "backstop", act: { kind: "mint", cut: [] }, lanes: [{ kind: "starved" }] });
+    }
+    // A run of Locked windows is sealed as it begins and again once its first minutes pass: by
+    // whoever minted its live window, or failing them an hour in, any manager by rank.
+    const mine = minterOf(ledger, epoch) === me;
+    const start = runStart(ledger);
+    const waited = start !== undefined && now - start > SEAL_BACKSTOP_MS;
+    if (sealTarget(ledger, now) !== undefined && (mine || waited) && i.due({ kind: "seal" })) {
+      return finish({ kind: "seal", mine });
     }
   }
   if (!i.holdsCertifier && !mayManage) return finish(none);

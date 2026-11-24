@@ -191,7 +191,7 @@ import { useDecryptedImage } from "@/concord/hooks/useDecryptedImage";
 import { useCarryMyNickname, useGuestbook, useHealBanDepartures, useMemberStanding, useRestoreJoin } from "@/concord/hooks/useGuestbook";
 import { useModeration, useReadCutRetry } from "@/concord/hooks/useModeration";
 import { useChannelRekey, useChannelRekeyWatch, useLinkRefreshWatch, useRefoundResume, useRekeyWatch, type RefoundProgress } from "@/concord/hooks/useRekey";
-import { useCanPost } from "@/concord/hooks/useWriterAccess";
+import { useCanPost, useCanReact } from "@/concord/hooks/useWriterAccess";
 import { clockNowMs, nowSecs } from "@/lib/relayClock";
 import { CommunityNicknamesContext } from "@/contexts/CommunityNicknamesContext";
 import { isEntitled } from "@/concord/lib/channelAccess";
@@ -1769,7 +1769,8 @@ function ConcordCommunityPage() {
   // A restricted Channel takes posts from its writers alone (CORD-03 §1); reactions still go.
   const canPost = useCanPost(community, channel?.idHex);
   const sendDenied = Boolean(user && channel && !sendsIn(folded, channel.idHex, user.pubkey));
-  const canReact = Boolean(user && channel && reactsIn(folded, channel.idHex, user.pubkey));
+  const reachesReaders = useCanReact(community, channel?.idHex);
+  const canReact = Boolean(user && channel && reactsIn(folded, channel.idHex, user.pubkey) && reachesReaders);
   const restrictedChannel = Boolean(folded && channel && !everyoneSends(folded.roster, channel.idHex));
 
   // Audit log and invite links are open to every member, so "Moderation" always shows.
