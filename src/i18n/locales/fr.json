@@ -5107,6 +5107,7 @@
   "useSettingsKeys.notLoggedIn": "Non connecté",
   "useThemeLibrary.notSignedIn": "Non connecté",
   "useTransport.privateZapNeedsProof": "Un zap privé nécessite sa preuve de paiement.",
+  "useTransport.reactDenied": "Vous ne pouvez pas réagir dans ce salon",
   "useUltra.badProfile": "Votre profil n’a pas pu être lu, il n’a donc pas été modifié.",
   "useUltra.noProfile": "Impossible de charger votre profil. Définissez d’abord votre nom dans Profil, ou réessayez.",
   "useUltra.notLoggedIn": "Vous devez être connecté.",

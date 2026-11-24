@@ -166,6 +166,8 @@ export interface ChatTransport {
   isLoading: boolean;
   canWrite: boolean;
   canModerate: boolean;
+  /** False where the reader may write but not react (CORD-04 §8 ADD_REACTIONS). */
+  canReact?: boolean;
 
   canMentionEveryone?: boolean;
   /** Concord Roles the viewer may ping (CORD-04 §8). */

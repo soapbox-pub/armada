@@ -5107,6 +5107,7 @@
   "useSettingsKeys.notLoggedIn": "Niet ingelogd",
   "useThemeLibrary.notSignedIn": "Niet ingelogd",
   "useTransport.privateZapNeedsProof": "Een privézap heeft zijn betalingsbewijs nodig.",
+  "useTransport.reactDenied": "Je kunt in dit kanaal niet reageren",
   "useUltra.badProfile": "Je profiel kon niet worden gelezen, dus het is ongemoeid gelaten.",
   "useUltra.noProfile": "Je profiel kon niet worden geladen. Stel eerst je naam in bij Profiel, of probeer het opnieuw.",
   "useUltra.notLoggedIn": "Je moet ingelogd zijn.",

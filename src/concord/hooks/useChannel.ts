@@ -10,7 +10,7 @@ import { timeoutRunning } from "@/concord/lib/guestbook";
 import { heldRoleMentions, pingableRoles, rolePings } from "@/concord/lib/roleMentions";
 import { canScrub, scrubbedDeleteExpiry, scrubOwnWraps, sendWrapOwner } from "@/concord/lib/wrapScrub";
 import { useAccountSecret } from "@/hooks/useAccountSecret";
-import { channelRules, mayHideIn, restrictedPostersIn } from "@/concord/lib/channelJudges";
+import { channelRules, mayHideIn, reactsIn, restrictedPostersIn } from "@/concord/lib/channelJudges";
 import { persistTimelineSnapshot, prewarmTimelineSnapshot, takeSnapshotSeed } from "@/concord/hooks/timelineSnapshot";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useKeyedMemo } from "@/hooks/useKeyedMemo";
@@ -1289,6 +1289,10 @@ export function useSendMessage(community: Community | undefined, channel: Channe
           { id: "useChannel.timedOut", defaultMessage: "You're timed out here until {until}." },
           { until: new Date(timeout!.until * 1000).toLocaleString(getLocale(), { dateStyle: "medium", timeStyle: "short" }) },
         ));
+      }
+      // Readers wouldn't count it (CORD-04 §8, Vector `refuse_unless_reacting`).
+      if (effectiveKind === KIND_REACTION && !reactsIn(folded, channel.idHex, user.pubkey)) {
+        throw new Error(t({ id: "useTransport.reactDenied", defaultMessage: "You can't react in this channel" }));
       }
       // Rate-limit before the optimistic insert/seal so a block leaves nothing to
       // reconcile; backstop for paths the composer doesn't check.

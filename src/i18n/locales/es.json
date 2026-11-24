@@ -5107,6 +5107,7 @@
   "useSettingsKeys.notLoggedIn": "No has iniciado sesión",
   "useThemeLibrary.notSignedIn": "No has iniciado sesión",
   "useTransport.privateZapNeedsProof": "Un zap privado necesita su prueba de pago.",
+  "useTransport.reactDenied": "No puedes reaccionar en este canal",
   "useUltra.badProfile": "No se pudo leer tu perfil, así que no se ha tocado.",
   "useUltra.noProfile": "No se pudo cargar tu perfil. Pon tu nombre en Perfil primero o inténtalo de nuevo.",
   "useUltra.notLoggedIn": "Tienes que iniciar sesión.",

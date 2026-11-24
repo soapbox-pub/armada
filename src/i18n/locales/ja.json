@@ -5107,6 +5107,7 @@
   "useSettingsKeys.notLoggedIn": "ログインしていません",
   "useThemeLibrary.notSignedIn": "ログインしていません",
   "useTransport.privateZapNeedsProof": "非公開 zap には支払い証明が必要です。",
+  "useTransport.reactDenied": "このチャンネルではリアクションできません",
   "useUltra.badProfile": "プロフィールを読み込めなかったため、変更していません。",
   "useUltra.noProfile": "プロフィールを読み込めませんでした。先にプロフィールで名前を設定するか、もう一度お試しください。",
   "useUltra.notLoggedIn": "ログインが必要です。",

@@ -579,6 +579,8 @@ export function foldTimeline(
      * kept out of the history, and judged again on every fold.
      */
     hold?: (message: OpenedChat) => boolean;
+    /** Reactions not counted, by author (CORD-04 §8: ADD_REACTIONS by the Roster as it stands). */
+    ignoreReaction?: (author: string) => boolean;
   },
 ): FoldedTimeline {
   const byId = new Map<string, OpenedChat>();
@@ -659,6 +661,7 @@ export function foldTimeline(
       const target = eTargetOf(ev);
       if (!target || !ev.content || !isRenderableReaction(ev.content)) continue;
       if (deletedReactionIds.has(ev.rumorId)) continue;
+      if (opts?.ignoreReaction?.(ev.author)) continue;
       const key = reactionContentKey(ev.content);
       // NIP-30: only the tag naming this reaction's own `:shortcode:` is its image (Vector `parse_chat_rumor`).
       const code = /^:(.+):$/.exec(ev.content)?.[1];

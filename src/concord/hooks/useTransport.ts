@@ -28,6 +28,7 @@ import type { Channel, Community } from "@/concord/lib/types";
 import { sameReactionTallies, stableZapsFor, toChatMsg } from "@/components/chat/transport";
 import type { ChatMsg, ChatTransport, MessageCalendar, MessagePoll, MessageReactions, OnchainZapAnnouncement, PollDraft, ReactInput, ReactionTally, ZapPayment } from "@/components/chat/transport";
 import { t } from "@/i18n";
+import { toast } from "@/hooks/useToast";
 
 /** Stable empties, so memoized rows keep constant props. */
 const EMPTY_TALLIES: ReactionTally[] = [];
@@ -72,6 +73,8 @@ export function useTransport(
   routeChannelIdHex?: string | null,
   /** Exact message/thread targets parsed from the active route. */
   focus?: ChannelTimelineFocus,
+  /** Whether the reader holds ADD_REACTIONS here (CORD-04 §8). */
+  canReact = true,
 ): {
   transport: ChatTransport;
   /** The `created_at` range the timeline shows; `to` is set while a detached run is shown. */
@@ -227,8 +230,8 @@ export function useTransport(
 
   // Both caches outlive a `talliesById` recompute (which rebuilds every array),
   // so memoized rows keep their `reactions` prop. The react fn reads through a ref.
-  const reactDeps = useRef({ send, queryClient, channelIdHex, targetById });
-  reactDeps.current = { send, queryClient, channelIdHex, targetById };
+  const reactDeps = useRef({ send, queryClient, channelIdHex, targetById, canReact });
+  reactDeps.current = { send, queryClient, channelIdHex, targetById, canReact };
   const reactCacheRef = useRef(new Map<string, (input: ReactInput) => void>());
   const reactionCacheRef = useRef(new Map<string, MessageReactions>());
   const reactionsFor = useMemo(() => {
@@ -237,7 +240,7 @@ export function useTransport(
       let fn = reactCache.get(id);
       if (!fn) {
         fn = (input: ReactInput) => {
-          const { send, queryClient, channelIdHex, targetById } = reactDeps.current;
+          const { send, queryClient, channelIdHex, targetById, canReact } = reactDeps.current;
           if (input.mineEventId) {
             // Optimistic removal: mark deleted now and strip from the query cache.
             markReactionDeleted(input.mineEventId);
@@ -252,6 +255,11 @@ export function useTransport(
               targetKind: KIND_REACTION,
             }).catch(() => {});
           } else {
+            // Readers wouldn't count it (CORD-04 §8).
+            if (!canReact) {
+              toast({ title: t({ id: "useTransport.reactDenied", defaultMessage: "You can't react in this channel" }), variant: "destructive" });
+              return;
+            }
             const reacted = targetById.get(id);
             void send({
               content: input.content,
@@ -596,6 +604,7 @@ export function useTransport(
       isLoading,
       canWrite,
       canModerate,
+      ...(canReact ? {} : { canReact }),
       canMentionEveryone,
       mentionRoles,
       mentionsEveryone,
@@ -628,7 +637,7 @@ export function useTransport(
       sendThreadReply,
       canSend,
     }),
-    [timeline, isLoading, canWrite, canModerate, canMentionEveryone, mentionRoles, mentionsEveryone, rotationDividerIds, quarantinedIds, pausedIds, ruledIds, loadOlder, hasMore, isLoadingOlder, hasNewer, loadNewer, isLoadingNewer, returnToPresent, sendStatusFor, retryEvent, discard, deleteEvent, editMessage, replyCountFor, reactionsFor, zapsFor, sendZap, sendOnchainZap, pollFor, sendPoll, calendarFor, threadRepliesFor, sendThreadReply, canSend],
+    [timeline, isLoading, canWrite, canModerate, canReact, canMentionEveryone, mentionRoles, mentionsEveryone, rotationDividerIds, quarantinedIds, pausedIds, ruledIds, loadOlder, hasMore, isLoadingOlder, hasNewer, loadNewer, isLoadingNewer, returnToPresent, sendStatusFor, retryEvent, discard, deleteEvent, editMessage, replyCountFor, reactionsFor, zapsFor, sendZap, sendOnchainZap, pollFor, sendPoll, calendarFor, threadRepliesFor, sendThreadReply, canSend],
   );
 
   // From RAW rows: pinning needs the original seal, and edit proofs the consumed Edit rumor.

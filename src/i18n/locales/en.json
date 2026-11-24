@@ -5107,6 +5107,7 @@
   "useSettingsKeys.notLoggedIn": "Not logged in",
   "useThemeLibrary.notSignedIn": "Not signed in",
   "useTransport.privateZapNeedsProof": "A private zap needs its payment proof.",
+  "useTransport.reactDenied": "You can't react in this channel",
   "useUltra.badProfile": "Your profile couldn't be read, so it was left alone.",
   "useUltra.noProfile": "Couldn't load your profile. Set your name in Profile first, or try again.",
   "useUltra.notLoggedIn": "You must be logged in.",

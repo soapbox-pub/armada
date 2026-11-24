@@ -5107,6 +5107,7 @@
   "useSettingsKeys.notLoggedIn": "Não conectado",
   "useThemeLibrary.notSignedIn": "Não conectado",
   "useTransport.privateZapNeedsProof": "Um zap privado precisa do seu comprovante de pagamento.",
+  "useTransport.reactDenied": "Você não pode reagir neste canal",
   "useUltra.badProfile": "Não foi possível ler seu perfil, então ele não foi alterado.",
   "useUltra.noProfile": "Não foi possível carregar seu perfil. Defina seu nome em Perfil primeiro ou tente de novo.",
   "useUltra.notLoggedIn": "Você precisa estar conectado.",

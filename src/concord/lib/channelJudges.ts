@@ -34,6 +34,33 @@ export function timelineCollapse(
 }
 
 /**
+ * Reactions a reader doesn't count (CORD-04 §8): one whose author lacks ADD_REACTIONS
+ * in the Channel by the Roster as it stands. Ignored rather than deleted, so a Roster
+ * that gives the bit back counts it again. Nothing on the legacy Roster.
+ */
+export function reactionIgnored(
+  control: FoldedControl | undefined,
+  channelIdHex: string | null,
+): ((author: string) => boolean) | undefined {
+  if (!control?.rankedRoster || !channelIdHex) return undefined;
+  const isPrivate = control.channels.get(channelIdHex)?.isPrivate ?? false;
+  const verdicts = new Map<string, boolean>();
+  return (author: string) => {
+    let ignored = verdicts.get(author);
+    if (ignored === undefined) {
+      ignored = (channelPermissions(control.roster, control.ownerHex, author, channelIdHex, isPrivate) & Permissions.ADD_REACTIONS) === 0n;
+      verdicts.set(author, ignored);
+    }
+    return ignored;
+  };
+}
+
+/** Whether `me` may react in the Channel (CORD-04 §8): always on the legacy Roster. */
+export function reactsIn(control: FoldedControl | undefined, channelIdHex: string, me: string): boolean {
+  return !reactionIgnored(control, channelIdHex)?.(me);
+}
+
+/**
  * May `actor` hide `author`'s message in this Channel (CORD-03 §3)? MANAGE_MESSAGES
  * resolves through the Channel's overwrites on the vsk-13 Roster, server-wide on
  * the legacy one; the outrank is server-wide either way (Vector `can_hide_in_channel`).
@@ -208,10 +235,12 @@ export function writerJudge(
 export function timelineRules(
   collapse: ((m: OpenedChat) => boolean) | undefined,
   judge: { stands: (m: OpenedChat) => boolean } | undefined,
-): { collapse?: (m: OpenedChat) => boolean; hold?: (m: OpenedChat) => boolean } {
+  ignoreReaction?: (author: string) => boolean,
+): { collapse?: (m: OpenedChat) => boolean; hold?: (m: OpenedChat) => boolean; ignoreReaction?: (author: string) => boolean } {
   return {
     ...(collapse ? { collapse } : {}),
     ...(judge ? { hold: (m: OpenedChat) => !judge.stands(m) } : {}),
+    ...(ignoreReaction ? { ignoreReaction } : {}),
   };
 }
 
@@ -229,6 +258,7 @@ export function channelRules(
   return timelineRules(
     timelineCollapse(control, channelIdHex, timeouts, nowMs, publicUntilMs),
     writerJudge(control, channelIdHex, communityId, history),
+    reactionIgnored(control, channelIdHex),
   );
 }
 

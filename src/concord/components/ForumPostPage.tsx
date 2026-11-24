@@ -174,7 +174,7 @@ export function ForumPostPage({
     zapEnabled,
     onSendZap: transport.sendZap,
     onSendOnchainZap: transport.sendOnchainZap,
-    canReact: canWrite,
+    canReact: canWrite && transport.canReact !== false,
     canModerate: transport.canModerate,
     isRumor,
     everyoneMention: transport.mentionsEveryone?.(event),

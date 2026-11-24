@@ -5107,6 +5107,7 @@
   "useSettingsKeys.notLoggedIn": "Accesso non effettuato",
   "useThemeLibrary.notSignedIn": "Accesso non effettuato",
   "useTransport.privateZapNeedsProof": "Uno zap privato richiede la sua prova di pagamento.",
+  "useTransport.reactDenied": "Non puoi reagire in questo canale",
   "useUltra.badProfile": "Non è stato possibile leggere il tuo profilo, quindi non è stato toccato.",
   "useUltra.noProfile": "Impossibile caricare il tuo profilo. Imposta prima il tuo nome in Profilo o riprova.",
   "useUltra.notLoggedIn": "Devi aver effettuato l’accesso.",

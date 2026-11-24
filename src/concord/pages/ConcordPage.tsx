@@ -26,6 +26,7 @@ import { CategoryNameDialog } from "@/concord/components/CategoryNameDialog";
 import { useRankedCategoryControls } from "@/concord/components/RankedCategoryControls";
 import { mayConnect } from "@/concord/lib/callGate";
 import { sendsIn } from "@/concord/lib/writerKeys";
+import { reactsIn } from "@/concord/lib/channelJudges";
 import { categoryOrder } from "@/concord/lib/rankedWrites";
 import { MemberNicknameDialog } from "@/concord/components/MemberNicknameDialog";
 import { MemberTimeoutDialog } from "@/concord/components/MemberTimeoutDialog";
@@ -353,6 +354,7 @@ interface ChatMessage2Props {
   replies: ChatMsg[];
   continuation: boolean;
   canWrite: boolean;
+  canReact: boolean;
   canModerate: boolean;
   everyoneMention: boolean;
   sendStatus: SendStatus | undefined;
@@ -392,6 +394,7 @@ const ConcordChatMessage = memo(function ConcordChatMessage({
   replies,
   continuation,
   canWrite,
+  canReact,
   canModerate,
   everyoneMention,
   sendStatus,
@@ -439,6 +442,7 @@ const ConcordChatMessage = memo(function ConcordChatMessage({
       rumor={rumor}
       heading={heading}
       canWrite={canWrite}
+      canReact={canReact}
       canModerate={canModerate}
       everyoneMention={everyoneMention}
       reactions={reactions}
@@ -1765,6 +1769,7 @@ function ConcordCommunityPage() {
   // A restricted Channel takes posts from its writers alone (CORD-03 §1); reactions still go.
   const canPost = useCanPost(community, channel?.idHex);
   const sendDenied = Boolean(user && channel && !sendsIn(folded, channel.idHex, user.pubkey));
+  const canReact = Boolean(user && channel && reactsIn(folded, channel.idHex, user.pubkey));
   const restrictedChannel = Boolean(folded && channel && !everyoneSends(folded.roster, channel.idHex));
 
   // Audit log and invite links are open to every member, so "Moderation" always shows.
@@ -1787,6 +1792,7 @@ function ConcordCommunityPage() {
     canModerateMessages,
     channelIdHex,
     route,
+    canReact,
   );
 
   // Purge expired disappearing messages (CORD-08 §3); hygiene, reads filter anyway.
@@ -2986,6 +2992,7 @@ function ConcordCommunityPage() {
         replies={transport.threadRepliesFor?.(msg.id) ?? EMPTY_REPLIES}
         continuation={continuation}
         canWrite={transport.canWrite}
+        canReact={transport.canReact !== false}
         canModerate={transport.canModerate}
         everyoneMention={Boolean(transport.mentionsEveryone?.(msg))}
         isPinned={Boolean(transport.isPinned?.(msg.id))}

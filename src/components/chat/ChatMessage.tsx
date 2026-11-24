@@ -402,6 +402,8 @@ function keepActionFocus(e: Event) {
 export interface ChatMessageProps {
   event: ChatMsg;
   canWrite: boolean;
+  /** Whether the reader may react, where that differs from `canWrite` (CORD-04 §8 ADD_REACTIONS). */
+  canReact?: boolean;
   canModerate: boolean;
   /** Non-Nostr author identity (mesh peers, whose `event.pubkey` is a peer id). */
   identityOverride?: MessageIdentity;
@@ -484,6 +486,7 @@ export interface ChatMessageProps {
 const ChatMessageInner = memo(function ChatMessageInner({
   event,
   canWrite,
+  canReact: canReactProp,
   canModerate,
   identityOverride,
   pollContext,
@@ -524,6 +527,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
   rumor,
   knownCommands,
 }: ChatMessageProps) {
+  const canReact = canWrite && (canReactProp ?? true);
   const { user } = useCurrentUser();
   const isTouch = useIsTouch();
   const banned = useIsUserBanned()(event.pubkey);
@@ -813,7 +817,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
 
   const toolbar = (
     <MessageActionToolbar
-      reactions={canWrite && !isEditing ? reactions : undefined}
+      reactions={canReact && !isEditing ? reactions : undefined}
       zap={canZap && !isEditing ? { onOpen: () => setZapOpen(true) } : undefined}
       overflowActions={overflowActions}
     >
@@ -964,7 +968,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
       {!isEditing && reactions ? (
         <ReactionBar
           tallies={reactions.tallies}
-          canReact={canWrite}
+          canReact={canReact}
           onReact={reactions.react}
           leading={zapPill}
         />
@@ -1079,7 +1083,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
         onCloseAutoFocus={onMenuCloseAutoFocus}
         collisionPadding={contextMenu.open ? getComposerCollisionPadding(composerBoundsRef) : undefined}
       >
-        {canWrite && !isEditing && reactions && (
+        {canReact && !isEditing && reactions && (
           <MenuReactionRow reactions={reactions} onOpenPicker={openMenuPicker} />
         )}
         <MessageMenuItems actions={withImageActions(imageActions, menuActions)} />
@@ -1093,7 +1097,7 @@ const ChatMessageInner = memo(function ChatMessageInner({
         open={sheetOpen}
         onOpenChange={handleSheetOpenChange}
         actions={withImageActions(imageActions, menuActions)}
-        reactions={canWrite && !isEditing && reactions ? reactions : undefined}
+        reactions={canReact && !isEditing && reactions ? reactions : undefined}
         details={sentLabel(intl, event.created_at, client)}
       />
     )}

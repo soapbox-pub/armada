@@ -739,7 +739,7 @@ export function ThreadPanel({ root, rootTitle, transport, relayUrl, groupId, can
             {rootTitle}
           </h2>
         ))}
-        <ThreadMessage event={root} permalink={permalink} reactions={reactionsFor?.(root.id)} zaps={zapsFor?.(root.id)} zapEnabled={zapEnabled} onSendZap={onSendZap} onSendOnchainZap={onSendOnchainZap} canReact={canWrite} canModerate={canModerate} isRumor={isRumor} everyoneMention={transport.mentionsEveryone?.(root)} onDelete={rootReadOnly ? undefined : onDelete} isEditing={editingId === root.id} onEdit={rootReadOnly ? undefined : startEditing} onEditSubmit={handleEditSubmit} onEditCancel={cancelEditing} documentMarkdown={documentMarkdown} />
+        <ThreadMessage event={root} permalink={permalink} reactions={reactionsFor?.(root.id)} zaps={zapsFor?.(root.id)} zapEnabled={zapEnabled} onSendZap={onSendZap} onSendOnchainZap={onSendOnchainZap} canReact={canWrite && transport.canReact !== false} canModerate={canModerate} isRumor={isRumor} everyoneMention={transport.mentionsEveryone?.(root)} onDelete={rootReadOnly ? undefined : onDelete} isEditing={editingId === root.id} onEdit={rootReadOnly ? undefined : startEditing} onEditSubmit={handleEditSubmit} onEditCancel={cancelEditing} documentMarkdown={documentMarkdown} />
         </div>
       )}
       <div className="flex items-center gap-2 px-3 py-1 mt-1">
@@ -814,7 +814,7 @@ export function ThreadPanel({ root, rootTitle, transport, relayUrl, groupId, can
                 reply.created_at - prev.created_at < CONTINUATION_WINDOW_SECONDS;
               return (
                 <div key={reply.id} data-event-id={reply.id} data-scroll-anchor={`reply:${reply.id}`} className="pt-1">
-                  <ThreadMessage event={reply} permalink={permalink} reactions={reactionsFor?.(reply.id)} zaps={zapsFor?.(reply.id)} zapEnabled={zapEnabled} onSendZap={onSendZap} onSendOnchainZap={onSendOnchainZap} canReact={canWrite} canModerate={canModerate} isRumor={isRumor} continuation={continuation} everyoneMention={transport.mentionsEveryone?.(reply)} onDelete={onDelete} isEditing={editingId === reply.id} onEdit={startEditing} onEditSubmit={handleEditSubmit} onEditCancel={cancelEditing} documentMarkdown={documentMarkdown} />
+                  <ThreadMessage event={reply} permalink={permalink} reactions={reactionsFor?.(reply.id)} zaps={zapsFor?.(reply.id)} zapEnabled={zapEnabled} onSendZap={onSendZap} onSendOnchainZap={onSendOnchainZap} canReact={canWrite && transport.canReact !== false} canModerate={canModerate} isRumor={isRumor} continuation={continuation} everyoneMention={transport.mentionsEveryone?.(reply)} onDelete={onDelete} isEditing={editingId === reply.id} onEdit={startEditing} onEditSubmit={handleEditSubmit} onEditCancel={cancelEditing} documentMarkdown={documentMarkdown} />
                 </div>
               );
             })}
