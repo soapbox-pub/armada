@@ -4853,7 +4853,7 @@
   "useApprovalGate.needsWhole": "Não foi possível ler a comunidade inteira; tente de novo quando os relays responderem.",
   "useApprovalGate.pickRole": "Escolha qual cargo dar.",
   "useApprovalGate.roleGone": "Esse cargo não existe mais; escolha outro.",
-  "useApprovalGate.roleNotTaken": "O cargo não foi aplicado; tente de novo.",
+  "useApprovalGate.roleNotAdoptable": "Esse cargo não pode ser a porta de entrada: tem poderes sobre outros, está acima de você ou abre um canal privado. Escolha outro.",
   "useApprovalGate.selfSilenced": "Nenhum dos seus cargos pode enviar mensagens, então isso impediria você de postar também. Alguém acima de você precisa antes dar Enviar mensagens a um dos seus cargos.",
   "useBlossomServerList.notLoggedIn": "Você não entrou",
   "useBlossomServerList.unconfirmed": "Não foi possível confirmar sua lista atual de servidores de mídia; nenhuma alteração foi publicada",

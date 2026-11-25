@@ -4853,7 +4853,7 @@
   "useApprovalGate.needsWhole": "The community couldn't be read in full; try again once the relays answer.",
   "useApprovalGate.pickRole": "Pick which role to give them.",
   "useApprovalGate.roleGone": "That role is gone; pick another.",
-  "useApprovalGate.roleNotTaken": "The role didn't take; try again.",
+  "useApprovalGate.roleNotAdoptable": "That role can't be the way in: it has powers over others, ranks above you, or opens a private channel. Pick another.",
   "useApprovalGate.selfSilenced": "None of your roles can send messages, so this would stop you posting too. Someone ranked above you has to give one of your roles Send messages first.",
   "useBlossomServerList.notLoggedIn": "Not logged in",
   "useBlossomServerList.unconfirmed": "Could not confirm your current media-server list; no changes were published",

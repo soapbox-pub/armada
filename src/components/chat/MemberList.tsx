@@ -509,7 +509,7 @@ export const MemberList = memo(function MemberList({
     .filter((pubkey) => !sectioned.has(pubkey) && !awaitingSet.has(pubkey) && (!matched || matched.has(pubkey)))
     .sort(byRank);
   const waiting = allRegulars
-    .filter((pubkey) => awaitingSet.has(pubkey) && (!matched || matched.has(pubkey)))
+    .filter((pubkey) => !sectioned.has(pubkey) && awaitingSet.has(pubkey) && (!matched || matched.has(pubkey)))
     .sort(byRank);
   const visibleSections = (roleSections ?? []).map((section) => ({
     ...section,

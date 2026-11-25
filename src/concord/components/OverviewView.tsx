@@ -64,7 +64,7 @@ export function OverviewView({
   const gate = useApprovalGate(community);
   const { pending, members, markReviewed } = useNewMembers(community, folded, gate.awaiting);
   const { urlFor, revoke, isRevoking } = useJoinLinkRevoker(community);
-  const [approving, setApproving] = useState<string | undefined>();
+  const [approving, setApproving] = useState<ReadonlySet<string>>(() => new Set());
 
   const recentReports = useMemo(() => {
     const since = nowSecs() - WEEK_SECS;
@@ -75,7 +75,7 @@ export function OverviewView({
   const { approve } = gate;
   const onApprove = useCallback(
     (member: string, roleId?: string) => {
-      setApproving(member);
+      setApproving((busy) => new Set(busy).add(member));
       approve(member, roleId)
         .then(() =>
           toast({
@@ -90,7 +90,13 @@ export function OverviewView({
             variant: "destructive",
           }),
         )
-        .finally(() => setApproving(undefined));
+        .finally(() =>
+          setApproving((busy) => {
+            const next = new Set(busy);
+            next.delete(member);
+            return next;
+          }),
+        );
     },
     [approve],
   );
@@ -162,7 +168,7 @@ export function OverviewView({
                 canKick={canKick(m.pubkey)}
                 canBan={canBan(m.pubkey)}
                 {...rowActions}
-                primary={gate.canApprove ? { kind: "approve", onApprove, roles: gate.grantable, busy: approving === m.pubkey } : undefined}
+                primary={gate.canApprove && gate.mayApproveMember(m.pubkey) ? { kind: "approve", onApprove, roles: gate.grantable, busy: approving.has(m.pubkey) } : undefined}
               />
             ))
           )}
@@ -284,7 +290,7 @@ function MemberReviewRow({
       </div>
 
       {primary?.kind === "approve" && primary.roles.length <= 1 && (
-        <Button size="sm" className="clip-corner-lg h-8 shrink-0" disabled={primary.busy} onClick={() => primary.onApprove(member.pubkey)}>
+        <Button size="sm" className="clip-corner-lg h-8 shrink-0 touch:h-11" disabled={primary.busy} onClick={() => primary.onApprove(member.pubkey)}>
           {primary.busy ? <Loader2 className="size-3.5 animate-spin" /> : <UserCheck className="size-3.5" />}
           <FormattedMessage id="overviewView.approve" defaultMessage="Approve" />
         </Button>
@@ -292,7 +298,7 @@ function MemberReviewRow({
       {primary?.kind === "approve" && primary.roles.length > 1 && (
         <DropdownMenu touchSheet>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" className="clip-corner-lg h-8 shrink-0" disabled={primary.busy}>
+            <Button size="sm" className="clip-corner-lg h-8 shrink-0 touch:h-11" disabled={primary.busy}>
               {primary.busy ? <Loader2 className="size-3.5 animate-spin" /> : <UserCheck className="size-3.5" />}
               <FormattedMessage id="overviewView.approve" defaultMessage="Approve" />
               <ChevronDown className="size-3.5" />
@@ -311,7 +317,7 @@ function MemberReviewRow({
         </DropdownMenu>
       )}
       {primary?.kind === "reviewed" && (
-        <Button size="sm" variant="secondary" className="clip-corner-lg h-8 shrink-0" onClick={() => primary.onReviewed(member)}>
+        <Button size="sm" variant="secondary" className="clip-corner-lg h-8 shrink-0 touch:h-11" onClick={() => primary.onReviewed(member)}>
           <Check className="size-3.5" />
           <FormattedMessage id="overviewView.looksFine" defaultMessage="Looks fine" />
         </Button>
@@ -323,7 +329,7 @@ function MemberReviewRow({
             <Button
               variant="ghost"
               size="icon"
-              className="size-8 shrink-0 text-muted-foreground hover:text-foreground touch:size-10"
+              className="size-8 shrink-0 text-muted-foreground hover:text-foreground touch:size-11"
               aria-label={intl.formatMessage({ id: "overviewView.moreActions", defaultMessage: "More actions for {name}" }, { name })}
             >
               <MoreHorizontal className="size-4" />

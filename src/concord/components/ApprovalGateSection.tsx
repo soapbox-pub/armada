@@ -119,14 +119,15 @@ function WelcomeRow({
   folded: FoldedControl;
   welcome: string[];
   canChange: boolean;
-  setWelcome: (channel: string | null) => Promise<void>;
+  setWelcome: (open: string | null, close?: string) => Promise<void>;
 }) {
   const intl = useIntl();
   const choices = useMemo(() => welcomeCandidates(channels, folded), [channels, folded]);
   const current = welcome[0] ?? NO_WELCOME;
 
   const change = (value: string) => {
-    setWelcome(value === NO_WELCOME ? null : value).catch((e: unknown) =>
+    // Only the Channel shown is replaced: another one open to @everyone was opened for its own reasons.
+    setWelcome(value === NO_WELCOME ? null : value, welcome[0]).catch((e: unknown) =>
       toast({
         title: t({ id: "approvalGate.welcomeFailed", defaultMessage: "Couldn't change the welcome channel" }),
         description: e instanceof Error ? e.message : undefined,
@@ -330,7 +331,7 @@ function TurnOnDialog({
           <FormattedMessage
             id="approvalGate.counts"
             defaultMessage="{grant, plural, one {# keeps posting} other {# keep posting}} · {waiting, plural, one {# waits for approval} other {# wait for approval}}"
-            values={{ grant: plan.grant.length + plan.holding, waiting: plan.waiting }}
+            values={{ grant: plan.grant.length + plan.holding, waiting: plan.waiting + plan.unreachable.length }}
           />
           <InfoTip>
             <FormattedMessage

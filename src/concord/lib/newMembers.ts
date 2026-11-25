@@ -42,8 +42,10 @@ export function newMembersToReview(input: {
   windowMs?: number;
   /** Only these members, when given (the approval queue). */
   include?: (pubkey: string) => boolean;
+  /** Count Joins a refounding carried over too: someone waiting for approval waits through one. */
+  carried?: boolean;
 }): NewMember[] {
-  const { coalesced, guestbook, banned, bannedAt, ownerHex, self, nowMs, reviewed, windowMs = REVIEW_WINDOW_MS, include } = input;
+  const { coalesced, guestbook, banned, bannedAt, ownerHex, self, nowMs, reviewed, windowMs = REVIEW_WINDOW_MS, include, carried = false } = input;
 
   // Only a labelled link: one owner's unlabelled default would flag everyone who used it.
   const bannedLinks = new Set<string>();
@@ -56,7 +58,7 @@ export function newMembersToReview(input: {
 
   const out: NewMember[] = [];
   for (const m of coalesced.values()) {
-    if (m.state !== "join" || m.fromSnapshot) continue;
+    if (m.state !== "join" || (m.fromSnapshot && !carried)) continue;
     if (m.pubkey === ownerHex || m.pubkey === self || banned.has(m.pubkey)) continue;
     if (m.ms < nowMs - windowMs || m.ms > nowMs + AFTER_BAN_MS) continue;
     if (include && !include(m.pubkey)) continue;

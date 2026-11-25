@@ -6,9 +6,10 @@
  * Role approves is read off the permissions, as every member's device can.
  */
 
+import { isEntitled } from "@/concord/lib/channelAccess";
 import type { FoldedControl } from "@/concord/lib/control";
 import type { CoalescedMember } from "@/concord/lib/guestbook";
-import { BENEATH_EVERY_ROLE, effectivePermissions, highestPosition, isAuthorized, permissionsAbove, Permissions, rolesOf, STAFF_MASK, type Role } from "@/concord/lib/roles";
+import { BENEATH_EVERY_ROLE, effectivePermissions, highestPosition, permissionsAbove, Permissions, rolesOf, STAFF_MASK, type Role } from "@/concord/lib/roles";
 
 /** What the gate takes from `@everyone` and gives the approval Role. */
 export const GATE_BITS = Permissions.SEND_MESSAGES | Permissions.SEND_IN_THREADS | Permissions.ATTACH_FILES;
@@ -51,15 +52,31 @@ export function gateState(folded: FoldedControl | undefined): GateState {
 }
 
 /**
+ * Whether holding `roleId` lets a member into a Private Channel, as a legacy Channel's
+ * access Role does once carried onto the ranked Roster: approving through it would hand
+ * every newcomer that Channel.
+ */
+function opensPrivate(folded: FoldedControl, roleId: string): boolean {
+  // Nobody: a member holding no Role, so only `roleId` can be what lets them in.
+  const nobody = "";
+  for (const c of folded.channels.values()) {
+    if (c.deleted || !c.isPrivate) continue;
+    if (isEntitled(folded.roster, folded.ownerHex, nobody, c.channelIdHex, { withRoleIds: [roleId] }) && !isEntitled(folded.roster, folded.ownerHex, nobody, c.channelIdHex)) return true;
+  }
+  return false;
+}
+
+/**
  * The Roles the turn-on dialog can make the way in: plain ones `me` may edit, the
- * owner's pick of any. A Role named Verified, as a bot may have made, comes first.
+ * owner's pick of any, none opening a Private Channel. A Role named Verified, as a bot
+ * may have made, comes first.
  */
 export function adoptableRoles(folded: FoldedControl, me: string): Role[] {
   const mine = me === folded.ownerHex;
   const myRank = highestPosition(folded.roster, me) ?? BENEATH_EVERY_ROLE;
   const verifiedFirst = (r: Role) => (r.name.trim().toLowerCase() === "verified" ? 0 : 1);
   return folded.roster.roles
-    .filter((r) => r.rank !== undefined && isPlainRole(r) && (mine || r.position > myRank))
+    .filter((r) => r.rank !== undefined && isPlainRole(r) && (mine || r.position > myRank) && !opensPrivate(folded, r.roleId))
     .sort((a, b) => verifiedFirst(a) - verifiedFirst(b) || b.position - a.position);
 }
 
@@ -90,10 +107,15 @@ export function welcomeChannels(folded: FoldedControl): string[] {
   return out.sort();
 }
 
-/** Whether `me` may turn the gate on or off: editing `@everyone` takes Manage Roles (CORD-04 §2). */
+/**
+ * Whether `me` may turn the gate on or off. Either way rewrites `@everyone`, which takes
+ * Manage Roles and every bit it will hold (CORD-04 §2), and gives a Role the gate's bits.
+ */
 export function maySwitchGate(folded: FoldedControl | undefined, me: string | undefined): boolean {
   if (!folded?.rankedRoster || !me || folded.banned.has(me)) return false;
-  return isAuthorized(folded.roster, me, folded.ownerHex, Permissions.MANAGE_ROLES);
+  if (me === folded.ownerHex) return true;
+  const needs = (folded.roster.everyone ?? 0n) | GATE_BITS | Permissions.MANAGE_ROLES;
+  return (permissionsAbove(folded.roster, me, BENEATH_EVERY_ROLE) & needs) === needs;
 }
 
 /** Joined members the gate holds back: no posting of their own, not banned, not the owner. */
@@ -107,15 +129,16 @@ export function awaitingApproval(folded: FoldedControl, coalesced: ReadonlyMap<s
 }
 
 /**
- * Whether `me` still posts once `@everyone` can't: the owner, or a Role of theirs posts.
- * Nobody grants themselves a Role (CORD-04 §3), so otherwise the switch silences its author.
+ * Whether `me` still posts once `@everyone` can't: the owner, a Role of theirs posts, or
+ * they hold `adopting`, the Role about to. Nobody grants themselves a Role (CORD-04 §3),
+ * so otherwise the switch silences its author.
  */
-export function keepsPosting(folded: FoldedControl, me: string): boolean {
-  return me === folded.ownerHex || rolesOf(folded.roster, me).some((r) => (r.permissions & Permissions.SEND_MESSAGES) !== 0n);
+export function keepsPosting(folded: FoldedControl, me: string, adopting?: string): boolean {
+  return me === folded.ownerHex || rolesOf(folded.roster, me).some((r) => r.roleId === adopting || (r.permissions & Permissions.SEND_MESSAGES) !== 0n);
 }
 
 /** Whether `me` may change `member`'s Roles at all: strictly above them, with Manage Roles (CORD-04 §3). */
-function outranksMemberForGrant(folded: FoldedControl, me: string, member: string): boolean {
+export function outranksMemberForGrant(folded: FoldedControl, me: string, member: string): boolean {
   if (member === me || member === folded.ownerHex) return false;
   if (me === folded.ownerHex) return true;
   const rank = highestPosition(folded.roster, member) ?? BENEATH_EVERY_ROLE;

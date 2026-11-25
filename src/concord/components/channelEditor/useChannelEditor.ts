@@ -231,6 +231,10 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
   const categoryName = categories.find((c) => c.key === values.category)?.name ?? (ranked ? undefined : values.category);
 
   const roles = useMemo(() => (ranked && folded ? rankedOrder(folded) : []), [ranked, folded]);
+  const welcome = useMemo(
+    () => Boolean(folded && scope.kind === "channel" && welcomeChannels(folded).includes(scopeHex) && gateState(folded).on),
+    [folded, scope.kind, scopeHex],
+  );
   const ownerHex = folded?.ownerHex;
   const canManageChannels = Boolean(me && roster && isAuthorized(roster, me, ownerHex, Permissions.MANAGE_CHANNELS));
   const canManageRoles = Boolean(ranked && me && roster && isAuthorized(roster, me, ownerHex, Permissions.MANAGE_ROLES));
@@ -529,9 +533,7 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
     locked,
     canLock,
     setLocked,
-    welcome: Boolean(
-      folded && scope.kind === "channel" && welcomeChannels(folded).includes(scopeHex) && gateState(folded).on,
-    ),
+    welcome,
     mayTarget: (key) => reachOf(key).bits !== 0n,
     candidates,
     ownerHex,

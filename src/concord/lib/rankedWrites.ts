@@ -337,13 +337,18 @@ export function planStockTier(
     const made = planCreateRole(folded, communityId, me, rankedTierTemplate(tier), authority, stockTierIndex(folded, me, tier));
     roleId = made.roleId;
     create = made.rumor;
-    const roles = [...folded.roster.roles, made.role];
-    const ranks = denseRanks(roles.flatMap((r) => (r.rank !== undefined ? [r.rank] : [])));
-    view = { ...folded, roster: { ...folded.roster, roles: roles.map((r) => (r.rank !== undefined ? { ...r, position: ranks.get(r.rank) ?? r.position } : r)) } };
+    view = withRole(folded, made.role);
   }
   const stock = new Set(view.roster.roles.filter(isStockRole).map((r) => r.roleId));
   const kept = (view.roster.grants.find((g) => g.member === member)?.roleIds ?? []).filter((id) => !stock.has(id));
   return { create, view, roleIds: planMemberRoles(view, communityId, me, member, roleId ? [...kept, roleId] : kept, heldPrivate) };
+}
+
+/** `folded` with `role` standing as written, positions dense-ranked again, so a write planned after it is judged on it. */
+export function withRole(folded: FoldedControl, role: Role): FoldedControl {
+  const roles = [...folded.roster.roles.filter((r) => r.roleId !== role.roleId), role];
+  const ranks = denseRanks(roles.flatMap((r) => (r.rank !== undefined ? [r.rank] : [])));
+  return { ...folded, roster: { ...folded.roster, roles: roles.map((r) => (r.rank !== undefined ? { ...r, position: ranks.get(r.rank) ?? r.position } : r)) } };
 }
 
 /**

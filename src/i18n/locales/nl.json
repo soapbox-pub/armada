@@ -4853,7 +4853,7 @@
   "useApprovalGate.needsWhole": "De community kon niet volledig worden gelezen; probeer het opnieuw zodra de relays antwoorden.",
   "useApprovalGate.pickRole": "Kies welke rol ze krijgen.",
   "useApprovalGate.roleGone": "Die rol bestaat niet meer; kies een andere.",
-  "useApprovalGate.roleNotTaken": "De rol is niet doorgekomen; probeer het opnieuw.",
+  "useApprovalGate.roleNotAdoptable": "Die rol kan niet de weg naar binnen zijn: hij heeft macht over anderen, staat boven jou of opent een privékanaal. Kies een andere.",
   "useApprovalGate.selfSilenced": "Geen van je rollen mag berichten sturen, dus hierdoor zou jij ook niet meer kunnen posten. Iemand met een hogere rang moet eerst een van je rollen Berichten versturen geven.",
   "useBlossomServerList.notLoggedIn": "Niet ingelogd",
   "useBlossomServerList.unconfirmed": "Kon je huidige mediaserverlijst niet bevestigen; er zijn geen wijzigingen gepubliceerd",

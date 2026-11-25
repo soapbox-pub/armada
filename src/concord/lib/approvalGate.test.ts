@@ -25,7 +25,7 @@ function joined(...pks: string[]): Map<string, CoalescedMember> {
 }
 
 /** A ranked Community with the gate on: a plain Verified at rank "m", `@everyone` without posting. */
-function gated(adminBits = Permissions.MANAGE_ROLES | GATE_BITS) {
+function gated(adminBits = Permissions.MANAGE_ROLES | EVERYONE_DEFAULT) {
   const r = rankedCommunity(adminBits);
   const verified = hexKey();
   const everyone = r.c.everyone(EVERYONE_DEFAULT & ~GATE_BITS, { prev: r.everyone });
@@ -149,5 +149,51 @@ describe("approval gate", () => {
       g.c.owner,
     );
     expect(welcomeChannels(folded)).toEqual([welcome]);
+  });
+
+  it("doesn't offer a Role that lets its holders into a Private Channel as the way in", () => {
+    const g = gated();
+    const secret = hexKey();
+    const members = hexKey();
+    const o = { scope: secret, target: { kind: "role" as const, id: members }, allow: Permissions.VIEW_CHANNEL, deny: 0n };
+    const folded = foldControlState(
+      [
+        ...g.editions,
+        g.c.edition({ vsk: "2", eid: secret, author: g.c.owner, content: { name: "secret", private: true } }),
+        g.c.role(members, "y", 0n, { name: "Members" }),
+        g.c.edition({ vsk: "14", eid: overwriteLocator(g.c.id, o), author: g.c.owner, content: overwriteToJSON(o) }),
+      ],
+      g.c.id,
+      g.c.owner,
+    );
+    expect(adoptableRoles(folded, g.c.owner).map((role) => role.name)).toEqual(["Verified"]);
+  });
+
+  it("can't be switched by an admin who lacks a bit @everyone holds, since @everyone's edit would be refused", () => {
+    const r = rankedCommunity(Permissions.MANAGE_ROLES | (EVERYONE_DEFAULT & ~Permissions.VIDEO));
+    expect(maySwitchGate(foldControlState(r.base, r.c.id, r.c.owner), r.admin)).toBe(false);
+    const full = rankedCommunity(Permissions.MANAGE_ROLES | EVERYONE_DEFAULT);
+    expect(maySwitchGate(foldControlState(full.base, full.c.id, full.c.owner), full.admin)).toBe(true);
+  });
+
+  it("counts a switcher who already holds the Role being adopted as still posting", () => {
+    const r = rankedCommunity(Permissions.MANAGE_ROLES);
+    const helpers = hexKey();
+    const folded = foldControlState([...r.base, r.c.role(helpers, "m", 0n, { name: "Helpers" }), r.c.grant(r.admin, [r.adminRole, helpers], { prev: r.grant })], r.c.id, r.c.owner);
+    expect(keepsPosting(folded, r.admin)).toBe(false);
+    expect(keepsPosting(folded, r.admin, helpers)).toBe(true);
+  });
+
+  // Nothing beside the Roster says approval was turned on, so a Community that never let
+  // @everyone post reads as gated, and every roleless member as awaiting approval.
+  it.fails("doesn't report approval on for a read-only Community that never turned it on", () => {
+    const r = rankedCommunity(Permissions.MANAGE_ROLES);
+    const announcers = hexKey();
+    const folded = foldControlState(
+      [...r.base, r.c.everyone(EVERYONE_DEFAULT & ~Permissions.SEND_MESSAGES, { prev: r.everyone }), r.c.role(announcers, "m", Permissions.SEND_MESSAGES, { name: "Announcers" })],
+      r.c.id,
+      r.c.owner,
+    );
+    expect(gateState(folded).on).toBe(false);
   });
 });

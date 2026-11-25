@@ -4853,7 +4853,7 @@
   "useApprovalGate.needsWhole": "コミュニティ全体を読み込めませんでした。リレーが応答したらもう一度お試しください。",
   "useApprovalGate.pickRole": "付与するロールを選んでください。",
   "useApprovalGate.roleGone": "そのロールはもうありません。別のロールを選んでください。",
-  "useApprovalGate.roleNotTaken": "ロールが反映されませんでした。もう一度お試しください。",
+  "useApprovalGate.roleNotAdoptable": "そのロールは入口にできません。他のメンバーへの権限があるか、あなたより上位か、プライベートチャンネルを開くためです。別のロールを選んでください。",
   "useApprovalGate.selfSilenced": "あなたのロールにはメッセージ送信の権限がないため、これをオンにするとあなた自身も投稿できなくなります。先に上位の人があなたのロールに「メッセージの送信」を付与する必要があります。",
   "useBlossomServerList.notLoggedIn": "ログインしていません",
   "useBlossomServerList.unconfirmed": "現在のメディアサーバーリストを確認できなかったため、変更は公開されませんでした",

@@ -18,6 +18,8 @@ const reviewId = (me: string, idHex: string, pk: string) => `${me}:${idHex}:${pk
 
 const NONE: ReadonlySet<string> = new Set();
 
+const MINUTE_MS = 60_000;
+
 /**
  * The Overview's member lists: those waiting for approval (any age, while the gate is on)
  * and the recent joins to look over, and a way to mark one as looked at on this device.
@@ -44,8 +46,16 @@ export function useNewMembers(
     return unsubscribe;
   }, []);
 
+  // The review window moves while the pane stays open.
+  const [minute, setMinute] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setMinute((n) => n + 1), MINUTE_MS);
+    return () => clearInterval(id);
+  }, []);
+
   const { pending, members } = useMemo(() => {
     void revision;
+    void minute;
     if (!folded || !me || !idHex) return { pending: [], members: [] };
     const base = {
       coalesced,
@@ -57,14 +67,14 @@ export function useNewMembers(
       nowMs: clockNowMs(),
     };
     return {
-      pending: awaiting.size === 0 ? [] : newMembersToReview({ ...base, windowMs: Infinity, include: (pk) => awaiting.has(pk), reviewed: () => false }),
+      pending: awaiting.size === 0 ? [] : newMembersToReview({ ...base, windowMs: Infinity, carried: true, include: (pk) => awaiting.has(pk), reviewed: () => false }),
       members: newMembersToReview({
         ...base,
         include: (pk) => !awaiting.has(pk),
         reviewed: (pk, joinedMs) => reviewed.get(reviewId(me, idHex, pk)) === joinedMs,
       }),
     };
-  }, [coalesced, guestbook, folded, me, idHex, revision, awaiting]);
+  }, [coalesced, guestbook, folded, me, idHex, revision, minute, awaiting]);
 
   const markReviewed = useCallback(
     (member: NewMember) => {

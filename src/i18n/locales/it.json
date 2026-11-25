@@ -4853,7 +4853,7 @@
   "useApprovalGate.needsWhole": "Non è stato possibile leggere tutta la community; riprova quando i relay rispondono.",
   "useApprovalGate.pickRole": "Scegli quale ruolo dargli.",
   "useApprovalGate.roleGone": "Quel ruolo non c’è più; scegline un altro.",
-  "useApprovalGate.roleNotTaken": "Il ruolo non è stato applicato; riprova.",
+  "useApprovalGate.roleNotAdoptable": "Quel ruolo non può essere la via d’accesso: ha poteri sugli altri, è sopra di te o apre un canale privato. Scegline un altro.",
   "useApprovalGate.selfSilenced": "Nessuno dei tuoi ruoli può inviare messaggi, quindi non potresti più scrivere nemmeno tu. Qualcuno di grado superiore deve prima dare Inviare messaggi a uno dei tuoi ruoli.",
   "useBlossomServerList.notLoggedIn": "Accesso non effettuato",
   "useBlossomServerList.unconfirmed": "Impossibile confermare il tuo elenco attuale di server multimediali; nessuna modifica pubblicata",

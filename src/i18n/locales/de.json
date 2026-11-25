@@ -4853,7 +4853,7 @@
   "useApprovalGate.needsWhole": "Die Community konnte nicht vollständig gelesen werden; versuch es erneut, sobald die Relays antworten.",
   "useApprovalGate.pickRole": "Wähle, welche Rolle das Mitglied bekommt.",
   "useApprovalGate.roleGone": "Diese Rolle gibt es nicht mehr; wähle eine andere.",
-  "useApprovalGate.roleNotTaken": "Die Rolle wurde nicht übernommen; versuch es erneut.",
+  "useApprovalGate.roleNotAdoptable": "Diese Rolle kann nicht der Weg hinein sein: Sie hat Befugnisse über andere, steht über dir oder öffnet einen privaten Kanal. Wähle eine andere.",
   "useApprovalGate.selfSilenced": "Keine deiner Rollen darf Nachrichten senden, daher könntest auch du nicht mehr posten. Jemand mit höherem Rang muss einer deiner Rollen zuerst „Nachrichten senden“ geben.",
   "useBlossomServerList.notLoggedIn": "Nicht angemeldet",
   "useBlossomServerList.unconfirmed": "Deine aktuelle Medienserver-Liste konnte nicht bestätigt werden; es wurden keine Änderungen veröffentlicht",
