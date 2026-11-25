@@ -460,16 +460,20 @@ export function useTransport(
 
   // Calendar events also render inline, slotted by announcement time.
   const calendarMsgs = useMemo<ChatMsg[]>(() => calendarEvents.map((c) => c.event as ChatMsg), [calendarEvents]);
+  const appConfig = useContext(AppContext)?.config;
+  const hideSilenced = appConfig?.hideSilencedPosts ?? false;
   // Clipped to the span the channel has loaded whole, so no row sits beside a
   // silent gap. Threads and member lists keep reading every loaded row.
   const timeline = useMemo<ChatMsg[]>(() => {
     const merged = calendarMsgs.length === 0
       ? topLevel
       : mergeIntoOrdered(topLevel, calendarMsgs, (m) => m.created_at, (m) => m.created_at, (a, b) => (a.id < b.id ? -1 : 1));
-    if (!span) return merged;
-    const shown = merged.filter((m) => m.created_at >= span.from && (span.to === undefined || m.created_at <= span.to));
+    const silenced = hideSilenced && folded.ruled.size > 0 ? folded.ruled : undefined;
+    if (!span && !silenced) return merged;
+    const shown = merged.filter((m) =>
+      !silenced?.has(m.id) && (!span || (m.created_at >= span.from && (span.to === undefined || m.created_at <= span.to))));
     return shown.length === merged.length ? merged : shown;
-  }, [topLevel, calendarMsgs, span]);
+  }, [topLevel, calendarMsgs, span, hideSilenced, folded.ruled]);
 
   // The first row of each epoch run gets a key-rotation divider. Epochs come from
   // the fold; ChatMsg deliberately doesn't carry them.
@@ -491,7 +495,7 @@ export function useTransport(
   // From the fold, which saw thread replies too (so only ever `has()`, never
   // counted). `undefined` when empty.
   // With folding off, only a community pause and the Roster still collapse rows.
-  const foldSimilar = useContext(AppContext)?.config.foldSimilarMessages ?? true;
+  const foldSimilar = appConfig?.foldSimilarMessages ?? true;
   const quarantinedIds = useMemo<ReadonlySet<string> | undefined>(() => {
     const ids = foldSimilar
       ? folded.quarantined

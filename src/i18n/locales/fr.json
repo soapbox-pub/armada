@@ -895,6 +895,8 @@
   "chatSettings.floatingDatesDescription": "Pendant que vous faites défiler une discussion, affiche en haut la date des messages visibles.",
   "chatSettings.foldSimilar": "Regrouper les messages similaires",
   "chatSettings.foldSimilarDescription": "Regroupe en une seule ligne les rafales de messages presque identiques dans les communautés. Désactivé, chaque message est affiché, mais une rafale ne compte toujours ni comme non lue ni comme mention.",
+  "chatSettings.hideSilenced": "Masquer les messages des membres qui ne peuvent pas publier",
+  "chatSettings.hideSilencedDescription": "Retire les messages des membres exclus temporairement ou sans permission de publier dans le salon, au lieu de les regrouper. C’est jugé d’après leurs permissions actuelles : si un membre perd la permission de publier, ses messages précédents disparaissent aussi.",
   "chatSettings.hoverActions": "Actions de message au survol",
   "chatSettings.hoverActionsDescription": "Affiche les réactions et actions au survol d’un message. Désactivé, faites un clic droit sur un message pour les voir.",
   "chatSettings.replyGestures": "Gestes de réponse",

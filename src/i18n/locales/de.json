@@ -895,6 +895,8 @@
   "chatSettings.floatingDatesDescription": "Zeigt beim Scrollen durch einen Chat oben das Datum der sichtbaren Nachrichten.",
   "chatSettings.foldSimilar": "Ähnliche Nachrichten zusammenfassen",
   "chatSettings.foldSimilarDescription": "Fasst in Communitys Serien fast gleicher Nachrichten in einer Zeile zusammen. Aus: Jede Nachricht wird angezeigt, eine Serie zählt aber weiterhin nicht als ungelesen oder als Erwähnung.",
+  "chatSettings.hideSilenced": "Beiträge von Mitgliedern ausblenden, die nicht posten dürfen",
+  "chatSettings.hideSilencedDescription": "Entfernt Nachrichten von Mitgliedern mit Timeout oder ohne Berechtigung, im Kanal zu posten, statt sie zusammenzufassen. Maßgeblich sind ihre heutigen Berechtigungen: Verliert ein Mitglied die Berechtigung zu posten, verschwinden auch seine früheren Nachrichten.",
   "chatSettings.hoverActions": "Nachrichtenaktionen beim Überfahren",
   "chatSettings.hoverActionsDescription": "Reaktionen und Aktionen anzeigen, wenn du mit der Maus über eine Nachricht fährst. Wenn aus, klicke eine Nachricht mit der rechten Maustaste an.",
   "chatSettings.replyGestures": "Antwortgesten",

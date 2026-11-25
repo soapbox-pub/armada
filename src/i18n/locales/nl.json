@@ -895,6 +895,8 @@
   "chatSettings.floatingDatesDescription": "Toont bovenaan de datum van de zichtbare berichten terwijl je door een chat scrolt.",
   "chatSettings.foldSimilar": "Vergelijkbare berichten samenvouwen",
   "chatSettings.foldSimilarDescription": "Vouwt reeksen bijna identieke berichten in community’s samen tot één rij. Uit: elk bericht wordt getoond, maar een reeks telt nog steeds niet als ongelezen of als vermelding.",
+  "chatSettings.hideSilenced": "Berichten verbergen van leden die niet mogen posten",
+  "chatSettings.hideSilencedDescription": "Verwijdert berichten van leden met een time-out of zonder toestemming om in het kanaal te posten, in plaats van ze samen te vouwen. Dit wordt beoordeeld op hun huidige rechten: verliest een lid de toestemming om te posten, dan verdwijnen ook zijn eerdere berichten.",
   "chatSettings.hoverActions": "Berichtacties bij aanwijzen",
   "chatSettings.hoverActionsDescription": "Toon reacties en acties wanneer je een bericht aanwijst. Uit: klik met rechts op een bericht om ze te zien.",
   "chatSettings.replyGestures": "Antwoordgebaren",

@@ -895,6 +895,8 @@
   "chatSettings.floatingDatesDescription": "Mentre scorri una chat, mostra in alto la data dei messaggi visibili.",
   "chatSettings.foldSimilar": "Raggruppa i messaggi simili",
   "chatSettings.foldSimilarDescription": "Raggruppa in una sola riga le raffiche di messaggi quasi identici nelle community. Disattivato, ogni messaggio viene mostrato, ma una raffica continua a non contare come non letta né come menzione.",
+  "chatSettings.hideSilenced": "Nascondi i post dei membri che non possono scrivere",
+  "chatSettings.hideSilencedDescription": "Rimuove i messaggi dei membri in timeout o senza il permesso di scrivere nel canale, invece di raggrupparli. Si valuta in base ai loro permessi attuali, quindi se un membro perde il permesso di scrivere, spariscono anche i suoi messaggi precedenti.",
   "chatSettings.hoverActions": "Azioni sui messaggi al passaggio del mouse",
   "chatSettings.hoverActionsDescription": "Mostra reazioni e azioni passando il mouse su un messaggio. Se disattivato, fai clic destro su un messaggio per vederle.",
   "chatSettings.replyGestures": "Gesti per rispondere",

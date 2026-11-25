@@ -200,6 +200,16 @@ export function ChatSettings() {
             </SettingsRow>
           </>
         )}
+        <SettingsRow
+          label={intl.formatMessage({ id: "chatSettings.hideSilenced", defaultMessage: "Hide posts from members who can't post" })}
+          description={intl.formatMessage({ id: "chatSettings.hideSilencedDescription", defaultMessage: "Remove messages from timed-out members, or from members without permission to post in the channel, instead of folding them. This is judged by their permissions now, so if a member loses permission to post, their earlier messages disappear too." })}
+        >
+          <Switch
+            checked={config.hideSilencedPosts}
+            onCheckedChange={(hideSilencedPosts) =>
+              updateConfig((current) => ({ ...current, hideSilencedPosts }))}
+          />
+        </SettingsRow>
       </SettingsGroup>
 
       {user && (

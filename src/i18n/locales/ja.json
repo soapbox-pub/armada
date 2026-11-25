@@ -895,6 +895,8 @@
   "chatSettings.floatingDatesDescription": "チャットをスクロールしている間、表示中のメッセージの日付を上部に表示します。",
   "chatSettings.foldSimilar": "似たメッセージをまとめる",
   "chatSettings.foldSimilarDescription": "コミュニティで連続するほぼ同じメッセージを1行にまとめます。オフにするとすべてのメッセージが表示されますが、連続したメッセージは未読やメンションとして数えられません。",
+  "chatSettings.hideSilenced": "投稿できないメンバーの投稿を非表示",
+  "chatSettings.hideSilencedDescription": "タイムアウト中のメンバーや、チャンネルへの投稿権限がないメンバーのメッセージを、まとめずに取り除きます。現在の権限で判断するため、メンバーが投稿権限を失うと、それ以前のメッセージも表示されなくなります。",
   "chatSettings.hoverActions": "ホバー時にメッセージ操作を表示",
   "chatSettings.hoverActionsDescription": "メッセージにカーソルを合わせるとリアクションと操作を表示します。オフの場合はメッセージを右クリックしてください。",
   "chatSettings.replyGestures": "返信ジェスチャー",

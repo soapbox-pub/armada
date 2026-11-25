@@ -194,6 +194,7 @@ export const AppConfigSchema = z.object({
   foldSimilarMessages: z.boolean().catch(defaultConfig.foldSimilarMessages),
   spamSensitivity: z.enum(["relaxed", "standard", "strict"]).catch(defaultConfig.spamSensitivity),
   spamExemptBridged: z.boolean().catch(defaultConfig.spamExemptBridged),
+  hideSilencedPosts: z.boolean().catch(defaultConfig.hideSilencedPosts),
   absoluteTimestamps: z.boolean().catch(defaultConfig.absoluteTimestamps),
   floatingDates: z.boolean().catch(defaultConfig.floatingDates),
   showDiscover: z.boolean().catch(defaultConfig.showDiscover),
@@ -262,6 +263,8 @@ export const MetadataDocSchema = z.looseObject({
   spamSensitivity: z.enum(["relaxed", "standard", "strict"]).optional(),
   /** Never fold NIP-48 bridged messages. */
   spamExemptBridged: z.boolean().optional(),
+  /** Drop, rather than collapse, posts from timed-out or send-denied members. */
+  hideSilencedPosts: z.boolean().optional(),
   /** Clock time instead of relative time in message headers. */
   absoluteTimestamps: z.boolean().optional(),
   /** Float the date of the messages in view while scrolling. */

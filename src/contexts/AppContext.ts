@@ -287,6 +287,12 @@ export interface AppConfig {
   spamSensitivity: FloodSensitivity;
   /** Never fold messages bridged from another network (NIP-48 `proxy`; default off). Synced. */
   spamExemptBridged: boolean;
+  /**
+   * Drop, rather than collapse, posts the Roster collapses: ones inside their author's
+   * Timeout or from someone who can't send in the Channel (default off). CORD-04 §8 says
+   * collapse; this departs from it on the reader's own say-so. Synced.
+   */
+  hideSilencedPosts: boolean;
   /** Whether message headers show the clock time instead of "2h" (default off). Synced. */
   absoluteTimestamps: boolean;
   /** Whether the timeline floats the date of the messages in view while scrolling (default on). Synced. */
@@ -392,6 +398,7 @@ export const METADATA_CONFIG_KEYS = [
   "foldSimilarMessages",
   "spamSensitivity",
   "spamExemptBridged",
+  "hideSilencedPosts",
   "absoluteTimestamps",
   "floatingDates",
   "showDiscover",
@@ -505,6 +512,7 @@ export const defaultConfig: AppConfig = {
   foldSimilarMessages: true,
   spamSensitivity: "standard",
   spamExemptBridged: false,
+  hideSilencedPosts: false,
   absoluteTimestamps: false,
   floatingDates: true,
   showDiscover: true,

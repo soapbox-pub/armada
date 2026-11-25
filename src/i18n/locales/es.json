@@ -895,6 +895,8 @@
   "chatSettings.floatingDatesDescription": "Al desplazarte por un chat, muestra arriba la fecha de los mensajes visibles.",
   "chatSettings.foldSimilar": "Agrupar mensajes similares",
   "chatSettings.foldSimilarDescription": "Agrupa en una sola fila las ráfagas de mensajes casi idénticos en las comunidades. Desactivado, se muestran todos los mensajes, aunque una ráfaga sigue sin contar como no leída ni como mención.",
+  "chatSettings.hideSilenced": "Ocultar publicaciones de miembros que no pueden publicar",
+  "chatSettings.hideSilencedDescription": "Quita los mensajes de miembros suspendidos temporalmente o sin permiso para publicar en el canal, en lugar de agruparlos. Se juzga según sus permisos actuales, así que si un miembro pierde el permiso para publicar, sus mensajes anteriores también desaparecen.",
   "chatSettings.hoverActions": "Acciones de mensaje al pasar el cursor",
   "chatSettings.hoverActionsDescription": "Muestra reacciones y acciones al pasar el cursor sobre un mensaje. Desactivado, haz clic derecho en un mensaje para verlas.",
   "chatSettings.replyGestures": "Gestos para responder",

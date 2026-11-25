@@ -23,6 +23,7 @@ import type { OpenedChat } from "@/concord/lib/chat";
 import { buildConcordCommentTags } from "@/concord/lib/chat";
 import { KIND_COMMENT, KIND_EDIT, KIND_MESSAGE, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import type { Channel, Community } from "@/concord/lib/types";
+import { AppContext, defaultConfig } from "@/contexts/AppContext";
 
 import { useTransport } from "./useTransport";
 
@@ -135,6 +136,33 @@ describe("useTransport — issue #19 (orphan replies are unreachable)", () => {
     // The inline reply renders as a top-level row, not bucketed into a thread.
     expect(transport.messages.map((m) => m.id)).toContain(inline.rumorId);
     expect(transport.replyCountFor?.(parent.rumorId) ?? 0).toBe(0);
+  });
+});
+
+describe("useTransport — hideSilencedPosts", () => {
+  function shownWith(hideSilencedPosts: boolean) {
+    const ok = chat("88".repeat(32), "fine", 1_000_000);
+    const silenced = chat("99".repeat(32), "posted while timed out", 2_000_000);
+    h.folded = { messages: [ok, silenced], reactions: new Map(), zaps: new Map(), pollVotes: new Map(), calendarEvents: [], rsvps: new Map(), timerNotices: [], bannedHidden: [], quarantined: new Set([silenced.rumorId]), paused: new Set<string>(), ruled: new Set([silenced.rumorId]) };
+    const config = { ...defaultConfig, hideSilencedPosts };
+    const { result } = renderHook(() => useTransport(community, channel, true, false), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={new QueryClient()}>
+          <AppContext.Provider value={{ config, updateConfig: () => {} }}>{children}</AppContext.Provider>
+        </QueryClientProvider>
+      ),
+    });
+    return { ids: result.current.transport.messages.map((m) => m.id), ok, silenced };
+  }
+
+  it("keeps a post the Roster collapses in the timeline by default (CORD-04 §8)", () => {
+    const { ids, ok, silenced } = shownWith(false);
+    expect(ids).toEqual([ok.rumorId, silenced.rumorId]);
+  });
+
+  it("drops it when the reader turned the option on", () => {
+    const { ids, ok } = shownWith(true);
+    expect(ids).toEqual([ok.rumorId]);
   });
 });
 

@@ -895,6 +895,8 @@
   "chatSettings.floatingDatesDescription": "While you scroll a chat, show the date of the messages in view at the top.",
   "chatSettings.foldSimilar": "Fold similar messages",
   "chatSettings.foldSimilarDescription": "Collapse bursts of near-identical messages in communities into one row. Off, every message is shown, though a burst still never counts as unread or as a mention.",
+  "chatSettings.hideSilenced": "Hide posts from members who can't post",
+  "chatSettings.hideSilencedDescription": "Remove messages from timed-out members, or from members without permission to post in the channel, instead of folding them. This is judged by their permissions now, so if a member loses permission to post, their earlier messages disappear too.",
   "chatSettings.hoverActions": "Message actions on hover",
   "chatSettings.hoverActionsDescription": "Show reactions and actions when hovering a message. Off, right-click a message for them.",
   "chatSettings.replyGestures": "Reply gestures",
