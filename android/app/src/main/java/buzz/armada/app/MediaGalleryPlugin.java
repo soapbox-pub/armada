@@ -39,9 +39,6 @@ import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Locale;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -85,12 +82,13 @@ public class MediaGalleryPlugin extends Plugin {
      */
     private final ExecutorService io = Executors.newFixedThreadPool(3);
 
-    private final Map<String, PendingSave> saves = new ConcurrentHashMap<>();
+    private SaveStaging saves;
 
     @Override
     public void load() {
+        saves = new SaveStaging(new File(getContext().getCacheDir(), "pending-saves"));
         io.execute(this::trimThumbCache);
-        io.execute(this::clearStaleSaves);
+        io.execute(saves::clearStale);
     }
 
     @Override
@@ -212,16 +210,13 @@ public class MediaGalleryPlugin extends Plugin {
         }
         // The caller sanitizes too; MediaStore would reject a separator anyway.
         String name = filename.replaceAll("[/\\\\]", "_");
-        String id = UUID.randomUUID().toString();
-        File staged = new File(saveDir(), id);
+        String id;
         try {
-            // Created up front so an empty file still has something to copy.
-            if (!staged.createNewFile()) throw new IllegalStateException("Staging file exists");
+            id = saves.begin(name, mediaMime(call.getString("mime")));
         } catch (Exception e) {
             call.reject("Could not save the file", e);
             return;
         }
-        saves.put(id, new PendingSave(name, mediaMime(call.getString("mime")), staged));
         JSObject result = new JSObject();
         result.put("id", id);
         call.resolve(result);
@@ -229,7 +224,7 @@ public class MediaGalleryPlugin extends Plugin {
 
     @PluginMethod
     public void appendSave(PluginCall call) {
-        PendingSave save = saves.get(String.valueOf(call.getString("id")));
+        SaveStaging.Pending save = saves.get(call.getString("id"));
         String data = call.getString("data");
         if (save == null || data == null) {
             call.reject("Unknown save or missing data");
@@ -241,7 +236,7 @@ public class MediaGalleryPlugin extends Plugin {
                 os.write(Base64.decode(data, Base64.DEFAULT));
                 answer(call::resolve);
             } catch (Exception e) {
-                discard(call.getString("id"));
+                saves.discard(call.getString("id"));
                 answer(() -> call.reject("Could not save the file", e));
             }
         });
@@ -249,8 +244,7 @@ public class MediaGalleryPlugin extends Plugin {
 
     @PluginMethod
     public void finishSave(PluginCall call) {
-        String id = String.valueOf(call.getString("id"));
-        PendingSave save = saves.remove(id);
+        SaveStaging.Pending save = saves.take(call.getString("id"));
         if (save == null) {
             call.reject("Unknown save");
             return;
@@ -273,37 +267,8 @@ public class MediaGalleryPlugin extends Plugin {
 
     @PluginMethod
     public void cancelSave(PluginCall call) {
-        discard(call.getString("id"));
+        saves.discard(call.getString("id"));
         call.resolve();
-    }
-
-    private void discard(String id) {
-        PendingSave save = id != null ? saves.remove(id) : null;
-        if (save != null) save.staged.delete();
-    }
-
-    private static final class PendingSave {
-        final String name;
-        final String mime;
-        final File staged;
-
-        PendingSave(String name, String mime, File staged) {
-            this.name = name;
-            this.mime = mime;
-            this.staged = staged;
-        }
-    }
-
-    private File saveDir() {
-        File dir = new File(getContext().getCacheDir(), "pending-saves");
-        if (!dir.exists()) dir.mkdirs();
-        return dir;
-    }
-
-    /** Staging left by a save the process died during. */
-    private void clearStaleSaves() {
-        File[] files = saveDir().listFiles();
-        if (files != null) for (File f : files) f.delete();
     }
 
     private static void copy(File src, OutputStream os) throws Exception {
