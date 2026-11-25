@@ -2396,13 +2396,15 @@ describe("useRekeyWatch converges a racing Refounding at the epoch it is on", ()
     const admin = member();
     const me = member();
     const { community } = mintCommunity("Fleet", owner.pubkey, [RELAY]);
-    const { fold, citation } = peerAdminsFold(owner.pubkey, community.id, admin.pubkey, member().pubkey);
+    const peer = member().pubkey;
+    const { fold, citation } = peerAdminsFold(owner.pubkey, community.id, admin.pubkey, peer);
     const [low, high] = [random32(), random32()].sort((a, b) => (bytesToHex(a) < bytesToHex(b) ? -1 : 1));
     const now = Date.now();
     const relay = new FakeRelay();
     relay.events = [
       ...(await rotationWraps(owner, community, high, [owner.pubkey, admin.pubkey, me.pubkey], now)),
-      ...(await rotationWraps(admin, community, low, [owner.pubkey, admin.pubkey, me.pubkey], now + 1, citation)),
+      // An admin's carries the peer admin it can't remove too (CORD-06 §2).
+      ...(await rotationWraps(admin, community, low, [owner.pubkey, admin.pubkey, peer, me.pubkey], now + 1, citation)),
     ];
     const calls: Filter[][] = [];
     h.pool = {

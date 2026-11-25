@@ -42,6 +42,7 @@ import {
   findBlob,
   groupRotations,
   honoredRootRotations,
+  owedBaseRecipients,
   lowerKeyWins,
   mintOrReuseControlRoot,
   mintOrReuseRotationKey,
@@ -1716,7 +1717,11 @@ export function useRefound(community: Community | undefined) {
       // forgot would be left at this epoch for good, so only `exclude` removes (Vector
       // `refound_community_with`).
       const excluded = new Set(exclude);
-      const recipients = [...new Set([user.pubkey, ...keep, ...(await storedMemberlist(community, folded))])].filter((pk) => !excluded.has(pk));
+      // The owner and every rank above ours too, Guestbook or not: readers ignore a
+      // rotation that leaves out anyone it can't remove (CORD-06 §2).
+      const recipients = [
+        ...new Set([user.pubkey, ...keep, ...owedBaseRecipients(folded, user.pubkey), ...(await storedMemberlist(community, folded))]),
+      ].filter((pk) => !excluded.has(pk));
 
       const newEpoch = community.rootEpoch + 1n;
       const prevCommit = bytesToHex(epochKeyCommitment(community.rootEpoch, community.root));

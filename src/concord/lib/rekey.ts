@@ -22,7 +22,7 @@ import { KIND_REKEY, KIND_SEAL_ENCRYPTED } from "@/concord/lib/kinds";
 import { citationFromTags, citationToTag, isTagDecimal, type AuthorityCitation } from "@/concord/lib/edition";
 import { buildRumor, type OpenedEvent } from "@/concord/lib/stream";
 import { citationSatisfied, type FoldedControl } from "@/concord/lib/control";
-import { hasPermission, Permissions } from "@/concord/lib/roles";
+import { canActOnMember, hasPermission, Permissions } from "@/concord/lib/roles";
 import type { NostrRumor } from "@/lib/nostrRumor";
 import { readFolded, writeFolded } from "@/lib/foldedCache";
 
@@ -405,10 +405,50 @@ export function checkContinuity(set: { prevEpoch: bigint; prevCommit: string }, 
 }
 
 /**
+ * Whom a non-owner base rotation by `rotatorHex` must carry a blob for (CORD-06 §2):
+ * the owner, and every Grant holder the Rotator can't act on with `BAN`, since
+ * BAN reaches only members it strictly outranks. A banned holder is owed nothing,
+ * and the owner's own rotation owes no one. Readers judge a rotation by this, and a
+ * Rotator adds them to its recipients so its rotation is honored.
+ */
+export function owedBaseRecipients(
+  folded: Pick<FoldedControl, "banned" | "ownerHex" | "roster">,
+  rotatorHex: string,
+): string[] {
+  if (rotatorHex === folded.ownerHex) return [];
+  const owed = new Set<string>([folded.ownerHex]);
+  for (const grant of folded.roster.grants) {
+    const member = grant.member.toLowerCase();
+    if (member === rotatorHex || folded.banned.has(member)) continue;
+    if (!canActOnMember(folded.roster, rotatorHex, folded.ownerHex, member, Permissions.BAN)) owed.add(member);
+  }
+  return [...owed];
+}
+
+/**
+ * Whether a base rotation carries a blob for everyone {@link owedBaseRecipients}
+ * names. One that doesn't is neither adopted nor read as a removal by anyone
+ * (CORD-06 §2): otherwise a Moderator could refound the community onto a root of
+ * their own, leaving the owner and every higher rank on one no one reads. Judged
+ * once the set is whole; an incomplete set is never adopted or read as a removal
+ * anyway, and its missing chunks may hold the blobs.
+ */
+export function rotationCoversOwed(
+  set: RekeyRotationSet,
+  folded: Pick<FoldedControl, "banned" | "ownerHex" | "roster">,
+): boolean {
+  if (!set.complete) return true;
+  return owedBaseRecipients(folded, set.rotator).every(
+    (pk) => findBlob(set, myLocator(set.rotator, pk, set.scopeIdHex, set.newEpoch)) !== undefined,
+  );
+}
+
+/**
  * The complete-or-not base rotations off `(prevEpoch, prevRoot)` a reader honors.
  * Authority is the roster, never key possession (CORD-06); banned rotators are
- * dropped outright (CORD-04 §4), and the cited Grant must be satisfied (CORD-04 §5),
- * so a just-demoted admin's Refounding isn't honored.
+ * dropped outright (CORD-04 §4), the cited Grant must be satisfied (CORD-04 §5),
+ * so a just-demoted admin's Refounding isn't honored, and a non-owner's must reach
+ * everyone it can't remove ({@link rotationCoversOwed}).
  */
 export function honoredRootRotations(
   parsed: ParsedRekey[],
@@ -423,7 +463,8 @@ export function honoredRootRotations(
       !folded.banned.has(set.rotator) &&
       (set.rotator === folded.ownerHex || hasPermission(folded.roster, set.rotator, Permissions.BAN)) &&
       citationSatisfied(folded, communityId, set.rotator, set.authority) &&
-      checkContinuity(set, prevEpoch, prevRoot).ok,
+      checkContinuity(set, prevEpoch, prevRoot).ok &&
+      rotationCoversOwed(set, folded),
   );
 }
 

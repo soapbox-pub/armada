@@ -32,12 +32,15 @@ import {
   lowerKeyWins,
   mintOrReuseRotationKey,
   myLocator,
+  owedBaseRecipients,
   parseRekey,
   rekeyScopeId,
+  rotationCoversOwed,
   rotationExcludesMe,
   rotationPublishedAtMs,
   type RekeyBlob,
 } from "@/concord/lib/rekey";
+import { adminRole, moderatorRole } from "@/concord/lib/roles";
 import { NIP44_MAX_PLAINTEXT, openWrap, sealRumor, wrapSeal } from "@/concord/lib/stream";
 
 function signer(sk = generateSecretKey()) {
@@ -507,5 +510,58 @@ describe("rekey chunking (CORD-06 §1)", () => {
     const rumors = buildRekeyRumors(signer().pubkey, rotation(bytesToHex(random32())), [huge], Date.now());
     expect(rumors).toHaveLength(1);
     expect((JSON.parse(rumors[0].content) as RekeyBlob[])[0].locator).toBe(huge.locator);
+  });
+});
+
+describe("a non-owner base rotation must reach everyone it can't remove (CORD-06 §2)", () => {
+  const ZERO = "00".repeat(32);
+  const OWNER = "a1".repeat(32);
+  const ADMIN = "a2".repeat(32);
+  const MOD = "a3".repeat(32);
+  const PEER_MOD = "a4".repeat(32);
+  const MEMBER = "a5".repeat(32);
+  const BANNED_ADMIN = "a6".repeat(32);
+  const folded = {
+    ownerHex: OWNER,
+    banned: new Set([BANNED_ADMIN]),
+    roster: {
+      roles: [adminRole("admin"), moderatorRole("mod")],
+      grants: [
+        { member: ADMIN, roleIds: ["admin"] },
+        { member: MOD, roleIds: ["mod"] },
+        { member: PEER_MOD, roleIds: ["mod"] },
+        { member: BANNED_ADMIN, roleIds: ["admin"] },
+      ],
+    },
+  };
+  /** A complete one-chunk base rotation by `rotator`, with a blob for each of `to`. */
+  const rotation = (rotator: string, to: string[]) =>
+    groupRotations([{
+      rotator, scopeIdHex: ZERO, newEpoch: 1n, prevEpoch: 0n, prevCommit: "cd".repeat(32),
+      chunkIndex: 1, chunkCount: 1, ms: 1, severed: false,
+      blobs: to.map((pk) => ({ locator: myLocator(rotator, pk, ZERO, 1n), wrapped: "x" })),
+    }])[0];
+
+  it("owes the owner and every rank the Rotator can't act on, but not the banned, those below, or itself", () => {
+    expect(new Set(owedBaseRecipients(folded, MOD))).toEqual(new Set([OWNER, ADMIN, PEER_MOD]));
+    expect(new Set(owedBaseRecipients(folded, ADMIN))).toEqual(new Set([OWNER]));
+    expect(owedBaseRecipients(folded, OWNER)).toEqual([]);
+  });
+
+  it("refuses a Moderator's Refounding addressed to itself and the members alone", () => {
+    expect(rotationCoversOwed(rotation(MOD, [MOD, MEMBER]), folded)).toBe(false);
+    // The owner alone isn't enough while an Admin and a peer Moderator are left out.
+    expect(rotationCoversOwed(rotation(MOD, [MOD, MEMBER, OWNER]), folded)).toBe(false);
+  });
+
+  it("honors one that carries everyone it can't remove, and the owner's whatever it leaves out", () => {
+    expect(rotationCoversOwed(rotation(MOD, [MOD, MEMBER, OWNER, ADMIN, PEER_MOD]), folded)).toBe(true);
+    expect(rotationCoversOwed(rotation(ADMIN, [ADMIN, OWNER]), folded)).toBe(true);
+    expect(rotationCoversOwed(rotation(OWNER, [OWNER]), folded)).toBe(true);
+  });
+
+  it("leaves an incomplete set to be judged once whole", () => {
+    const partial = { ...rotation(MOD, [MOD]), complete: false, chunkCount: 2 };
+    expect(rotationCoversOwed(partial, folded)).toBe(true);
   });
 });
