@@ -35,7 +35,6 @@ interface MediaGalleryPlugin {
   cancelSave(opts: { id: string }): Promise<void>;
 }
 
-
 const MediaGallery = registerPlugin<MediaGalleryPlugin>("MediaGallery");
 
 export function hasMediaGallery(): boolean {

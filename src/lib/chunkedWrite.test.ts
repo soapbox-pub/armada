@@ -8,15 +8,29 @@ vi.mock("@capacitor/filesystem", () => ({
       return { uri: `file:///cache/${path}` };
     },
     appendFile: async ({ path, data }: { path: string; data: string }) => {
+      if (failAppend) throw new Error("disk full");
       files.get(path)!.push(Buffer.from(data, "base64"));
+    },
+    deleteFile: async ({ path }: { path: string }) => {
+      files.delete(path);
     },
   },
 }));
+let failAppend = false;
 
 const { BRIDGE_CHUNK, writeFileChunked } = await import("@/lib/chunkedWrite");
 
 describe("writeFileChunked", () => {
-  beforeEach(() => files.clear());
+  beforeEach(() => {
+    files.clear();
+    failAppend = false;
+  });
+
+  it("leaves no partial file behind when a piece fails", async () => {
+    failAppend = true;
+    await expect(writeFileChunked("clip.mp4", new Uint8Array(BRIDGE_CHUNK + 1), "DOCUMENTS" as never)).rejects.toThrow(/disk full/);
+    expect(files.has("clip.mp4")).toBe(false);
+  });
 
   it("writes a large file in bounded pieces that reassemble to the original", async () => {
     const bytes = new Uint8Array(2_000_000).map((_, i) => i % 251);
