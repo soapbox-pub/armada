@@ -92,7 +92,7 @@ function BannedRow({
         </div>
       </div>
       {canUnban && (
-        <Button type="button" size="sm" variant="secondary" className="clip-corner-lg h-8 shrink-0" disabled={busy} onClick={onUnban}>
+        <Button type="button" size="sm" variant="secondary" className="clip-corner-lg h-8 shrink-0 touch:h-11" disabled={busy} onClick={onUnban}>
           {busy ? <Loader2 className="size-3.5 animate-spin" /> : <ShieldOff className="size-3.5" />}
           <FormattedMessage id="bannedView.unban" defaultMessage="Unban" />
         </Button>

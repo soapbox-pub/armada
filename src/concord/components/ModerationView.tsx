@@ -54,6 +54,7 @@ export function ModerationView({
   memberPubkeys,
   canModerateMembers,
   canManageRoles,
+  canBan,
   onSelect,
   overview,
   settings,
@@ -65,6 +66,8 @@ export function ModerationView({
   memberPubkeys: string[];
   canModerateMembers: boolean;
   canManageRoles: boolean;
+  /** Safety's ban list is only for those who can ban; Manage roles opens Safety for approval alone. */
+  canBan: boolean;
   onSelect: (pane: ModerationPane) => void;
   overview: ReactNode;
   settings: ReactNode;
@@ -96,7 +99,7 @@ export function ModerationView({
   ) : pane === "safety" ? (
     <>
       {safety}
-      <BannedView community={community} />
+      {canBan && <BannedView community={community} />}
     </>
   ) : pane === "reports" ? (
     <ReportsView community={community} />
@@ -115,10 +118,12 @@ export function ModerationView({
     </div>
   );
 
+  // The open section keeps one place in the tree whichever way it is laid out, so a
+  // resize across the breakpoint doesn't remount it and lose what it holds.
   return (
     <div ref={attach} className="w-full">
-      {wide ? (
-        <div className={cn("mx-auto flex w-full", pane === "settings" ? "max-w-7xl" : "max-w-5xl")}>
+      <div className={cn("mx-auto w-full", wide && "flex", wide && (pane === "settings" ? "max-w-7xl" : "max-w-5xl"))}>
+        {wide ? (
           <nav
             aria-label={intl.formatMessage({ id: "concordPage.communityMenu.manage", defaultMessage: "Manage community" })}
             className="sticky top-0 w-64 shrink-0 space-y-4 self-start pl-gutter pr-2 pt-4 pb-8"
@@ -147,17 +152,14 @@ export function ModerationView({
               );
             })}
           </nav>
-          <div className="min-w-0 flex-1">{page}</div>
-        </div>
-      ) : (
-        <>
+        ) : (
           <div className="mx-auto max-w-2xl px-4 pt-4 sm:px-6">
             {/* Wraps where every label shows, rather than scrolling one out of sight; a phone shows icons and fits. */}
             <PillTabs tabs={tabs} value={pane} onChange={onSelect} labels="icons" className="justify-between sm:w-full sm:flex-wrap sm:justify-start" />
           </div>
-          {page}
-        </>
-      )}
+        )}
+        <div key="page" className="min-w-0 flex-1">{page}</div>
+      </div>
     </div>
   );
 }

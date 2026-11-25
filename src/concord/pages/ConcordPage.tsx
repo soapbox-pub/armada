@@ -71,6 +71,7 @@ import { awaitingApproval, gateState } from "@/concord/lib/approvalGate";
 import {
   firstModerationPane,
   managedPaneOf,
+  moderationAccessFor,
   type ModerationAccess,
   type ModerationPane,
 } from "@/concord/lib/moderationPanes";
@@ -1786,19 +1787,8 @@ function ConcordCommunityPage() {
   const canReact = Boolean(user && channel && reactsIn(folded, channel.idHex, user.pubkey) && reachesReaders);
   const restrictedChannel = Boolean(folded && channel && !everyoneSends(folded.roster, channel.idHex));
 
-  // Settings, audit log and invite links are open to every member, so "Manage community" always shows.
   const moderationAccess: ModerationAccess = useMemo(
-    () => ({
-      // Manage Roles is who approves members while approval to post is on.
-      overview: canKickAny || canBanAny || canReadReports || canManageRoles,
-      settings: true,
-      members: canManageRoles || canKickAny || canBanAny || canCreateInvite,
-      roles: canManageRoles && !dissolved,
-      invites: true,
-      safety: canBanAny,
-      reports: canReadReports,
-      audit: true,
-    }),
+    () => moderationAccessFor({ canManageRoles, canKickAny, canBanAny, canCreateInvite, canReadReports, dissolved: Boolean(dissolved) }),
     [canManageRoles, canKickAny, canBanAny, canCreateInvite, canReadReports, dissolved],
   );
 
@@ -3473,7 +3463,8 @@ function ConcordCommunityPage() {
       preChannels={
         user && community ? (
           <>
-            <SuspiciousActivityBanner community={community} channels={channels} folded={folded} onOpen={() => selectPane("safety")} />
+            {/* It opens Safety, so only for those who can open it. */}
+            {moderationAccess.safety && <SuspiciousActivityBanner community={community} channels={channels} folded={folded} onOpen={() => selectPane("safety")} />}
             {offerUpgrade && <LegacyControlBanner key={community.idHex} communityIdHex={community.idHex} onUpgrade={openRotateKeys} />}
             <button
               type="button"
@@ -3943,6 +3934,7 @@ function ConcordCommunityPage() {
                       memberPubkeys={memberPubkeys}
                       canModerateMembers={canKickAny || canBanAny}
                       canManageRoles={canManageRoles && !dissolved}
+                      canBan={canBanAny}
                       onSelect={selectPane}
                       overview={
                         managedPane === "overview" && (

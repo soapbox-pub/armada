@@ -37,6 +37,32 @@ export function managedPaneOf(pane: Concord2Pane | "channel"): ModerationPane | 
  */
 export type ModerationAccess = Readonly<Record<ModerationPane, boolean>>;
 
+/** What the viewer holds that opens the panes. */
+export interface ModerationPowers {
+  canManageRoles: boolean;
+  canKickAny: boolean;
+  canBanAny: boolean;
+  canCreateInvite: boolean;
+  canReadReports: boolean;
+  dissolved: boolean;
+}
+
+/** Settings, audit log and invite links are open to every member, so "Manage community" always shows. */
+export function moderationAccessFor(p: ModerationPowers): ModerationAccess {
+  return {
+    // Manage Roles is who approves members while approval to post is on.
+    overview: p.canKickAny || p.canBanAny || p.canReadReports || p.canManageRoles,
+    settings: true,
+    members: p.canManageRoles || p.canKickAny || p.canBanAny || p.canCreateInvite,
+    roles: p.canManageRoles && !p.dissolved,
+    invites: true,
+    // Bans live here, and so does the approval to post switch, which Manage Roles turns.
+    safety: p.canBanAny || p.canManageRoles,
+    reports: p.canReadReports,
+    audit: true,
+  };
+}
+
 /** Each pane's icon + name (formatted on read), shared by the tab strip and page header. */
 export const MODERATION_TABS: Readonly<Record<ModerationPane, PillTab<ModerationPane>>> = {
   overview: {
