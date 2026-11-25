@@ -4,6 +4,54 @@ All notable changes to Armada are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and releases are tagged
 `vX.Y.Z`.
 
+## [0.69.13] - 2026-11-25
+
+Voice channels can now call Vector users peer to peer, with cameras and screen
+sharing, and fall back to peer to peer when a voice server fails. Communities
+can require approval before new members post, under a new Manage community
+screen. Message requests filter link spam from strangers, profiles show verified
+addresses, and editing messages gets @ mentions.
+
+### Added
+- Peer-to-peer voice channel calls that reach Vector users, with cameras and screen sharing, used when no voice server answers or one stops working
+- Peer-to-peer call relays a community can set in its settings, shown read-only in Settings › Voice
+- Approval to post: new members wait for approval before posting, listed for review on the new Overview tab
+- Manage community, combining community settings and moderation, with a settable welcome channel
+- Change my nickname in the community menu
+- Verified addresses on profiles and profile cards
+- A filter for direct messages from strangers whose first message is a link, with a setting to filter everyone outside your communities, and a reworked requests view
+- Vector Hub communities in Discover, and an Update keys button on cards for communities that have moved on
+- Previews for GitWorkshop links showing the repository, page type and issue or pull request subject
+- @ mention suggestions when editing a message, and in-place editing of thread and forum posts
+- Emoji suggestions for emoticons like :-) and custom emoji in the colon menu from the first letter
+- Saving a new theme without publishing it
+- A transparency slider for themes with a background image
+- An option to hide, rather than collapse, posts from timed-out or muted members, and a placeholder where banned members' posts are hidden
+- An offline status on Android's background notification while the device has no network
+
+### Changed
+- A member's staff label in chat names their actual role
+- Search's from: suggestions include every community member
+- Restricted channels where everyone can't post, react or join calls show a lock
+- Typing indicators from banned, kicked, timed-out and muted members are hidden, and the hidden-posts notice shows only to moderators
+- Safety settings open to anyone who can manage roles
+- The Nostr Connect login QR code is easier to scan
+- Storage settings list every part of the total, so the rows add up
+- The changelog links each release to GitWorkshop
+
+### Fixed
+- Spoilers stay hidden in the reply line above a reply
+- Server icons no longer upload as striped noise in browsers that block canvas fingerprinting
+- Android message notifications stay up while the notification shade or other system UI covers the app
+- The composer stays responsive while typing long formatted messages
+- A DM call button is no longer triggered by a stray press right after typing
+- Saving large files on Android and iOS is more reliable
+- Opening an invite link to a community you already belong to no longer disturbs your keys
+- Reactions from members not allowed to react are ignored
+- Your block list is no longer reset when it is slow to load
+- Direct message push notifications work for browser extension logins
+- Better compatibility with Vector communities
+
 ## [0.69.12] - 2026-11-21
 
 Roll dice in chat with /roll, drawn as 3D dice with spell presets. Mutes can now
