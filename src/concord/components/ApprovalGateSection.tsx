@@ -1,4 +1,4 @@
-import { Loader2, UserCheck, Users } from "lucide-react";
+import { DoorOpen, Loader2, UserCheck, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { InfoTip, SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
@@ -72,6 +72,15 @@ export function ApprovalGateSection({
           aria-label={intl.formatMessage({ id: "approvalGate.title", defaultMessage: "Require approval to post" })}
         />
       </SettingsRow>
+      {gate.on && (
+        <WelcomeRow
+          channels={channels}
+          folded={folded}
+          welcome={gate.welcome}
+          canChange={gate.canSwitch && !gate.switching}
+          setWelcome={gate.setWelcome}
+        />
+      )}
       {gate.progress && !dialog && <ProgressRow progress={gate.progress} />}
 
       {dialog === "on" && (
@@ -88,6 +97,63 @@ export function ApprovalGateSection({
       )}
       {dialog === "off" && <TurnOffDialog onClose={() => setDialog(null)} turnOff={gate.turnOff} />}
     </SettingsGroup>
+  );
+}
+
+/** Channels a welcome overwrite can open: a synced one takes its Category's rules, and a Private one is closed to @everyone. */
+function welcomeCandidates(channels: Channel[], folded: FoldedControl): Channel[] {
+  return channels.filter((c) => !c.isPrivate && !folded.roster.syncs?.[c.idHex.toLowerCase()]);
+}
+
+function WelcomeRow({
+  channels,
+  folded,
+  welcome,
+  canChange,
+  setWelcome,
+}: {
+  channels: Channel[];
+  folded: FoldedControl;
+  welcome: string[];
+  canChange: boolean;
+  setWelcome: (channel: string | null) => Promise<void>;
+}) {
+  const intl = useIntl();
+  const choices = useMemo(() => welcomeCandidates(channels, folded), [channels, folded]);
+  const current = welcome[0] ?? NO_WELCOME;
+
+  const change = (value: string) => {
+    setWelcome(value === NO_WELCOME ? null : value).catch((e: unknown) =>
+      toast({
+        title: t({ id: "approvalGate.welcomeFailed", defaultMessage: "Couldn't change the welcome channel" }),
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      }),
+    );
+  };
+
+  return (
+    <SettingsRow
+      icon={DoorOpen}
+      tone="success"
+      stack
+      label={intl.formatMessage({ id: "approvalGate.welcomeLabel", defaultMessage: "Welcome channel" })}
+      description={intl.formatMessage({ id: "approvalGate.welcomeHint", defaultMessage: "Anyone can still post there, so newcomers can ask to be approved." })}
+    >
+      <Select value={current} onValueChange={change} disabled={!canChange}>
+        <SelectTrigger className="w-full clip-corner-lg sm:w-44" aria-label={intl.formatMessage({ id: "approvalGate.welcomeLabel", defaultMessage: "Welcome channel" })}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end">
+          <SelectItem value={NO_WELCOME}>
+            <FormattedMessage id="approvalGate.welcomeNone" defaultMessage="None" />
+          </SelectItem>
+          {choices.map((c) => (
+            <SelectItem key={c.idHex} value={c.idHex}>#{c.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </SettingsRow>
   );
 }
 
@@ -127,11 +193,7 @@ function TurnOnDialog({
   const [welcome, setWelcome] = useState(NO_WELCOME);
   const [busy, setBusy] = useState(false);
 
-  // A Channel synced to a Category takes its Category's rules, and a Private one is closed to @everyone.
-  const welcomeChoices = useMemo(
-    () => channels.filter((c) => !c.isPrivate && !folded.roster.syncs?.[c.idHex.toLowerCase()]),
-    [channels, folded],
-  );
+  const welcomeChoices = useMemo(() => welcomeCandidates(channels, folded), [channels, folded]);
   // Read once per open, so the counts don't shift while the reader decides.
   const [nowMs] = useState(clockNowMs);
   const activeSinceMs = keep === "everyone" ? 0 : nowMs - ACTIVE_WINDOW_DAYS * DAY_MS;

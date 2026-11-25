@@ -26,6 +26,7 @@ import { useCommunityManagement } from "@/concord/hooks/useCommunityActions";
 import { useChannels } from "@/concord/hooks/useControlPlane";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
 import { useRankedRoles } from "@/concord/hooks/useRankedRoles";
+import { gateState, welcomeChannels } from "@/concord/lib/approvalGate";
 import { keyWork, reviewAccess, reviewMoves, withRules, type AccessReview } from "@/concord/lib/accessReview";
 import { categoryKey, categoryNames } from "@/concord/lib/channelCategory";
 import { bytesToHex } from "@/concord/lib/derive";
@@ -114,6 +115,11 @@ export interface EditorModel {
   /** The viewer may set every one of those bits on `@everyone`. */
   canLock: boolean;
   setLocked: (locked: boolean) => void;
+  /**
+   * The welcome Channel of approval to post, as stored: locking it closes it to everyone
+   * waiting, and unlocking only clears the lock, so it has to be chosen again under Safety.
+   */
+  welcome: boolean;
   removeTarget: (key: string) => void;
   addTargets: (keys: readonly string[]) => void;
   /** Whether the viewer may write a rule for a target not listed yet. */
@@ -523,6 +529,9 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
     locked,
     canLock,
     setLocked,
+    welcome: Boolean(
+      folded && community.idHex && scope.kind === "channel" && welcomeChannels(folded).includes(scopeHex) && gateState(folded, community.idHex).on,
+    ),
     mayTarget: (key) => reachOf(key).bits !== 0n,
     candidates,
     ownerHex,

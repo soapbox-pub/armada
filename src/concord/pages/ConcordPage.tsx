@@ -67,6 +67,7 @@ import { CommunityDiscoverDialog } from "@/concord/components/CommunityDiscoverD
 import { ModerationView } from "@/concord/components/ModerationView";
 import { OverviewView } from "@/concord/components/OverviewView";
 import { ApprovalGateSection } from "@/concord/components/ApprovalGateSection";
+import { awaitingApproval, gateState } from "@/concord/lib/approvalGate";
 import {
   firstModerationPane,
   managedPaneOf,
@@ -2441,6 +2442,16 @@ function ConcordCommunityPage() {
   // One Set identity per member-list change, shared by memoized git rows and the ticket panel.
   const memberSet = useMemo(() => new Set(memberPubkeys), [memberPubkeys]);
 
+  // While approval to post is on, who can read but not yet post: the member panel files them apart.
+  const awaitingApprovalRef = useRef<string[]>([]);
+  const awaitingApprovalList = useMemo(() => {
+    const next = folded && community && gateState(folded, community.idHex).on ? [...awaitingApproval(folded, coalesced)].sort() : [];
+    const prev = awaitingApprovalRef.current;
+    if (prev.length === next.length && next.every((pk, i) => prev[i] === pk)) return prev;
+    awaitingApprovalRef.current = next;
+    return next;
+  }, [folded, community, coalesced]);
+
   // Hoisted role sections (Role.display): position order, filed under the highest
   // hoisted role only (owner included).
   const roleSections = useMemo(() => {
@@ -4407,9 +4418,8 @@ function ConcordCommunityPage() {
                   admins={panelAdmins}
                   members={panelMembers}
                   currentUserPubkey={user?.pubkey}
-                  roleCatalog={roleCatalog}
-                  memberRoleIds={memberRoleIds}
                   roleSections={panelSections}
+                  awaiting={awaitingApprovalList}
                   onAddMembers={addableChannelRoles.length > 0 ? openAddMembers : undefined}
                   onClose={closeMembers}
                 />

@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useQueries } from "@tanstack/react-query";
-import { Ban, Crown, KeyRound, Loader2, Shield, ShieldAlert, ShieldOff, TriangleAlert, UserMinus, Users, UserX } from "lucide-react";
+import { Ban, Crown, Hourglass, KeyRound, Loader2, Shield, ShieldAlert, ShieldOff, SlidersHorizontal, TriangleAlert, UserMinus, Users, UserX } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
@@ -8,6 +8,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -37,7 +38,8 @@ import {
   sortMemberRows,
 } from "@/concord/lib/memberDirectory";
 import { clickRow, emptySelection, pruneSelection, type SelectionState } from "@/concord/lib/rosterSelection";
-import { badgeOf, stockTierOf, tierMoves, type StockTier } from "@/concord/lib/roles";
+import { awaitingApproval, gateState } from "@/concord/lib/approvalGate";
+import { stockTierOf, tierMoves, type StockTier } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 import { authorQueryOptions, useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -136,6 +138,7 @@ export function MembersView({
   // The members a key rotation left out are a list of their own, never mixed into the roster.
   const [omittedOnly, setOmittedOnly] = useState(false);
   const [inviterFilter, setInviterFilter] = useState<string>("all"); // "all" | "any" | creator hex
+  const activeFilters = Number(roleFilter !== "all") + Number(inviterFilter !== "all");
   const [showAll, setShowAll] = useState(false);
 
   const omittedCount = useMemo(() => allRows.filter((r) => r.omitted).length, [allRows]);
@@ -348,6 +351,12 @@ export function MembersView({
     () => [...(folded?.roster.roles ?? [])].sort((a, b) => a.position - b.position),
     [folded],
   );
+  // Verified is held by nearly everyone while approval is on, so it names nobody; who lacks it does.
+  const gate = useMemo(() => gateState(folded, community.idHex), [folded, community.idHex]);
+  const awaitingSet = useMemo(
+    () => (gate.on && folded ? awaitingApproval(folded, coalesced) : new Set<string>()),
+    [gate.on, folded, coalesced],
+  );
 
   // Measure the pane itself (viewport breakpoints lie inside panes).
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -437,57 +446,13 @@ export function MembersView({
         </button>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <SearchField value={query} onChange={setQuery} placeholder={intl.formatMessage({ id: "membersView.searchPlaceholder", defaultMessage: "Search members" })} className="min-w-40 flex-1" />
-        <Select value={roleFilter} onValueChange={setRoleFilter}>
-          <SelectTrigger className="w-36 shrink-0">
-            <SelectValue placeholder={intl.formatMessage({ id: "membersView.rolePlaceholder", defaultMessage: "Role" })} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">
-              <FormattedMessage id="membersView.everyRole" defaultMessage="Every role" />
-            </SelectItem>
-            {roles.map((r) => (
-              <SelectItem key={r.roleId} value={r.roleId}>
-                {r.name}
-              </SelectItem>
-            ))}
-            <SelectItem value="none">
-              <FormattedMessage id="membersView.noRole" defaultMessage="No role" />
-            </SelectItem>
-          </SelectContent>
-        </Select>
-        {inviters.length > 0 && (
-          <Select value={inviterFilter} onValueChange={setInviterFilter}>
-            <SelectTrigger className="w-40 shrink-0">
-              <SelectValue
-                placeholder={intl.formatMessage({ id: "membersView.invitedByPlaceholder", defaultMessage: "Invited by" })}
-              />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">
-                <FormattedMessage id="membersView.anyArrival" defaultMessage="Any arrival" />
-              </SelectItem>
-              <SelectItem value="any">
-                <FormattedMessage id="membersView.invitedAnyLink" defaultMessage="Invited (any link)" />
-              </SelectItem>
-              {inviters.map((pk) => (
-                <SelectItem key={pk} value={pk}>
-                  <FormattedMessage
-                    id="membersView.byInviter"
-                    defaultMessage="by {name}"
-                    values={{ name: <InviterName pubkey={pk} /> }}
-                  />
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+      <div className="flex items-center gap-2">
+        <SearchField value={query} onChange={setQuery} placeholder={intl.formatMessage({ id: "membersView.searchPlaceholder", defaultMessage: "Search members" })} className="min-w-0 flex-1" />
         <Select value={sortKey} onValueChange={(v) => setSortKey(v as MemberSortKey)}>
-          <SelectTrigger className="w-40 shrink-0">
-            <SelectValue placeholder={intl.formatMessage({ id: "membersView.sortPlaceholder", defaultMessage: "Sort" })} />
+          <SelectTrigger className="w-auto shrink-0 gap-2" aria-label={intl.formatMessage({ id: "membersView.sortPlaceholder", defaultMessage: "Sort" })}>
+            <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent align="end">
             <SelectItem value="role">
               <FormattedMessage id="membersView.sortRole" defaultMessage="By role" />
             </SelectItem>
@@ -505,17 +470,90 @@ export function MembersView({
             </SelectItem>
           </SelectContent>
         </Select>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button type="button" variant="secondary" className="h-10 shrink-0 clip-corner-lg">
+              <SlidersHorizontal />
+              <span className="hidden sm:inline">
+                <FormattedMessage id="membersView.filter" defaultMessage="Filter" />
+              </span>
+              {activeFilters > 0 && (
+                <span className="flex size-5 items-center justify-center rounded-full bg-primary text-3xs font-bold text-primary-foreground">
+                  {activeFilters}
+                </span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 space-y-3 p-3">
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">
+                <FormattedMessage id="membersView.rolePlaceholder" defaultMessage="Role" />
+              </p>
+              <Select value={roleFilter} onValueChange={setRoleFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    <FormattedMessage id="membersView.everyRole" defaultMessage="Every role" />
+                  </SelectItem>
+                  {roles.map((r) => (
+                    <SelectItem key={r.roleId} value={r.roleId}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="none">
+                    <FormattedMessage id="membersView.noRole" defaultMessage="No role" />
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {inviters.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">
+                  <FormattedMessage id="membersView.invitedByPlaceholder" defaultMessage="Invited by" />
+                </p>
+                <Select value={inviterFilter} onValueChange={setInviterFilter}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      <FormattedMessage id="membersView.anyArrival" defaultMessage="Any arrival" />
+                    </SelectItem>
+                    <SelectItem value="any">
+                      <FormattedMessage id="membersView.invitedAnyLink" defaultMessage="Invited (any link)" />
+                    </SelectItem>
+                    {inviters.map((pk) => (
+                      <SelectItem key={pk} value={pk}>
+                        <FormattedMessage
+                          id="membersView.byInviter"
+                          defaultMessage="by {name}"
+                          values={{ name: <InviterName pubkey={pk} /> }}
+                        />
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {activeFilters > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full clip-corner-lg"
+                onClick={() => {
+                  setRoleFilter("all");
+                  setInviterFilter("all");
+                }}
+              >
+                <FormattedMessage id="membersView.clearFilters" defaultMessage="Clear filters" />
+              </Button>
+            )}
+          </PopoverContent>
+        </Popover>
       </div>
-
-      {selectable && visible.length > 0 && (
-        <label className="flex w-fit cursor-pointer items-center gap-2 px-1 text-xs text-muted-foreground">
-          <Checkbox
-            checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
-            onCheckedChange={toggleAllVisible}
-          />
-          <FormattedMessage id="membersView.selectAllShown" defaultMessage="Select all shown" />
-        </label>
-      )}
 
       {visible.length === 0 ? (
         <div className="flex flex-col items-center gap-2 bg-chrome clip-corner-lg px-4 py-8 text-sm text-muted-foreground">
@@ -527,7 +565,17 @@ export function MembersView({
           )}
         </div>
       ) : (
-        <ul className="bg-chrome clip-corner-lg overflow-hidden [&>*]:border-chrome [&>*:not(:first-child)]:border-t">
+        <div className="bg-chrome clip-corner-lg overflow-hidden">
+        {selectable && (
+          <label className="flex cursor-pointer items-center gap-3 border-b border-chrome px-4 py-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+              onCheckedChange={toggleAllVisible}
+            />
+            <FormattedMessage id="membersView.selectAllShown" defaultMessage="Select all shown" />
+          </label>
+        )}
+        <ul className="[&>*]:border-chrome [&>*:not(:first-child)]:border-t">
           {visible.map((row) => (
             <MemberRow
               key={row.pubkey}
@@ -537,12 +585,13 @@ export function MembersView({
               selectable={selectable}
               selected={selection.selected.has(row.pubkey)}
               onToggle={(shiftKey) => setSelection((s) => clickRow(s, visibleOrder, row.pubkey, shiftKey))}
-              roleNames={roles.filter((r) => row.roleIds.includes(r.roleId)).map((r) => r.name)}
-              badge={folded ? badgeOf(folded.roster, row.pubkey) : undefined}
+              roleNames={roles.filter((r) => row.roleIds.includes(r.roleId) && r.roleId !== gate.role?.roleId).map((r) => r.name)}
+              awaiting={awaitingSet.has(row.pubkey)}
               suspicion={suspiciousOf.get(row.pubkey)}
             />
           ))}
         </ul>
+        </div>
       )}
 
       {!showAll && rows.length > RENDER_CAP && (
@@ -737,7 +786,7 @@ function MemberRow({
   selected,
   onToggle,
   roleNames,
-  badge,
+  awaiting,
   suspicion,
 }: {
   row: MemberDirectoryRow;
@@ -746,8 +795,10 @@ function MemberRow({
   selectable: boolean;
   selected: boolean;
   onToggle: (shiftKey: boolean) => void;
+  /** The Roles they hold, Verified left out, as the line under the name opens with. */
   roleNames: string[];
-  badge: "admin" | "moderator" | undefined;
+  /** Waiting for approval to post. */
+  awaiting: boolean;
   suspicion: SuspiciousActor | undefined;
 }) {
   const author = useAuthor(row.pubkey);
@@ -788,15 +839,67 @@ function MemberRow({
               </span>
             )}
           </span>
-          <MemberBadges row={row} badge={badge} roleNames={roleNames} suspicion={suspicion} />
+          {row.isOwner && (
+            <span
+              role="img"
+              title={intl.formatMessage({ id: "membersView.owner", defaultMessage: "Owner" })}
+              aria-label={intl.formatMessage({ id: "membersView.owner", defaultMessage: "Owner" })}
+              className="shrink-0 text-amber-500"
+            >
+              <Crown className="size-3.5" aria-hidden />
+            </span>
+          )}
         </div>
-        {density !== "minimal" && <MemberDetails row={row} full={density === "full"} />}
+        {density !== "minimal" && <MemberDetails row={row} roleNames={roleNames} full={density === "full"} />}
       </div>
+      <MemberWarnings row={row} awaiting={awaiting} suspicion={suspicion} currentEpoch={currentEpoch} />
+    </li>
+  );
+}
 
+const WARNING_PILL = "inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-3xs font-medium";
+
+/** The only pills on a row: what a moderator should look at. Who someone is stays text. */
+function MemberWarnings({
+  row,
+  awaiting,
+  suspicion,
+  currentEpoch,
+}: {
+  row: MemberDirectoryRow;
+  awaiting: boolean;
+  suspicion: SuspiciousActor | undefined;
+  currentEpoch: bigint;
+}) {
+  return (
+    <>
+      {suspicion && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className={cn(WARNING_PILL, "bg-destructive/15 text-destructive")}>
+              <ShieldAlert className="size-3" />
+              <FormattedMessage id="membersView.suspicious" defaultMessage="Suspicious" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-60 text-xs">
+            <FormattedMessage
+              id="membersView.suspiciousTooltip"
+              defaultMessage="Tried to make {attempts} without permission. None of it worked, and nothing in the community changed."
+              values={{ attempts: describeAttempts(suspicion.attempts) }}
+            />
+          </TooltipContent>
+        </Tooltip>
+      )}
+      {awaiting && (
+        <span className={cn(WARNING_PILL, "bg-primary/15 text-primary")}>
+          <Hourglass className="size-3" />
+          <FormattedMessage id="membersView.awaitingChip" defaultMessage="Awaiting approval" />
+        </span>
+      )}
       {row.omitted && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-3xs font-medium text-warning">
+            <span className={cn(WARNING_PILL, "bg-warning/15 text-warning")}>
               <UserX className="size-3" />
               <FormattedMessage id="membersView.omittedChip" defaultMessage="left out" />
             </span>
@@ -812,7 +915,7 @@ function MemberRow({
       {row.behind && !row.omitted && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-3xs font-medium text-warning">
+            <span className={cn(WARNING_PILL, "bg-warning/15 text-warning")}>
               <TriangleAlert className="size-3" />
               <FormattedMessage id="membersView.epochChip" defaultMessage="epoch {epoch}" values={{ epoch: row.epoch?.toString() }} />
             </span>
@@ -826,82 +929,25 @@ function MemberRow({
           </TooltipContent>
         </Tooltip>
       )}
-    </li>
-  );
-}
-
-/** Owner, Admin/Mod and Suspicious, beside the name. */
-function MemberBadges({
-  row,
-  badge,
-  roleNames,
-  suspicion,
-}: {
-  row: MemberDirectoryRow;
-  badge: "admin" | "moderator" | undefined;
-  roleNames: string[];
-  suspicion: SuspiciousActor | undefined;
-}) {
-  return (
-    <>
-      {row.isOwner && (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-3xs font-medium text-amber-500">
-          <Crown className="size-3" />
-          <FormattedMessage id="membersView.owner" defaultMessage="Owner" />
-        </span>
-      )}
-      {!row.isOwner && badge && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className={cn(
-                "inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-3xs font-medium",
-                badge === "admin" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
-              )}
-            >
-              <Shield className="size-3" />
-              {badge === "admin" ? (
-                <FormattedMessage id="membersView.admin" defaultMessage="Admin" />
-              ) : (
-                <FormattedMessage id="membersView.mod" defaultMessage="Mod" />
-              )}
-            </span>
-          </TooltipTrigger>
-          {roleNames.length > 0 && (
-            <TooltipContent className="max-w-52 text-xs">{roleNames.join(", ")}</TooltipContent>
-          )}
-        </Tooltip>
-      )}
-      {suspicion && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive/15 px-1.5 py-0.5 text-3xs font-medium text-destructive">
-              <ShieldAlert className="size-3" />
-              <FormattedMessage id="membersView.suspicious" defaultMessage="Suspicious" />
-            </span>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-60 text-xs">
-            <FormattedMessage
-              id="membersView.suspiciousTooltip"
-              defaultMessage="Tried to make {attempts} without permission. None of it worked, and nothing in the community changed."
-              values={{ attempts: describeAttempts(suspicion.attempts) }}
-            />
-          </TooltipContent>
-        </Tooltip>
-      )}
     </>
   );
 }
 
 /**
- * The muted line under a member's name: when they joined, who invited them and when
- * they were last seen, joined by dots. `first-letter` capitalizes the line, so the
- * lowercase fragments the catalogs hold read as a sentence.
+ * The muted line under a member's name: their Roles, when they joined, who invited
+ * them and when they were last seen, joined by dots. `first-letter` capitalizes the
+ * line, so the lowercase fragments the catalogs hold read as a sentence.
  */
-function MemberDetails({ row, full }: { row: MemberDirectoryRow; full: boolean }) {
+function MemberDetails({ row, roleNames, full }: { row: MemberDirectoryRow; roleNames: string[]; full: boolean }) {
   const intl = useIntl();
   return (
     <div className="truncate text-xs text-muted-foreground first-letter:uppercase">
+      {roleNames.length > 0 && (
+        <>
+          <span className="font-medium text-foreground/80">{roleNames.join(", ")}</span>
+          {" · "}
+        </>
+      )}
       {full && (
         <Tooltip>
           <TooltipTrigger asChild>

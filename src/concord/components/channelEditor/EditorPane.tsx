@@ -204,6 +204,11 @@ export function EditorPane({
         <span className="block text-xs text-muted-foreground">
           <FormattedMessage {...m.lockdownHint} values={{ locked: String(model.locked) }} />
         </span>
+        {model.welcome && (
+          <span className="mt-1 block text-xs text-warning">
+            <FormattedMessage {...m.welcomeLockWarning} />
+          </span>
+        )}
       </span>
       <Button
         type="button"

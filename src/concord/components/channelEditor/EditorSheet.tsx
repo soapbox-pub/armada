@@ -195,7 +195,16 @@ export function EditorSheet({ model, open, onOpenChange }: { model: EditorModel;
     <SwitchRow
       icon={ShieldBan}
       title={<FormattedMessage {...m.lockdown} />}
-      hint={<FormattedMessage {...m.lockdownHint} values={{ locked: String(model.locked) }} />}
+      hint={
+        <>
+          <FormattedMessage {...m.lockdownHint} values={{ locked: String(model.locked) }} />
+          {model.welcome && (
+            <span className="mt-1 block text-warning">
+              <FormattedMessage {...m.welcomeLockWarning} />
+            </span>
+          )}
+        </>
+      }
       checked={model.locked}
       onCheckedChange={model.setLocked}
       disabled={model.busy || !model.canLock}

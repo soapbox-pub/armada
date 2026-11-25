@@ -70,6 +70,21 @@ export function mayApprove(folded: FoldedControl | undefined, me: string | undef
   return (permissionsAbove(folded.roster, me, role.position) & Permissions.MANAGE_ROLES) !== 0n;
 }
 
+/**
+ * The welcome Channels: public ones, not synced to a Category, whose own `@everyone`
+ * overwrite allows posting, which is how the gate leaves a door open. Read off the
+ * Roster, so every moderator's device sees the same ones with nothing stored beside it.
+ */
+export function welcomeChannels(folded: FoldedControl): string[] {
+  const out: string[] = [];
+  for (const [idHex, channel] of folded.channels) {
+    if (channel.deleted || channel.isPrivate || folded.roster.syncs?.[idHex.toLowerCase()]) continue;
+    const own = folded.roster.overwrites?.find((o) => o.scope === idHex.toLowerCase() && o.target.kind === "everyone");
+    if (own && (own.allow & Permissions.SEND_MESSAGES) !== 0n) out.push(idHex);
+  }
+  return out.sort();
+}
+
 /** Whether `me` may turn the gate on or off: editing `@everyone` takes Manage Roles (CORD-04 §2). */
 export function maySwitchGate(folded: FoldedControl | undefined, me: string | undefined): boolean {
   if (!folded?.rankedRoster || !me || folded.banned.has(me)) return false;

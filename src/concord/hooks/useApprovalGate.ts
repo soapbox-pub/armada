@@ -6,7 +6,7 @@ import { settledWrite } from "@/concord/hooks/rosterSettle";
 import { citationFor, foldStoredControl, invalidateControl, publishEdition, readControlWhole, useControlFold, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
 import { controlWrapOwed, useRoles } from "@/concord/hooks/useRoles";
-import { awaitingApproval, carriedOver, freeGateRoleId, GATE_BITS, gateState, keepsPosting, mayApprove, maySwitchGate } from "@/concord/lib/approvalGate";
+import { awaitingApproval, carriedOver, freeGateRoleId, GATE_BITS, gateState, keepsPosting, mayApprove, maySwitchGate, welcomeChannels } from "@/concord/lib/approvalGate";
 import { buildGrantEdition, type FoldedControl } from "@/concord/lib/control";
 import { bytesToHex, grantLocator, hex32 } from "@/concord/lib/derive";
 import { planCreateRole, planMemberRoles, planOverwrite, planSetEveryone } from "@/concord/lib/rankedWrites";
@@ -15,9 +15,6 @@ import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { t } from "@/i18n";
 import type { NostrRumor } from "@/lib/nostrRumor";
-
-/** A Verified Role's colour: the green Discord uses for its verified badge. */
-const VERIFIED_COLOR = 0x3ba55c;
 
 export interface GateSwitchOn {
   /** Every current member; who keeps posting is chosen from them (`carriedOver`). */
@@ -53,6 +50,7 @@ export function useApprovalGate(community: Community | undefined) {
     [state.on, folded, coalesced],
   );
   const canApprove = mayApprove(folded, user?.pubkey, state.role);
+  const welcome = useMemo(() => (folded ? welcomeChannels(folded) : []), [folded]);
 
   const ready = () => {
     if (!user || !community) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
@@ -88,7 +86,8 @@ export function useApprovalGate(community: Community | undefined) {
         if (!role) {
           const id = freeGateRoleId(view, c.idHex);
           if (!id) throw new Error(t({ id: "useApprovalGate.noRoleSlot", defaultMessage: "Too many Verified roles have been deleted in this community to make another." }));
-          const made = planCreateRole(view, c.id, user.pubkey, { name: "Verified", color: VERIFIED_COLOR, permissions: GATE_BITS }, authority(), undefined, id);
+          // Colourless and not displayed: the gate's plumbing, held by nearly everyone, not an identity.
+          const made = planCreateRole(view, c.id, user.pubkey, { name: "Verified", color: 0, permissions: GATE_BITS }, authority(), undefined, id);
           await publish(made.rumor);
           view = await foldStoredControl(c);
           role = gateState(view, c.idHex).role;
@@ -109,11 +108,7 @@ export function useApprovalGate(community: Community | undefined) {
           }));
         }
 
-        if (welcomeChannel) {
-          const scope = welcomeChannel.toLowerCase();
-          const existing = view.roster.overwrites?.find((o) => o.scope === scope && o.target.kind === "everyone");
-          await publish(planOverwrite(view, c.id, user.pubkey, held, scope, { kind: "everyone" }, (existing?.allow ?? 0n) | GATE_BITS, (existing?.deny ?? 0n) & ~GATE_BITS, authority()));
-        }
+        if (welcomeChannel) await publish(welcomeOverwrite(view, c, user.pubkey, held, welcomeChannel, true, authority()));
 
         await publish(planSetEveryone(view, c.id, user.pubkey, view.roster.everyone! & ~GATE_BITS, authority()));
         return { granted: plan.grant.length, unreachable: plan.unreachable };
@@ -128,6 +123,24 @@ export function useApprovalGate(community: Community | undefined) {
       return settledWrite(c, () => withControlWrite(c.idHex, async () => {
         const view = await foldStoredControl(c);
         await publishEdition(nostr, c, user.signer, planSetEveryone(view, c.id, user.pubkey, (view.roster.everyone ?? 0n) | GATE_BITS, citationFor(c, view, user.pubkey)));
+      }));
+    },
+    onSettled: done,
+  });
+
+  /** Make `channel` the one welcome Channel, or close them all with `null`. */
+  const setWelcome = useMutation<void, Error, string | null>({
+    mutationFn: (channel) => {
+      const { user, community: c } = ready();
+      return settledWrite(c, () => withControlWrite(c.idHex, async () => {
+        const view = await foldStoredControl(c);
+        const held = new Set(c.privateChannels.map((k) => bytesToHex(k.id)));
+        const authority = citationFor(c, view, user.pubkey);
+        const open = welcomeChannels(view);
+        for (const ch of open) {
+          if (ch !== channel) await publishEdition(nostr, c, user.signer, welcomeOverwrite(view, c, user.pubkey, held, ch, false, authority));
+        }
+        if (channel && !open.includes(channel)) await publishEdition(nostr, c, user.signer, welcomeOverwrite(view, c, user.pubkey, held, channel, true, authority));
       }));
     },
     onSettled: done,
@@ -149,10 +162,35 @@ export function useApprovalGate(community: Community | undefined) {
     awaiting,
     canApprove,
     canSwitch: maySwitchGate(folded, user?.pubkey),
+    /** The Channels newcomers waiting for approval can still post in. */
+    welcome,
+    setWelcome: setWelcome.mutateAsync,
     turnOn: turnOn.mutateAsync,
     turnOff: turnOff.mutateAsync,
     approve: approve.mutateAsync,
-    switching: turnOn.isPending || turnOff.isPending,
+    switching: turnOn.isPending || turnOff.isPending || setWelcome.isPending,
     progress,
   };
+}
+
+/**
+ * `channel`'s `@everyone` overwrite with posting allowed (a welcome Channel) or that
+ * allow taken back, every other bit it holds kept as it was.
+ */
+function welcomeOverwrite(
+  view: FoldedControl,
+  c: Community,
+  me: string,
+  held: ReadonlySet<string>,
+  channel: string,
+  open: boolean,
+  authority: ReturnType<typeof citationFor>,
+): NostrRumor {
+  const scope = channel.toLowerCase();
+  const existing = view.roster.overwrites?.find((o) => o.scope === scope && o.target.kind === "everyone");
+  const allow = existing?.allow ?? 0n;
+  const deny = existing?.deny ?? 0n;
+  return open
+    ? planOverwrite(view, c.id, me, held, scope, { kind: "everyone" }, allow | GATE_BITS, deny & ~GATE_BITS, authority)
+    : planOverwrite(view, c.id, me, held, scope, { kind: "everyone" }, allow & ~GATE_BITS, deny, authority);
 }

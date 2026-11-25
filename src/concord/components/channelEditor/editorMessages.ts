@@ -28,6 +28,10 @@ export const editorMessages = defineMessages({
     id: "channelEditor.lockdownHint",
     defaultMessage: "{locked, select, true {Locked. Only the roles and members you allow can post, react or join calls here.} other {Only the roles and members you allow can post, react or join calls, and nothing anyone else sends reaches its readers.}}",
   },
+  welcomeLockWarning: {
+    id: "channelEditor.welcomeLockWarning",
+    defaultMessage: "This is the welcome channel for members waiting for approval. Locking it closes it to them, and unlocking won't reopen it: choose it again under Manage community › Safety.",
+  },
   lock: { id: "channelEditor.lock", defaultMessage: "{scope, select, category {Lock category} other {Lock channel}}" },
   unlock: { id: "channelEditor.unlock", defaultMessage: "Unlock" },
   rotate: { id: "channelEditor.rotate", defaultMessage: "Rotate key" },

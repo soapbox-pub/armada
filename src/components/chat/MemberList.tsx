@@ -1,4 +1,4 @@
-import { AtSign, Bot, ChevronDown, Copy, Crown, Gem, IdCard, MessageSquareText, MoreVertical, Music, Shield, Smile, UserCog, UserPlus, X } from "lucide-react";
+import { AtSign, Bot, ChevronDown, Copy, Crown, Gem, IdCard, MessageSquareText, MoreVertical, Music, Smile, UserCog, UserPlus, X } from "lucide-react";
 
 import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
 
@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { EmojifiedText } from "@/components/chat/CustomEmoji";
 import { UserModerationMenuSection } from "@/components/chat/ModerationMenuSection";
-import { RolePickerItems, type RolePickerOption } from "@/components/chat/RolePickerItems";
+import { RolePickerItems } from "@/components/chat/RolePickerItems";
 import { useUserModeration } from "@/hooks/useUserModeration";
 import { DisplayName } from "@/components/DisplayName";
 import { SearchField } from "@/components/ui/search-field";
@@ -57,8 +57,6 @@ import type { ComponentType, ReactNode } from "react";
 import { UserAvatar } from "@/components/UserAvatar";
 
 const ROLE_OWNER = "owner";
-const ROLE_ADMIN = "admin";
-const ROLE_MODERATOR = "moderator";
 /** Buzz roles carried on the 39002 members event. */
 const ROLE_BOT = "bot";
 const ROLE_GUEST = "guest";
@@ -87,6 +85,8 @@ const COLLAPSED_SECTIONS_KEY = "armada:memberSectionsCollapsed";
 const NO_COLLAPSED: string[] = [];
 const ADMINS_SECTION = "admins";
 const MEMBERS_SECTION = "members";
+const AWAITING_SECTION = "awaiting";
+const NO_AWAITING: readonly string[] = [];
 
 function SectionHeader({ collapsed, onToggle, color, children }: {
   collapsed: boolean;
@@ -164,8 +164,6 @@ interface MemberRowProps {
   onEditProfile?: () => void;
   /** Buzz relays: kind 41010. */
   onMessage?: (pubkey: string) => void;
-  /** Custom-role chip for members without a tier badge. */
-  customBadge?: { name: string; color: number };
 }
 
 const MemberRow = memo(function MemberRow({
@@ -175,7 +173,6 @@ const MemberRow = memo(function MemberRow({
   currentUserPubkey,
   onEditProfile,
   onMessage,
-  customBadge,
 }: MemberRowProps) {
   const intl = useIntl();
   const author = useAuthor(pubkey);
@@ -191,9 +188,6 @@ const MemberRow = memo(function MemberRow({
 
   const roleSet = new Set((roles ?? []).map((r) => r.toLowerCase()));
   const isOwner = roleSet.has(ROLE_OWNER);
-  // The owner holds every permission implicitly, even without the "admin" role string.
-  const isAdmin = isOwner || roleSet.has(ROLE_ADMIN);
-  const isModerator = roleSet.has(ROLE_MODERATOR);
   const isSelf = currentUserPubkey === pubkey;
 
   const copyNpub = () => {
@@ -340,58 +334,32 @@ const MemberRow = memo(function MemberRow({
           )}
         </button>
       </ProfilePreviewCard>
+      {/* Marks, not pills: the section a row sits under already says Admin, and a
+          pill per row crowds the name. Owner and bots keep an icon with its name for readers. */}
       {isOwner ? (
         <span
+          role="img"
           title={intl.formatMessage({ id: "memberList.role.owner", defaultMessage: "Owner" })}
-          className="shrink-0 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-3xs font-medium text-amber-500"
+          aria-label={intl.formatMessage({ id: "memberList.role.owner", defaultMessage: "Owner" })}
+          className="shrink-0 text-amber-500"
         >
-          <Crown className="size-3" aria-hidden />
-          <span className="member-pill-label"><FormattedMessage id="memberList.role.owner" defaultMessage="Owner" /></span>
-        </span>
-      ) : isAdmin ? (
-        <span
-          title={intl.formatMessage({ id: "memberList.role.admin", defaultMessage: "Admin" })}
-          className="shrink-0 inline-flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-3xs font-medium text-primary"
-        >
-          <Shield className="size-3" aria-hidden />
-          <span className="member-pill-label"><FormattedMessage id="memberList.role.admin" defaultMessage="Admin" /></span>
-        </span>
-      ) : isModerator ? (
-        <span
-          title={intl.formatMessage({ id: "memberList.role.moderator", defaultMessage: "Moderator" })}
-          className="shrink-0 inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-3xs font-medium text-muted-foreground"
-        >
-          <Shield className="size-3" aria-hidden />
-          <span className="member-pill-label"><FormattedMessage id="memberList.role.mod" defaultMessage="Mod" /></span>
-        </span>
-      ) : customBadge ? (
-        <span
-          title={customBadge.name}
-          className={cn(
-            "min-w-0 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-3xs font-medium max-w-24",
-            !customBadge.color && "bg-muted text-muted-foreground",
-          )}
-          style={customBadge.color ? { color: roleTint(customBadge.color), backgroundColor: `${roleTint(customBadge.color)}26` } : undefined}
-        >
-          <span className="truncate">{customBadge.name}</span>
+          <Crown className="size-3.5" aria-hidden />
         </span>
       ) : roleSet.has(ROLE_BOT) ? (
         <span
+          role="img"
           title={intl.formatMessage({ id: "memberList.role.agent", defaultMessage: "Agent" })}
-          className="shrink-0 inline-flex items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-3xs font-medium text-primary"
+          aria-label={intl.formatMessage({ id: "memberList.role.agent", defaultMessage: "Agent" })}
+          className="shrink-0 text-sky-500"
         >
-          <Bot className="size-3" aria-hidden />
-          <span className="member-pill-label"><FormattedMessage id="memberList.role.agent" defaultMessage="Agent" /></span>
+          <Bot className="size-3.5" aria-hidden />
         </span>
       ) : roleSet.has(ROLE_GUEST) ? (
-        <span
-          title={intl.formatMessage({ id: "memberList.role.guest", defaultMessage: "Guest" })}
-          className="shrink-0 inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-3xs font-medium text-muted-foreground"
-        >
+        <span className="shrink-0 text-2xs text-muted-foreground">
           <FormattedMessage id="memberList.role.guest" defaultMessage="Guest" />
         </span>
       ) : null}
-      <BotPill metadata={metadata} labelClassName="member-pill-label" />
+      <BotPill metadata={metadata} className="bg-transparent px-0 [&>svg]:size-3.5" labelClassName="sr-only" />
       <MemberMenuButton
         label={intl.formatMessage({ id: "memberList.manage", defaultMessage: "Manage {name}" }, { name: displayName })}
         renderItems={() => renderMenuItems({
@@ -450,10 +418,10 @@ interface MemberListProps {
   onEditProfile?: () => void;
   /** Buzz relays: kind 41010. */
   onMessage?: (pubkey: string) => void;
-  roleCatalog?: RolePickerOption[];
-  memberRoleIds?: Record<string, string[]>;
   /** Hoisted role sections above Admins; their members appear only there. */
   roleSections?: Array<{ id: string; name: string; color: number; members: string[] }>;
+  /** Concord, while approval to post is on: members who can read but not yet post, filed last. */
+  awaiting?: readonly string[];
   /** Concord: add-members for the active private channel; set only when the viewer may grant access. */
   onAddMembers?: () => void;
   className?: string;
@@ -472,9 +440,8 @@ export const MemberList = memo(function MemberList({
   onClose,
   onEditProfile,
   onMessage,
-  roleCatalog,
-  memberRoleIds,
   roleSections,
+  awaiting = NO_AWAITING,
   onAddMembers,
   className,
 }: MemberListProps) {
@@ -496,12 +463,7 @@ export const MemberList = memo(function MemberList({
     return m;
   }, [memberRoles]);
   const sectioned = new Set((roleSections ?? []).flatMap((s) => s.members));
-  // First (highest-position) server-scope custom role; tier badges win in MemberRow.
-  const customBadgeOf = (pubkey: string): { name: string; color: number } | undefined => {
-    const held = memberRoleIds?.[pubkey];
-    if (!held?.length || !roleCatalog) return undefined;
-    return roleCatalog.find((r) => r.channelName === undefined && held.includes(r.id));
-  };
+  const awaitingSet = new Set(awaiting);
   const byName = useMemberNameOrder(intl.locale);
   // Owner first, then by name (`p` tag and grant order mean nothing to a reader).
   const isOwnerRole = (a: Nip29Admin) => a.roles.some((r) => r.toLowerCase() === "owner");
@@ -544,7 +506,10 @@ export const MemberList = memo(function MemberList({
     .filter((a) => !sectioned.has(a.pubkey) && (!matched || matched.has(a.pubkey)))
     .sort((a, b) => byRank(a.pubkey, b.pubkey));
   const regulars = allRegulars
-    .filter((pubkey) => !sectioned.has(pubkey) && (!matched || matched.has(pubkey)))
+    .filter((pubkey) => !sectioned.has(pubkey) && !awaitingSet.has(pubkey) && (!matched || matched.has(pubkey)))
+    .sort(byRank);
+  const waiting = allRegulars
+    .filter((pubkey) => awaitingSet.has(pubkey) && (!matched || matched.has(pubkey)))
     .sort(byRank);
   const visibleSections = (roleSections ?? []).map((section) => ({
     ...section,
@@ -556,6 +521,7 @@ export const MemberList = memo(function MemberList({
     searching &&
     visibleAdmins.length === 0 &&
     regulars.length === 0 &&
+    waiting.length === 0 &&
     visibleSections.every((section) => section.members.length === 0);
 
   // A list short enough to read at a glance needs no search; kept while a query is live.
@@ -635,7 +601,6 @@ export const MemberList = memo(function MemberList({
               currentUserPubkey={currentUserPubkey}
               onEditProfile={onEditProfile}
               onMessage={onMessage}
-              customBadge={customBadgeOf(admin.pubkey)}
             />
             </DeferredRow>
           ))}
@@ -692,10 +657,33 @@ export const MemberList = memo(function MemberList({
             currentUserPubkey={currentUserPubkey}
             onEditProfile={onEditProfile}
             onMessage={onMessage}
-            customBadge={customBadgeOf(pubkey)}
           />
           </DeferredRow>
         ))
+      )}
+
+      {waiting.length > 0 && (
+        <>
+          <SectionHeader collapsed={isCollapsed(AWAITING_SECTION)} onToggle={() => toggleSection(AWAITING_SECTION)}>
+            <FormattedMessage
+              id="memberList.awaitingHeading"
+              defaultMessage="Awaiting approval · {count}"
+              values={{ count: waiting.length }}
+            />
+          </SectionHeader>
+          {!isCollapsed(AWAITING_SECTION) && waiting.map((pubkey) => (
+            <DeferredRow key={pubkey} active={virtualize} minHeight={ROW_MIN_H} rootRef={scrollRef}>
+            <MemberRow
+              pubkey={pubkey}
+              roles={buzzRoles.get(pubkey)}
+              presence={presence?.[pubkey]}
+              currentUserPubkey={currentUserPubkey}
+              onEditProfile={onEditProfile}
+              onMessage={onMessage}
+            />
+            </DeferredRow>
+          ))}
+        </>
       )}
       </div>
     </aside>

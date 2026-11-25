@@ -10,10 +10,12 @@ import {
   keepsPosting,
   mayApprove,
   maySwitchGate,
+  welcomeChannels,
 } from "@/concord/lib/approvalGate";
 import { foldControlState } from "@/concord/lib/control";
 import type { CoalescedMember } from "@/concord/lib/guestbook";
 import { EVERYONE_DEFAULT, Permissions } from "@/concord/lib/roles";
+import { overwriteLocator, overwriteToJSON } from "@/concord/lib/roster";
 import { hexKey, rankedCommunity } from "@/test/concordEditions";
 
 const NOW = 1_700_000_000_000;
@@ -96,6 +98,29 @@ describe("approval gate", () => {
     const plan = carriedOver(folded, g.admin, [peer], new Map([[peer, NOW]]), 0, g.verified);
     expect(plan.unreachable).toEqual([peer]);
     expect(plan.grant).toEqual([]);
+  });
+
+  it("reads the welcome channel off @everyone's own overwrite allowing posts, and nothing else", () => {
+    const g = gated();
+    const welcome = hexKey();
+    const plain = hexKey();
+    const locked = hexKey();
+    const channel = (eid: string) => g.c.edition({ vsk: "2", eid, author: g.c.owner, content: { name: eid.slice(0, 6), private: false } });
+    const everyoneRule = (scope: string, allow: bigint, deny: bigint) => {
+      const o = { scope, target: { kind: "everyone" as const }, allow, deny };
+      return g.c.edition({ vsk: "14", eid: overwriteLocator(g.c.id, o), author: g.c.owner, content: overwriteToJSON(o) });
+    };
+    const folded = foldControlState(
+      [
+        ...g.editions,
+        channel(welcome), channel(plain), channel(locked),
+        everyoneRule(welcome, GATE_BITS, 0n),
+        everyoneRule(locked, 0n, Permissions.SEND_MESSAGES | Permissions.ADD_REACTIONS | Permissions.CONNECT),
+      ],
+      g.c.id,
+      g.c.owner,
+    );
+    expect(welcomeChannels(folded)).toEqual([welcome]);
   });
 
   it("mints the next slot's id when a Verified Role was deleted", () => {
