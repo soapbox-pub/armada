@@ -1,5 +1,4 @@
 import {
-  AtSign,
   Award,
   Check,
   Copy,
@@ -26,6 +25,7 @@ import { UltraEffect } from "@/components/UltraEffect";
 import { UltraPill } from "@/components/UltraPill";
 import { useUltraGift } from "@/hooks/useUltraGift";
 import { DisplayName } from "@/components/DisplayName";
+import { Nip05Status } from "@/components/Nip05Status";
 import { EmojifiedText } from "@/components/chat/CustomEmoji";
 import { ProfileImageLightbox } from "@/components/profile/ProfileImageLightbox";
 import { UserBanned } from "@/components/profile/UserBanned";
@@ -481,12 +481,7 @@ function ProfileView({ pubkey, onClose }: { pubkey: string; onClose: () => void 
               </div>
               {pronouns && <div className="text-sm text-muted-foreground truncate">{pronouns}</div>}
 
-              {metadata?.nip05 && (
-                <div className="mt-0.5 flex items-center gap-1 text-sm text-muted-foreground truncate">
-                  <AtSign className="size-3.5 shrink-0" />
-                  <span className="truncate">{metadata.nip05.replace(/^_@/, "")}</span>
-                </div>
-              )}
+              {metadata?.nip05 && <Nip05Status pubkey={pubkey} nip05={metadata.nip05} className="mt-0.5 text-sm" />}
 
               {npub && (
                 <button

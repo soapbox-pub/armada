@@ -3125,7 +3125,7 @@
   "nip05Status.checking": "Verificando {address}…",
   "nip05Status.notVerified": "não verificado",
   "nip05Status.unverified": "{domain} não confirmou {address} para esta conta",
-  "nip05Status.verified": "{address} é verificado por {domain}",
+  "nip05Status.verified": "{address} está verificado por {domain}",
   "nip17Disappearing.left.days": "{count}d",
   "nip17Disappearing.left.hours": "{count}h",
   "nip17Disappearing.left.minutes": "{count}min",

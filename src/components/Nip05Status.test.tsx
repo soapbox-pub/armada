@@ -58,10 +58,16 @@ describe("Nip05Status", () => {
   });
 
   it("is not verified when the lookup fails", async () => {
-    h.queryProfile.mockRejectedValue(new Error("offline"));
+    // nostr-tools reports a failed lookup as no match.
+    h.queryProfile.mockResolvedValue(null);
     const { container } = renderStatus("alice@example.com");
-    // The hook retries once before settling.
-    await waitFor(() => expect(state(container)).toBe("unverified"), { timeout: 4000 });
+    await waitFor(() => expect(state(container)).toBe("unverified"));
+  });
+
+  it("never fetches a loopback or private domain", async () => {
+    const { container } = renderStatus("admin@192.168.1.1");
+    await waitFor(() => expect(state(container)).toBe("unverified"));
+    expect(h.queryProfile).not.toHaveBeenCalled();
   });
 
   it("renders nothing for an unparseable identifier", () => {

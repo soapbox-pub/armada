@@ -40,7 +40,7 @@ export function Nip05Status({ pubkey, nip05, className }: { pubkey: string; nip0
   const Icon = state === "verified" ? BadgeCheck : state === "unverified" ? CircleAlert : Loader2;
 
   return (
-    <div
+    <span
       className={cn("flex items-center gap-1 min-w-0 text-xs text-muted-foreground", className)}
       title={label}
       data-nip05-state={state}
@@ -61,6 +61,6 @@ export function Nip05Status({ pubkey, nip05, className }: { pubkey: string; nip0
         </span>
       )}
       <span className="sr-only">{label}</span>
-    </div>
+    </span>
   );
 }

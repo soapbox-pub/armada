@@ -4,7 +4,7 @@ import { DisplayName } from '@/components/DisplayName';
 import { UserAvatar } from '@/components/UserAvatar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { type AvatarShape, isValidAvatarShape, isEmoji, getAvatarMaskUrlAsync, shapedAvatarBorderStyle } from '@/lib/avatarShape';
-import { CheckCircle2, Pencil, Plus, Trash2, ChevronDown, ImagePlus, SmilePlus, X as XIcon } from 'lucide-react';
+import { Pencil, Plus, Trash2, ChevronDown, ImagePlus, SmilePlus, X as XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,8 @@ import { FallbackImage } from '@/components/ui/FallbackImage';
 import type { ProfileImeta } from '@/lib/profileImeta';
 import { FormattedMessage, useIntl } from '@/i18n';
 import { AvatarInitial } from '@/components/AvatarInitial';
+import { Nip05Status } from '@/components/Nip05Status';
+import { parseNip05Address } from '@/lib/nip05Address';
 
 /** Lazy so emoji-mart (~420 KB data) stays out of this chunk; only used behind the avatar-shape dialog. */
 const LazyEmojiPicker = lazy(() =>
@@ -357,7 +359,6 @@ export function ProfileCard({
 
         {showNip05 && (editable || nip05) && (
           <div className="flex items-center gap-1 mt-2 min-w-0 text-sm text-muted-foreground ml-2">
-            <CheckCircle2 className="size-3.5 text-primary shrink-0" />
             {editable && nip05Focused ? (
               <input
                 type="text"
@@ -377,9 +378,13 @@ export function ProfileCard({
                 )}
                 onClick={() => editable && setNip05Focused(true)}
               >
-                <span className="shrink min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-                  {nip05 ? nip05.replace(/^_@/, '') : editable ? 'you@domain.com' : ''}
-                </span>
+                {nip05 && pubkey && parseNip05Address(nip05) ? (
+                  <Nip05Status pubkey={pubkey} nip05={nip05} className="text-sm" />
+                ) : (
+                  <span className="shrink min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                    {nip05 || (editable ? 'you@domain.com' : '')}
+                  </span>
+                )}
               </span>
             )}
           </div>
