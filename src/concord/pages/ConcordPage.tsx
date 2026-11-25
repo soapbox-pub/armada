@@ -1845,15 +1845,17 @@ function ConcordCommunityPage() {
     [folded, channel?.idHex, channel?.name, channel?.isPrivate],
   );
   const gitActivity = useChannelGitActivity(channel?.idHex, gitAttachments);
+  // Only moderators are told a banned member's posts were here; for everyone else they're simply gone.
+  const showBannedHidden = canBanAny || canModerateMessages;
   const mixedEntries = useMemo(() => {
-    const extra = bannedEntries.length === 0 ? timerEntries : [...timerEntries, ...bannedEntries];
+    const extra = bannedEntries.length === 0 || !showBannedHidden ? timerEntries : [...timerEntries, ...bannedEntries];
     const merged = mergeChannelTimeline(baseTransport.messages, gitActivity.activities, extra);
     const to = timelineSpan?.to;
     if (!timelineSpan || to === undefined) return merged;
     // A detached run shows only its own span; activity either side sits past a gap.
     const { from } = timelineSpan;
     return merged.filter((entry) => entry.type === "chat" || (entry.createdAt >= from && entry.createdAt <= to));
-  }, [baseTransport.messages, timelineSpan, gitActivity.activities, timerEntries, bannedEntries]);
+  }, [baseTransport.messages, timelineSpan, gitActivity.activities, timerEntries, bannedEntries, showBannedHidden]);
   // Memoized: rebuilding it allocates the full timeline.
   const dividerEntries = useMemo(
     () =>

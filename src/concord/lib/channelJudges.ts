@@ -35,6 +35,28 @@ export function timelineCollapse(
 }
 
 /**
+ * Whose typing a Channel doesn't show: the banned, members a Kick or Leave has the
+ * Guestbook holding away, a running Timeout, and, on the vsk-13 Roster, anyone who
+ * can't send there. Judged as things stand, so a ban landing mid-signal drops it.
+ */
+export function typingSilenced(
+  control: FoldedControl | undefined,
+  channelIdHex: string,
+  timeouts: ReadonlyMap<string, FoldedTimeout>,
+  history: GuestbookHistory | undefined,
+  nowMs: number,
+): (author: string) => boolean {
+  const isPrivate = control?.channels.get(channelIdHex)?.isPrivate ?? false;
+  return (author) => {
+    if (!control || author === control.ownerHex) return false;
+    if (control.banned.has(author)) return true;
+    if (history !== undefined && awayAt(history, author, nowMs)) return true;
+    if (timeoutRunning(timeouts.get(author), nowMs)) return true;
+    return control.rankedRoster === true && (channelPermissions(control.roster, control.ownerHex, author, channelIdHex, isPrivate) & Permissions.SEND_MESSAGES) === 0n;
+  };
+}
+
+/**
  * Reactions a reader doesn't count (CORD-04 §8): one whose author lacks ADD_REACTIONS
  * in the Channel by the Roster as it stands. Ignored rather than deleted, so a Roster
  * that gives the bit back counts it again. Nothing on the legacy Roster.

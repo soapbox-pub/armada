@@ -1,8 +1,9 @@
 import { useNostr } from "@nostrify/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useControlFold } from "@/concord/hooks/useControlPlane";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
+import { typingSilenced, writerJudge } from "@/concord/lib/channelJudges";
 import { sendTarget } from "@/concord/lib/writerKeys";
 import { useAppContext } from "@/hooks/useAppContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -29,6 +30,11 @@ export function useTyping(community: Community | undefined, channel: Channel | u
   const [typers, setTypers] = useState<readonly Typer[]>([]);
   /** Per typer: when their latest signal arrived (local ms), and the date it carried. */
   const seen = useRef(new Map<string, { at: number; date: number }>());
+  const { data: folded } = useControlFold(community);
+  const { history, timeouts } = useGuestbook(community);
+  // Read through a ref so a Roster or Guestbook change doesn't resubscribe.
+  const judges = useRef({ folded, history });
+  judges.current = { folded, history };
 
   const channelIdHex = channel?.idHex ?? null;
   const currentPk = channel?.current.group.pk;
@@ -73,6 +79,9 @@ export function useTyping(community: Community | undefined, channel: Channel | u
         checkChannelBinding(opened, channelIdHex, epoch);
         if (user && opened.author === user.pubkey) return;
         if (!isPlausiblyLive(opened.ms)) return;
+        // In a restricted Channel, a signal the Writers ledger doesn't stand behind (CORD-03 §1).
+        const judge = writerJudge(judges.current.folded, channelIdHex, community.id, judges.current.history);
+        if (judge && !judge.stands(opened)) return;
         if (opened.ms <= (seen.current.get(opened.author)?.date ?? 0)) return;
         seen.current.set(opened.author, { at: Date.now(), date: opened.ms });
         recompute();
@@ -91,7 +100,13 @@ export function useTyping(community: Community | undefined, channel: Channel | u
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nostr, community?.idHex, channelIdHex, listenedSig, user?.pubkey, enabled]);
 
-  return useTypersStillTyping(typers, messages);
+  const typing = useTypersStillTyping(typers, messages);
+  return useMemo(() => {
+    if (typing.length === 0 || !channelIdHex) return typing;
+    const silenced = typingSilenced(folded, channelIdHex, timeouts, history, clockNowMs());
+    const shown = typing.filter((pk) => !silenced(pk));
+    return shown.length === typing.length ? typing : shown;
+  }, [typing, folded, channelIdHex, timeouts, history]);
 }
 
 /** A throttled publisher for the current user's typing signal. */
@@ -102,7 +117,7 @@ export function useTypingPublisher(community: Community | undefined, channel: Ch
   const lastSent = useRef(0);
   useTypingResetOnPost(lastSent, messages, user?.pubkey);
   const { data: folded } = useControlFold(community);
-  const { history } = useGuestbook(folded?.rankedRoster ? community : undefined);
+  const { history, timeouts } = useGuestbook(community);
 
   return useCallback(() => {
     if (!enabled || !user || !community || !channel) return;
@@ -110,8 +125,9 @@ export function useTypingPublisher(community: Community | undefined, channel: Ch
     const now = Date.now();
     if (now - lastSent.current < TYPING_THROTTLE_MS) return;
     lastSent.current = now;
+    if (typingSilenced(folded, channel.idHex, timeouts, history, clockNowMs())(user.pubkey)) return;
     // Where a post would land; one who can't post there doesn't type there either.
-    const at = sendTarget(channel.current.group, KIND_TYPING, folded, community.id, channel.idHex, user.pubkey, history);
+    const at = sendTarget(channel.current.group, KIND_TYPING, folded, community.id, channel.idHex, user.pubkey, folded?.rankedRoster ? history : undefined);
     if (!at) return;
 
     void (async () => {
@@ -133,5 +149,5 @@ export function useTypingPublisher(community: Community | undefined, channel: Ch
         // best-effort; typing is ephemeral
       }
     })();
-  }, [nostr, user, community, channel, enabled, folded, history]);
+  }, [nostr, user, community, channel, enabled, folded, history, timeouts]);
 }
