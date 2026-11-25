@@ -14,8 +14,13 @@
  *     entitled to the channel themselves (CORD-03 §5);
  *   - the key is authenticated where it can be: one at the sealed head's epoch
  *     must open the seal, as on the access plane. Nothing authenticates one at
- *     another epoch, so only the owner or a manager, who could rotate to a key of
- *     their own anyway, is taken at its word; an entitled peer's waits for the seal.
+ *     another epoch, so for a channel the member lacks only the owner or a manager
+ *     is taken at its word; an entitled peer's waits for the seal;
+ *   - a channel the member already holds is never steered (CORD-05 §1): it takes a
+ *     newer key from a vend only when that key opens the sealed head. Any other
+ *     advance comes by a CORD-06 rotation whose `prevcommit` extends the key held;
+ *     taking a vendor's word for it would move this one member onto a key the
+ *     vendor chose, off the chain everyone else is on.
  *
  * `"no-fold"` means wait (the Grant's fold lags). Other refusals still allow a
  * manual Accept.
@@ -101,19 +106,28 @@ function judgeOne(
   // Never heals: our owner-rooted fold says it is public, so this is no Private key.
   if (!ch.isPrivate) return "nothing-new";
   if (epoch > (heldEpoch ?? 0) + MAX_VEND_EPOCH_LEAD) return "implausible-epoch";
+  if (heldEpoch !== undefined) {
+    if (!ch.sealed || BigInt(epoch) !== ch.sealed.epoch) return "unverified";
+    if (!sealOpens(ch.sealed, idHex, epoch, keyHex)) return "key-mismatch";
+  }
   if (!isEntitled(fold.roster, fold.ownerHex, recipientHex, idHex)) return "not-entitled";
   if (fold.banned.has(senderHex)) return "sender-banned";
   const manages = isAuthorized(fold.roster, senderHex, fold.ownerHex, Permissions.MANAGE_CHANNELS);
   if (!manages && !isEntitled(fold.roster, fold.ownerHex, senderHex, idHex)) return "sender-unauthorized";
   if (ch.sealed) {
     if (BigInt(epoch) === ch.sealed.epoch) {
-      if (!/^[0-9a-f]{64}$/i.test(keyHex)) return "key-mismatch";
-      if (!openChannelSeal(ch.sealed, { id: hex32(idHex), key: hex32(keyHex), epoch: BigInt(epoch), name: "" })) return "key-mismatch";
+      if (!sealOpens(ch.sealed, idHex, epoch, keyHex)) return "key-mismatch";
     } else if (!manages && senderHex !== fold.ownerHex) {
       return "unverified";
     }
   }
   return "adopt";
+}
+
+/** Whether `keyHex` at `epoch` opens the channel's sealed head. */
+function sealOpens(sealed: SealedChannelMeta, idHex: string, epoch: number, keyHex: string): boolean {
+  if (!/^[0-9a-f]{64}$/i.test(keyHex)) return false;
+  return !!openChannelSeal(sealed, { id: hex32(idHex), key: hex32(keyHex), epoch: BigInt(epoch), name: "" });
 }
 
 /** {@link judgeCatchUpChannels}' verdict alone. */

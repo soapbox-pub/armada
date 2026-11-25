@@ -9,6 +9,7 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useKnownDmPeers } from "@/hooks/useKnownDmPeers";
 import { concordInviteReadKey, useReadState } from "@/hooks/useReadState";
 import {
+  catchUpChannelIds,
   directInviteExpired,
   heldMembershipOf,
   isCatchUpBundle,
@@ -423,6 +424,7 @@ export function useInviteInbox(): InviteInbox {
 export function useAcceptDirectInvite() {
   const { nostr } = useNostr();
   const { user } = useCurrentUser();
+  const { data: list } = useCommunityList();
   const { mutateAsync: updateList } = useUpdateCommunityList();
   const queryClient = useQueryClient();
 
@@ -438,7 +440,24 @@ export function useAcceptDirectInvite() {
       // No accepting into a blocked or dissolved community, as with link joins (`completeJoin`).
       await assertNotBlocked(nostr, bundle.community_id);
       await assertNotDissolved(nostr, bundle);
-      const entry = bundleToEntry(bundle);
+      let entry = bundleToEntry(bundle);
+      if (invite.catchUp) {
+        // A click only fills gaps (CORD-05 §1): it seats keys for channels the member
+        // lacks, on the held entry. A channel already held advances by a CORD-06
+        // rotation, or by a vend its seal authenticates (`judgeCatchUpChannels`),
+        // never by Accept, or the vendor could move it onto a key of their choosing.
+        const heldEntry = list && !list.decryptFailed
+          ? liveEntries(list.list).find((e) => e.community_id === bundle.community_id)
+          : undefined;
+        const held = heldEntry ? heldMembershipOf(heldEntry) : undefined;
+        const gaps = new Set(held ? catchUpChannelIds(held, bundle).filter((id) => !held.channelEpochs.has(id)) : []);
+        if (!heldEntry || gaps.size === 0) {
+          throw new Error(t({ id: "useDirectInvites.catchUpRefused", defaultMessage: "These channel keys can't be accepted." }));
+        }
+        // As the automatic adoption writes it: the held entry, carrying only those keys.
+        const seat = entry.current.channels.filter((c) => gaps.has(c.id.toLowerCase()));
+        entry = { ...heldEntry, current: { ...heldEntry.current, channels: seat } };
+      }
       // A banned npub must not accept (CORD-04 §4) — catch-ups included, since the
       // sender is seal-verified but never rank-checked.
       const community = rehydrateCommunity(entry);

@@ -213,3 +213,31 @@ describe("judgeCatchUp: the seal authenticates the key (CORD-03 §5)", () => {
     expect(judgeCatchUpChannels(f, ME, PEER, both, held())).toEqual({ verdict: "key-mismatch", adopt: [] });
   });
 });
+
+describe("judgeCatchUp never steers a channel already held (CORD-05 §1)", () => {
+  const realKey = "5".repeat(64);
+  const fakeKey = "6".repeat(64);
+  const sealedAt = (epoch: number) =>
+    readChannelContent(sealChannelMetadata({ name: "general", private: true }, hex32(realKey), hex32(CH), BigInt(epoch), undefined))!.sealed!;
+  const sealedFold = (epoch: number) => fold({ channels: new Map([[CH, { ...priv(), sealed: sealedAt(epoch) }]]) });
+  const vend = (epoch: number, key: string) => ({ ...bundle([{ id: CH, epoch }]), channels: [{ id: CH, epoch, key, name: "ch" }] });
+  const holding = () => held({ channelEpochs: new Map([[CH, 1]]) });
+
+  it("waits on a manager's or the owner's newer key for a held channel, which nothing authenticates", () => {
+    // The vendor's word alone would move this member onto a key it chose, off everyone else's chain.
+    expect(judgeCatchUp(fold(), ME, ADMIN, vend(2, fakeKey), holding())).toBe("unverified");
+    expect(judgeCatchUp(fold(), ME, OWNER, vend(2, fakeKey), holding())).toBe("unverified");
+    expect(judgeCatchUp(sealedFold(1), ME, ADMIN, vend(2, fakeKey), holding())).toBe("unverified");
+  });
+
+  it("takes a newer key for a held channel when it opens the sealed head, and refuses one that doesn't", () => {
+    expect(judgeCatchUp(sealedFold(2), ME, ADMIN, vend(2, realKey), holding())).toBe("adopt");
+    expect(judgeCatchUp(sealedFold(2), ME, PEER, vend(2, realKey), holding())).toBe("adopt");
+    expect(judgeCatchUp(sealedFold(2), ME, ADMIN, vend(2, fakeKey), holding())).toBe("key-mismatch");
+    expect(judgeCatchUp(sealedFold(2), ME, OWNER, vend(2, fakeKey), holding())).toBe("key-mismatch");
+  });
+
+  it("still fills a channel the member lacks on a manager's word", () => {
+    expect(judgeCatchUp(fold(), ME, ADMIN, vend(2, fakeKey), held())).toBe("adopt");
+  });
+});

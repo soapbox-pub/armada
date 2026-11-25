@@ -8,12 +8,29 @@ import { setCatchUpVerdict } from "@/concord/lib/catchUpVerdicts";
 import type { InviteBundle } from "@/concord/lib/invite";
 
 const CID = "ab".repeat(32);
+const HELD_CH = "ff".repeat(32);
 const updateList = vi.fn(async () => undefined);
+
+/** The membership held: the bundle's base, with one private channel at epoch 1. */
+const heldMaterial = {
+  community_id: CID,
+  owner: "aa".repeat(32),
+  owner_salt: "bb".repeat(32),
+  community_root: "11".repeat(32),
+  control_pk: "22".repeat(32),
+  root_epoch: 0,
+  channels: [{ id: HELD_CH, key: "4".repeat(64), epoch: 1, name: "held" }],
+  relays: [],
+  name: "Crew",
+};
+const heldList = {
+  list: { entries: [{ community_id: CID, seed: heldMaterial, current: heldMaterial, added_at: 1 }], tombstones: [] },
+};
 
 vi.mock("@nostrify/react", () => ({ useNostr: () => ({ nostr: {} }) }));
 vi.mock("@/hooks/useCurrentUser", () => ({ useCurrentUser: () => ({ user: { pubkey: "cc".repeat(32) } }) }));
 vi.mock("@/concord/hooks/useCommunityList", () => ({
-  useCommunityList: () => ({ data: undefined }),
+  useCommunityList: () => ({ data: heldList }),
   useUpdateCommunityList: () => ({ mutateAsync: updateList }),
 }));
 vi.mock("@/concord/hooks/useCommunityActions", () => ({
@@ -29,13 +46,15 @@ vi.mock("@/concord/lib/communityList", async (orig) => ({
 
 import { useAcceptDirectInvite, type ParkedInvite } from "@/concord/hooks/useDirectInvites";
 
-function catchUp(wrapId: string): ParkedInvite {
+const GAP = { id: "ee".repeat(32), key: "3".repeat(64), epoch: 1, name: "x" };
+
+function catchUp(wrapId: string, channels: Array<{ id: string; key: string; epoch: number; name: string }> = [GAP]): ParkedInvite {
   const bundle = {
     community_id: CID,
     community_root: "11".repeat(32),
     control_pk: "22".repeat(32),
     root_epoch: 0,
-    channels: [{ id: "ee".repeat(32), key: "3".repeat(64), epoch: 1, name: "x" }],
+    channels,
     relays: [],
     name: "Crew",
   } as unknown as InviteBundle;
@@ -67,5 +86,29 @@ describe("useAcceptDirectInvite on a catch-up", () => {
       await result.current.mutateAsync({ invite: catchUp("wrap-manual") });
     });
     expect(updateList).toHaveBeenCalledWith({ type: "add", entry: expect.objectContaining({ community_id: CID }) });
+  });
+
+  // CORD-05 §1: a catch-up fills gaps, never steers a channel already held.
+  const steer = { id: HELD_CH, key: "9".repeat(64), epoch: 2, name: "held" };
+
+  it("seats only the channels the member lacks, on the held entry", async () => {
+    setCatchUpVerdict("wrap-mixed", "sender-unauthorized");
+    const result = accept();
+    await act(async () => {
+      await result.current.mutateAsync({ invite: catchUp("wrap-mixed", [GAP, steer]) });
+    });
+    expect(updateList).toHaveBeenCalledWith({
+      type: "add",
+      entry: expect.objectContaining({ community_id: CID, seed: heldMaterial, current: expect.objectContaining({ channels: [GAP] }) }),
+    });
+  });
+
+  it("refuses one that only re-keys a channel already held, writing nothing", async () => {
+    setCatchUpVerdict("wrap-steer", "sender-unauthorized");
+    const result = accept();
+    await act(async () => {
+      await expect(result.current.mutateAsync({ invite: catchUp("wrap-steer", [steer]) })).rejects.toThrow("These channel keys can't be accepted.");
+    });
+    expect(updateList).not.toHaveBeenCalled();
   });
 });
