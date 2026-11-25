@@ -32,6 +32,8 @@ describe("a Channel's published history (CORD-03 §2)", () => {
     expect(merged).toHaveLength(MAX_HISTORY);
     expect(merged[0][0]).toBe(2);
     expect(mergedHistory(planes.slice(0, 3), planes.slice(0, 2))).toBeUndefined();
+    // A full list gains nothing from a plane older than all it keeps, so it isn't published again.
+    expect(mergedHistory(planes.slice(2), planes.slice(0, 1))).toBeUndefined();
     const meta = withHistory({ name: "c", private: false, topic: "kept" }, planes.slice(0, 1))!;
     expect(meta.topic).toBe("kept");
     expect(publishedHistory(meta).map((p) => p.group.pk)).toEqual([planes[0].group.pk]);

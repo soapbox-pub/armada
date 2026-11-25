@@ -45,9 +45,11 @@ export function publishedHistory(meta: ChannelMetadata | undefined): HistoryPlan
 export function mergedHistory(held: readonly HistoryPlane[], add: readonly HistoryPlane[]): [number, string][] | undefined {
   const all = [...held];
   for (const plane of add) if (!all.some((p) => p.group.pk === plane.group.pk)) all.push(plane);
-  if (all.length === held.length) return undefined;
   all.sort((a, b) => (a.epoch < b.epoch ? -1 : a.epoch > b.epoch ? 1 : 0));
-  return all.slice(Math.max(0, all.length - MAX_HISTORY)).map((p) => [Number(p.epoch), bytesToHex(p.group.sk)]);
+  const kept = all.slice(Math.max(0, all.length - MAX_HISTORY));
+  // Judged past the cap: a plane older than all a full list keeps is dropped again.
+  if (kept.length === held.length && kept.every((p) => held.some((h) => h.group.pk === p.group.pk))) return undefined;
+  return kept.map((p) => [Number(p.epoch), bytesToHex(p.group.sk)]);
 }
 
 /** `meta` publishing `add` too, or undefined when it already does. */
