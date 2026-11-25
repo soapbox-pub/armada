@@ -234,6 +234,17 @@ describe("a sealed lock (CORD-03 §1)", () => {
     // Nor does a live arrival dated there open, nor one in the quiet span, the owner's included.
     const live = [await chatWrap(stranger, ch, read, start + 2_500, "live"), await chatWrap(owner, ch, read, lock + 20 * MIN, "quiet")];
     expect(await openChatBatch(live, sealedView, { remember: false })).toEqual([]);
+
+    // A reader scrolling back a couple of pages at a time, from the cursor each scroll left, reaches all of it.
+    const scrolled = new Set<string>();
+    let until: number | undefined = Math.floor(lock / 1000) + 3600;
+    for (let scroll = 0; scroll < 20 && until !== undefined; scroll++) {
+      const r = await backfillStore(relay as never, ["wss://relay.test"], sealedView, new AbortController().signal, { until, maxPages: 2 });
+      for (const m of await openChatBatch(r.events, sealedView, { remember: false })) scrolled.add(m.content);
+      if (r.reachedBottom || r.count === 0) break;
+      until = r.coveredDownTo;
+    }
+    expect([...scrolled].filter((t) => t.startsWith("m")).length).toBe(total);
     // Signs and opens a few hundred real wraps.
   }, 60_000);
 });

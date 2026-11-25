@@ -27,6 +27,11 @@ const SEALED_IDS_MAX = 20_000;
 const pages = new Map<string, { page: SealPage; plane: string }>();
 /** Per Channel, the wrap ids a seal names that this session handed out: only these stand below it. */
 const sealed = new Map<string, Set<string>>();
+/**
+ * Pages a walk left part-read, by Channel and page id, with the second it handed the reader on
+ * from: page ids carry no dates, so a read resuming from that cursor goes on from here.
+ */
+const parked = new Map<string, { at: number; given: number }>();
 
 /** Whether a seal of `channelIdHex` names `wrapId`, as this session has walked it. */
 export function isSealedWrap(channelIdHex: string, wrapId: string | undefined): boolean {
@@ -44,6 +49,7 @@ function noteSealed(channelIdHex: string, ids: readonly string[]): void {
 export function clearSealWalkMemory(): void {
   pages.clear();
   sealed.clear();
+  parked.clear();
 }
 
 /** One query across `relays`, the union by id; undefined when no relay answered. */
@@ -91,6 +97,7 @@ export interface SealStep {
 export class SealWalk {
   private next: { id: string; read: number } | undefined;
   private page: { page: SealPage; plane: string } | undefined;
+  private pageId: string | undefined;
   private given = 0;
   /** A page it was owed that no relay served or that wouldn't open: what lies past it is unread, not absent. */
   broken = false;
@@ -116,16 +123,24 @@ export class SealWalk {
         continue;
       }
       if (!this.next) break;
-      const loaded = await loadPage(nostr, relays, channel, this.next, signal);
+      const link = this.next;
+      const loaded = await loadPage(nostr, relays, channel, link, signal);
       if (!loaded) {
         this.next = undefined;
         this.broken = true;
         break;
       }
       this.next = loaded.page.next;
+      const left = parked.get(`${channel.idHex}:${link.id}`);
       // A page wholly newer than where the walk starts holds nothing it needs.
-      this.given = loaded.page.oldest > this.untilMs ? loaded.page.ids.length : 0;
+      if (loaded.page.oldest > this.untilMs) this.given = loaded.page.ids.length;
+      else this.given = left && Math.floor(this.untilMs / 1000) <= left.at + 1 ? left.given : 0;
       this.page = loaded;
+      this.pageId = link.id;
+    }
+    if (this.page && this.pageId && this.given > 0 && this.given < this.page.page.ids.length) {
+      if (parked.size >= PAGE_CACHE_MAX) parked.clear();
+      parked.set(`${channel.idHex}:${this.pageId}`, { at: Math.floor(this.page.page.oldest / 1000), given: this.given });
     }
     if (ids.length === 0) return { wraps: [], ...(bottomMs !== undefined ? { bottomMs } : {}) };
     noteSealed(channel.idHex, ids);
