@@ -4556,6 +4556,7 @@
   "themeBackgroundField.label": "背景画像",
   "themeBackgroundField.remove": "背景を削除",
   "themeBackgroundField.replace": "置き換え",
+  "themeBackgroundField.surfaceOpacity": "パネルの不透明度",
   "themeBackgroundField.tile": "タイル",
   "themeBackgroundField.upload": "アップロード",
   "themeBackgroundField.uploadFailed.description": "アップロードに失敗しました。",

@@ -93,6 +93,8 @@ function parseBackgroundTag(tags: string[][]): ThemeBackground | undefined {
   bg.mimeType = kv.get("m");
   bg.dimensions = kv.get("dim");
   bg.blurhash = kv.get("blurhash");
+  const surface = kv.get("surface") ? Number(kv.get("surface")) : NaN;
+  if (surface >= 0 && surface <= 1) bg.surfaceOpacity = surface;
   return bg;
 }
 
@@ -104,6 +106,7 @@ function buildBackgroundTag(bg: ThemeBackground | undefined): string[][] {
   if (bg.mimeType) entries.push(`m ${bg.mimeType}`);
   if (bg.dimensions) entries.push(`dim ${bg.dimensions}`);
   if (bg.blurhash) entries.push(`blurhash ${bg.blurhash}`);
+  if (bg.surfaceOpacity !== undefined) entries.push(`surface ${bg.surfaceOpacity}`);
   return [entries];
 }
 

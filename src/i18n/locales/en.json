@@ -4556,6 +4556,7 @@
   "themeBackgroundField.label": "Background image",
   "themeBackgroundField.remove": "Remove background",
   "themeBackgroundField.replace": "Replace",
+  "themeBackgroundField.surfaceOpacity": "Panel opacity",
   "themeBackgroundField.tile": "Tile",
   "themeBackgroundField.upload": "Upload",
   "themeBackgroundField.uploadFailed.description": "Upload failed.",

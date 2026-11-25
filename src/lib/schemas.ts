@@ -30,6 +30,7 @@ export const ThemeBackgroundSchema = z.object({
   mimeType: z.string().optional(),
   dimensions: z.string().optional(),
   blurhash: z.string().optional(),
+  surfaceOpacity: z.number().min(0).max(1).optional(),
 });
 
 export const ThemeSourceSchema = z.object({

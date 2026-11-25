@@ -961,23 +961,29 @@
  * its own tint, so layers beneath it (swipe panels, overlays) stay hidden. Any
  * transform on an ancestor (even translate-x-0) detaches `fixed` and the surface
  * paints its own misaligned copy: slide panels rest at `transform-none`.
+ * The tint is the theme's surface opacity; chrome closes 30% and 50% of the
+ * remaining gap to opaque, so it stays a step more solid than the content.
  */
+html.theme-bg {
+  --theme-bg-chrome-surface: calc(var(--theme-bg-surface) + (1 - var(--theme-bg-surface)) * 0.3);
+  --theme-bg-chrome-deep-surface: calc(var(--theme-bg-surface) + (1 - var(--theme-bg-surface)) * 0.5);
+}
 html.theme-bg body,
 html.theme-bg #root .bg-background {
   background:
-    linear-gradient(hsl(var(--background) / 0.9), hsl(var(--background) / 0.9)),
+    linear-gradient(hsl(var(--background) / var(--theme-bg-surface)), hsl(var(--background) / var(--theme-bg-surface))),
     var(--theme-bg-image) center / var(--theme-bg-size) var(--theme-bg-repeat) fixed,
     hsl(var(--background));
 }
 html.theme-bg #root .bg-chrome {
   background:
-    linear-gradient(hsl(var(--chrome) / 0.93), hsl(var(--chrome) / 0.93)),
+    linear-gradient(hsl(var(--chrome) / var(--theme-bg-chrome-surface)), hsl(var(--chrome) / var(--theme-bg-chrome-surface))),
     var(--theme-bg-image) center / var(--theme-bg-size) var(--theme-bg-repeat) fixed,
     hsl(var(--chrome));
 }
 html.theme-bg #root .bg-chrome-deep {
   background:
-    linear-gradient(hsl(var(--chrome-deep) / 0.95), hsl(var(--chrome-deep) / 0.95)),
+    linear-gradient(hsl(var(--chrome-deep) / var(--theme-bg-chrome-deep-surface)), hsl(var(--chrome-deep) / var(--theme-bg-chrome-deep-surface))),
     var(--theme-bg-image) center / var(--theme-bg-size) var(--theme-bg-repeat) fixed,
     hsl(var(--chrome-deep));
 }

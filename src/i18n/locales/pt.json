@@ -4556,6 +4556,7 @@
   "themeBackgroundField.label": "Imagem de fundo",
   "themeBackgroundField.remove": "Remover fundo",
   "themeBackgroundField.replace": "Substituir",
+  "themeBackgroundField.surfaceOpacity": "Opacidade dos painéis",
   "themeBackgroundField.tile": "Lado a lado",
   "themeBackgroundField.upload": "Enviar",
   "themeBackgroundField.uploadFailed.description": "Falha no envio.",

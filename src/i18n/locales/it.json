@@ -4556,6 +4556,7 @@
   "themeBackgroundField.label": "Immagine di sfondo",
   "themeBackgroundField.remove": "Rimuovi sfondo",
   "themeBackgroundField.replace": "Sostituisci",
+  "themeBackgroundField.surfaceOpacity": "Opacità dei pannelli",
   "themeBackgroundField.tile": "Affianca",
   "themeBackgroundField.upload": "Carica",
   "themeBackgroundField.uploadFailed.description": "Caricamento non riuscito.",

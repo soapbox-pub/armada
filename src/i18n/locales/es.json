@@ -4556,6 +4556,7 @@
   "themeBackgroundField.label": "Imagen de fondo",
   "themeBackgroundField.remove": "Quitar fondo",
   "themeBackgroundField.replace": "Reemplazar",
+  "themeBackgroundField.surfaceOpacity": "Opacidad de los paneles",
   "themeBackgroundField.tile": "Mosaico",
   "themeBackgroundField.upload": "Subir",
   "themeBackgroundField.uploadFailed.description": "La subida falló.",

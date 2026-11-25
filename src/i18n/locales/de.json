@@ -4556,6 +4556,7 @@
   "themeBackgroundField.label": "Hintergrundbild",
   "themeBackgroundField.remove": "Hintergrund entfernen",
   "themeBackgroundField.replace": "Ersetzen",
+  "themeBackgroundField.surfaceOpacity": "Deckkraft der Flächen",
   "themeBackgroundField.tile": "Kacheln",
   "themeBackgroundField.upload": "Hochladen",
   "themeBackgroundField.uploadFailed.description": "Hochladen fehlgeschlagen.",

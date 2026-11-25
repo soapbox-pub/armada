@@ -4556,6 +4556,7 @@
   "themeBackgroundField.label": "Achtergrondafbeelding",
   "themeBackgroundField.remove": "Achtergrond verwijderen",
   "themeBackgroundField.replace": "Vervangen",
+  "themeBackgroundField.surfaceOpacity": "Dekking van panelen",
   "themeBackgroundField.tile": "Tegels",
   "themeBackgroundField.upload": "Uploaden",
   "themeBackgroundField.uploadFailed.description": "Uploaden mislukt.",

@@ -25,6 +25,8 @@ import { syncNativeStatusBar } from "@/lib/statusBar";
 import {
   buildThemeCssFromCore,
   builtinThemes,
+  DEFAULT_SURFACE_OPACITY,
+  MIN_SURFACE_OPACITY,
   resolveTheme,
   resolveThemeColors,
   type CoreThemeColors,
@@ -196,6 +198,7 @@ function ThemeBackgroundSync({ config }: { config: AppConfig }) {
   const background = resolveTheme(config.theme) === "custom" ? config.customTheme?.background : undefined;
   const src = useMediaSrc(background?.url);
   const tile = background?.mode === "tile";
+  const surface = Math.min(1, Math.max(MIN_SURFACE_OPACITY, background?.surfaceOpacity ?? DEFAULT_SURFACE_OPACITY));
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -206,11 +209,12 @@ function ThemeBackgroundSync({ config }: { config: AppConfig }) {
     root.style.setProperty("--theme-bg-image", cssUrl(src));
     root.style.setProperty("--theme-bg-size", tile ? "auto" : "cover");
     root.style.setProperty("--theme-bg-repeat", tile ? "repeat" : "no-repeat");
+    root.style.setProperty("--theme-bg-surface", String(surface));
     root.classList.add("theme-bg");
     return () => {
       root.classList.remove("theme-bg");
     };
-  }, [src, tile]);
+  }, [src, tile, surface]);
 
   return null;
 }

@@ -1,15 +1,16 @@
 import { Image as ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
-import { useRef } from "react";
+import { useId, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import { useMediaSrc } from "@/hooks/useMediaPolicy";
 import { useUploadFile } from "@/hooks/useUploadFile";
 import { toast } from "@/hooks/useToast";
 import { FormattedMessage, t, useIntl } from "@/i18n";
 
-import type { ThemeBackground } from "@/themes";
+import { DEFAULT_SURFACE_OPACITY, MIN_SURFACE_OPACITY, type ThemeBackground } from "@/themes";
 
 export function ThemeBackgroundField({
   value,
@@ -24,6 +25,8 @@ export function ThemeBackgroundField({
   const { mutateAsync: uploadFile, isPending: uploading } = useUploadFile();
   const fileRef = useRef<HTMLInputElement>(null);
   const thumbSrc = useMediaSrc(value?.url);
+  const surfaceLabelId = useId();
+  const surfaceOpacity = value?.surfaceOpacity ?? DEFAULT_SURFACE_OPACITY;
 
   const pick = async (file: File | undefined) => {
     if (!file) return;
@@ -33,7 +36,7 @@ export function ThemeBackgroundField({
       const url = tags[0][1];
       const mimeType = tags.find(([n]) => n === "m")?.[1];
       const dimensions = tags.find(([n]) => n === "dim")?.[1];
-      onChange({ url, mode: value?.mode ?? "cover", mimeType, dimensions });
+      onChange({ url, mode: value?.mode ?? "cover", mimeType, dimensions, surfaceOpacity: value?.surfaceOpacity });
     } catch (e) {
       toast({
         title: t({ id: "themeBackgroundField.uploadFailed.title", defaultMessage: "Couldn't upload background" }),
@@ -117,6 +120,24 @@ export function ThemeBackgroundField({
           </>
         )}
       </div>
+      {value?.url && (
+        <div className="space-y-2 pt-2">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span id={surfaceLabelId}>
+              <FormattedMessage id="themeBackgroundField.surfaceOpacity" defaultMessage="Panel opacity" />
+            </span>
+            <span className="tabular-nums">{intl.formatNumber(surfaceOpacity, { style: "percent" })}</span>
+          </div>
+          <Slider
+            aria-labelledby={surfaceLabelId}
+            min={MIN_SURFACE_OPACITY}
+            max={1}
+            step={0.05}
+            value={[surfaceOpacity]}
+            onValueChange={([v]) => onChange({ ...value, surfaceOpacity: v })}
+          />
+        </div>
+      )}
     </div>
   );
 }

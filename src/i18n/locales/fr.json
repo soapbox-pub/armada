@@ -4556,6 +4556,7 @@
   "themeBackgroundField.label": "Image d’arrière-plan",
   "themeBackgroundField.remove": "Supprimer l’arrière-plan",
   "themeBackgroundField.replace": "Remplacer",
+  "themeBackgroundField.surfaceOpacity": "Opacité des panneaux",
   "themeBackgroundField.tile": "Mosaïque",
   "themeBackgroundField.upload": "Téléverser",
   "themeBackgroundField.uploadFailed.description": "Échec du téléversement.",

@@ -18,7 +18,14 @@ export interface ThemeBackground {
   /** `<width>x<height>` as published. */
   dimensions?: string;
   blurhash?: string;
+  /** Opacity (0–1) of the background color on surfaces painted over the image (`surface` key). */
+  surfaceOpacity?: number;
 }
+
+/** Surface opacity over a background image when the theme doesn't set one. */
+export const DEFAULT_SURFACE_OPACITY = 0.9;
+/** Lowest surface opacity applied, so text stays readable over busy images. */
+export const MIN_SURFACE_OPACITY = 0.3;
 
 /** The original creator of a theme adopted from someone else. */
 export interface ThemeSource {
