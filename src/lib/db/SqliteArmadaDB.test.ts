@@ -317,6 +317,60 @@ describe("SqliteArmadaDB — query plans", () => {
 });
 
 describe("SqliteArmadaDB — scans", () => {
+  /** Every page of `filter`, `n` at a time, as `queryTenantPage` hands them out. */
+  async function pageAll(db: SqliteArmadaDB, tenant: string, filter: object, n: number): Promise<{ rumors: NostrRumor[]; pages: number }> {
+    const out: NostrRumor[] = [];
+    let before: number | undefined;
+    let pages = 0;
+    do {
+      const page = await db.queryTenantPage(tenant, { ...filter, limit: n }, before);
+      expect(page.rumors.length).toBeLessThanOrEqual(n);
+      out.push(...page.rumors);
+      before = page.next;
+      pages++;
+    } while (before !== undefined);
+    return { rumors: out, pages };
+  }
+
+  it("pages one filter by its own cursor, through a second holding any number of rows", async () => {
+    const { db } = makeDb();
+    const store = db.tenant("t");
+    const writes: Promise<void>[] = [];
+    for (let i = 0; i < 250; i++) writes.push(store.event(rumor({ created_at: 5000 })));
+    for (let i = 0; i < 30; i++) writes.push(store.event(rumor({ created_at: 4000 + i })));
+    await Promise.all(writes);
+
+    const whole = await store.query([{}]);
+    const { rumors, pages } = await pageAll(db, "t", {}, 100);
+    expect(pages).toBe(3);
+    expect(rumors.map((r) => r.id).sort()).toEqual(whole.map((r) => r.id).sort());
+    // A page's limit cuts where one read's does.
+    const first = await db.queryTenantPage("t", { limit: 100 });
+    expect(first.rumors).toEqual(await store.query([{ limit: 100 }]));
+  });
+
+  it("pages a filter its conditions post-filter, and a term read", async () => {
+    const { db } = makeDb();
+    const store = db.tenant("t");
+    const writes: Promise<void>[] = [];
+    for (let i = 0; i < 600; i++) {
+      writes.push(store.event(rumor({ created_at: 7000, kind: i % 2 === 0 ? 1 : 7, content: `shared ${i}`, tags: [["channel", "c1"]] })));
+    }
+    await Promise.all(writes);
+
+    const kinds = [1, ...Array.from({ length: 200 }, (_, i) => 1000 + i)];
+    for (const filter of [{ "#channel": ["c1"], kinds }, { search: "shared" }]) {
+      const whole = await store.query([filter]);
+      const { rumors } = await pageAll(db, "t", filter, 70);
+      expect(rumors.map((r) => r.id).sort()).toEqual(whole.map((r) => r.id).sort());
+    }
+  });
+
+  it("refuses to page a distinct read", async () => {
+    const { db } = makeDb();
+    await expect(db.queryTenantPage("t", { search: "distinct:conv", limit: 5 })).rejects.toThrow(/does not page/);
+  });
+
   it("pages a scan whose conditions discard rows", async () => {
     const { db } = makeDb();
 

@@ -31,6 +31,7 @@ function electronBridge(call: (op: string, payload?: unknown) => Promise<unknown
 
   return {
     query: (options) => send("query", options),
+    queryPage: (options) => send("queryPage", options),
     event: (options) => send("event", options),
     count: (options) => send("count", options),
     remove: (options) => send("remove", options),

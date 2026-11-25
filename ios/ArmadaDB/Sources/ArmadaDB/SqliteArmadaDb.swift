@@ -834,7 +834,7 @@ public final class SqliteArmadaDb {
         var byId = [String: Rumor]()
 
         for filter in parsed {
-            for rumor in try queryFilter(ord, prefix, tenant, filter) {
+            for rumor in try queryFilter(ord, prefix, tenant, filter).rumors {
                 byId[rumor.id] = rumor
             }
         }
@@ -842,22 +842,44 @@ public final class SqliteArmadaDb {
         return byId.values.sorted(by: Self.newestFirst)
     }
 
-    /// Run a single parsed filter through the planner.
+    /// One page of a read, and the cursor a further page resumes below; nil once read to the end.
+    public struct QueryPage {
+        public let rumors: [Rumor]
+        public let next: Int64?
+    }
+
+    /// One filter's next `limit` rows in the store's own order, below `before`.
+    /// A filter's matches can share one second without bound, which no `until`
+    /// can step through; a `seq` can. Not for `distinct:`, whose groups span pages.
+    public func queryPage(tenant: String, filter: [String: Any], before: Int64?) throws -> QueryPage {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let parsed = ParsedFilter(filter)
+        if parsed.distinct != nil { throw ArmadaDbError.unusable("a distinct read does not page") }
+        awaitTerms(tenant, [parsed])
+        guard let ord = try tenantOrd(tenant) else { return QueryPage(rumors: [], next: nil) }
+        return try queryFilter(ord, "t\(ord)", tenant, parsed, paged: true, start: before)
+    }
+
+    /// Run a single parsed filter through the planner; `paged` resumes below `start` and reports where it stopped.
     private func queryFilter(
         _ ord: Int,
         _ prefix: String,
         _ tenant: String,
-        _ filter: ParsedFilter
-    ) throws -> [Rumor] {
-        if filter.neverMatch { return [] }
+        _ filter: ParsedFilter,
+        paged: Bool = false,
+        start: Int64? = nil
+    ) throws -> QueryPage {
+        if filter.neverMatch { return QueryPage(rumors: [], next: nil) }
 
         let limit = filter.limit ?? Int.max
-        if limit <= 0 { return [] }
+        if limit <= 0 { return QueryPage(rumors: [], next: nil) }
 
         let plan = planScan(ord, prefix, filter)
 
         // ids plans are lookups by key, not scans.
-        if let ids = plan.ids { return try queryIds(ord, ids, filter, limit) }
+        if let ids = plan.ids { return QueryPage(rumors: try queryIds(ord, ids, filter, limit), next: nil) }
 
         // A collapse the index couldn't group is applied here instead: the rows
         // come back in order and the first of each group survives. `limit` still
@@ -871,11 +893,12 @@ public final class SqliteArmadaDb {
         if !collapse && plan.cursors.count == 1 && plan.sqlOnly {
             let rows = try readPage(
                 plan.cursors[0],
-                before: nil,
+                before: start,
                 limit: limit == Int.max ? nil : limit,
-                keys: false
+                keys: paged
             )
-            return rows.map { $0.rumor }.sorted(by: Self.newestFirst)
+            let next = paged && rows.count >= limit ? rows[rows.count - 1].seq : nil
+            return QueryPage(rumors: rows.map { $0.rumor }.sorted(by: Self.newestFirst), next: next)
         }
 
         var collected = [Rumor]()
@@ -889,7 +912,8 @@ public final class SqliteArmadaDb {
         // one cannot size its page from the limit at all: how many rows a group
         // costs isn't known until they are read.
         var pageSize = plan.sqlOnly && !collapse ? min(limit, Self.maxPage) : Self.chunkSize
-        var before: Int64?
+        var before: Int64? = start
+        var last: Int64?
 
         while collected.count < limit {
             let page = try scanPage(plan, before, pageSize)
@@ -914,6 +938,7 @@ public final class SqliteArmadaDb {
                 }
 
                 collected.append(candidate.rumor)
+                last = candidate.seq
             }
 
             // A short page means the scan is exhausted.
@@ -925,7 +950,8 @@ public final class SqliteArmadaDb {
             pageSize = min(pageSize * 4, Self.maxPage)
         }
 
-        return collected.sorted(by: Self.newestFirst)
+        let next = paged && collected.count >= limit ? last : nil
+        return QueryPage(rumors: collected.sorted(by: Self.newestFirst), next: next)
     }
 
     /// Fetch rumors by id, applying whatever else the filter asks for.

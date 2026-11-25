@@ -688,12 +688,35 @@ export class SqliteArmadaDB implements ArmadaDB {
     // Sequential: one connection.
     for (const filter of filters) {
       const parsed = new ParsedFilter(filter);
-      for (const rumor of await this.queryFilter(ord, prefix, tenant, parsed, opts?.signal)) {
+      for (const rumor of (await this.queryFilter(ord, prefix, tenant, parsed, opts?.signal)).rumors) {
         byId.set(rumor.id, rumor);
       }
     }
 
     return [...byId.values()].sort(compareNewest);
+  }
+
+  /**
+   * One filter's next `limit` rows in the store's own order, below `before`, and
+   * the `next` cursor a further page resumes from (absent once read to the end).
+   * A filter's matches can share one second without bound, which no `until` can
+   * step through; a `seq` can. Not for `distinct:`, whose groups span pages.
+   */
+  async queryTenantPage(
+    tenant: string,
+    filter: NostrFilter,
+    before?: number,
+    opts?: { signal?: AbortSignal },
+  ): Promise<{ rumors: NostrRumor[]; next?: number }> {
+    await this.ready;
+    const parsed = new ParsedFilter(filter);
+    if (parsed.distinct !== undefined) throw new Error("ArmadaDB: a distinct read does not page");
+    await this.awaitTerms(tenant, [filter]);
+
+    const ord = await this.tenantOrd(tenant);
+    if (ord === undefined) return { rumors: [] };
+
+    return await this.queryFilter(ord, `t${ord}`, tenant, parsed, opts?.signal, { before });
   }
 
   private async queryFilter(
@@ -702,18 +725,20 @@ export class SqliteArmadaDB implements ArmadaDB {
     tenant: string,
     filter: ParsedFilter,
     signal?: AbortSignal,
-  ): Promise<NostrRumor[]> {
-    if (filter.neverMatch) return [];
+    /** Present for a paged read: resume below `before`, and report where this one stopped. */
+    page?: { before?: number },
+  ): Promise<{ rumors: NostrRumor[]; next?: number }> {
+    if (filter.neverMatch) return { rumors: [] };
 
     const limit = filter.limit ?? Infinity;
-    if (limit <= 0) return [];
+    if (limit <= 0) return { rumors: [] };
 
     signal?.throwIfAborted();
 
     const plan = this.planScan(ord, prefix, filter);
 
     if (plan.ids) {
-      return await this.queryIds(ord, plan.ids, filter, limit);
+      return { rumors: await this.queryIds(ord, plan.ids, filter, limit) };
     }
 
     // Collapse not grouped by the index is applied here; `limit` still counts
@@ -724,13 +749,13 @@ export class SqliteArmadaDB implements ArmadaDB {
     if (!collapse && plan.cursors.length === 1 && plan.sqlOnly) {
       const rows = await this.readPage(
         plan.cursors[0],
-        undefined,
+        page?.before,
         limit === Infinity ? undefined : limit,
-        false,
+        page !== undefined,
       );
       const found = rows.map((row) => row.rumor);
       found.sort(compareNewest);
-      return found;
+      return { rumors: found, ...(page && rows.length >= limit ? { next: rows[rows.length - 1].seq } : {}) };
     }
 
     const collected: NostrRumor[] = [];
@@ -741,17 +766,18 @@ export class SqliteArmadaDB implements ArmadaDB {
     // page in chunks.
     let pageSize = plan.sqlOnly && !collapse ? Math.min(limit, MAX_PAGE) : CHUNK_SIZE;
 
-    let before: number | undefined;
+    let before = page?.before;
+    let last: number | undefined;
 
     while (collected.length < limit) {
       signal?.throwIfAborted();
 
-      const page = await this.scanPage(plan, before, pageSize);
-      if (page.length === 0) break;
+      const rows = await this.scanPage(plan, before, pageSize);
+      if (rows.length === 0) break;
 
-      before = page[page.length - 1].seq;
+      before = rows[rows.length - 1].seq;
 
-      for (const { rumor } of page) {
+      for (const { rumor, seq } of rows) {
         if (collected.length >= limit) break;
         if (seen.has(rumor.id)) continue;
         seen.add(rumor.id);
@@ -766,16 +792,17 @@ export class SqliteArmadaDB implements ArmadaDB {
         }
 
         collected.push(rumor);
+        last = seq;
       }
 
-      if (page.length < pageSize) break;
+      if (rows.length < pageSize) break;
 
       // Conditions are selective: widen geometrically.
       pageSize = Math.min(pageSize * 4, MAX_PAGE);
     }
 
     collected.sort(compareNewest);
-    return collected;
+    return { rumors: collected, ...(page && collected.length >= limit && last !== undefined ? { next: last } : {}) };
   }
 
   private async queryIds(

@@ -1374,6 +1374,59 @@ final class ArmadaDbTests: XCTestCase {
         )
     }
 
+    /// Every page of `filter`, `n` at a time, as `queryPage` hands them out; with how many pages.
+    private func pageAll(_ db: SqliteArmadaDb, _ filter: [String: Any], _ n: Int) throws -> ([Rumor], Int) {
+        var out = [Rumor]()
+        var before: Int64?
+        var pages = 0
+        var limited = filter
+        limited["limit"] = n
+        repeat {
+            let page = try db.queryPage(tenant: "t", filter: limited, before: before)
+            XCTAssertLessThanOrEqual(page.rumors.count, n)
+            out.append(contentsOf: page.rumors)
+            before = page.next
+            pages += 1
+        } while before != nil
+        return (out, pages)
+    }
+
+    func testPagesOneFilterByItsOwnCursorThroughASecondHoldingAnyNumberOfRows() throws {
+        let db = try open()
+        for i in 0..<250 { try db.event(tenant: "t", rumor: rumor(id: String(format: "s%04d", i), createdAt: 5000)) }
+        for i in 0..<30 { try db.event(tenant: "t", rumor: rumor(id: String(format: "o%04d", i), createdAt: 4000 + Int64(i))) }
+
+        let whole = try db.query(tenant: "t", filters: filters("{}"))
+        let (rumors, pages) = try pageAll(db, [:], 100)
+        XCTAssertEqual(pages, 3)
+        XCTAssertEqual(rumors.map(\.id).sorted(), whole.map(\.id).sorted())
+        // A page's limit cuts where one read's does.
+        XCTAssertEqual(
+            try db.queryPage(tenant: "t", filter: ["limit": 100], before: nil).rumors.map(\.id),
+            try db.query(tenant: "t", filters: filters(#"{"limit":100}"#)).map(\.id)
+        )
+    }
+
+    func testPagesAFilterItsConditionsPostFilterAndATermRead() throws {
+        let db = try open()
+        for i in 0..<600 {
+            try db.event(
+                tenant: "t",
+                rumor: rumor(id: String(format: "r%04d", i), createdAt: 7000, kind: i % 2 == 0 ? 1 : 7, tags: [["channel", "c1"]], content: "shared \(i)")
+            )
+        }
+        let kinds = [1] + (0..<200).map { 1000 + $0 }
+        for filter: [String: Any] in [["#channel": ["c1"], "kinds": kinds], ["search": "shared"]] {
+            let whole = try db.query(tenant: "t", filters: [filter])
+            XCTAssertEqual(try pageAll(db, filter, 70).0.map(\.id).sorted(), whole.map(\.id).sorted())
+        }
+    }
+
+    func testRefusesToPageADistinctRead() throws {
+        let db = try open()
+        XCTAssertThrowsError(try db.queryPage(tenant: "t", filter: ["search": "distinct:conv", "limit": 5], before: nil))
+    }
+
     func testFindsAMatchAmongMoreRumorsThanAPageAtOneTimestamp() throws {
         let db = try openWithTerms(peersPolicy)
         // Every rumor shares a `created_at`, so a pager walking a time bound can

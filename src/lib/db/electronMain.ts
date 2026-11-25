@@ -109,6 +109,17 @@ export function openArmadaDbServer(file: string): ArmadaDbServer {
       return { rumors: JSON.stringify(rumors) };
     },
 
+    async queryPage({ tenant, filter, before }) {
+      // Looked up for its term policy, which a term read waits on.
+      storeFor(String(tenant));
+      const { rumors, next } = await db.queryTenantPage(
+        String(tenant),
+        JSON.parse(String(filter)) as NostrFilter,
+        before === undefined ? undefined : Number(before),
+      );
+      return { rumors: JSON.stringify(rumors), ...(next !== undefined ? { next: String(next) } : {}) };
+    },
+
     async event({ tenant, rumors }) {
       const store = storeFor(String(tenant));
       const batch = JSON.parse(String(rumors)) as NostrRumor[];

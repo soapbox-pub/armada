@@ -35,6 +35,12 @@ import { WrittenIds } from "./writtenIds";
 export interface ArmadaDBPlugin {
   /** Rumors matching any filter, newest-first, as a JSON array string. */
   query(options: { tenant: string; filters: string }): Promise<{ rumors: string }>;
+  /**
+   * One filter's next `limit` rows in the store's own order, below the `before`
+   * cursor, and the `next` one to resume from, absent at the end. Cursors are
+   * decimal text. Absent from desktop shells that predate it.
+   */
+  queryPage?(options: { tenant: string; filter: string; before?: string }): Promise<{ rumors: string; next?: string }>;
   /** Store a JSON array of rumors in one transaction. */
   event(options: { tenant: string; rumors: string }): Promise<void>;
   count(options: { tenant: string; filters: string }): Promise<{ count: number; approximate: boolean }>;
@@ -149,8 +155,7 @@ export class NativeArmadaDB implements ArmadaDB {
 /**
  * Most rows one read asks the native store for. The answer crosses as ONE
  * string that the native side builds, copies and escapes whole, so an
- * unlimited read of a large tenant exhausts the Java heap
- * (`QueryHeapRepro.kt`: ~65 MB of rumors on a 256 MB heap).
+ * unlimited read of a large tenant exhausts a phone's Java heap.
  */
 export const READ_PAGE = 2000;
 
@@ -199,6 +204,8 @@ class NativeRumorStore implements NRumorStore {
   private readonly label: string;
   /** Ids already committed, so the relay cache's re-writes cost nothing. */
   private readonly written = new WrittenIds();
+  /** The bridge refused `queryPage`: an older desktop shell. */
+  private noQueryPage = false;
 
   constructor(private readonly id: string, private readonly bridge: ArmadaDBPlugin) {
     this.label = tenantClass(id);
@@ -234,12 +241,46 @@ class NativeRumorStore implements NRumorStore {
     );
   }
 
-  /**
-   * One filter in {@link READ_PAGE}-row crossings, walking back by `until`. The
-   * boundary second is re-read (and deduped) so no row at it is skipped; a
-   * second holding a full page on its own is read whole and stepped past.
-   */
+  /** One filter in crossings of at most {@link READ_PAGE} rows. */
   private async readPaged(filter: NostrFilter, signal?: AbortSignal): Promise<NostrRumor[]> {
+    if (this.bridge.queryPage && !this.noQueryPage) {
+      let crossed = false;
+      try {
+        return await this.readBySeq(filter, () => (crossed = true), signal);
+      } catch (error) {
+        // A shell without `queryPage` refuses the first crossing; anything else is the read's own failure.
+        if (crossed || signal?.aborted) throw error;
+        this.noQueryPage = true;
+      }
+    }
+    return this.readByDate(filter, signal);
+  }
+
+  /** Paged by the store's own cursor, so a second holding any number of rows is still read a page at a time. */
+  private async readBySeq(filter: NostrFilter, crossed: () => void, signal?: AbortSignal): Promise<NostrRumor[]> {
+    const want = filter.limit ?? Infinity;
+    const rows: NostrRumor[] = [];
+    let before: string | undefined;
+    do {
+      signal?.throwIfAborted();
+      const limit = Math.min(READ_PAGE, want - rows.length);
+      const page = await perfTime(`db.queryPage ${this.label}`, () =>
+        this.bridge.queryPage!({ tenant: this.id, filter: JSON.stringify({ ...filter, limit }), ...(before !== undefined && { before }) }),
+      );
+      crossed();
+      signal?.throwIfAborted();
+      rows.push(...(JSON.parse(page.rumors) as NostrRumor[]));
+      before = page.next;
+    } while (before !== undefined && rows.length < want);
+    return rows.sort(newestFirst);
+  }
+
+  /**
+   * For a desktop shell without `queryPage`: walks back by `until`, re-reading
+   * the boundary second (deduped) so no row at it is skipped, and reading a
+   * second holding a full page on its own whole.
+   */
+  private async readByDate(filter: NostrFilter, signal?: AbortSignal): Promise<NostrRumor[]> {
     const want = filter.limit ?? Infinity;
     const { limit: _limit, ...unlimited } = filter;
     const byId = new Map<string, NostrRumor>();

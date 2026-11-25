@@ -761,7 +761,7 @@ class SqliteArmadaDb(
         val byId = LinkedHashMap<String, Rumor>()
 
         for (filter in parsed) {
-            for (rumor in queryFilter(ord, prefix, tenant, filter)) {
+            for (rumor in queryFilter(ord, prefix, tenant, filter).rumors) {
                 byId[rumor.id] = rumor
             }
         }
@@ -769,22 +769,40 @@ class SqliteArmadaDb(
         byId.values.sortedWith(NEWEST_FIRST)
     }
 
-    /** Run a single parsed filter through the planner. */
+    /** One page of a read, and the cursor a further page resumes below; null once read to the end. */
+    class QueryPage(val rumors: List<Rumor>, val next: Long?)
+
+    /**
+     * One filter's next `limit` rows in the store's own order, below [before].
+     * A filter's matches can share one second without bound, which no `until`
+     * can step through; a `seq` can. Not for `distinct:`, whose groups span pages.
+     */
+    fun queryPage(tenant: String, filter: JSONObject, before: Long?): QueryPage = lock.withLock {
+        val parsed = ParsedFilter(filter)
+        require(parsed.distinct == null) { "ArmadaDB: a distinct read does not page" }
+        awaitTerms(tenant, listOf(parsed))
+        val ord = tenantOrd(tenant) ?: return@withLock QueryPage(emptyList(), null)
+        queryFilter(ord, "t$ord", tenant, parsed, paged = true, start = before)
+    }
+
+    /** Run a single parsed filter through the planner; [paged] resumes below [start] and reports where it stopped. */
     private fun queryFilter(
         ord: Int,
         prefix: String,
         tenant: String,
         filter: ParsedFilter,
-    ): List<Rumor> {
-        if (filter.neverMatch) return emptyList()
+        paged: Boolean = false,
+        start: Long? = null,
+    ): QueryPage {
+        if (filter.neverMatch) return QueryPage(emptyList(), null)
 
         val limit = filter.limit ?: Int.MAX_VALUE
-        if (limit <= 0) return emptyList()
+        if (limit <= 0) return QueryPage(emptyList(), null)
 
         val plan = planScan(ord, prefix, filter)
 
         // ids plans are lookups by key, not scans.
-        plan.ids?.let { return queryIds(ord, it, filter, limit) }
+        plan.ids?.let { return QueryPage(queryIds(ord, it, filter, limit), null) }
 
         // A collapse the index couldn't group is applied here instead: the rows
         // come back in order and the first of each group survives. `limit` still
@@ -798,11 +816,12 @@ class SqliteArmadaDb(
         if (!collapse && plan.cursors.size == 1 && plan.sqlOnly) {
             val rows = readPage(
                 plan.cursors[0],
-                before = null,
+                before = start,
                 limit = if (limit == Int.MAX_VALUE) null else limit,
-                keys = false,
+                keys = paged,
             )
-            return rows.map { it.rumor }.sortedWith(NEWEST_FIRST)
+            val next = if (paged && rows.size >= limit) rows.last().seq else null
+            return QueryPage(rows.map { it.rumor }.sortedWith(NEWEST_FIRST), next)
         }
 
         val collected = ArrayList<Rumor>()
@@ -816,7 +835,8 @@ class SqliteArmadaDb(
         // one cannot size its page from the limit at all: how many rows a group
         // costs isn't known until they are read.
         var pageSize = if (plan.sqlOnly && !collapse) minOf(limit, MAX_PAGE) else CHUNK_SIZE
-        var before: Long? = null
+        var before: Long? = start
+        var last: Long? = null
 
         while (collected.size < limit) {
             val page = scanPage(plan, before, pageSize)
@@ -838,6 +858,7 @@ class SqliteArmadaDb(
                 }
 
                 collected.add(candidate.rumor)
+                last = candidate.seq
             }
 
             // A short page means the scan is exhausted.
@@ -849,7 +870,8 @@ class SqliteArmadaDb(
             pageSize = minOf(pageSize * 4, MAX_PAGE)
         }
 
-        return collected.sortedWith(NEWEST_FIRST)
+        val next = if (paged && collected.size >= limit) last else null
+        return QueryPage(collected.sortedWith(NEWEST_FIRST), next)
     }
 
     /** Fetch rumors by id, applying whatever else the filter asks for. */

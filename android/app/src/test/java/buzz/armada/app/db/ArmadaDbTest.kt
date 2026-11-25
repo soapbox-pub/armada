@@ -1466,6 +1466,61 @@ class ArmadaDbTest {
         assertEquals(3L, TermPolicies.GENERATION)
     }
 
+    // ── Paged reads ───────────────────────────────────────────────────────────
+
+    /** Every page of [filter], [n] at a time, as `queryPage` hands them out; with how many pages. */
+    private fun pageAll(db: SqliteArmadaDb, tenant: String, filter: String, n: Int): Pair<List<Rumor>, Int> {
+        val out = ArrayList<Rumor>()
+        var before: Long? = null
+        var pages = 0
+        do {
+            val page = db.queryPage(tenant, JSONObject(filter).put("limit", n), before)
+            assertTrue(page.rumors.size <= n)
+            out.addAll(page.rumors)
+            before = page.next
+            pages++
+        } while (before != null)
+        return out to pages
+    }
+
+    @Test
+    fun `pages one filter by its own cursor, through a second holding any number of rows`() {
+        val db = open()
+        for (i in 0 until 250) db.event("t", rumor(id = "s%04d".format(i), createdAt = 5000))
+        for (i in 0 until 30) db.event("t", rumor(id = "o%04d".format(i), createdAt = 4000L + i))
+
+        val whole = db.query("t", filters("{}"))
+        val (rumors, pages) = pageAll(db, "t", "{}", 100)
+        assertEquals(3, pages)
+        assertEquals(whole.map { it.id }.sorted(), rumors.map { it.id }.sorted())
+        // A page's limit cuts where one read's does.
+        assertEquals(
+            db.query("t", filters("{\"limit\":100}")).map { it.id },
+            db.queryPage("t", JSONObject("{\"limit\":100}"), null).rumors.map { it.id },
+        )
+    }
+
+    @Test
+    fun `pages a filter its conditions post-filter, and a term read`() {
+        val db = open()
+        for (i in 0 until 600) {
+            db.event("t", rumor(id = "r%04d".format(i), createdAt = 7000, kind = if (i % 2 == 0) 1 else 7, tags = listOf(listOf("channel", "c1")), content = "shared $i"))
+        }
+        val kinds = JSONArray((listOf(1) + (0 until 200).map { 1000 + it }))
+        for (filter in listOf(JSONObject().put("#channel", JSONArray(listOf("c1"))).put("kinds", kinds).toString(), "{\"search\":\"shared\"}")) {
+            val whole = db.query("t", filters(filter))
+            assertEquals(whole.map { it.id }.sorted(), pageAll(db, "t", filter, 70).first.map { it.id }.sorted())
+        }
+    }
+
+    @Test
+    fun `refuses to page a distinct read`() {
+        val db = open()
+        assertThrows(IllegalArgumentException::class.java) {
+            db.queryPage("t", JSONObject("{\"search\":\"distinct:conv\",\"limit\":5}"), null)
+        }
+    }
+
     private fun filters(vararg json: String): List<JSONObject> = json.map { JSONObject(it) }
 
     private fun rumor(

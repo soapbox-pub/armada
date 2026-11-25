@@ -98,29 +98,57 @@ class ArmadaDbPlugin : Plugin() {
         val filters = parseFilters(call) ?: return
 
         try {
-            val rumors = db.query(tenant, filters)
-
-            // Written straight out, not built into a `JSONArray` and
-            // stringified. Capacitor will escape whatever comes back into its
-            // own response envelope — a second full pass over the payload that
-            // is not ours to remove — so the one pass that IS ours has to be
-            // the cheap one. `org.json` was neither: it re-derived every rumor
-            // body from parsed fields, then appended the result a character at
-            // a time.
-            var hint = 2
-            for (rumor in rumors) hint += rumor.jsonSizeHint() + 1
-            val out = StringBuilder(hint)
-            out.append('[')
-            for ((i, rumor) in rumors.withIndex()) {
-                if (i > 0) out.append(',')
-                rumor.appendJsonTo(out)
-            }
-            out.append(']')
-
-            call.resolve(JSObject().put("rumors", out.toString()))
+            call.resolve(JSObject().put("rumors", rumorsJson(db.query(tenant, filters))))
         } catch (error: Exception) {
             call.reject(error.message, error)
         }
+    }
+
+    /**
+     * One filter's next page in the store's own order, below the `before`
+     * cursor, with the `next` one to resume from. Cursors cross as decimal text.
+     */
+    @PluginMethod
+    fun queryPage(call: PluginCall) = onDbThread { profiled(call, "queryPage") { queryPageNow(call) } }
+
+    private fun queryPageNow(call: PluginCall) {
+        val tenant = call.getString("tenant") ?: return call.reject("tenant is required")
+        val filter = try {
+            JSONObject(call.getString("filter") ?: return call.reject("filter is required"))
+        } catch (error: Exception) {
+            return call.reject("filter is not valid JSON", error)
+        }
+        val before = call.getString("before")?.let { it.toLongOrNull() ?: return call.reject("before is not a cursor") }
+
+        try {
+            val page = db.queryPage(tenant, filter, before)
+            val result = JSObject().put("rumors", rumorsJson(page.rumors))
+            page.next?.let { result.put("next", it.toString()) }
+            call.resolve(result)
+        } catch (error: Exception) {
+            call.reject(error.message, error)
+        }
+    }
+
+    /**
+     * Written straight out, not built into a `JSONArray` and stringified.
+     * Capacitor will escape whatever comes back into its own response envelope
+     * — a second full pass over the payload that is not ours to remove — so the
+     * one pass that IS ours has to be the cheap one. `org.json` was neither: it
+     * re-derived every rumor body from parsed fields, then appended the result
+     * a character at a time.
+     */
+    private fun rumorsJson(rumors: List<Rumor>): String {
+        var hint = 2
+        for (rumor in rumors) hint += rumor.jsonSizeHint() + 1
+        val out = StringBuilder(hint)
+        out.append('[')
+        for ((i, rumor) in rumors.withIndex()) {
+            if (i > 0) out.append(',')
+            rumor.appendJsonTo(out)
+        }
+        out.append(']')
+        return out.toString()
     }
 
     /**

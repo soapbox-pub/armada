@@ -56,6 +56,22 @@ final class ArmadaDbBridgeTests: XCTestCase {
         XCTAssertEqual(first["tags"] as? [[String]], [["channel", "c1"]])
     }
 
+    func testQueryPageHandsItsCursorOnAsText() throws {
+        let bridge = try open()
+        try bridge.event(
+            tenant: "t", rumors: "[\(rumorJson(id: "a")),\(rumorJson(id: "b")),\(rumorJson(id: "c"))]"
+        )
+
+        let first = try bridge.queryPage(tenant: "t", filter: #"{"limit":2}"#, before: nil)
+        XCTAssertEqual(try decodeArray(first.rumors).count, 2)
+        let next = try XCTUnwrap(first.next)
+        XCTAssertNotNil(Int64(next))
+        let rest = try bridge.queryPage(tenant: "t", filter: #"{"limit":2}"#, before: next)
+        XCTAssertEqual(try decodeArray(rest.rumors).count, 1)
+        XCTAssertNil(rest.next)
+        XCTAssertThrowsError(try bridge.queryPage(tenant: "t", filter: "{}", before: "x"))
+    }
+
     func testQueryOfAnEmptyTenantIsAnEmptyArrayNotNull() throws {
         let bridge = try open()
         XCTAssertEqual(try bridge.query(tenant: "nothing", filters: "[{}]"), "[]")

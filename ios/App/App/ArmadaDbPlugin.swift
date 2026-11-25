@@ -27,6 +27,7 @@ public class ArmadaDbPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "ArmadaDB"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "query", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "queryPage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "event", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "count", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise),
@@ -66,6 +67,24 @@ public class ArmadaDbPlugin: CAPPlugin, CAPBridgedPlugin {
 
         do {
             call.resolve(["rumors": try db().query(tenant: tenant, filters: filters)])
+        } catch {
+            call.reject("\(error)")
+        }
+    }
+
+    @objc func queryPage(_ call: CAPPluginCall) {
+        guard let tenant = call.getString("tenant") else {
+            return call.reject("tenant is required")
+        }
+        guard let filter = call.getString("filter") else {
+            return call.reject("filter is required")
+        }
+
+        do {
+            let page = try db().queryPage(tenant: tenant, filter: filter, before: call.getString("before"))
+            var result: [String: Any] = ["rumors": page.rumors]
+            if let next = page.next { result["next"] = next }
+            call.resolve(result)
         } catch {
             call.reject("\(error)")
         }

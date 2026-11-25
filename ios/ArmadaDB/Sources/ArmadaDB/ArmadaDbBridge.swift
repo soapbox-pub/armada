@@ -28,12 +28,33 @@ public final class ArmadaDbBridge {
 
     /// Rumors matching any of the filters, newest-first, as a JSON array.
     public func query(tenant: String, filters: String) throws -> String {
-        let rumors = try db.query(tenant: tenant, filters: Self.parseFilters(filters))
+        Self.json(try db.query(tenant: tenant, filters: Self.parseFilters(filters)))
+    }
 
-        // Written straight out, not built into an array of dictionaries and
-        // serialized. The bridge will escape whatever comes back into its own
-        // response envelope — a second full pass over the payload that is not
-        // ours to remove — so the one pass that IS ours has to be the cheap one.
+    /// One filter's next page in the store's own order, below the `before`
+    /// cursor, with the `next` one to resume from. Cursors cross as decimal text.
+    public func queryPage(tenant: String, filter: String, before: String?) throws -> (
+        rumors: String, next: String?
+    ) {
+        guard let decoded = try? JSONSerialization.jsonObject(with: Data(filter.utf8)),
+            let object = decoded as? [String: Any]
+        else {
+            throw ArmadaDbError.unusable("filter is not valid JSON")
+        }
+        var cursor: Int64?
+        if let before {
+            guard let parsed = Int64(before) else { throw ArmadaDbError.unusable("before is not a cursor") }
+            cursor = parsed
+        }
+        let page = try db.queryPage(tenant: tenant, filter: object, before: cursor)
+        return (Self.json(page.rumors), page.next.map { String($0) })
+    }
+
+    /// Written straight out, not built into an array of dictionaries and
+    /// serialized. The bridge will escape whatever comes back into its own
+    /// response envelope — a second full pass over the payload that is not
+    /// ours to remove — so the one pass that IS ours has to be the cheap one.
+    private static func json(_ rumors: [Rumor]) -> String {
         var hint = 2
         for rumor in rumors { hint += rumor.jsonSizeHint() + 1 }
 
