@@ -530,7 +530,7 @@ export function useChannelEditor(community: Community, scope: EditorScope, ops: 
     canLock,
     setLocked,
     welcome: Boolean(
-      folded && community.idHex && scope.kind === "channel" && welcomeChannels(folded).includes(scopeHex) && gateState(folded, community.idHex).on,
+      folded && scope.kind === "channel" && welcomeChannels(folded).includes(scopeHex) && gateState(folded).on,
     ),
     mayTarget: (key) => reachOf(key).bits !== 0n,
     candidates,

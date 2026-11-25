@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  adoptableRoles,
   awaitingApproval,
   carriedOver,
-  freeGateRoleId,
   GATE_BITS,
-  gateRoleId,
   gateState,
   keepsPosting,
   mayApprove,
@@ -25,24 +24,53 @@ function joined(...pks: string[]): Map<string, CoalescedMember> {
   return new Map(pks.map((pubkey) => [pubkey, { pubkey, state: "join", ms: NOW, rumorId: pubkey, fromSnapshot: false }]));
 }
 
-/** A ranked Community with the gate on: Verified at rank "m", `@everyone` without posting. */
+/** A ranked Community with the gate on: a plain Verified at rank "m", `@everyone` without posting. */
 function gated(adminBits = Permissions.MANAGE_ROLES | GATE_BITS) {
   const r = rankedCommunity(adminBits);
-  const verified = gateRoleId(r.c.idHex, 0);
+  const verified = hexKey();
   const everyone = r.c.everyone(EVERYONE_DEFAULT & ~GATE_BITS, { prev: r.everyone });
   const role = r.c.role(verified, "m", GATE_BITS, { name: "Verified" });
   return { ...r, verified, editions: [...r.base, everyone, role] };
 }
 
 describe("approval gate", () => {
-  it("is off on a fresh Community, and on once @everyone loses posting to Verified", () => {
+  it("is off on a fresh Community, and on once @everyone loses posting, approving through the plain Role that posts", () => {
     const r = rankedCommunity(Permissions.MANAGE_ROLES);
-    expect(gateState(foldControlState(r.base, r.c.id, r.c.owner), r.c.idHex).on).toBe(false);
+    expect(gateState(foldControlState(r.base, r.c.id, r.c.owner)).on).toBe(false);
 
+    // The admin's Role posts too, but it manages roles: staff's, not the way in.
     const g = gated();
-    const state = gateState(foldControlState(g.editions, g.c.id, g.c.owner), g.c.idHex);
+    const state = gateState(foldControlState(g.editions, g.c.id, g.c.owner));
     expect(state.on).toBe(true);
-    expect(state.role?.roleId).toBe(g.verified);
+    expect(state.roles.map((role) => role.roleId)).toEqual([g.verified]);
+  });
+
+  it("lists every plain Role that posts, lowest first, and none when nothing lets anyone in", () => {
+    const g = gated();
+    const artists = hexKey();
+    const several = gateState(foldControlState([...g.editions, g.c.role(artists, "z", Permissions.SEND_MESSAGES, { name: "Artists" })], g.c.id, g.c.owner));
+    expect(several.roles.map((role) => role.roleId)).toEqual([artists, g.verified]);
+
+    const r = rankedCommunity(Permissions.MANAGE_ROLES);
+    const closed = gateState(foldControlState([...r.base, r.c.everyone(EVERYONE_DEFAULT & ~GATE_BITS, { prev: r.everyone })], r.c.id, r.c.owner));
+    expect(closed).toEqual({ on: true, roles: [] });
+  });
+
+  it("offers an existing Verified first when adopting, and never a Role with powers or one above the switcher", () => {
+    const g = gated();
+    const helpers = hexKey();
+    const above = hexKey();
+    const folded = foldControlState(
+      [
+        ...g.editions,
+        g.c.role(helpers, "y", 0n, { name: "Helpers" }),
+        g.c.role(above, "b", Permissions.KICK, { name: "Bouncers" }),
+      ],
+      g.c.id,
+      g.c.owner,
+    );
+    expect(adoptableRoles(folded, g.c.owner).map((role) => role.name)).toEqual(["Verified", "Helpers"]);
+    expect(adoptableRoles(folded, g.admin).map((role) => role.name)).toEqual(["Verified", "Helpers"]);
   });
 
   it("holds back joined members without posting, and lets the verified and the owner through", () => {
@@ -56,14 +84,14 @@ describe("approval gate", () => {
   it("lets Manage Roles above Verified approve, and nobody beneath it", () => {
     const g = gated();
     const folded = foldControlState(g.editions, g.c.id, g.c.owner);
-    const role = gateState(folded, g.c.idHex).role;
+    const [role] = gateState(folded).roles;
     expect(mayApprove(folded, g.c.owner, role)).toBe(true);
     expect(mayApprove(folded, g.admin, role)).toBe(true);
     expect(mayApprove(folded, hexKey(), role)).toBe(false);
 
     const weak = gated(GATE_BITS | Permissions.KICK);
     const weakFold = foldControlState(weak.editions, weak.c.id, weak.c.owner);
-    expect(mayApprove(weakFold, weak.admin, gateState(weakFold, weak.c.idHex).role)).toBe(false);
+    expect(mayApprove(weakFold, weak.admin, gateState(weakFold).roles[0])).toBe(false);
     expect(maySwitchGate(weakFold, weak.admin)).toBe(false);
   });
 
@@ -121,13 +149,5 @@ describe("approval gate", () => {
       g.c.owner,
     );
     expect(welcomeChannels(folded)).toEqual([welcome]);
-  });
-
-  it("mints the next slot's id when a Verified Role was deleted", () => {
-    const g = gated();
-    const deleted = g.c.edition({ vsk: "13", eid: g.verified, prev: g.editions.at(-1), author: g.c.owner, content: { role_id: g.verified, rank: "m", deleted: true } });
-    const folded = foldControlState([...g.editions, deleted], g.c.id, g.c.owner);
-    expect(gateState(folded, g.c.idHex).role).toBeUndefined();
-    expect(freeGateRoleId(folded, g.c.idHex)).toBe(gateRoleId(g.c.idHex, 1));
   });
 });

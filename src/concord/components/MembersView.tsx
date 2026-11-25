@@ -351,8 +351,9 @@ export function MembersView({
     () => [...(folded?.roster.roles ?? [])].sort((a, b) => a.position - b.position),
     [folded],
   );
-  // Verified is held by nearly everyone while approval is on, so it names nobody; who lacks it does.
-  const gate = useMemo(() => gateState(folded, community.idHex), [folded, community.idHex]);
+  // The approval Role is held by nearly everyone while approval is on, so it names nobody; who lacks it does.
+  const gate = useMemo(() => gateState(folded), [folded]);
+  const approvalRoleIds = useMemo(() => new Set(gate.roles.map((r) => r.roleId)), [gate.roles]);
   const awaitingSet = useMemo(
     () => (gate.on && folded ? awaitingApproval(folded, coalesced) : new Set<string>()),
     [gate.on, folded, coalesced],
@@ -585,7 +586,7 @@ export function MembersView({
               selectable={selectable}
               selected={selection.selected.has(row.pubkey)}
               onToggle={(shiftKey) => setSelection((s) => clickRow(s, visibleOrder, row.pubkey, shiftKey))}
-              roleNames={roles.filter((r) => row.roleIds.includes(r.roleId) && r.roleId !== gate.role?.roleId).map((r) => r.name)}
+              roleNames={roles.filter((r) => row.roleIds.includes(r.roleId) && !approvalRoleIds.has(r.roleId)).map((r) => r.name)}
               awaiting={awaitingSet.has(row.pubkey)}
               suspicion={suspiciousOf.get(row.pubkey)}
             />

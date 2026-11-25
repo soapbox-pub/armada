@@ -1,11 +1,11 @@
-import { Ban, Check, Flag, Link as LinkIcon, Loader2, MoreHorizontal, ShieldAlert, ShieldCheck, UserCheck, UserMinus, Users } from "lucide-react";
+import { Ban, Check, ChevronDown, Flag, Link as LinkIcon, Loader2, MoreHorizontal, ShieldAlert, ShieldCheck, UserCheck, UserMinus, Users } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
 import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useApprovalGate } from "@/concord/hooks/useApprovalGate";
 import { useConcordReports } from "@/concord/hooks/useConcordReports";
 import { useInviteActions } from "@/concord/hooks/useInvites";
@@ -15,6 +15,7 @@ import { useTimeTravelers } from "@/concord/hooks/useTimeTravelers";
 import type { FoldedControl } from "@/concord/lib/control";
 import type { ModerationAccess, ModerationPane } from "@/concord/lib/moderationPanes";
 import type { NewMember } from "@/concord/lib/newMembers";
+import type { Role } from "@/concord/lib/roles";
 import type { Channel, Community } from "@/concord/lib/types";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -73,9 +74,9 @@ export function OverviewView({
 
   const { approve } = gate;
   const onApprove = useCallback(
-    (member: string) => {
+    (member: string, roleId?: string) => {
       setApproving(member);
-      approve(member)
+      approve(member, roleId)
         .then(() =>
           toast({
             title: t({ id: "overviewView.approved", defaultMessage: "Member approved" }),
@@ -145,8 +146,8 @@ export function OverviewView({
         <SettingsGroup
           title={intl.formatMessage({ id: "overviewView.pending", defaultMessage: "Waiting for approval ({count})" }, { count: pending.length })}
           footer={gate.canApprove
-            ? intl.formatMessage({ id: "overviewView.pendingHint", defaultMessage: "They can read but not post. Approving gives them the Verified role." })
-            : intl.formatMessage({ id: "overviewView.pendingNoPermission", defaultMessage: "They can read but not post. Approving them takes the Manage roles permission, through a role ranked above Verified." })}
+            ? intl.formatMessage({ id: "overviewView.pendingHintRole", defaultMessage: "They can read but not post. Approving gives them the role that lets members post." })
+            : intl.formatMessage({ id: "overviewView.pendingNoPermissionRole", defaultMessage: "They can read but not post. Approving them takes the Manage roles permission, through a role ranked above the one they would get." })}
         >
           {pending.length === 0 ? (
             <EmptyRow>
@@ -161,7 +162,7 @@ export function OverviewView({
                 canKick={canKick(m.pubkey)}
                 canBan={canBan(m.pubkey)}
                 {...rowActions}
-                primary={gate.canApprove ? { kind: "approve", onApprove, busy: approving === m.pubkey } : undefined}
+                primary={gate.canApprove ? { kind: "approve", onApprove, roles: gate.grantable, busy: approving === m.pubkey } : undefined}
               />
             ))
           )}
@@ -204,7 +205,8 @@ function EmptyRow({ children }: { children: ReactNode }) {
 }
 
 type Primary =
-  | { kind: "approve"; onApprove: (member: string) => void; busy: boolean }
+  /** `roles` are the approval Roles the viewer may grant: with several, Approve asks which. */
+  | { kind: "approve"; onApprove: (member: string, roleId?: string) => void; roles: readonly Role[]; busy: boolean }
   | { kind: "reviewed"; onReviewed: (member: NewMember) => void };
 
 /** A member to look at: who they are, when and how they came, any warning, one main action and the rest behind "…". */
@@ -281,11 +283,32 @@ function MemberReviewRow({
         )}
       </div>
 
-      {primary?.kind === "approve" && (
+      {primary?.kind === "approve" && primary.roles.length <= 1 && (
         <Button size="sm" className="clip-corner-lg h-8 shrink-0" disabled={primary.busy} onClick={() => primary.onApprove(member.pubkey)}>
           {primary.busy ? <Loader2 className="size-3.5 animate-spin" /> : <UserCheck className="size-3.5" />}
           <FormattedMessage id="overviewView.approve" defaultMessage="Approve" />
         </Button>
+      )}
+      {primary?.kind === "approve" && primary.roles.length > 1 && (
+        <DropdownMenu touchSheet>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" className="clip-corner-lg h-8 shrink-0" disabled={primary.busy}>
+              {primary.busy ? <Loader2 className="size-3.5 animate-spin" /> : <UserCheck className="size-3.5" />}
+              <FormattedMessage id="overviewView.approve" defaultMessage="Approve" />
+              <ChevronDown className="size-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+              <FormattedMessage id="overviewView.approveAs" defaultMessage="Give them" />
+            </DropdownMenuLabel>
+            {primary.roles.map((r) => (
+              <DropdownMenuItem key={r.roleId} onSelect={() => primary.onApprove(member.pubkey, r.roleId)}>
+                {r.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
       {primary?.kind === "reviewed" && (
         <Button size="sm" variant="secondary" className="clip-corner-lg h-8 shrink-0" onClick={() => primary.onReviewed(member)}>

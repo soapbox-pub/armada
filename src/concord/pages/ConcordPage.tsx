@@ -2445,12 +2445,12 @@ function ConcordCommunityPage() {
   // While approval to post is on, who can read but not yet post: the member panel files them apart.
   const awaitingApprovalRef = useRef<string[]>([]);
   const awaitingApprovalList = useMemo(() => {
-    const next = folded && community && gateState(folded, community.idHex).on ? [...awaitingApproval(folded, coalesced)].sort() : [];
+    const next = folded && gateState(folded).on ? [...awaitingApproval(folded, coalesced)].sort() : [];
     const prev = awaitingApprovalRef.current;
     if (prev.length === next.length && next.every((pk, i) => prev[i] === pk)) return prev;
     awaitingApprovalRef.current = next;
     return next;
-  }, [folded, community, coalesced]);
+  }, [folded, coalesced]);
 
   // Hoisted role sections (Role.display): position order, filed under the highest
   // hoisted role only (owner included).

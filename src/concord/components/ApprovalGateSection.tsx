@@ -7,7 +7,7 @@ import { ChromeDialogContent, ChromeDialogFooter, ChromeDialogHeader, Dialog } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useApprovalGate } from "@/concord/hooks/useApprovalGate";
-import { carriedOver, gateState } from "@/concord/lib/approvalGate";
+import { adoptableRoles, carriedOver } from "@/concord/lib/approvalGate";
 import type { FoldedControl } from "@/concord/lib/control";
 import type { Channel, Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -18,6 +18,8 @@ import { clockNowMs } from "@/lib/relayClock";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_WINDOW_DAYS = 30;
 const NO_WELCOME = "none";
+/** The role picker's "make one" choice; role ids are hex, so it can't collide. */
+const CREATE_ROLE = "create";
 
 type Progress = { done: number; total: number } | undefined;
 
@@ -51,7 +53,9 @@ export function ApprovalGateSection({
         tone="primary"
         label={intl.formatMessage({ id: "approvalGate.title", defaultMessage: "Require approval to post" })}
         description={
-          gate.on
+          gate.on && gate.roles.length === 0
+            ? intl.formatMessage({ id: "approvalGate.noRole", defaultMessage: "On, but no role lets members post, so nobody can be approved. Give a role Send messages under Roles." })
+            : gate.on
             ? intl.formatMessage(
                 { id: "approvalGate.onRow", defaultMessage: "{count, plural, =0 {On. Nobody is waiting.} one {On. # member is waiting.} other {On. # members are waiting.}}" },
                 { count: gate.awaiting.size },
@@ -61,8 +65,8 @@ export function ApprovalGateSection({
               : intl.formatMessage({ id: "approvalGate.needsManageRoles", defaultMessage: "Changing this needs the Manage roles permission." })
         }
         info={intl.formatMessage({
-          id: "approvalGate.description",
-          defaultMessage: "New members can read and react, but can't post, start threads or share files until a moderator approves them. Approving gives them the Verified role. A banned member coming back on a new account has to be approved again.",
+          id: "approvalGate.descriptionRole",
+          defaultMessage: "New members can read and react, but can't post, start threads or share files until a moderator approves them. Approving gives them the role that lets members post. A banned member coming back on a new account has to be approved again.",
         })}
       >
         <Switch
@@ -85,7 +89,6 @@ export function ApprovalGateSection({
 
       {dialog === "on" && (
         <TurnOnDialog
-          community={community}
           folded={folded}
           channels={channels}
           members={members}
@@ -169,7 +172,6 @@ function ProgressRow({ progress }: { progress: NonNullable<Progress> }) {
 }
 
 function TurnOnDialog({
-  community,
   folded,
   channels,
   members,
@@ -178,7 +180,6 @@ function TurnOnDialog({
   turnOn,
   progress,
 }: {
-  community: Community;
   folded: FoldedControl;
   channels: Channel[];
   members: readonly string[];
@@ -192,14 +193,20 @@ function TurnOnDialog({
   const [keep, setKeep] = useState<"active" | "everyone">("active");
   const [welcome, setWelcome] = useState(NO_WELCOME);
   const [busy, setBusy] = useState(false);
+  // An existing Verified, as a gate bot or an earlier switch left, is the way in by default.
+  const adoptable = useMemo(() => (user ? adoptableRoles(folded, user.pubkey) : []), [folded, user]);
+  const [role, setRole] = useState<string>(() => {
+    const verified = adoptable.find((r) => r.name.trim().toLowerCase() === "verified");
+    return verified ? verified.roleId : CREATE_ROLE;
+  });
 
   const welcomeChoices = useMemo(() => welcomeCandidates(channels, folded), [channels, folded]);
   // Read once per open, so the counts don't shift while the reader decides.
   const [nowMs] = useState(clockNowMs);
   const activeSinceMs = keep === "everyone" ? 0 : nowMs - ACTIVE_WINDOW_DAYS * DAY_MS;
   const plan = useMemo(
-    () => (user ? carriedOver(folded, user.pubkey, members, observed, activeSinceMs, gateState(folded, community.idHex).role?.roleId) : { grant: [], unreachable: [], waiting: 0 }),
-    [folded, user, members, observed, activeSinceMs, community.idHex],
+    () => (user ? carriedOver(folded, user.pubkey, members, observed, activeSinceMs, role === CREATE_ROLE ? undefined : role) : { grant: [], unreachable: [], waiting: 0, holding: 0 }),
+    [folded, user, members, observed, activeSinceMs, role],
   );
 
   const confirm = async () => {
@@ -210,12 +217,13 @@ function TurnOnDialog({
         observed,
         activeSinceMs,
         ...(welcome !== NO_WELCOME ? { welcomeChannel: welcome } : {}),
+        role: role === CREATE_ROLE ? { create: true } : { adopt: role },
       });
       toast({
         title: t({ id: "approvalGate.onDone", defaultMessage: "Approval to post is on" }),
         description: result.unreachable.length > 0
           ? t(
-              { id: "approvalGate.onDoneUnreachable", defaultMessage: "{count, plural, one {# member ranked at or above you couldn't be given Verified; someone above them has to.} other {# members ranked at or above you couldn't be given Verified; someone above them has to.}}" },
+              { id: "approvalGate.onDoneUnreachableRole", defaultMessage: "{count, plural, one {# member ranked at or above you couldn't be given the role; someone above them has to.} other {# members ranked at or above you couldn't be given the role; someone above them has to.}}" },
               { count: result.unreachable.length },
             )
           : undefined,
@@ -241,6 +249,32 @@ function TurnOnDialog({
         />
 
         <div className="mt-6 space-y-2">
+          <p className="text-sm font-medium">
+            <FormattedMessage id="approvalGate.roleLabel" defaultMessage="Role that lets members post" />
+          </p>
+          <Select value={role} onValueChange={setRole} disabled={busy}>
+            <SelectTrigger className="clip-corner-lg" aria-label={intl.formatMessage({ id: "approvalGate.roleLabel", defaultMessage: "Role that lets members post" })}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {adoptable.map((r) => (
+                <SelectItem key={r.roleId} value={r.roleId}>{r.name}</SelectItem>
+              ))}
+              <SelectItem value={CREATE_ROLE}>
+                <FormattedMessage id="approvalGate.createRole" defaultMessage="Create a Verified role" />
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {role === CREATE_ROLE ? (
+              <FormattedMessage id="approvalGate.createRoleHint" defaultMessage="Approving someone gives them this new role." />
+            ) : (
+              <FormattedMessage id="approvalGate.adoptRoleHint" defaultMessage="This role gets permission to post, and approving someone gives it to them. Anything that already hands it out, like a bot, keeps working." />
+            )}
+          </p>
+        </div>
+
+        <div className="mt-5 space-y-2">
           <p className="text-sm font-medium">
             <FormattedMessage id="approvalGate.keepLabel" defaultMessage="Who keeps posting" />
           </p>
@@ -296,7 +330,7 @@ function TurnOnDialog({
           <FormattedMessage
             id="approvalGate.counts"
             defaultMessage="{grant, plural, one {# keeps posting} other {# keep posting}} · {waiting, plural, one {# waits for approval} other {# wait for approval}}"
-            values={{ grant: plan.grant.length, waiting: plan.waiting }}
+            values={{ grant: plan.grant.length + plan.holding, waiting: plan.waiting }}
           />
           <InfoTip>
             <FormattedMessage
@@ -308,8 +342,8 @@ function TurnOnDialog({
         {plan.unreachable.length > 0 && !busy && (
           <p className="mt-2 text-center text-xs text-warning">
             <FormattedMessage
-              id="approvalGate.unreachable"
-              defaultMessage="{count, plural, one {# member ranks at or above you, so you can't give them Verified. Unless one of their roles can send messages, they stop posting until someone above them does.} other {# members rank at or above you, so you can't give them Verified. Unless one of their roles can send messages, they stop posting until someone above them does.}}"
+              id="approvalGate.unreachableRole"
+              defaultMessage="{count, plural, one {# member ranks at or above you, so you can't give them the role. Unless one of their roles can send messages, they stop posting until someone above them does.} other {# members rank at or above you, so you can't give them the role. Unless one of their roles can send messages, they stop posting until someone above them does.}}"
               values={{ count: plan.unreachable.length }}
             />
           </p>
@@ -364,8 +398,8 @@ function TurnOffDialog({ onClose, turnOff }: { onClose: () => void; turnOff: () 
           title={<FormattedMessage id="approvalGate.offTitle" defaultMessage="Let everyone post again?" />}
           description={
             <FormattedMessage
-              id="approvalGate.offDescription"
-              defaultMessage="Everyone waiting for approval will be able to post right away. The Verified role stays, so turning approval back on later is quick."
+              id="approvalGate.offDescriptionRole"
+              defaultMessage="Everyone waiting for approval will be able to post right away. The role that lets members post stays as it is, so turning approval back on later is quick."
             />
           }
         />

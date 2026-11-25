@@ -1,16 +1,16 @@
 import { useNostr } from "@nostrify/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { settledWrite } from "@/concord/hooks/rosterSettle";
 import { citationFor, foldStoredControl, invalidateControl, publishEdition, readControlWhole, useControlFold, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
 import { controlWrapOwed, useRoles } from "@/concord/hooks/useRoles";
-import { awaitingApproval, carriedOver, freeGateRoleId, GATE_BITS, gateState, keepsPosting, mayApprove, maySwitchGate, welcomeChannels } from "@/concord/lib/approvalGate";
+import { awaitingApproval, carriedOver, GATE_BITS, gateState, keepsPosting, mayApprove, maySwitchGate, welcomeChannels } from "@/concord/lib/approvalGate";
 import { buildGrantEdition, type FoldedControl } from "@/concord/lib/control";
 import { bytesToHex, grantLocator, hex32 } from "@/concord/lib/derive";
-import { planCreateRole, planMemberRoles, planOverwrite, planSetEveryone } from "@/concord/lib/rankedWrites";
-import { rolesMakeStaff } from "@/concord/lib/roles";
+import { planCreateRole, planEditRole, planMemberRoles, planOverwrite, planSetEveryone } from "@/concord/lib/rankedWrites";
+import { rolesMakeStaff, type Role } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { t } from "@/i18n";
@@ -25,12 +25,14 @@ export interface GateSwitchOn {
   activeSinceMs: number;
   /** A Channel `@everyone` may still post in, for newcomers to reach the moderators. */
   welcomeChannel?: string;
+  /** The Role that lets members post: an existing plain one, given posting, or a new Verified. */
+  role: { adopt: string } | { create: true };
 }
 
 /**
  * "Require approval to post" (`approvalGate.ts`): its state, the switch, and approving a
- * member. Turning it on publishes, in order, the Verified Role, a Grant of it to every
- * member who keeps posting, the welcome Channel's overwrite, and `@everyone` without
+ * member. Turning it on publishes, in order, the approval Role (made, or an existing one
+ * given posting), a Grant of it to every member who keeps posting, the welcome Channel's overwrite, and `@everyone` without
  * posting — last, so nobody kept loses a post along the way and a run cut short is
  * simply run again. The writer duty mints and delivers each restricted Channel's keys.
  */
@@ -43,13 +45,16 @@ export function useApprovalGate(community: Community | undefined) {
   const { setMemberRoles } = useRoles(community);
   const [progress, setProgress] = useState<{ done: number; total: number } | undefined>();
 
-  const idHex = community?.idHex ?? "";
-  const state = useMemo(() => gateState(folded, idHex), [folded, idHex]);
+  const state = useMemo(() => gateState(folded), [folded]);
   const awaiting = useMemo(
     () => (state.on && folded ? awaitingApproval(folded, coalesced) : new Set<string>()),
     [state.on, folded, coalesced],
   );
-  const canApprove = mayApprove(folded, user?.pubkey, state.role);
+  // The approval Roles this viewer may grant; Approve asks which when there are several.
+  const grantable = useMemo(
+    () => state.roles.filter((r) => mayApprove(folded, user?.pubkey, r)),
+    [state.roles, folded, user?.pubkey],
+  );
   const welcome = useMemo(() => (folded ? welcomeChannels(folded) : []), [folded]);
 
   const ready = () => {
@@ -63,7 +68,7 @@ export function useApprovalGate(community: Community | undefined) {
   };
 
   const turnOn = useMutation<{ granted: number; unreachable: string[] }, Error, GateSwitchOn>({
-    mutationFn: ({ members, observed, activeSinceMs, welcomeChannel }) => {
+    mutationFn: ({ members, observed, activeSinceMs, welcomeChannel, role }) => {
       const { user, community: c } = ready();
       return settledWrite(c, () => withControlWrite(c.idHex, async () => {
         // A switch that moves every member's posting is planned on the plane read whole.
@@ -79,25 +84,40 @@ export function useApprovalGate(community: Community | undefined) {
           setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
         };
 
-        let role = gateState(view, c.idHex).role;
-        const plan = carriedOver(view, user.pubkey, members, observed, activeSinceMs, role?.roleId);
-        setProgress({ done: 0, total: (role ? 0 : 1) + plan.grant.length + (welcomeChannel ? 1 : 0) + 1 });
+        const adopted = "adopt" in role ? view.roster.roles.find((r) => r.roleId === role.adopt) : undefined;
+        if ("adopt" in role && !adopted) throw new Error(t({ id: "useApprovalGate.roleGone", defaultMessage: "That role is gone; pick another." }));
+        const needsBits = adopted ? (adopted.permissions & GATE_BITS) !== GATE_BITS : true;
+        const plan = carriedOver(view, user.pubkey, members, observed, activeSinceMs, adopted?.roleId);
+        setProgress({ done: 0, total: (needsBits ? 1 : 0) + plan.grant.length + (welcomeChannel ? 1 : 0) + 1 });
 
-        if (!role) {
-          const id = freeGateRoleId(view, c.idHex);
-          if (!id) throw new Error(t({ id: "useApprovalGate.noRoleSlot", defaultMessage: "Too many Verified roles have been deleted in this community to make another." }));
-          // Colourless and not displayed: the gate's plumbing, held by nearly everyone, not an identity.
-          const made = planCreateRole(view, c.id, user.pubkey, { name: "Verified", color: 0, permissions: GATE_BITS }, authority(), undefined, id);
+        let roleId: string;
+        if (adopted) {
+          roleId = adopted.roleId;
+          if (needsBits) {
+            const edit = planEditRole(view, c.id, user.pubkey, roleId, {
+              name: adopted.name,
+              color: adopted.color ?? 0,
+              permissions: adopted.permissions | GATE_BITS,
+              display: Boolean(adopted.display),
+              mentionable: Boolean(adopted.mentionable),
+            }, authority());
+            await publish(edit.rumor);
+          }
+        } else {
+          // Colourless and not displayed: held by nearly everyone, it names nobody.
+          const made = planCreateRole(view, c.id, user.pubkey, { name: "Verified", color: 0, permissions: GATE_BITS }, authority());
+          roleId = made.roleId;
           await publish(made.rumor);
-          view = await foldStoredControl(c);
-          role = gateState(view, c.idHex).role;
-          if (!role) throw new Error(t({ id: "useApprovalGate.roleMissing", defaultMessage: "The Verified role didn't take; try again." }));
+        }
+        view = await foldStoredControl(c);
+        if (!view.roster.roles.some((r) => r.roleId === roleId)) {
+          throw new Error(t({ id: "useApprovalGate.roleNotTaken", defaultMessage: "The role didn't take; try again." }));
         }
 
         const held = new Set(c.privateChannels.map((k) => bytesToHex(k.id)));
         for (const member of plan.grant) {
           const current = view.roster.grants.find((g) => g.member === member)?.roleIds ?? [];
-          const roleIds = planMemberRoles(view, c.id, user.pubkey, member, [...current, role.roleId], held);
+          const roleIds = planMemberRoles(view, c.id, user.pubkey, member, [...current, roleId], held);
           const head = view.heads.get(bytesToHex(grantLocator(c.id, hex32(member))));
           const controlWrap = await controlWrapOwed(c, rolesMakeStaff(view.roster, roleIds), user.signer.nip44, member);
           await publish(buildGrantEdition(c.id, { member, roleIds, ...(controlWrap ? { controlWrap } : {}) }, {
@@ -146,28 +166,38 @@ export function useApprovalGate(community: Community | undefined) {
     onSettled: done,
   });
 
-  const approve = useMutation<void, Error, string>({
-    mutationFn: async (member) => {
-      const role = state.role;
-      if (!role || !folded) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
+  /** Grant `member` the approval Role: `roleId` when there are several, else the one there is. */
+  const approve = useMutation<void, Error, { member: string; roleId?: string }>({
+    mutationFn: async ({ member, roleId }) => {
+      const role: Role | undefined = roleId ? grantable.find((r) => r.roleId === roleId) : grantable.length === 1 ? grantable[0] : undefined;
+      if (!role || !folded) throw new Error(t({ id: "useApprovalGate.pickRole", defaultMessage: "Pick which role to give them." }));
       const current = folded.roster.grants.find((g) => g.member === member)?.roleIds ?? [];
       if (current.includes(role.roleId)) return;
       await setMemberRoles({ member, roleIds: [...current, role.roleId] });
     },
   });
 
+  const approveAsync = approve.mutateAsync;
+  const approveMember = useCallback(
+    (member: string, roleId?: string) => approveAsync({ member, ...(roleId ? { roleId } : {}) }),
+    [approveAsync],
+  );
+
   return {
     on: state.on,
-    role: state.role,
+    /** Every Role that lets members post while approval is on; none means nobody can be let in. */
+    roles: state.roles,
+    /** Those of them this viewer may grant. */
+    grantable,
     awaiting,
-    canApprove,
+    canApprove: grantable.length > 0,
     canSwitch: maySwitchGate(folded, user?.pubkey),
     /** The Channels newcomers waiting for approval can still post in. */
     welcome,
     setWelcome: setWelcome.mutateAsync,
     turnOn: turnOn.mutateAsync,
     turnOff: turnOff.mutateAsync,
-    approve: approve.mutateAsync,
+    approve: approveMember,
     switching: turnOn.isPending || turnOff.isPending || setWelcome.isPending,
     progress,
   };
