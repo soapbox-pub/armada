@@ -31,24 +31,35 @@ export function isPlainRole(role: Role): boolean {
 }
 
 export interface GateState {
-  /** Whether posting is held back for approval: `@everyone` can't post. */
+  /** Whether posting is held back for approval, read off the shape turning it on leaves. */
   on: boolean;
   /**
-   * The Roles approving grants: plain ones that post, ranked lowest first. Usually one;
-   * none means nobody can be let in, several means Approve asks which.
+   * `@everyone` can't post, but not in the shape approval leaves: an announcement-only
+   * Community, say. Nobody is awaiting approval there, and there is nothing to turn off.
+   */
+  restricted: boolean;
+  /**
+   * The Roles approving grants: plain ones that post, ranked lowest first. Several
+   * means Approve asks which.
    */
   roles: Role[];
 }
 
-const OFF: GateState = { on: false, roles: [] };
+const OFF: GateState = { on: false, restricted: false, roles: [] };
 
+/**
+ * Turning approval on takes every gate bit from `@everyone` and leaves a plain Role
+ * posting; that shape, not `@everyone` merely lacking Send, is what reads as on, since
+ * nothing beside the Roster records it.
+ */
 export function gateState(folded: FoldedControl | undefined): GateState {
   if (!folded?.rankedRoster || folded.roster.everyone === undefined) return OFF;
   if ((folded.roster.everyone & Permissions.SEND_MESSAGES) !== 0n) return OFF;
   const roles = folded.roster.roles
     .filter((r) => r.rank !== undefined && isPlainRole(r) && (r.permissions & Permissions.SEND_MESSAGES) !== 0n)
     .sort((a, b) => b.position - a.position);
-  return { on: true, roles };
+  if ((folded.roster.everyone & GATE_BITS) !== 0n || roles.length === 0) return { on: false, restricted: true, roles: [] };
+  return { on: true, restricted: false, roles };
 }
 
 /**

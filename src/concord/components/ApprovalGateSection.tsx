@@ -3,12 +3,14 @@ import { useMemo, useState } from "react";
 
 import { InfoTip, SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ChromeDialogContent, ChromeDialogFooter, ChromeDialogHeader, Dialog } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useApprovalGate } from "@/concord/hooks/useApprovalGate";
-import { adoptableRoles, carriedOver } from "@/concord/lib/approvalGate";
+import { adoptableRoles, carriedOver, GATE_BITS } from "@/concord/lib/approvalGate";
 import type { FoldedControl } from "@/concord/lib/control";
+import { PERMISSION_LABELS, Permissions } from "@/concord/lib/roles";
 import type { Channel, Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { toast } from "@/hooks/useToast";
@@ -53,13 +55,13 @@ export function ApprovalGateSection({
         tone="primary"
         label={intl.formatMessage({ id: "approvalGate.title", defaultMessage: "Require approval to post" })}
         description={
-          gate.on && gate.roles.length === 0
-            ? intl.formatMessage({ id: "approvalGate.noRole", defaultMessage: "On, but no role lets members post, so nobody can be approved. Give a role Send messages under Roles." })
-            : gate.on
+          gate.on
             ? intl.formatMessage(
                 { id: "approvalGate.onRow", defaultMessage: "{count, plural, =0 {On. Nobody is waiting.} one {On. # member is waiting.} other {On. # members are waiting.}}" },
                 { count: gate.awaiting.size },
               )
+            : gate.restricted
+              ? intl.formatMessage({ id: "approvalGate.restrictedRow", defaultMessage: "Off. Everyone already can't send messages, so only members whose roles let them can post. That's set under Roles." })
             : gate.canSwitch
               ? intl.formatMessage({ id: "approvalGate.offRow", defaultMessage: "New members can post as soon as they join." })
               : intl.formatMessage({ id: "approvalGate.needsManageRoles", defaultMessage: "Changing this needs the Manage roles permission." })
@@ -370,14 +372,21 @@ function TurnOnDialog({
   );
 }
 
-function TurnOffDialog({ onClose, turnOff }: { onClose: () => void; turnOff: () => Promise<void> }) {
+/** What turning off can give `@everyone` back besides Send messages, which it always does. */
+const RESTORABLE = [Permissions.SEND_IN_THREADS, Permissions.ATTACH_FILES] as const;
+
+function TurnOffDialog({ onClose, turnOff }: { onClose: () => void; turnOff: (restore: bigint) => Promise<void> }) {
   const intl = useIntl();
   const [busy, setBusy] = useState(false);
+  // Nothing records what @everyone held before approval went on, so the person turning it off says.
+  const [restore, setRestore] = useState<bigint>(GATE_BITS);
+  const labelOf = (bit: bigint) => PERMISSION_LABELS.find((l) => l.bit === bit)?.label ?? "";
+  const toggle = (bit: bigint, on: boolean) => setRestore((bits) => (on ? bits | bit : bits & ~bit));
 
   const confirm = async () => {
     setBusy(true);
     try {
-      await turnOff();
+      await turnOff(restore);
       toast({ title: t({ id: "approvalGate.offDone", defaultMessage: "Anyone can post again" }) });
       onClose();
     } catch (e) {
@@ -404,6 +413,24 @@ function TurnOffDialog({ onClose, turnOff }: { onClose: () => void; turnOff: () 
             />
           }
         />
+        <div className="mt-6 space-y-3">
+          <p className="text-sm font-medium">
+            <FormattedMessage id="approvalGate.restoreLabel" defaultMessage="Everyone gets back" />
+          </p>
+          <label className="flex items-center gap-3 touch:min-h-11">
+            <Checkbox checked disabled />
+            <span className="text-sm">{labelOf(Permissions.SEND_MESSAGES)}</span>
+          </label>
+          {RESTORABLE.map((bit) => (
+            <label key={String(bit)} className="flex cursor-pointer items-center gap-3 touch:min-h-11">
+              <Checkbox checked={(restore & bit) !== 0n} disabled={busy} onCheckedChange={(c) => toggle(bit, c === true)} />
+              <span className="text-sm">{labelOf(bit)}</span>
+            </label>
+          ))}
+          <p className="text-xs text-muted-foreground">
+            <FormattedMessage id="approvalGate.restoreHint" defaultMessage="Untick anything everyone couldn't do before approval was turned on." />
+          </p>
+        </div>
         <ChromeDialogFooter>
           <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
             <FormattedMessage {...common.cancel} />

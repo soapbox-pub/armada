@@ -45,7 +45,7 @@ describe("approval gate", () => {
     expect(state.roles.map((role) => role.roleId)).toEqual([g.verified]);
   });
 
-  it("lists every plain Role that posts, lowest first, and none when nothing lets anyone in", () => {
+  it("lists every plain Role that posts, lowest first, and reads none as restricted rather than on", () => {
     const g = gated();
     const artists = hexKey();
     const several = gateState(foldControlState([...g.editions, g.c.role(artists, "z", Permissions.SEND_MESSAGES, { name: "Artists" })], g.c.id, g.c.owner));
@@ -53,7 +53,7 @@ describe("approval gate", () => {
 
     const r = rankedCommunity(Permissions.MANAGE_ROLES);
     const closed = gateState(foldControlState([...r.base, r.c.everyone(EVERYONE_DEFAULT & ~GATE_BITS, { prev: r.everyone })], r.c.id, r.c.owner));
-    expect(closed).toEqual({ on: true, roles: [] });
+    expect(closed).toEqual({ on: false, restricted: true, roles: [] });
   });
 
   it("offers an existing Verified first when adopting, and never a Role with powers or one above the switcher", () => {
@@ -184,9 +184,7 @@ describe("approval gate", () => {
     expect(keepsPosting(folded, r.admin, helpers)).toBe(true);
   });
 
-  // Nothing beside the Roster says approval was turned on, so a Community that never let
-  // @everyone post reads as gated, and every roleless member as awaiting approval.
-  it.fails("doesn't report approval on for a read-only Community that never turned it on", () => {
+  it("reads a Community where only Send was taken from @everyone as restricted, not as approval on", () => {
     const r = rankedCommunity(Permissions.MANAGE_ROLES);
     const announcers = hexKey();
     const folded = foldControlState(
@@ -194,6 +192,6 @@ describe("approval gate", () => {
       r.c.id,
       r.c.owner,
     );
-    expect(gateState(folded).on).toBe(false);
+    expect(gateState(folded)).toEqual({ on: false, restricted: true, roles: [] });
   });
 });

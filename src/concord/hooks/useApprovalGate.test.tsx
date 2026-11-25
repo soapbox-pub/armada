@@ -215,7 +215,7 @@ describe("turning approval off", () => {
     env.user = { pubkey: k.c.owner, signer: signerOf(ownerSk) };
     env.stored = { ...env.folded!, roster: { ...env.folded!.roster, everyone: undefined } };
     const { result } = renderHook(() => useApprovalGate(k.community), { wrapper });
-    await attempt(() => result.current.turnOff());
+    await attempt(() => result.current.turnOff(GATE_BITS));
     for (const r of everyoneEditions()) {
       expect(BigInt(JSON.parse(r.content).permissions) & Permissions.VIEW_CHANNEL).toBe(Permissions.VIEW_CHANNEL);
     }
@@ -228,17 +228,16 @@ describe("turning approval off", () => {
     env.readWhole = false;
     env.stored = { ...env.folded!, roster: { ...env.folded!.roster, everyone: undefined } };
     const { result } = renderHook(() => useApprovalGate(k.community), { wrapper });
-    const error = await attempt(() => result.current.turnOff());
+    const error = await attempt(() => result.current.turnOff(GATE_BITS));
     expect(error).toBeInstanceOf(Error);
     expect(env.published).toEqual([]);
   });
 
-  // Nothing beside the Roster records what @everyone held before, so off restores every gate bit.
-  it.fails("gives @everyone back only what it held before approval went on", async () => {
+  it("gives @everyone back Send messages and only the other gate bits picked", async () => {
     const k = gatedOn(EVERYONE_DEFAULT & ~Permissions.ATTACH_FILES);
     const { result } = renderHook(() => useApprovalGate(k.community), { wrapper });
-    await attempt(() => result.current.turnOff());
-    expect(env.folded!.roster.everyone! & Permissions.ATTACH_FILES).toBe(0n);
+    await attempt(() => result.current.turnOff(Permissions.SEND_IN_THREADS));
+    expect(env.folded!.roster.everyone! & GATE_BITS).toBe(Permissions.SEND_MESSAGES | Permissions.SEND_IN_THREADS);
   });
 });
 

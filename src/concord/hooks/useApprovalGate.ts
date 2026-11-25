@@ -10,7 +10,7 @@ import { adoptableRoles, awaitingApproval, carriedOver, GATE_BITS, gateState, ke
 import { buildGrantEdition, type FoldedControl } from "@/concord/lib/control";
 import { bytesToHex, grantLocator, hex32 } from "@/concord/lib/derive";
 import { planCreateRole, planEditRole, planMemberRoles, planOverwrite, planSetEveryone, withRole } from "@/concord/lib/rankedWrites";
-import { rolesMakeStaff, type Role } from "@/concord/lib/roles";
+import { Permissions, rolesMakeStaff, type Role } from "@/concord/lib/roles";
 import type { Community } from "@/concord/lib/types";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { t } from "@/i18n";
@@ -142,15 +142,16 @@ export function useApprovalGate(community: Community | undefined) {
     onSettled: done,
   });
 
-  const turnOff = useMutation<void, Error, void>({
-    mutationFn: () => {
+  /** `restore` are the gate bits `@everyone` gets back; Send messages always, since that is what turning off means. */
+  const turnOff = useMutation<void, Error, bigint>({
+    mutationFn: (restore) => {
       const { user, community: c } = ready();
       return settledWrite(c, () => withControlWrite(c.idHex, async () => {
         // Written whole over @everyone, so planned on the plane read whole, never a store that may have lost it.
         const whole = await readControlWhole(nostr, c);
         if (!whole) throw new Error(t({ id: "useApprovalGate.needsWhole", defaultMessage: "The community couldn't be read in full; try again once the relays answer." }));
         const view = whole.folded;
-        await publishEdition(nostr, c, user.signer, planSetEveryone(view, c.id, user.pubkey, readEveryone(view) | GATE_BITS, citationFor(c, view, user.pubkey)));
+        await publishEdition(nostr, c, user.signer, planSetEveryone(view, c.id, user.pubkey, readEveryone(view) | Permissions.SEND_MESSAGES | (restore & GATE_BITS), citationFor(c, view, user.pubkey)));
       }));
     },
     onSettled: done,
@@ -197,6 +198,8 @@ export function useApprovalGate(community: Community | undefined) {
 
   return {
     on: state.on,
+    /** `@everyone` can't post, but not because approval is on (`gateState`). */
+    restricted: state.restricted,
     /** Every Role that lets members post while approval is on; none means nobody can be let in. */
     roles: state.roles,
     /** Those of them this viewer may grant. */
