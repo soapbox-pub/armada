@@ -269,6 +269,8 @@ export function planCreateRole(
   fields: Pick<RoleFields, "name" | "color" | "permissions"> & Partial<RoleFields>,
   authority?: AuthorityCitation,
   index?: number,
+  /** A fixed id where every device must mint the same Role (the approval gate's); else random. */
+  fixedRoleId?: string,
 ): { roleId: string; rumor: NostrRumor; role: Role } {
   requireRanked(folded);
   const author = roleAuthor(folded, me);
@@ -293,7 +295,7 @@ export function planCreateRole(
         : t({ id: "rankedWrites.noRoomBottom", defaultMessage: "No room left at the bottom; reorder the roles first." }),
     );
   }
-  const roleId = bytesToHex(random32());
+  const roleId = fixedRoleId ?? bytesToHex(random32());
   const role: Role = {
     roleId,
     name,

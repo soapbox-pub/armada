@@ -1,9 +1,12 @@
-import { Ban, Check, ChevronRight, Flag, Link as LinkIcon, ShieldAlert, ShieldCheck, UserMinus, Users } from "lucide-react";
-import { memo, useCallback, useMemo, type ReactNode } from "react";
+import { Ban, Check, Flag, Link as LinkIcon, Loader2, MoreHorizontal, ShieldAlert, ShieldCheck, UserCheck, UserMinus, Users } from "lucide-react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { DisplayName } from "@/components/DisplayName";
+import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useApprovalGate } from "@/concord/hooks/useApprovalGate";
 import { useConcordReports } from "@/concord/hooks/useConcordReports";
 import { useInviteActions } from "@/concord/hooks/useInvites";
 import { useNewMembers } from "@/concord/hooks/useNewMembers";
@@ -20,14 +23,13 @@ import { toast } from "@/hooks/useToast";
 import { FormattedMessage, t, useIntl } from "@/i18n";
 import { relativeTime } from "@/lib/formatTime";
 import { nowSecs } from "@/lib/relayClock";
-import { cn } from "@/lib/utils";
 
 const WEEK_SECS = 7 * 24 * 60 * 60;
 
 /**
- * The Manage community landing tab for staff: what needs a look (reports, suspicious
- * activity, bans) and the members who joined recently, with the hints that tell a
- * returning banned member from a newcomer.
+ * The Manage community landing section for staff: what needs a look (reports,
+ * suspicious activity, bans), the members waiting for approval, and those who joined
+ * recently, with the hints that tell a returning banned member from a newcomer.
  */
 export function OverviewView({
   community,
@@ -54,136 +56,159 @@ export function OverviewView({
   /** Opens the page's ban confirmation. */
   onBan: (target: string) => void;
 }) {
+  const intl = useIntl();
   const { data: reports } = useConcordReports(access.reports ? community : undefined);
   const { alert } = useSuspiciousActivity(community, folded);
   const travelers = useTimeTravelers(community, channels);
-  const { members, markReviewed } = useNewMembers(community, folded);
+  const gate = useApprovalGate(community);
+  const { pending, members, markReviewed } = useNewMembers(community, folded, gate.awaiting);
   const { urlFor, revoke, isRevoking } = useJoinLinkRevoker(community);
+  const [approving, setApproving] = useState<string | undefined>();
 
   const recentReports = useMemo(() => {
     const since = nowSecs() - WEEK_SECS;
     return (reports ?? []).filter((r) => r.rumor.created_at >= since).length;
   }, [reports]);
   const needsAttention = alert || travelers.length > 0;
-  const bannedCount = folded?.banned.size ?? 0;
+
+  const { approve } = gate;
+  const onApprove = useCallback(
+    (member: string) => {
+      setApproving(member);
+      approve(member)
+        .then(() =>
+          toast({
+            title: t({ id: "overviewView.approved", defaultMessage: "Member approved" }),
+            description: t({ id: "overviewView.approvedDescription", defaultMessage: "They can post as soon as their posting keys reach them, usually right away." }),
+          }),
+        )
+        .catch((e: unknown) =>
+          toast({
+            title: t({ id: "overviewView.approveFailed", defaultMessage: "Couldn't approve them" }),
+            description: e instanceof Error ? e.message : undefined,
+            variant: "destructive",
+          }),
+        )
+        .finally(() => setApproving(undefined));
+    },
+    [approve],
+  );
+
+  const rowActions = { revoke, revoking: isRevoking, onKick, onBan };
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6 p-4 pb-24">
-      <div className="grid grid-cols-2 gap-2">
-        <StatCard
-          icon={<Users className="size-4" />}
-          label={t({ id: "overviewView.members", defaultMessage: "Members" })}
-          value={String(memberCount)}
+    <div className="space-y-6">
+      <SettingsGroup title={intl.formatMessage({ id: "overviewView.glance", defaultMessage: "At a glance" })}>
+        <SettingsRow
+          icon={Users}
+          tone="accent2"
+          label={intl.formatMessage({ id: "overviewView.members", defaultMessage: "Members" })}
+          value={memberCount}
+          chevron={access.members}
           onClick={access.members ? () => onSelect("members") : undefined}
         />
         {access.reports && (
-          <StatCard
-            icon={<Flag className="size-4" />}
-            label={t({ id: "overviewView.reports", defaultMessage: "Reports this week" })}
-            value={String(recentReports)}
-            tone={recentReports > 0 ? "warn" : undefined}
+          <SettingsRow
+            icon={Flag}
+            tone="warning"
+            label={intl.formatMessage({ id: "overviewView.reports", defaultMessage: "Reports this week" })}
+            value={recentReports}
+            chevron
             onClick={() => onSelect("reports")}
           />
         )}
         {access.safety && (
-          <StatCard
-            icon={needsAttention ? <ShieldAlert className="size-4" /> : <ShieldCheck className="size-4" />}
-            label={t({ id: "overviewView.safety", defaultMessage: "Suspicious activity" })}
+          <SettingsRow
+            icon={needsAttention ? ShieldAlert : ShieldCheck}
+            tone={needsAttention ? "destructive" : "success"}
+            label={intl.formatMessage({ id: "overviewView.safety", defaultMessage: "Suspicious activity" })}
             value={needsAttention
-              ? t({ id: "overviewView.safetyAttention", defaultMessage: "Needs a look" })
-              : t({ id: "overviewView.safetyClear", defaultMessage: "All clear" })}
-            tone={needsAttention ? "danger" : undefined}
+              ? intl.formatMessage({ id: "overviewView.safetyAttention", defaultMessage: "Needs a look" })
+              : intl.formatMessage({ id: "overviewView.safetyClear", defaultMessage: "All clear" })}
+            chevron
             onClick={() => onSelect("safety")}
           />
         )}
         {access.safety && (
-          <StatCard
-            icon={<Ban className="size-4" />}
-            label={t({ id: "overviewView.banned", defaultMessage: "Banned" })}
-            value={String(bannedCount)}
+          <SettingsRow
+            icon={Ban}
+            tone="muted"
+            label={intl.formatMessage({ id: "overviewView.banned", defaultMessage: "Banned" })}
+            value={folded?.banned.size ?? 0}
+            chevron
             onClick={() => onSelect("safety")}
           />
         )}
-      </div>
+      </SettingsGroup>
 
-      <section className="space-y-2">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          <FormattedMessage id="overviewView.newMembers" defaultMessage="New members" />
-        </h3>
-        <p className="text-xs text-muted-foreground">
-          <FormattedMessage
-            id="overviewView.newMembersHint"
-            defaultMessage="Everyone who joined in the last two weeks. Someone joining right after a ban, or through the same invite link as a banned member, is listed first. The invite shown is what the member says they used."
-          />
-        </p>
-        {members.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-md bg-foreground/5 px-4 py-8 text-sm text-muted-foreground">
-            <Check className="size-5" />
-            <FormattedMessage id="overviewView.noNewMembers" defaultMessage="Nobody new to look at." />
-          </div>
-        ) : (
-          <ul className="space-y-1.5">
-            {members.map((m) => (
-              <NewMemberRow
+      {gate.on && (
+        <SettingsGroup
+          title={intl.formatMessage({ id: "overviewView.pending", defaultMessage: "Waiting for approval ({count})" }, { count: pending.length })}
+          footer={gate.canApprove
+            ? intl.formatMessage({ id: "overviewView.pendingHint", defaultMessage: "They can read but not post. Approving gives them the Verified role." })
+            : intl.formatMessage({ id: "overviewView.pendingNoPermission", defaultMessage: "They can read but not post. Approving them takes the Manage roles permission, through a role ranked above Verified." })}
+        >
+          {pending.length === 0 ? (
+            <EmptyRow>
+              <FormattedMessage id="overviewView.noPending" defaultMessage="Nobody is waiting." />
+            </EmptyRow>
+          ) : (
+            pending.map((m) => (
+              <MemberReviewRow
                 key={m.pubkey}
                 member={m}
                 revokeUrl={urlFor(m.invite)}
-                revoke={revoke}
-                revoking={isRevoking}
                 canKick={canKick(m.pubkey)}
                 canBan={canBan(m.pubkey)}
-                onKick={onKick}
-                onBan={onBan}
-                onReviewed={markReviewed}
+                {...rowActions}
+                primary={gate.canApprove ? { kind: "approve", onApprove, busy: approving === m.pubkey } : undefined}
               />
-            ))}
-          </ul>
+            ))
+          )}
+        </SettingsGroup>
+      )}
+
+      <SettingsGroup
+        title={intl.formatMessage({ id: "overviewView.newMembers", defaultMessage: "New members" })}
+        info={intl.formatMessage({ id: "overviewView.inviteInfo", defaultMessage: "The invite link shown is the one the member says they used. Armada can't check it, so treat it as a hint." })}
+        footer={intl.formatMessage({ id: "overviewView.newMembersFooter", defaultMessage: "Joined in the last two weeks. Anyone who joined right after a ban, or through a banned member's invite link, comes first." })}
+      >
+        {members.length === 0 ? (
+          <EmptyRow>
+            <FormattedMessage id="overviewView.noNewMembers" defaultMessage="Nobody new to look at." />
+          </EmptyRow>
+        ) : (
+          members.map((m) => (
+            <MemberReviewRow
+              key={m.pubkey}
+              member={m}
+              revokeUrl={urlFor(m.invite)}
+              canKick={canKick(m.pubkey)}
+              canBan={canBan(m.pubkey)}
+              {...rowActions}
+              primary={{ kind: "reviewed", onReviewed: markReviewed }}
+            />
+          ))
         )}
-      </section>
+      </SettingsGroup>
     </div>
   );
 }
 
-function StatCard({
-  icon,
-  label,
-  value,
-  tone,
-  onClick,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  tone?: "warn" | "danger";
-  onClick?: () => void;
-}) {
-  const body = (
-    <>
-      <span className={cn(
-        "flex items-center gap-1.5 text-xs text-muted-foreground",
-        tone === "warn" && "text-warning",
-        tone === "danger" && "text-destructive",
-      )}>
-        {icon}
-        {label}
-      </span>
-      <span className="flex items-center justify-between gap-2">
-        <span className={cn("text-lg font-semibold tabular-nums", tone === "danger" && "text-destructive")}>{value}</span>
-        {onClick && <ChevronRight className="size-4 text-muted-foreground" />}
-      </span>
-    </>
-  );
-  const className = "flex flex-col gap-1 rounded-md bg-foreground/5 px-3 py-2.5 text-left";
-  return onClick ? (
-    <button type="button" className={cn(className, "transition-colors hover:bg-foreground/10")} onClick={onClick}>
-      {body}
-    </button>
-  ) : (
-    <div className={className}>{body}</div>
+function EmptyRow({ children }: { children: ReactNode }) {
+  return (
+    <SettingsRow>
+      <p className="text-sm text-muted-foreground">{children}</p>
+    </SettingsRow>
   );
 }
 
-const NewMemberRow = memo(function NewMemberRow({
+type Primary =
+  | { kind: "approve"; onApprove: (member: string) => void; busy: boolean }
+  | { kind: "reviewed"; onReviewed: (member: NewMember) => void };
+
+/** A member to look at: who they are, when and how they came, any warning, one main action and the rest behind "…". */
+function MemberReviewRow({
   member,
   revokeUrl,
   revoke,
@@ -192,7 +217,7 @@ const NewMemberRow = memo(function NewMemberRow({
   canBan,
   onKick,
   onBan,
-  onReviewed,
+  primary,
 }: {
   member: NewMember;
   revokeUrl: string | undefined;
@@ -202,125 +227,141 @@ const NewMemberRow = memo(function NewMemberRow({
   canBan: boolean;
   onKick: (target: string) => void;
   onBan: (target: string) => void;
-  onReviewed: (member: NewMember) => void;
+  primary: Primary | undefined;
 }) {
   const intl = useIntl();
   const author = useAuthor(member.pubkey);
   const name = useScopedDisplayName(member.pubkey, author.data?.metadata);
-  const flagged = member.afterBanMs !== undefined || member.sameLinkAsBanned;
+  const warnings = warningsOf(intl, member);
+
+  const revokeLink = async () => {
+    if (!revokeUrl) return;
+    try {
+      if (!(await revoke(revokeUrl))) return;
+      toast({
+        title: t({ id: "overviewView.revoked", defaultMessage: "Invite link revoked" }),
+        description: t({ id: "overviewView.revokedDescription", defaultMessage: "It can no longer be used to join." }),
+      });
+    } catch (e) {
+      toast({
+        title: t({ id: "overviewView.revokeFailed", defaultMessage: "Couldn't revoke the link" }),
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const hasMenu = canKick || canBan || Boolean(revokeUrl);
 
   return (
-    <li className={cn("space-y-2 rounded-md px-3 py-2.5", flagged ? "bg-destructive/10" : "bg-foreground/5")}>
-      <div className="flex items-center gap-2.5">
-        <UserAvatar
-          pubkey={member.pubkey}
-          metadata={author.data?.metadata}
-          imeta={author.data?.imeta?.picture}
-          name={name}
-          className="size-8 shrink-0"
-          fallbackClassName="text-3xs"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">
-            <DisplayName pubkey={member.pubkey} name={name} />
-          </p>
-          <p className="truncate text-2xs text-muted-foreground">
-            <FormattedMessage
-              id="overviewView.joined"
-              defaultMessage="Joined {ago}"
-              values={{ ago: relativeTime(Math.floor(member.joinedMs / 1000)) }}
-            />
-          </p>
+    <SettingsRow className="flex items-center gap-3">
+      <UserAvatar
+        pubkey={member.pubkey}
+        metadata={author.data?.metadata}
+        imeta={author.data?.imeta?.picture}
+        name={name}
+        className="size-8 shrink-0"
+        fallbackClassName="text-xs"
+      />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <div className="truncate text-sm font-medium leading-tight">
+          <DisplayName pubkey={member.pubkey} name={name} />
         </div>
-      </div>
-      <div className="flex flex-wrap gap-1.5 text-2xs">
-        {member.afterBanMs !== undefined && (
-          <Hint danger>
-            {member.afterBanMs < 60 * 60 * 1000 ? (
-              <FormattedMessage
-                id="overviewView.afterBanMinutes"
-                defaultMessage="{count, plural, one {Joined # minute after a ban} other {Joined # minutes after a ban}}"
-                values={{ count: Math.max(1, Math.round(member.afterBanMs / 60_000)) }}
-              />
-            ) : (
-              <FormattedMessage
-                id="overviewView.afterBanHours"
-                defaultMessage="{count, plural, one {Joined # hour after a ban} other {Joined # hours after a ban}}"
-                values={{ count: Math.round(member.afterBanMs / 3_600_000) }}
-              />
-            )}
-          </Hint>
-        )}
-        {member.sameLinkAsBanned && (
-          <Hint danger>
-            <FormattedMessage id="overviewView.sameLink" defaultMessage="Same invite link as a banned member" />
-          </Hint>
-        )}
-        {member.invite ? <InviteHint invite={member.invite} /> : (
-          <Hint>
-            <FormattedMessage id="overviewView.noInvite" defaultMessage="No invite named" />
-          </Hint>
+        <div className="truncate text-xs text-muted-foreground">
+          <FormattedMessage id="overviewView.joined" defaultMessage="Joined {ago}" values={{ ago: relativeTime(Math.floor(member.joinedMs / 1000)) }} />
+          {member.invite && (
+            <>
+              {" · "}
+              <InviteText invite={member.invite} />
+            </>
+          )}
+        </div>
+        {warnings.length > 0 && (
+          <div className="truncate text-xs font-medium text-destructive">{warnings.join(" · ")}</div>
         )}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="secondary" onClick={() => onReviewed(member)}>
+
+      {primary?.kind === "approve" && (
+        <Button size="sm" className="clip-corner-lg h-8 shrink-0" disabled={primary.busy} onClick={() => primary.onApprove(member.pubkey)}>
+          {primary.busy ? <Loader2 className="size-3.5 animate-spin" /> : <UserCheck className="size-3.5" />}
+          <FormattedMessage id="overviewView.approve" defaultMessage="Approve" />
+        </Button>
+      )}
+      {primary?.kind === "reviewed" && (
+        <Button size="sm" variant="secondary" className="clip-corner-lg h-8 shrink-0" onClick={() => primary.onReviewed(member)}>
           <Check className="size-3.5" />
           <FormattedMessage id="overviewView.looksFine" defaultMessage="Looks fine" />
         </Button>
-        <RevokeJoinLink url={revokeUrl} revoke={revoke} busy={revoking} />
-        {canKick && (
-          <Button size="sm" variant="ghost" onClick={() => onKick(member.pubkey)}>
-            <UserMinus className="size-3.5" />
-            <FormattedMessage id="overviewView.kick" defaultMessage="Kick" />
-          </Button>
-        )}
-        {canBan && (
-          <Button
-            size="sm"
-            variant="destructive"
-            aria-label={intl.formatMessage({ id: "overviewView.banNamed", defaultMessage: "Ban {name}" }, { name })}
-            onClick={() => onBan(member.pubkey)}
-          >
-            <Ban className="size-3.5" />
-            <FormattedMessage id="overviewView.ban" defaultMessage="Ban" />
-          </Button>
-        )}
-      </div>
-    </li>
-  );
-});
+      )}
 
-function Hint({ children, danger }: { children: ReactNode; danger?: boolean }) {
-  return (
-    <span className={cn(
-      "inline-flex items-center gap-1 rounded-full px-2 py-0.5",
-      danger ? "bg-destructive/20 font-medium text-destructive" : "bg-foreground/10 text-muted-foreground",
-    )}>
-      {children}
-    </span>
+      {hasMenu && (
+        <DropdownMenu touchSheet>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0 text-muted-foreground hover:text-foreground touch:size-10"
+              aria-label={intl.formatMessage({ id: "overviewView.moreActions", defaultMessage: "More actions for {name}" }, { name })}
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {revokeUrl && (
+              <DropdownMenuItem disabled={revoking} onSelect={() => void revokeLink()}>
+                <LinkIcon className="size-4" />
+                <FormattedMessage id="overviewView.revokeLink" defaultMessage="Revoke link" />
+              </DropdownMenuItem>
+            )}
+            {canKick && (
+              <DropdownMenuItem onSelect={() => onKick(member.pubkey)}>
+                <UserMinus className="size-4" />
+                <FormattedMessage id="overviewView.kick" defaultMessage="Kick" />
+              </DropdownMenuItem>
+            )}
+            {canBan && (
+              <>
+                {(canKick || revokeUrl) && <DropdownMenuSeparator />}
+                <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => onBan(member.pubkey)}>
+                  <Ban className="size-4" />
+                  <FormattedMessage id="overviewView.ban" defaultMessage="Ban" />
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </SettingsRow>
   );
 }
 
-function InviteHint({ invite }: { invite: { creator: string; label?: string } }) {
+function warningsOf(intl: ReturnType<typeof useIntl>, member: NewMember): string[] {
+  const out: string[] = [];
+  if (member.afterBanMs !== undefined) {
+    out.push(member.afterBanMs < 60 * 60 * 1000
+      ? intl.formatMessage(
+          { id: "overviewView.afterBanMinutes", defaultMessage: "{count, plural, one {Joined # minute after a ban} other {Joined # minutes after a ban}}" },
+          { count: Math.max(1, Math.round(member.afterBanMs / 60_000)) },
+        )
+      : intl.formatMessage(
+          { id: "overviewView.afterBanHours", defaultMessage: "{count, plural, one {Joined # hour after a ban} other {Joined # hours after a ban}}" },
+          { count: Math.round(member.afterBanMs / 3_600_000) },
+        ));
+  }
+  if (member.sameLinkAsBanned) {
+    out.push(intl.formatMessage({ id: "overviewView.sameLink", defaultMessage: "Same invite link as a banned member" }));
+  }
+  return out;
+}
+
+function InviteText({ invite }: { invite: { creator: string; label?: string } }) {
   const author = useAuthor(invite.creator);
   const creator = useScopedDisplayName(invite.creator, author.data?.metadata);
-  return (
-    <Hint>
-      <LinkIcon className="size-3" />
-      {invite.label ? (
-        <FormattedMessage
-          id="overviewView.viaLabel"
-          defaultMessage="Via “{label}” by {creator}"
-          values={{ label: invite.label, creator: <DisplayName pubkey={invite.creator} name={creator} /> }}
-        />
-      ) : (
-        <FormattedMessage
-          id="overviewView.viaCreator"
-          defaultMessage="Via a link by {creator}"
-          values={{ creator: <DisplayName pubkey={invite.creator} name={creator} /> }}
-        />
-      )}
-    </Hint>
+  const name = <DisplayName pubkey={invite.creator} name={creator} />;
+  return invite.label ? (
+    <FormattedMessage id="overviewView.viaLabelInline" defaultMessage="via “{label}” by {creator}" values={{ label: invite.label, creator: name }} />
+  ) : (
+    <FormattedMessage id="overviewView.viaCreatorInline" defaultMessage="via a link by {creator}" values={{ creator: name }} />
   );
 }
 
@@ -357,31 +398,4 @@ function useJoinLinkRevoker(community: Community) {
     [revokeLink, revokeWouldPrivatize],
   );
   return { urlFor, revoke, isRevoking };
-}
-
-function RevokeJoinLink({ url, revoke, busy }: { url: string | undefined; revoke: (url: string) => Promise<boolean>; busy: boolean }) {
-  if (!url) return null;
-
-  const onClick = async () => {
-    try {
-      if (!(await revoke(url))) return;
-      toast({
-        title: t({ id: "overviewView.revoked", defaultMessage: "Invite link revoked" }),
-        description: t({ id: "overviewView.revokedDescription", defaultMessage: "It can no longer be used to join." }),
-      });
-    } catch (e) {
-      toast({
-        title: t({ id: "overviewView.revokeFailed", defaultMessage: "Couldn't revoke the link" }),
-        description: e instanceof Error ? e.message : undefined,
-        variant: "destructive",
-      });
-    }
-  };
-
-  return (
-    <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onClick()}>
-      <LinkIcon className="size-3.5" />
-      <FormattedMessage id="overviewView.revokeLink" defaultMessage="Revoke link" />
-    </Button>
-  );
 }

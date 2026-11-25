@@ -1,4 +1,4 @@
-import { Braces, Check, Copy, Globe, Link as LinkIcon, Loader2, Lock, Megaphone, TriangleAlert } from "lucide-react";
+import { Braces, Check, Copy, Globe, Loader2, Lock, Megaphone, TriangleAlert } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { UserAvatar } from "@/components/UserAvatar";
@@ -177,16 +177,9 @@ export function InvitesView({ community }: { community: Community }) {
   };
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6 px-3 py-4">
-      <div className="flex items-center gap-2">
-        <LinkIcon className="size-5 text-primary" />
-        <h2 className="text-lg font-semibold">
-          <FormattedMessage id="invitesView.title" defaultMessage="Invite links" />
-        </h2>
-      </div>
-
+    <div className="space-y-6">
       <section
-        className={`flex items-start gap-3 rounded-md px-3 py-3 text-sm ${
+        className={`flex items-start gap-3 clip-corner-lg px-4 py-3 text-sm ${
           isPublic ? "bg-primary/10" : "bg-foreground/5"
         }`}
       >
@@ -239,11 +232,11 @@ export function InvitesView({ community }: { community: Community }) {
       />
 
       <section className="space-y-2">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <h3 className="px-4 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
           <FormattedMessage id="invitesView.yourLiveLinks" defaultMessage="Your live links" />
         </h3>
         {myLinks.length === 0 && orphanCount === 0 && (
-          <p className="text-sm text-muted-foreground">
+          <p className="bg-chrome clip-corner-lg px-4 py-3 text-sm text-muted-foreground">
             <FormattedMessage
               id="invitesView.noLinks"
               defaultMessage="You haven't created any invite links for this community."
@@ -251,13 +244,13 @@ export function InvitesView({ community }: { community: Community }) {
           </p>
         )}
         {myLinks.length > 0 && (
-          <ul className="space-y-1.5">
+          <ul className="bg-chrome clip-corner-lg overflow-hidden [&>*]:border-chrome [&>*:not(:first-child)]:border-t">
             {myLinks.map((e) => {
               // Undefined while loading or unfetchable: treat as up to date.
               const servedEpoch = linkEpochs?.[e.token];
               const behind = servedEpoch !== undefined && servedEpoch < epoch;
               return (
-              <li key={e.token} className="space-y-1 rounded-md bg-foreground/5 px-3 py-2">
+              <li key={e.token} className="space-y-1 px-4 py-3">
                 <div className="flex items-center gap-2">
                   <Input
                     readOnly
@@ -268,7 +261,7 @@ export function InvitesView({ community }: { community: Community }) {
                   <Button
                     type="button"
                     size="icon"
-                    variant="outline"
+                    variant="secondary"
                     className="shrink-0"
                     aria-label={intl.formatMessage({ id: "invitesView.viewLinkDetails", defaultMessage: "View link details" })}
                     onClick={() => setInspecting(e)}
@@ -278,7 +271,7 @@ export function InvitesView({ community }: { community: Community }) {
                   <Button
                     type="button"
                     size="icon"
-                    variant="outline"
+                    variant="secondary"
                     className="shrink-0"
                     aria-label={intl.formatMessage(common.copyLink)}
                     onClick={() => handleCopy(e.url)}
@@ -382,7 +375,7 @@ export function InvitesView({ community }: { community: Community }) {
           <Button
             type="button"
             size="sm"
-            variant="outline"
+            variant="secondary"
             className="text-destructive hover:text-destructive"
             disabled={isRevokingAll}
             onClick={() => setRevokeAllOpen(true)}
@@ -404,21 +397,21 @@ export function InvitesView({ community }: { community: Community }) {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <h3 className="px-4 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
           <FormattedMessage id="invitesView.allLinks" defaultMessage="All invite links in this community" />
         </h3>
-        <p className="text-xs text-muted-foreground">
+        <p className="px-4 text-xs leading-snug text-muted-foreground">
           <FormattedMessage
             id="invitesView.allLinksDescription"
             defaultMessage="Every member who has live invite links, and how many. Only a link's creator can see its URL. This list shows who invited and how many links they hold."
           />
         </p>
         {registry.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="bg-chrome clip-corner-lg px-4 py-3 text-sm text-muted-foreground">
             <FormattedMessage id="invitesView.noLiveLinks" defaultMessage="No live invite links." />
           </p>
         ) : (
-          <ul className="space-y-1.5">
+          <ul className="bg-chrome clip-corner-lg overflow-hidden [&>*]:border-chrome [&>*:not(:first-child)]:border-t">
             {registry.map((r) => (
               <RegistryRow
                 key={r.creator}
@@ -554,7 +547,7 @@ function RegistryRow({
   const name = useScopedDisplayName(creator, author.data?.metadata);
   const isOwner = creator === community.owner;
   return (
-    <li className="flex items-center gap-2.5 rounded-md bg-foreground/5 px-3 py-2 text-sm">
+    <li className="flex items-center gap-2.5 px-4 py-3 text-sm">
       <UserAvatar pubkey={creator} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} className="size-6 shrink-0" fallbackClassName="text-3xs" />
       <span className="min-w-0 flex-1 truncate font-medium">
         <DisplayName pubkey={creator} name={name} />
@@ -565,7 +558,7 @@ function RegistryRow({
         </Badge>
       )}
       {mine && (
-        <Badge variant="outline" className="px-1.5 py-0 text-3xs">
+        <Badge variant="secondary" className="px-1.5 py-0 text-3xs">
           <FormattedMessage id="invitesView.you" defaultMessage="You" />
         </Badge>
       )}
@@ -637,27 +630,27 @@ function DiscoverListingsSection({
 
   return (
     <section className="space-y-2">
-      <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+      <h3 className="px-4 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
         <FormattedMessage id="invitesView.discoverListings" defaultMessage="Discover listings" />
       </h3>
       {loading ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <p className="flex items-center gap-2 bg-chrome clip-corner-lg px-4 py-3 text-sm text-muted-foreground">
           <Loader2 className="size-3.5 animate-spin" />{" "}
           <FormattedMessage id="invitesView.checkingDiscover" defaultMessage="Checking Discover…" />
         </p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="bg-chrome clip-corner-lg px-4 py-3 text-sm text-muted-foreground">
           <FormattedMessage id="invitesView.notListed" defaultMessage="This community isn't listed on Discover." />
         </p>
       ) : (
         <>
-          <p className="text-xs text-muted-foreground">
+          <p className="px-4 text-xs leading-snug text-muted-foreground">
             <FormattedMessage
               id="invitesView.listingsDescription"
               defaultMessage="Public posts of this community's invite links. Anyone browsing Discover can use them to join."
             />
           </p>
-          <ul className="space-y-1.5">
+          <ul className="bg-chrome clip-corner-lg overflow-hidden [&>*]:border-chrome [&>*:not(:first-child)]:border-t">
             {rows.map(({ key, copies, newest }) => {
               const mine = !!user && newest.source.pubkey === user.pubkey;
               const myUrl = myLinkSigners.has(newest.linkSigner) ? myUrlFor(newest.linkSigner) : undefined;
@@ -725,7 +718,7 @@ function ListingRow({
   const creatorName = useScopedDisplayName(linkCreator, creatorProfile.data?.metadata);
   const intl = useIntl();
   return (
-    <li className="flex items-center gap-2.5 rounded-md bg-foreground/5 px-3 py-2 text-sm">
+    <li className="flex items-center gap-2.5 px-4 py-3 text-sm">
       <UserAvatar pubkey={author} metadata={profile.data?.metadata} imeta={profile.data?.imeta?.picture} name={name} className="size-6 shrink-0" fallbackClassName="text-3xs" />
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">

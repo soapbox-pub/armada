@@ -69,7 +69,7 @@ function MemberNames({ members }: { members: MemberGrant[] }) {
 /** Role management. Each save is a version-chained Role (vsk 1) edition; folds re-check MANAGE_ROLES + strict outrank (CORD-04). */
 export function RolesView({ community }: { community: Community }) {
   return (
-    <div className="mx-auto w-full max-w-2xl p-4">
+    <div className="w-full">
       <RolesBody community={community} />
     </div>
   );

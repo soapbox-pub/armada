@@ -1,18 +1,21 @@
-import { Ban, Loader2, ShieldOff } from "lucide-react";
+import { Loader2, ShieldOff } from "lucide-react";
 import { useState } from "react";
 
+import { DisplayName } from "@/components/DisplayName";
+import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { useModeration } from "@/concord/hooks/useModeration";
 import type { Community } from "@/concord/lib/types";
-import { DisplayName } from "@/components/DisplayName";
 import { useAuthor } from "@/hooks/useAuthor";
 import { useScopedDisplayName } from "@/hooks/useScopedDisplayName";
 import { toast } from "@/hooks/useToast";
-import { FormattedMessage, t } from "@/i18n";
+import { FormattedMessage, t, useIntl } from "@/i18n";
+import { tryNpubEncode } from "@/lib/safeNip19";
 
 /** CORD-04 §4 banlist; the ONLY unban surface since the roster fold hides banned members. */
 export function BannedView({ community }: { community: Community }) {
+  const intl = useIntl();
   const { banned, unban, canBan } = useModeration(community, []);
   const [pending, setPending] = useState<string | null>(null);
 
@@ -38,32 +41,28 @@ export function BannedView({ community }: { community: Community }) {
   const list = [...banned].sort();
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-4 p-4">
-      <p className="text-sm text-muted-foreground">
-        <FormattedMessage
-          id="bannedView.intro"
-          defaultMessage="Banned members are silenced and hidden for everyone in this community. Unbanning lets them take part again."
-        />
-      </p>
+    <SettingsGroup
+      title={intl.formatMessage({ id: "bannedView.title", defaultMessage: "Banned" })}
+      footer={intl.formatMessage({ id: "bannedView.intro", defaultMessage: "Banned members are silenced and hidden for everyone in this community. Unbanning lets them take part again." })}
+    >
       {list.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-md bg-foreground/5 px-4 py-8 text-sm text-muted-foreground">
-          <Ban className="size-5" />
-          <FormattedMessage id="bannedView.empty" defaultMessage="Nobody is banned." />
-        </div>
+        <SettingsRow>
+          <p className="text-sm text-muted-foreground">
+            <FormattedMessage id="bannedView.empty" defaultMessage="Nobody is banned." />
+          </p>
+        </SettingsRow>
       ) : (
-        <ul className="space-y-1.5">
-          {list.map((pubkey) => (
-            <BannedRow
-              key={pubkey}
-              pubkey={pubkey}
-              canUnban={canBan(pubkey)}
-              busy={pending === pubkey}
-              onUnban={() => handleUnban(pubkey)}
-            />
-          ))}
-        </ul>
+        list.map((pubkey) => (
+          <BannedRow
+            key={pubkey}
+            pubkey={pubkey}
+            canUnban={canBan(pubkey)}
+            busy={pending === pubkey}
+            onUnban={() => void handleUnban(pubkey)}
+          />
+        ))
       )}
-    </div>
+    </SettingsGroup>
   );
 }
 
@@ -80,18 +79,24 @@ function BannedRow({
 }) {
   const author = useAuthor(pubkey);
   const name = useScopedDisplayName(pubkey, author.data?.metadata);
+  const npub = tryNpubEncode(pubkey);
   return (
-    <li className="flex items-center gap-2.5 rounded-md bg-foreground/5 px-3 py-2 text-sm">
-      <UserAvatar pubkey={pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} className="size-6 shrink-0" fallbackClassName="bg-destructive/20 text-3xs text-destructive" />
-      <span className="min-w-0 flex-1 truncate font-medium">
-        <DisplayName pubkey={pubkey} name={name} />
-      </span>
+    <SettingsRow className="flex items-center gap-3">
+      <UserAvatar pubkey={pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} className="size-8 shrink-0" fallbackClassName="text-xs" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium leading-tight">
+          <DisplayName pubkey={pubkey} name={name} />
+        </div>
+        <div className="truncate font-mono text-xs text-muted-foreground">
+          {npub ? `${npub.slice(0, 12)}…${npub.slice(-6)}` : pubkey.slice(0, 16)}
+        </div>
+      </div>
       {canUnban && (
-        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onUnban}>
+        <Button type="button" size="sm" variant="secondary" className="clip-corner-lg h-8 shrink-0" disabled={busy} onClick={onUnban}>
           {busy ? <Loader2 className="size-3.5 animate-spin" /> : <ShieldOff className="size-3.5" />}
           <FormattedMessage id="bannedView.unban" defaultMessage="Unban" />
         </Button>
       )}
-    </li>
+    </SettingsRow>
   );
 }

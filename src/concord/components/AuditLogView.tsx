@@ -1,4 +1,4 @@
-import { Braces, CheckCircle2, Clock3, ScrollText, XCircle } from "lucide-react";
+import { Braces, CheckCircle2, Clock3, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { EventJsonDialog } from "@/components/EventJsonDialog";
@@ -67,11 +67,7 @@ export function AuditLogView({ community }: { community: Community }) {
   }, [control.data, folded, intl]);
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-3 py-4">
-      <div className="mb-3 flex items-center gap-2">
-        <ScrollText className="size-5 text-primary" />
-        <h2 className="text-lg font-semibold"><FormattedMessage id="auditLogView.title" defaultMessage="Audit log" /></h2>
-      </div>
+    <div className="w-full">
       <p className="mb-4 text-sm text-muted-foreground">
         <FormattedMessage
           id="auditLogView.intro"
@@ -83,7 +79,7 @@ export function AuditLogView({ community }: { community: Community }) {
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground"><FormattedMessage id="auditLogView.empty" defaultMessage="No control-plane actions yet." /></p>
       ) : (
-        <ol className="space-y-2">
+        <ol className="bg-chrome clip-corner-lg overflow-hidden [&>*]:border-chrome [&>*:not(:first-child)]:border-t">
           {rows.map((row) => (
             <AuditRowItem key={row.key} row={row} community={community} />
           ))}
@@ -125,7 +121,7 @@ function AuditRowItem({ row, community }: { row: AuditRow; community: Community 
 
   const item = (
     <li
-      className="flex items-start gap-2.5 rounded-md bg-foreground/5 px-3 py-2 text-sm"
+      className="flex items-start gap-2.5 px-4 py-3 text-sm"
       {...(isTouch ? longPress : {})}
     >
       <UserAvatar pubkey={row.author} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={actorName} className="mt-0.5 size-6 shrink-0" fallbackClassName="text-3xs" />

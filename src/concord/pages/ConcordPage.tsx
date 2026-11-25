@@ -66,8 +66,8 @@ import { ShareToDiscoverDialog } from "@/concord/components/ShareToDiscoverDialo
 import { CommunityDiscoverDialog } from "@/concord/components/CommunityDiscoverDialog";
 import { ModerationView } from "@/concord/components/ModerationView";
 import { OverviewView } from "@/concord/components/OverviewView";
+import { ApprovalGateSection } from "@/concord/components/ApprovalGateSection";
 import {
-  MODERATION_TABS,
   firstModerationPane,
   managedPaneOf,
   type ModerationAccess,
@@ -261,7 +261,15 @@ const NO_POSTS: ForumPost[] = [];
 /** Community-wide panes outside Manage community; `banned` and `suspicious` open its Safety tab. */
 type OtherPane = Exclude<Concord2Pane, ModerationPane | "banned" | "suspicious">;
 
-/** Header names (formatted on read) for {@link OtherPane}s (Manage community's use `MODERATION_TABS`). */
+/** One header for every Manage community section; the section is named on the page. */
+const MANAGE_HEADER: { icon: LucideIcon; readonly label: string } = {
+  icon: Settings,
+  get label() {
+    return t({ id: "concordPage.communityMenu.manage", defaultMessage: "Manage community" });
+  },
+};
+
+/** Header names (formatted on read) for {@link OtherPane}s. */
 const PANE_HEADERS: Record<
   OtherPane,
   { icon: LucideIcon; readonly label: string }
@@ -1494,7 +1502,7 @@ function ConcordCommunityPage() {
   const view: "channel" | Concord2Pane = routePane ?? "channel";
   const managedPane = managedPaneOf(view);
   const paneHeader =
-    view === "channel" ? null : managedPane ? MODERATION_TABS[managedPane] : PANE_HEADERS[view as OtherPane];
+    view === "channel" ? null : managedPane ? MANAGE_HEADER : PANE_HEADERS[view as OtherPane];
   const selectChannel = useCallback(
     (idHex: string) => {
       if (!communityId) return;
@@ -1780,7 +1788,8 @@ function ConcordCommunityPage() {
   // Settings, audit log and invite links are open to every member, so "Manage community" always shows.
   const moderationAccess: ModerationAccess = useMemo(
     () => ({
-      overview: canKickAny || canBanAny || canReadReports,
+      // Manage Roles is who approves members while approval to post is on.
+      overview: canKickAny || canBanAny || canReadReports || canManageRoles,
       settings: true,
       members: canManageRoles || canKickAny || canBanAny || canCreateInvite,
       roles: canManageRoles && !dissolved,
@@ -3957,17 +3966,26 @@ function ConcordCommunityPage() {
                           </Suspense>
                         )
                       }
-                      suspicious={
+                      safety={
                         managedPane === "safety" && (
-                          <SuspiciousActivityView
-                            community={community}
-                            channels={channels}
-                            folded={folded}
-                            ban={moderation.ban}
-                            kick={(target) => moderation.kick({ target })}
-                            canBan={moderation.canBan}
-                            canKick={moderation.canKick}
-                          />
+                          <>
+                            <ApprovalGateSection
+                              community={community}
+                              folded={folded}
+                              channels={channels}
+                              members={memberPubkeys}
+                              observed={observed}
+                            />
+                            <SuspiciousActivityView
+                              community={community}
+                              channels={channels}
+                              folded={folded}
+                              ban={moderation.ban}
+                              kick={(target) => moderation.kick({ target })}
+                              canBan={moderation.canBan}
+                              canKick={moderation.canKick}
+                            />
+                          </>
                         )
                       }
                     />

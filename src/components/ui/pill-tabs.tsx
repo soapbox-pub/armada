@@ -26,8 +26,12 @@ export function PillTabs<T extends string>({
   onChange: (id: T) => void;
   className?: string;
   iconClassName?: string;
-  /** "always": every pill keeps its label, for short strips with room to spare. */
-  labels?: "responsive" | "always";
+  /**
+   * "always": every pill keeps its label, for short strips with room to spare.
+   * "icons": below `sm` no pill shows its label, the active one included, for strips
+   * too long to fit one on a phone; the page names the open tab itself.
+   */
+  labels?: "responsive" | "always" | "icons";
   /** Every pill takes an equal share of a full-width strip, label always shown. */
   fill?: boolean;
 }) {
@@ -43,6 +47,7 @@ export function PillTabs<T extends string>({
         const Icon = t.icon;
         const isActive = value === t.id;
         const fixed = fill || labels === "always";
+        const iconsOnPhone = labels === "icons";
         return (
           <button
             key={t.id}
@@ -57,7 +62,7 @@ export function PillTabs<T extends string>({
               fixed ? "transition-colors" : "transition-all duration-200 ease-out motion-reduce:transition-none",
               !fill && fixed && "flex-none px-3",
               isActive
-                ? cn("bg-primary font-medium text-primary-foreground", !fixed && "flex-1 sm:flex-none")
+                ? cn("bg-primary font-medium text-primary-foreground", !fixed && (iconsOnPhone ? "flex-none" : "flex-1 sm:flex-none"))
                 : cn("text-muted-foreground hover:bg-foreground/5 hover:text-foreground", !fill && "flex-none"),
             )}
           >
@@ -68,7 +73,7 @@ export function PillTabs<T extends string>({
               <span
                 className={cn(
                   "grid transition-[grid-template-columns] duration-200 ease-out motion-reduce:transition-none",
-                  isActive ? "grid-cols-[1fr]" : "grid-cols-[0fr] sm:grid-cols-[1fr]",
+                  isActive && !iconsOnPhone ? "grid-cols-[1fr]" : "grid-cols-[0fr] sm:grid-cols-[1fr]",
                 )}
               >
                 <span className="overflow-hidden whitespace-nowrap pl-1.5">{t.label}</span>

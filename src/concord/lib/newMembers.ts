@@ -38,8 +38,12 @@ export function newMembersToReview(input: {
   self?: string;
   nowMs: number;
   reviewed: (pubkey: string, joinedMs: number) => boolean;
+  /** How far back a Join counts; {@link REVIEW_WINDOW_MS} unless given. */
+  windowMs?: number;
+  /** Only these members, when given (the approval queue). */
+  include?: (pubkey: string) => boolean;
 }): NewMember[] {
-  const { coalesced, guestbook, banned, bannedAt, ownerHex, self, nowMs, reviewed } = input;
+  const { coalesced, guestbook, banned, bannedAt, ownerHex, self, nowMs, reviewed, windowMs = REVIEW_WINDOW_MS, include } = input;
 
   // Only a labelled link: one owner's unlabelled default would flag everyone who used it.
   const bannedLinks = new Set<string>();
@@ -54,7 +58,8 @@ export function newMembersToReview(input: {
   for (const m of coalesced.values()) {
     if (m.state !== "join" || m.fromSnapshot) continue;
     if (m.pubkey === ownerHex || m.pubkey === self || banned.has(m.pubkey)) continue;
-    if (m.ms < nowMs - REVIEW_WINDOW_MS || m.ms > nowMs + AFTER_BAN_MS) continue;
+    if (m.ms < nowMs - windowMs || m.ms > nowMs + AFTER_BAN_MS) continue;
+    if (include && !include(m.pubkey)) continue;
     if (reviewed(m.pubkey, m.ms)) continue;
     let lastBan: number | undefined;
     for (const at of banTimes) {

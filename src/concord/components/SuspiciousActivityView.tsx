@@ -1,8 +1,9 @@
-import { Ban, Clock, Copy, Loader2, Shield, UserMinus } from "lucide-react";
+import { Ban, Clock, Copy, Loader2, ShieldCheck, UserMinus } from "lucide-react";
 import { useState } from "react";
 import { nip19 } from "nostr-tools";
 
 import { DisplayName } from "@/components/DisplayName";
+import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { useSuspiciousActivity } from "@/concord/hooks/useSuspiciousActivity";
@@ -242,26 +243,17 @@ export function SuspiciousActivityView({
   const nothing = !alert && travelers.length === 0;
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6 p-4">
-      <div className="flex items-center gap-2">
-        <Shield className="size-5 text-destructive" />
-        <h2 className="text-lg font-semibold">
-          <FormattedMessage id="suspiciousActivityView.title" defaultMessage="Suspicious activity" />
-        </h2>
-      </div>
-
+    <SettingsGroup title={intl.formatMessage({ id: "suspiciousActivityView.title", defaultMessage: "Suspicious activity" })}>
       {nothing ? (
-        <div className="flex flex-col items-center gap-2 rounded-lg bg-foreground/5 px-4 py-12 text-center text-sm text-muted-foreground">
-          <Shield className="size-8 opacity-40" />
-          <p className="max-w-sm">
-            <FormattedMessage
-              id="suspiciousActivityView.allClear"
-              defaultMessage="All clear. Members acting without permission, or arriving from the future with a badly wrong clock, show up here."
-            />
-          </p>
-        </div>
+        <SettingsRow
+          icon={ShieldCheck}
+          tone="success"
+          label={intl.formatMessage({ id: "suspiciousActivityView.clearLabel", defaultMessage: "All clear" })}
+          description={intl.formatMessage({ id: "suspiciousActivityView.clearHint", defaultMessage: "Members acting without permission, or with a badly wrong clock, would show up here." })}
+        />
       ) : (
-        <>
+        <SettingsRow>
+        <div className="space-y-6">
           {alert ? (
             <section className="space-y-3">
               {flooded ? (
@@ -377,8 +369,9 @@ export function SuspiciousActivityView({
               </ul>
             </section>
           ) : null}
-        </>
+        </div>
+        </SettingsRow>
       )}
-    </div>
+    </SettingsGroup>
   );
 }

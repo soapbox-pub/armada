@@ -48,6 +48,7 @@ import { shortTimeAgoPhrase } from "@/lib/formatTime";
 import { toast } from "@/hooks/useToast";
 import { useEventStore } from "@/hooks/useEventStore";
 import { defineMessages, FormattedMessage, t, useIntl } from "@/i18n";
+import { cn } from "@/lib/utils";
 
 /** Render cap before "Show all" (slicing, not virtualization). */
 const RENDER_CAP = 150;
@@ -342,7 +343,6 @@ export function MembersView({
     for (const r of listRows) if (r.invite) set.add(r.invite.creator);
     return [...set].sort();
   }, [listRows]);
-  const memberCount = allRows.length - omittedCount;
   const behindCount = allRows.filter((r) => r.behind && !r.omitted).length;
   const roles = useMemo(
     () => [...(folded?.roster.roles ?? [])].sort((a, b) => a.position - b.position),
@@ -364,15 +364,7 @@ export function MembersView({
   }, []);
 
   return (
-    <div ref={containerRef} className="mx-auto w-full max-w-3xl space-y-4 p-4 pb-24">
-      <div className="flex items-center gap-2">
-        <Users className="size-5 text-primary" />
-        <h2 className="text-lg font-semibold">
-          <FormattedMessage id="membersView.title" defaultMessage="Members" />
-        </h2>
-        <span className="text-sm text-muted-foreground">{memberCount}</span>
-      </div>
-
+    <div ref={containerRef} className="space-y-4">
       {canModerate && omittedCount > 0 && (
         <button
           type="button"
@@ -526,7 +518,7 @@ export function MembersView({
       )}
 
       {visible.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-md bg-foreground/5 px-4 py-8 text-sm text-muted-foreground">
+        <div className="flex flex-col items-center gap-2 bg-chrome clip-corner-lg px-4 py-8 text-sm text-muted-foreground">
           <Users className="size-5" />
           {listRows.length === 0 ? (
             <FormattedMessage id="membersView.noneObserved" defaultMessage="No members observed yet." />
@@ -535,7 +527,7 @@ export function MembersView({
           )}
         </div>
       ) : (
-        <ul className="space-y-1.5">
+        <ul className="bg-chrome clip-corner-lg overflow-hidden [&>*]:border-chrome [&>*:not(:first-child)]:border-t">
           {visible.map((row) => (
             <MemberRow
               key={row.pubkey}
@@ -554,7 +546,7 @@ export function MembersView({
       )}
 
       {!showAll && rows.length > RENDER_CAP && (
-        <Button type="button" variant="outline" className="w-full" onClick={() => setShowAll(true)}>
+        <Button type="button" variant="secondary" className="w-full clip-corner-lg" onClick={() => setShowAll(true)}>
           <FormattedMessage id="membersView.showAllCount" defaultMessage="Show all {count}" values={{ count: rows.length }} />
         </Button>
       )}
@@ -764,15 +756,13 @@ function MemberRow({
 
   return (
     <li
-      className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
+      className={cn(
+        "flex items-center gap-3 px-4 py-2.5 text-sm transition-colors",
         row.suspicious
-          ? selected
-            ? "bg-destructive/25"
-            : "bg-destructive/10"
-          : selected
-            ? "bg-primary/10"
-            : "bg-foreground/5"
-      } ${selectable ? "cursor-pointer select-none" : ""}`}
+          ? selected ? "bg-destructive/25" : "bg-destructive/10"
+          : selected ? "bg-primary/10" : selectable && "hover:bg-accent/40",
+        selectable && "cursor-pointer select-none",
+      )}
       onClick={selectable ? (e) => onToggle(e.shiftKey) : undefined}
       onMouseDown={selectable ? (e) => e.shiftKey && e.preventDefault() : undefined}
     >
@@ -787,23 +777,107 @@ function MemberRow({
           aria-label={intl.formatMessage({ id: "membersView.selectMember", defaultMessage: "Select {name}" }, { name })}
         />
       )}
-      <UserAvatar pubkey={row.pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} className="size-6 shrink-0" fallbackClassName="text-3xs" />
-      {/* flex-auto, not flex-1: with basis 0% the chips would crush the name. */}
-      <span className="min-w-0 flex-auto truncate font-medium">
-        <DisplayName pubkey={row.pubkey} name={name} />
-        {row.isSelf && <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-            <FormattedMessage id="membersView.you" defaultMessage="(you)" />
-          </span>}
-      </span>
+      <UserAvatar pubkey={row.pubkey} metadata={author.data?.metadata} imeta={author.data?.imeta?.picture} name={name} className="size-8 shrink-0" fallbackClassName="text-xs" />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate font-medium leading-tight">
+            <DisplayName pubkey={row.pubkey} name={name} />
+            {row.isSelf && (
+              <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                <FormattedMessage id="membersView.you" defaultMessage="(you)" />
+              </span>
+            )}
+          </span>
+          <MemberBadges row={row} badge={badge} roleNames={roleNames} suspicion={suspicion} />
+        </div>
+        {density !== "minimal" && <MemberDetails row={row} full={density === "full"} />}
+      </div>
 
+      {row.omitted && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-3xs font-medium text-warning">
+              <UserX className="size-3" />
+              <FormattedMessage id="membersView.omittedChip" defaultMessage="left out" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-52 text-xs">
+            <FormattedMessage
+              id="membersView.omittedTooltip"
+              defaultMessage="Joined before the last key rotation and isn't on its member list, so they were never given the keys the community uses now. Whoever rotated the keys can select them and use Send keys to bring them back."
+            />
+          </TooltipContent>
+        </Tooltip>
+      )}
+      {row.behind && !row.omitted && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-3xs font-medium text-warning">
+              <TriangleAlert className="size-3" />
+              <FormattedMessage id="membersView.epochChip" defaultMessage="epoch {epoch}" values={{ epoch: row.epoch?.toString() }} />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-52 text-xs">
+            <FormattedMessage
+              id="membersView.behindTooltip"
+              defaultMessage="Last seen posting under epoch {epoch}, but the community is on {current}. Whoever rotated the keys can select them and use Send keys to catch them up."
+              values={{ epoch: row.epoch?.toString(), current: currentEpoch.toString() }}
+            />
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </li>
+  );
+}
+
+/** Owner, Admin/Mod and Suspicious, beside the name. */
+function MemberBadges({
+  row,
+  badge,
+  roleNames,
+  suspicion,
+}: {
+  row: MemberDirectoryRow;
+  badge: "admin" | "moderator" | undefined;
+  roleNames: string[];
+  suspicion: SuspiciousActor | undefined;
+}) {
+  return (
+    <>
+      {row.isOwner && (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-3xs font-medium text-amber-500">
+          <Crown className="size-3" />
+          <FormattedMessage id="membersView.owner" defaultMessage="Owner" />
+        </span>
+      )}
+      {!row.isOwner && badge && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-3xs font-medium",
+                badge === "admin" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground",
+              )}
+            >
+              <Shield className="size-3" />
+              {badge === "admin" ? (
+                <FormattedMessage id="membersView.admin" defaultMessage="Admin" />
+              ) : (
+                <FormattedMessage id="membersView.mod" defaultMessage="Mod" />
+              )}
+            </span>
+          </TooltipTrigger>
+          {roleNames.length > 0 && (
+            <TooltipContent className="max-w-52 text-xs">{roleNames.join(", ")}</TooltipContent>
+          )}
+        </Tooltip>
+      )}
       {suspicion && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="inline-flex min-w-0 shrink items-center gap-1 rounded-full bg-destructive/15 px-1.5 py-0.5 text-3xs font-medium text-destructive">
-              <ShieldAlert className="size-3 shrink-0" />
-              <span className="truncate">
-                <FormattedMessage id="membersView.suspicious" defaultMessage="Suspicious" />
-              </span>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive/15 px-1.5 py-0.5 text-3xs font-medium text-destructive">
+              <ShieldAlert className="size-3" />
+              <FormattedMessage id="membersView.suspicious" defaultMessage="Suspicious" />
             </span>
           </TooltipTrigger>
           <TooltipContent className="max-w-60 text-xs">
@@ -815,43 +889,23 @@ function MemberRow({
           </TooltipContent>
         </Tooltip>
       )}
-      {row.isOwner && (
-        <span className="inline-flex min-w-0 shrink items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-3xs font-medium text-amber-500">
-          <Crown className="size-3 shrink-0" />
-          <span className="truncate">
-            <FormattedMessage id="membersView.owner" defaultMessage="Owner" />
-          </span>
-        </span>
-      )}
-      {!row.isOwner && badge && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className={`inline-flex min-w-0 shrink items-center gap-1 rounded-full px-1.5 py-0.5 text-3xs font-medium ${
-                badge === "admin" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
-              }`}
-            >
-              <Shield className="size-3 shrink-0" />
-              <span className="truncate">
-                {badge === "admin" ? (
-                  <FormattedMessage id="membersView.admin" defaultMessage="Admin" />
-                ) : (
-                  <FormattedMessage id="membersView.mod" defaultMessage="Mod" />
-                )}
-              </span>
-            </span>
-          </TooltipTrigger>
-          {roleNames.length > 0 && (
-            <TooltipContent className="max-w-52 text-xs">{roleNames.join(", ")}</TooltipContent>
-          )}
-        </Tooltip>
-      )}
+    </>
+  );
+}
 
-      {/* Chips shrink before the name (flex, not breakpoints). */}
-      {density === "full" && (
+/**
+ * The muted line under a member's name: when they joined, who invited them and when
+ * they were last seen, joined by dots. `first-letter` capitalizes the line, so the
+ * lowercase fragments the catalogs hold read as a sentence.
+ */
+function MemberDetails({ row, full }: { row: MemberDirectoryRow; full: boolean }) {
+  const intl = useIntl();
+  return (
+    <div className="truncate text-xs text-muted-foreground first-letter:uppercase">
+      {full && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="min-w-0 shrink-[3] truncate text-xs tabular-nums text-muted-foreground">
+            <span className="tabular-nums">
               {row.joinMs !== undefined ? (
                 <FormattedMessage
                   id="membersView.joinedAgo"
@@ -888,86 +942,50 @@ function MemberRow({
           </TooltipContent>
         </Tooltip>
       )}
-
-      {density === "full" && row.invite && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="min-w-0 shrink-[4] truncate text-xs text-muted-foreground">
-              <FormattedMessage
-                id="membersView.via"
-                defaultMessage="via {name}"
-                values={{ name: <InviterName pubkey={row.invite.creator} /> }}
-              />
-            </span>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-56 text-xs">
-            {row.invite.label ? (
-              <FormattedMessage
-                id="membersView.joinedThroughLabel"
-                defaultMessage={'Joined through the "{label}" invite link created by {name}.'}
-                values={{ label: row.invite.label, name: <InviterName pubkey={row.invite.creator} /> }}
-              />
-            ) : (
-              <FormattedMessage
-                id="membersView.joinedThrough"
-                defaultMessage="Joined through an invite link created by {name}."
-                values={{ name: <InviterName pubkey={row.invite.creator} /> }}
-              />
-            )}
-          </TooltipContent>
-        </Tooltip>
+      {full && row.invite && (
+        <>
+          {" · "}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <FormattedMessage
+                  id="membersView.via"
+                  defaultMessage="via {name}"
+                  values={{ name: <InviterName pubkey={row.invite.creator} /> }}
+                />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-56 text-xs">
+              {row.invite.label ? (
+                <FormattedMessage
+                  id="membersView.joinedThroughLabel"
+                  defaultMessage={'Joined through the "{label}" invite link created by {name}.'}
+                  values={{ label: row.invite.label, name: <InviterName pubkey={row.invite.creator} /> }}
+                />
+              ) : (
+                <FormattedMessage
+                  id="membersView.joinedThrough"
+                  defaultMessage="Joined through an invite link created by {name}."
+                  values={{ name: <InviterName pubkey={row.invite.creator} /> }}
+                />
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </>
       )}
-      {density !== "minimal" && (
-        <span
-          className="min-w-0 shrink-[2] truncate text-xs tabular-nums text-muted-foreground"
-          title={row.lastSeenMs > 0 ? new Date(row.lastSeenMs).toLocaleString(intl.locale) : undefined}
-        >
-          {row.lastSeenMs > 0 ? (
-            <FormattedMessage
-              id="membersView.seenAgo"
-              defaultMessage="seen {ago}"
-              values={{ ago: shortTimeAgoPhrase(Math.floor(row.lastSeenMs / 1000)) }}
-            />
-          ) : (
-            <FormattedMessage id="membersView.notSeen" defaultMessage="not seen" />
-          )}
-        </span>
-      )}
-
-      {row.omitted && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-3xs font-medium text-warning">
-              <UserX className="size-3" />
-              <FormattedMessage id="membersView.omittedChip" defaultMessage="left out" />
-            </span>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-52 text-xs">
-            <FormattedMessage
-              id="membersView.omittedTooltip"
-              defaultMessage="Joined before the last key rotation and isn't on its member list, so they were never given the keys the community uses now. Whoever rotated the keys can select them and use Send keys to bring them back."
-            />
-          </TooltipContent>
-        </Tooltip>
-      )}
-      {row.behind && !row.omitted && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-3xs font-medium text-warning">
-              <TriangleAlert className="size-3" />
-              <FormattedMessage id="membersView.epochChip" defaultMessage="epoch {epoch}" values={{ epoch: row.epoch?.toString() }} />
-            </span>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-52 text-xs">
-            <FormattedMessage
-              id="membersView.behindTooltip"
-              defaultMessage="Last seen posting under epoch {epoch}, but the community is on {current}. Whoever rotated the keys can select them and use Send keys to catch them up."
-              values={{ epoch: row.epoch?.toString(), current: currentEpoch.toString() }}
-            />
-          </TooltipContent>
-        </Tooltip>
-      )}
-    </li>
+      {full && " · "}
+      <span className="tabular-nums" title={row.lastSeenMs > 0 ? new Date(row.lastSeenMs).toLocaleString(intl.locale) : undefined}>
+        {row.lastSeenMs > 0 ? (
+          <FormattedMessage
+            id="membersView.seenAgo"
+            defaultMessage="seen {ago}"
+            values={{ ago: shortTimeAgoPhrase(Math.floor(row.lastSeenMs / 1000)) }}
+          />
+        ) : (
+          <FormattedMessage id="membersView.notSeen" defaultMessage="not seen" />
+        )}
+      </span>
+    </div>
   );
 }
 

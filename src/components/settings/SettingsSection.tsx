@@ -8,7 +8,7 @@ import { useIntl } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 import type { LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 /**
  * Settings primitives, laid out like a native settings app: a page is a stack
@@ -28,7 +28,7 @@ const TONE_CLASS: Record<SettingsTone, string> = {
   muted: "bg-muted-foreground/15 text-muted-foreground",
 };
 
-export function SettingsIcon({ icon: Icon, tone = "muted", className }: { icon: LucideIcon; tone?: SettingsTone; className?: string }) {
+export function SettingsIcon({ icon: Icon, tone = "muted", className }: { icon: LucideIcon | ComponentType<{ className?: string }>; tone?: SettingsTone; className?: string }) {
   return (
     <span className={cn("flex size-8 shrink-0 items-center justify-center clip-corner", TONE_CLASS[tone], className)}>
       <Icon className="size-[1.125rem]" />

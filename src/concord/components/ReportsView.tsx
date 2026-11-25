@@ -24,7 +24,7 @@ export function ReportsView({ community }: { community: Community }) {
   const { data: reports, isLoading } = useConcordReports(community);
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-4 p-4">
+    <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         <FormattedMessage
           id="reportsView.description"
@@ -37,12 +37,12 @@ export function ReportsView({ community }: { community: Community }) {
           <FormattedMessage id="reportsView.loading" defaultMessage="Loading reports…" />
         </div>
       ) : !reports || reports.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-md bg-foreground/5 px-4 py-8 text-sm text-muted-foreground">
+        <div className="flex flex-col items-center gap-2 bg-chrome clip-corner-lg px-4 py-8 text-sm text-muted-foreground">
           <Flag className="size-5" />
           <FormattedMessage id="reportsView.empty" defaultMessage="No reports." />
         </div>
       ) : (
-        <ul className="space-y-2">
+        <ul className="bg-chrome clip-corner-lg overflow-hidden [&>*]:border-chrome [&>*:not(:first-child)]:border-t">
           {reports.map((report) => (
             <ReportRow key={report.wrapId} report={report} />
           ))}
@@ -62,7 +62,7 @@ function ReportRow({ report }: { report: ReportEntry }) {
   const intl = useIntl();
 
   return (
-    <li className="space-y-2 rounded-md bg-foreground/5 px-3 py-2.5 text-sm">
+    <li className="space-y-2 px-4 py-3 text-sm">
       <div className="flex items-center gap-2.5">
         <UserAvatar pubkey={accused} metadata={accusedAuthor.data?.metadata} imeta={accusedAuthor.data?.imeta?.picture} name={accusedName} className="size-6 shrink-0" fallbackClassName="bg-destructive/20 text-3xs text-destructive" />
         <span className="min-w-0 flex-1 truncate font-medium">

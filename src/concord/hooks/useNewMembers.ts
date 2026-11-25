@@ -16,8 +16,18 @@ const reviewed = new KvPrefixCache<number>({ prefix: "member-review:" });
 
 const reviewId = (me: string, idHex: string, pk: string) => `${me}:${idHex}:${pk}`;
 
-/** The Overview's "New members" list, and a way to mark one as looked at on this device. */
-export function useNewMembers(community: Community | undefined, folded: FoldedControl | undefined): {
+const NONE: ReadonlySet<string> = new Set();
+
+/**
+ * The Overview's member lists: those waiting for approval (any age, while the gate is on)
+ * and the recent joins to look over, and a way to mark one as looked at on this device.
+ */
+export function useNewMembers(
+  community: Community | undefined,
+  folded: FoldedControl | undefined,
+  awaiting: ReadonlySet<string> = NONE,
+): {
+  pending: NewMember[];
   members: NewMember[];
   markReviewed: (member: NewMember) => void;
 } {
@@ -34,10 +44,10 @@ export function useNewMembers(community: Community | undefined, folded: FoldedCo
     return unsubscribe;
   }, []);
 
-  const members = useMemo(() => {
+  const { pending, members } = useMemo(() => {
     void revision;
-    if (!folded || !me || !idHex) return [];
-    return newMembersToReview({
+    if (!folded || !me || !idHex) return { pending: [], members: [] };
+    const base = {
       coalesced,
       guestbook: guestbook ?? [],
       banned: folded.banned,
@@ -45,9 +55,16 @@ export function useNewMembers(community: Community | undefined, folded: FoldedCo
       ownerHex: folded.ownerHex,
       self: me,
       nowMs: clockNowMs(),
-      reviewed: (pk, joinedMs) => reviewed.get(reviewId(me, idHex, pk)) === joinedMs,
-    });
-  }, [coalesced, guestbook, folded, me, idHex, revision]);
+    };
+    return {
+      pending: awaiting.size === 0 ? [] : newMembersToReview({ ...base, windowMs: Infinity, include: (pk) => awaiting.has(pk), reviewed: () => false }),
+      members: newMembersToReview({
+        ...base,
+        include: (pk) => !awaiting.has(pk),
+        reviewed: (pk, joinedMs) => reviewed.get(reviewId(me, idHex, pk)) === joinedMs,
+      }),
+    };
+  }, [coalesced, guestbook, folded, me, idHex, revision, awaiting]);
 
   const markReviewed = useCallback(
     (member: NewMember) => {
@@ -56,5 +73,5 @@ export function useNewMembers(community: Community | undefined, folded: FoldedCo
     [me, idHex],
   );
 
-  return { members, markReviewed };
+  return { pending, members, markReviewed };
 }
