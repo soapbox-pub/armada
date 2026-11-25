@@ -100,6 +100,7 @@ import { useDmTyping } from "@/hooks/useDmTyping";
 import { useIsTouch } from "@/hooks/useIsMobile";
 import { useDmCall } from "@/contexts/DmCallContext";
 import { useDmCallReach } from "@/hooks/useDmCallReach";
+import { useTypedRecently } from "@/hooks/useTypedRecently";
 import { useFollowSearch, useSearchProfiles, type SearchProfile } from "@/hooks/useSearchProfiles";
 import { dmReadKey, useReadState } from "@/hooks/useReadState";
 import { usePageCovered } from "@/lib/settingsOverlay";
@@ -865,6 +866,8 @@ const Conversation = memo(function Conversation({
     defaultMessage: "Message them before you call",
   });
   const callTooltip = peerCalling ? joinCallLabel : callBlocked ? callWarnTitle : startCallLabel;
+  // A ring can't be taken back, so a press mid-sentence is treated as a stray palm or key.
+  const typedRecently = useTypedRecently();
 
   // Before we join, a ringing offer is the only presence signal for a blind-broker room.
   const dmOthersInVoice = useMemo(
@@ -1031,13 +1034,12 @@ const Conversation = memo(function Conversation({
                       ? "text-muted-foreground opacity-50 hover:opacity-100"
                       : "text-muted-foreground hover:text-success",
                 )}
-                onClick={
-                  peerCalling
-                    ? () => acceptCall()
-                    : callBlocked
-                      ? () => setCallWarnOpen(true)
-                      : () => void startCall(peer)
-                }
+                onClick={() => {
+                  if (typedRecently()) return;
+                  if (peerCalling) acceptCall();
+                  else if (callBlocked) setCallWarnOpen(true);
+                  else void startCall(peer);
+                }}
               >
                 <Phone className="size-4" />
               </Button>
