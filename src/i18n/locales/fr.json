@@ -1217,6 +1217,7 @@
   "concordPage.communityMenu.manage": "Gérer la communauté",
   "concordPage.communityMenu.markAllRead": "Tout marquer comme lu",
   "concordPage.communityMenu.mute": "Couper les notifications de la communauté",
+  "concordPage.communityMenu.nickname": "Changer mon pseudo",
   "concordPage.communityMenu.remove": "Retirer la communauté",
   "concordPage.communityMenu.rotateKeys": "Renouveler les clés de la communauté",
   "concordPage.communityMenu.shareToDiscover": "Partager dans Découvrir",
