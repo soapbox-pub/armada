@@ -8,7 +8,7 @@ import type { NPool } from "@nostrify/nostrify";
 
 import { queryRelayStrict } from "@/concord/hooks/useChannelAccess";
 import { citationFor, foldStoredControl, publishEdition, withControlWrite } from "@/concord/hooks/useControlPlane";
-import { pastRootPlanes, privatePlanes, publishedHistory, withHistory, type HistoryPlane } from "@/concord/lib/channelHistory";
+import { pastRootPlanes, publishedHistory, withHistory, type HistoryPlane } from "@/concord/lib/channelHistory";
 import { buildChannelEdition, type FoldedControl } from "@/concord/lib/control";
 import { hex32 } from "@/concord/lib/derive";
 import { KIND_WRAP } from "@/concord/lib/kinds";
@@ -47,8 +47,9 @@ async function planeCarries(nostr: NPool, relays: readonly string[], plane: Hist
 
 /**
  * What of a public Channel's history this device can hand every member that its metadata
- * doesn't yet: the private epochs it kept, and each past root epoch the Channel wrote under,
- * from the oldest not yet looked at. With it, the root epoch looked at up to.
+ * doesn't yet: each past root epoch the Channel wrote under, from the oldest not yet looked
+ * at. Its private epochs are published only by the edition that makes it public. With it,
+ * the root epoch looked at up to.
  */
 export async function owedHistory(
   nostr: NPool,
@@ -60,7 +61,7 @@ export async function owedHistory(
 ): Promise<{ add: HistoryPlane[]; scanned?: bigint }> {
   const def = folded.channels.get(channelIdHex);
   const listed = new Set(publishedHistory(def?.metadata).map((p) => p.group.pk));
-  const add = privatePlanes(community, channelIdHex).filter((p) => !listed.has(p.group.pk));
+  const add: HistoryPlane[] = [];
   const written = new Set((folded.writers?.get(channelIdHex)?.entries ?? []).flatMap((e) => (e.spell.kind === "writer" ? [BigInt(e.spell.root)] : [])));
   let scanned: bigint | undefined;
   for (const plane of pastRootPlanes(community, channelIdHex, from)) {

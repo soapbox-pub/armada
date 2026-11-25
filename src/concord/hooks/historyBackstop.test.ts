@@ -58,6 +58,15 @@ describe("the history backstop", () => {
     expect(publishedHistory(meta).map((p) => [p.epoch, p.group.pk])).toEqual([[1n, pastPlane.pk]]);
   });
 
+  it("leaves the epochs a Channel was private at to the edition that makes it public", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const { c, id, folded, community, pastPlane } = setup();
+    h.carrying.add(pastPlane.pk);
+    const held = { ...community, privateChannels: [{ id, key: random32(), epoch: 3n, name: "rules" }] };
+    expect(await historyBackstop(nostr, () => ({ community: held, folded }), { pubkey: c.owner, signer: {} as never }, new AbortController().signal)).toBe(1);
+    expect(publishedHistory(JSON.parse(h.editions[0].content)).map((p) => p.group.pk)).toEqual([pastPlane.pk]);
+  });
+
   it("is a manager's alone, and looks at a Channel again only after the period or a rotation", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { c, folded, community, pastPlane } = setup();
