@@ -237,7 +237,7 @@ export function useRoles(community: Community | undefined) {
       // vsk-1 Roles stand for nothing on the vsk-13 Roster (CORD-04 §2): the tier is a ranked Role there.
       if (folded?.rankedRoster) {
         const authority = citationFor(community, folded, user.pubkey);
-        const plan = planStockTier(folded, community.id, user.pubkey, member, tier, authority);
+        const plan = planStockTier(folded, community.id, user.pubkey, member, tier, authority, new Set(community.privateChannels.map((k) => bytesToHex(k.id))));
         const current = folded.roster.grants.find((g) => g.member === member)?.roleIds ?? [];
         // A Grant that drops a Role writes the member's Tenure first, or is refused (CORD-04 §9).
         if (current.some((id) => !plan.roleIds.includes(id))) {

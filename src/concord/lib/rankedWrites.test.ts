@@ -563,6 +563,22 @@ describe("a Grant on the vsk-13 Roster (Vector v0.5.2 `change_member_roles`)", (
     // Without the held set (a caller that can't tell), nothing is judged.
     expect(planMemberRoles(folded, c.id, admin, reader, [roleId])).toEqual([roleId]);
   });
+
+  it("refuses a stock tier that opens a Private Channel its giver holds no key to, as any Grant", () => {
+    const k = rankedCommunity(Permissions.MANAGE_ROLES);
+    const reader = hexKey();
+    const adminRole = hexKey();
+    const ch = hexKey();
+    // An Admin Role the Private Channel lets in.
+    const o = { scope: ch, target: { kind: "role" as const, id: adminRole }, allow: Permissions.VIEW_CHANNEL, deny: 0n };
+    const eds = [k.c.role(adminRole, "y", 0n, { name: "Admin" }), k.c.edition({ vsk: "14", eid: overwriteLocator(k.c.id, o), author: k.c.owner, content: overwriteToJSON(o) })];
+    const base = foldControlState([...k.base, ...eds], k.c.id, k.c.owner);
+    const channels = new Map(base.channels);
+    channels.set(ch, { channelIdHex: ch, name: "", isPrivate: true, deleted: false, metadata: { name: "", private: true } });
+    const folded = { ...base, channels } as FoldedControl;
+    expect(() => planStockTier(folded, k.c.id, k.c.owner, reader, "admin", undefined, new Set())).toThrow(/opens a private channel you don't have access to/);
+    expect(planStockTier(folded, k.c.id, k.c.owner, reader, "admin", undefined, new Set([ch])).roleIds).toEqual([adminRole]);
+  });
 });
 
 describe("duplicating a Channel (Vector v0.5.2 `duplicate_channel`)", () => {

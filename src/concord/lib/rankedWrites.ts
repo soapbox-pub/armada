@@ -195,7 +195,7 @@ export function planMemberRoles(
     if (opened > 0) {
       throw new Error(t(
         { id: "rankedWrites.opensUnkeyed", defaultMessage: "You can't give {roles, plural, one {this role} other {these roles}}: it opens {channels, plural, one {a private channel} other {# private channels}} you don't have access to. Someone with access has to, or get access first." },
-        { roles: added.length, channels: opened },
+        { roles: added.length > 1 ? 2 : 1, channels: opened },
       ));
     }
   }
@@ -318,7 +318,7 @@ export function stockTierIndex(folded: FoldedControl, me: string, tier: StockTie
  * Give `member` a stock tier on the vsk-13 Roster, or take theirs away with `null`:
  * the tier's Role where one stands, else minted from its template at
  * {@link stockTierIndex}. The other stock Role goes; custom Roles stay. Planned whole,
- * so a refusal publishes nothing. `view` is `folded` with any minted Role in it.
+ * so a refusal publishes nothing, and judged as any Grant ({@link planMemberRoles}). `view` is `folded` with any minted Role in it.
  */
 export function planStockTier(
   folded: FoldedControl,
@@ -327,6 +327,7 @@ export function planStockTier(
   member: string,
   tier: StockTier | null,
   authority?: AuthorityCitation,
+  heldPrivate?: ReadonlySet<string>,
 ): { create?: NostrRumor; view: FoldedControl; roleIds: string[] } {
   requireRanked(folded);
   let view = folded;
@@ -342,7 +343,7 @@ export function planStockTier(
   }
   const stock = new Set(view.roster.roles.filter(isStockRole).map((r) => r.roleId));
   const kept = (view.roster.grants.find((g) => g.member === member)?.roleIds ?? []).filter((id) => !stock.has(id));
-  return { create, view, roleIds: planMemberRoles(view, communityId, me, member, roleId ? [...kept, roleId] : kept) };
+  return { create, view, roleIds: planMemberRoles(view, communityId, me, member, roleId ? [...kept, roleId] : kept, heldPrivate) };
 }
 
 /**
