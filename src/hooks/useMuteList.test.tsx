@@ -318,6 +318,35 @@ describe("useMuteUser (kind 10000 read-modify-write)", () => {
     expect(h.publish).not.toHaveBeenCalled();
   });
 
+  it("REFUSES to start a fresh list when the read came back empty without every relay answering", async () => {
+    // No local cache (a new device, or after logout) and a pooled read that
+    // timed out empty: the relays may well hold a list, so don't replace it.
+    h.query.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error("timed out"));
+    h.readFolded.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useMuteUser(), { wrapper });
+    await act(async () => {
+      await expect(result.current.mutateAsync(TARGET)).rejects.toThrow(/avoid losing/i);
+    });
+    expect(h.publish).not.toHaveBeenCalled();
+  });
+
+  it("builds on a list the confirming read finds after the pooled read came back empty", async () => {
+    h.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([muteEvent({ privateTags: [["p", EXISTING_PRIVATE], ["word", "spam.example"]] })]);
+    h.readFolded.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useMuteUser(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync(TARGET);
+    });
+
+    const arg = h.publish.mock.calls[0][0] as { content: string };
+    const privateTags = JSON.parse(arg.content.slice(4)) as string[][];
+    expect(privateTags).toEqual([["p", EXISTING_PRIVATE], ["word", "spam.example"], ["p", TARGET]]);
+  });
+
   it("starts a fresh list when no mute list has ever existed", async () => {
     h.query.mockResolvedValue([]);
     h.readFolded.mockResolvedValue(undefined);

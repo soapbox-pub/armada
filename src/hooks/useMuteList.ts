@@ -363,12 +363,22 @@ async function editMuteList(
 ): Promise<{ pubkeys: string[]; event: NostrEvent } | null> {
   const { user, nostr, relays, publish } = ctx;
 
+  const filter = { kinds: [KIND_MUTE_LIST], authors: [user.pubkey], limit: 1 };
   // Pooled read: waiting on every self-state relay would block mutes whenever one is down.
-  const events = await nostr.group(relays).query(
-    [{ kinds: [KIND_MUTE_LIST], authors: [user.pubkey], limit: 1 }],
-    { signal: AbortSignal.timeout(6000) },
-  );
-  const prev = events.sort((a, b) => b.created_at - a.created_at)[0] ?? null;
+  const events = await nostr.group(relays).query([filter], { signal: AbortSignal.timeout(6000) });
+  let prev: NostrEvent | null = events.sort((a, b) => b.created_at - a.created_at)[0] ?? null;
+
+  // The pooled read returns whatever arrived when it times out, so empty can mean slow. Only a
+  // complete cohort answering empty proves there is no list to build on.
+  if (!prev) {
+    const strict = await queryExplicitRelaysWithStatus(nostr, relays, [filter], AbortSignal.timeout(6000));
+    prev = (newestCanonicalSelfList(strict.events, user.pubkey, KIND_MUTE_LIST) as NostrEvent | undefined) ?? null;
+    const cohort = uniqueRelayUrls(relays);
+    const answered = new Set(strict.answered);
+    if (!prev && !(cohort.length > 0 && cohort.every((relay) => answered.has(relay)))) {
+      throw new Error(t({ id: "useMuteList.loadFailed", defaultMessage: "Couldn't load your existing block list. Not saving, to avoid losing it." }));
+    }
+  }
 
   // An empty read may be a failure; if a non-empty list was seen before, refuse to rebuild from
   // nothing (10000 is replaceable).
@@ -467,7 +477,7 @@ export function useMuteUser(): UseMutationResult<void, Error, string> {
       }
 
       const next = await editMuteList(
-        { user, nostr, relays: config.appRelays, publish: publish.mutateAsync },
+        { user, nostr, relays: selfStateRelays(config, user.pubkey), publish: publish.mutateAsync },
         ({ publicTags, privateTags }) => {
           const alreadyMuted = [...publicTags, ...privateTags].some(
             ([name, value]) => name === "p" && value === pubkey,
@@ -531,7 +541,7 @@ export function useUnmuteUser(): UseMutationResult<void, Error, string> {
 
       const isTarget = ([name, value]: string[]) => name === "p" && value === pubkey;
       const next = await editMuteList(
-        { user, nostr, relays: config.appRelays, publish: publish.mutateAsync },
+        { user, nostr, relays: selfStateRelays(config, user.pubkey), publish: publish.mutateAsync },
         ({ publicTags, privateTags }) => {
           if (![...publicTags, ...privateTags].some(isTarget)) return null;
           return {
