@@ -9,6 +9,7 @@ import { BotPill } from "@/components/BotPill";
 import { UltraEffect } from "@/components/UltraEffect";
 import { UltraPill } from "@/components/UltraPill";
 import { DisplayName } from "@/components/DisplayName";
+import { Nip05Status } from "@/components/Nip05Status";
 import { EmojifiedText } from "@/components/chat/CustomEmoji";
 import { UserModerationMenuSection } from "@/components/chat/ModerationMenuSection";
 import { RolePickerItems } from "@/components/chat/RolePickerItems";
@@ -234,6 +235,7 @@ function ProfilePreviewBody({
           </div>
         )}
         {pronouns && <div className="text-xs text-muted-foreground truncate">{pronouns}</div>}
+        {metadata?.nip05 && <Nip05Status pubkey={pubkey} nip05={metadata.nip05} className="mt-0.5" />}
 
         {/* Concord roles; the card shows every role, the member row only the highest. */}
         {roles.length > 0 && (
