@@ -453,6 +453,23 @@ export function replayedAddStanding(
   return undefined;
 }
 
+/**
+ * Whether `held` already carries everything `offered` would key: the same root,
+ * epoch and Control address, and each of its private channels at the same epoch
+ * under the same key. A join whose material isn't held this way after its write
+ * was refused or outranked, so nothing (a Guestbook Join) may go out under it.
+ */
+export function holdsJoinMaterial(held: JoinMaterial, offered: JoinMaterial): boolean {
+  const same = (a: string | undefined, b: string | undefined) => (a ?? "").toLowerCase() === (b ?? "").toLowerCase();
+  if (!same(held.community_root, offered.community_root)) return false;
+  if (held.root_epoch !== offered.root_epoch) return false;
+  if (!same(held.control_pk, offered.control_pk)) return false;
+  const heldChannels = Array.isArray(held.channels) ? held.channels : [];
+  return (Array.isArray(offered.channels) ? offered.channels : []).every((c) =>
+    heldChannels.some((h) => same(h.id, c.id) && h.epoch === c.epoch && same(h.key, c.key)),
+  );
+}
+
 /** Add/refresh a membership. Pure. */
 export function addToList(list: CommunityList, entry: CommunityListEntry): CommunityList {
   return mergeCommunityLists(list, { entries: [entry], tombstones: [] });

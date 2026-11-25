@@ -61,6 +61,8 @@ vi.mock("@/concord/hooks/useControlPlane", () => ({
 }));
 vi.mock("@/concord/hooks/useCommunityList", () => ({
   useCommunityEntry: () => undefined,
+  cachedCommunity: () => undefined,
+  AlreadyMemberError: class extends Error {},
   // The vault write: held open until the test lets it land.
   useUpdateCommunityList: () => ({
     mutateAsync: (write: { type: string; entry?: { added_at: number }; replay?: boolean }) =>

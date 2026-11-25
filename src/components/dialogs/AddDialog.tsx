@@ -330,9 +330,14 @@ function EscapeHatch({ onDone }: { onDone: () => void }) {
       }
       if (target.kind === "concord") {
         if (classified.kind !== "concord") return;
-        const { communityId, name } = await actions.join({ invite: classified.invite });
+        const { communityId, name, alreadyMember } = await actions.join({ invite: classified.invite });
         onDone();
-        toast({ title: t({ id: "addDialog.communityJoined", defaultMessage: "Encrypted community joined" }), description: name });
+        toast({
+          title: alreadyMember
+            ? t({ id: "addDialog.alreadyMember", defaultMessage: "You're already in this community" })
+            : t({ id: "addDialog.communityJoined", defaultMessage: "Encrypted community joined" }),
+          description: name,
+        });
         navigate(`/c/${encodeURIComponent(communityId)}`);
         return;
       }

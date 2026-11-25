@@ -4,7 +4,7 @@ import { clockNowMs, nowSecs } from "@/lib/relayClock";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { removeCommunityLocally, useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
+import { AlreadyMemberError, cachedCommunity, removeCommunityLocally, useCommunityEntry, useUpdateCommunityList } from "@/concord/hooks/useCommunityList";
 import { useControlFold, citationFor, foldStoredControl, invalidateControl, markDissolvedLocally, probeCommunityDissolved, publishEdition, withControlWrite } from "@/concord/hooks/useControlPlane";
 import type { FoldedControl } from "@/concord/lib/control";
 import { publishActivation, publishPendingActivation } from "@/concord/hooks/useRankedRoles";
@@ -18,7 +18,7 @@ import { getArmadaDB } from "@/lib/db/armadaDB";
 import { RESCUE_RELAYS } from "@/lib/platform";
 import { verifyEventOnce } from "@/lib/verifyCache";
 import { preferPortableRelays, unusableRelaysReason } from "@/lib/relayUsability";
-import { channelKeysToWire, isLive, nextChannelEpoch, toJoinMaterial, rehydrateCommunity, type CommunityListEntry, type JoinMaterial } from "@/concord/lib/communityList";
+import { channelKeysToWire, holdsJoinMaterial, isLive, nextChannelEpoch, toJoinMaterial, rehydrateCommunity, type CommunityList, type CommunityListEntry, type JoinMaterial } from "@/concord/lib/communityList";
 import { channelsView, mintCommunity, visibleChannels } from "@/concord/lib/community";
 import { CHANNEL_TOPIC_MAX_BYTES, openChannelSeal, sealChannelMetadata } from "@/concord/lib/channelSeal";
 import { rekeyOrder } from "@/concord/lib/rankKey";
@@ -424,6 +424,13 @@ export function bundleToEntry(bundle: InviteBundle, opts?: { inviteRef?: string 
   };
 }
 
+/** What joining from an invite link came to. `alreadyMember`: it was already held, and nothing was written. */
+export interface JoinResult {
+  communityId: string;
+  name: string;
+  alreadyMember?: boolean;
+}
+
 /** The domain-agnostic bare form of a parsed invite link: `<naddr>#<fragment>`. */
 export function inviteRefOf(invite: ParsedInviteLink): string {
   return `${invite.naddr}#${encodeFragment(invite.token, invite.bootstrapRelays)}`;
@@ -650,7 +657,7 @@ export function useCommunityActions() {
   const completeJoin = async (
     invite: ParsedInviteLink,
     pendingId?: string,
-  ): Promise<{ communityId: string; name: string }> => {
+  ): Promise<JoinResult> => {
       if (!user) throw new Error(t({ id: "useCommunityActions.signInToJoin", defaultMessage: "Sign in to join an encrypted community." }));
       const bundle = await resolveBundle(nostr, invite, bootstrapRelays);
       await assertNotBlocked(nostr, bundle.community_id);
@@ -668,9 +675,22 @@ export function useCommunityActions() {
       // outrank a later Leave or kick.
       const clicked = pendingId !== undefined ? pendingJoinEntry(user.pubkey, pendingId)?.added_at : undefined;
       if (clicked !== undefined) entry.added_at = clicked;
-      const list = await updateList({ type: "add", entry, replay: pendingId !== undefined });
+      // `join`: a link never re-keys a membership already held (anyone with a link
+      // can mint a higher-epoch bundle for it); the member just opens it.
+      let list: CommunityList;
+      try {
+        list = await updateList({ type: "add", entry, replay: pendingId !== undefined, join: true });
+      } catch (e) {
+        if (e instanceof AlreadyMemberError) return { communityId: e.communityId, name: e.communityName, alreadyMember: true };
+        throw e;
+      }
       queryClient.invalidateQueries({ queryKey: ["concord", "list"] });
       if (!isLive(list, bundle.community_id)) return { communityId: bundle.community_id, name: bundle.name };
+      // Announce only under the material the list now holds as this bundle's.
+      const held = list.entries.find((e) => e.community_id === bundle.community_id);
+      if (!held || !holdsJoinMaterial(held.current, entry.current)) {
+        return { communityId: bundle.community_id, name: held?.current.name ?? bundle.name, alreadyMember: true };
+      }
 
       // Guestbook Join (CORD-02 §5 / CORD-05 §1), recorded before the signer is
       // asked so a signer or relay that fails it is retried (`pendingGuestbookJoin`),
@@ -737,7 +757,7 @@ export function useCommunityActions() {
   };
 
   const join = useMutation<
-    { communityId: string; name: string },
+    JoinResult,
     Error,
     { invite: ParsedInviteLink; bundle?: InviteBundle }
   >({
@@ -748,6 +768,10 @@ export function useCommunityActions() {
       // Optimistic path: record a pending entry on disk and answer NOW; the durable
       // chain (with the ban check before any publish) runs behind it.
       if (isBlockedNow(resolved.community_id)) throw new BlockedCommunityError();
+      // Already a member: open it, and keep the link's bundle out of the pending
+      // overlay (the durable chain refuses it as well, from the list it reads).
+      const held = cachedCommunity(queryClient, user.pubkey, resolved.community_id);
+      if (held) return { communityId: resolved.community_id, name: held.name, alreadyMember: true };
       const unusable = unusableRelaysReason(resolved.relays);
       if (unusable) throw new UnusableRelaysError(unusable);
       await persistPendingJoin(user.pubkey, bundleToEntry(resolved, { inviteRef: inviteRefOf(invite) }));

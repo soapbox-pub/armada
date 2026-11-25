@@ -105,8 +105,13 @@ function InviteResolvedCard({
     }
     try {
       // Optimistic: the durable join runs in the background (failures toast).
-      const { communityId, name } = await join({ invite, bundle: preview.bundle });
-      toast({ title: t({ id: "inviteEmbed.joined", defaultMessage: "Joined" }), description: name });
+      const { communityId, name, alreadyMember } = await join({ invite, bundle: preview.bundle });
+      toast({
+        title: alreadyMember
+          ? t({ id: "inviteEmbed.alreadyMember", defaultMessage: "You're already in this community" })
+          : t({ id: "inviteEmbed.joined", defaultMessage: "Joined" }),
+        description: name,
+      });
       navigate(`/c/${encodeURIComponent(communityId)}`);
     } catch (e) {
       toast({

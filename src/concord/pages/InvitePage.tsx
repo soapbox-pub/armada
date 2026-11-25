@@ -13,6 +13,7 @@ import {
   type InvitePreview,
 } from "@/concord/hooks/useCommunityActions";
 import { CommunityBlocked } from "@/concord/components/CommunityBlocked";
+import { useCommunity } from "@/concord/hooks/useCommunityList";
 import { InviteDetail } from "@/concord/pages/InvitesPage";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { toast } from "@/hooks/useToast";
@@ -51,6 +52,12 @@ export function InvitePage() {
   const fragment = (location.hash || window.location.hash).replace(/^#/, "").trim();
   const invite = naddr && fragment ? parseInviteRoute(naddr, fragment) : undefined;
 
+  // A link to a community already held opens it: Accept would never re-key it.
+  const held = useCommunity(resolved?.communityId);
+  useEffect(() => {
+    if (resolved && held) navigate(`/c/${encodeURIComponent(resolved.communityId)}`, { replace: true });
+  }, [resolved, held, navigate]);
+
   // Resolve the bundle even before sign-in, so the consent surface can paint.
   useEffect(() => {
     if (!naddr || !fragment) {
@@ -86,8 +93,13 @@ export function InvitePage() {
     try {
       // Optimistic: the durable join chain runs in the background (failures toast
       // via useCommunityActions).
-      const { communityId, name } = await join({ invite, bundle: resolved.bundle });
-      toast({ title: t({ id: "invitePage.joined", defaultMessage: "Joined" }), description: name });
+      const { communityId, name, alreadyMember } = await join({ invite, bundle: resolved.bundle });
+      toast({
+        title: alreadyMember
+          ? t({ id: "invitePage.alreadyMember", defaultMessage: "You're already in this community" })
+          : t({ id: "invitePage.joined", defaultMessage: "Joined" }),
+        description: name,
+      });
       navigate(`/c/${encodeURIComponent(communityId)}`, { replace: true });
     } catch (e) {
       setBanned(e instanceof BannedFromCommunityError);

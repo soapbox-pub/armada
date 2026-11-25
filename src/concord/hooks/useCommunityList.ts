@@ -1091,6 +1091,17 @@ export function useCommunityList() {
   });
 }
 
+/** A `join` add refused because the community is already a live membership: nothing was written. */
+export class AlreadyMemberError extends Error {
+  constructor(
+    readonly communityId: string,
+    readonly communityName: string,
+  ) {
+    super(t({ id: "useCommunityList.alreadyMember", defaultMessage: "You're already in {name}." }, { name: communityName }));
+    this.name = "AlreadyMemberError";
+  }
+}
+
 /** A mutation against the list (read-modify-write, deterministic, serialized). */
 export type CommunityListAction =
   | {
@@ -1101,6 +1112,15 @@ export type CommunityListAction =
        * when a later removal supersedes it or the wire already holds it.
        */
       replay?: boolean;
+      /**
+       * A join from an invite link or its preview: it never merges into a membership
+       * already live. Anyone holding a link can mint a bundle for the same community
+       * at a higher epoch, with a root and channel keys of their own, and `add` takes
+       * the higher epoch; a Direct Invite is held to `isCatchUpBundle` for the
+       * same reason. Stranded recovery and listed-key adoption, which are gated on the
+       * member's own fold, add without it.
+       */
+      join?: boolean;
     }
   | { type: "remove"; communityId: string; removedAt?: number }
   | { type: "exclude"; communityId: string; epoch: number }
@@ -1126,6 +1146,7 @@ export type CommunityListAction =
 function applyAction(list: CommunityList, action: CommunityListAction): CommunityList {
   switch (action.type) {
     case "add":
+      if (action.join && isLive(list, action.entry.community_id)) return list;
       return addToList(list, action.entry);
     case "remove":
       return removeFromList(list, action.communityId, action.removedAt ?? Date.now());
@@ -1209,6 +1230,11 @@ export async function updateCommunityList(
       logSync("list2", `replayed add ${action.entry.community_id.slice(0, 8)} ${standing} — not publishing`);
       return current;
     }
+  }
+  if (action.type === "add" && action.join && isLive(current, action.entry.community_id)) {
+    logSync("list2", `join ${action.entry.community_id.slice(0, 8)} already held — not merging the link's bundle`);
+    const held = current.entries.find((e) => e.community_id === action.entry.community_id);
+    throw new AlreadyMemberError(action.entry.community_id, held?.current.name ?? action.entry.current.name);
   }
   // Revisions count against what the wire holds (CORD-02 §8).
   const next = reviseSnapshots(relayList, applyAction(current, action));
@@ -1339,7 +1365,7 @@ const heldLocally = new Map<string, Set<CommunityListAction>>();
 export function holdLocally(queryClient: QueryClient, pubkey: string, action: CommunityListAction): CommunityList | undefined {
   const keyOnly =
     (action.type === "refresh-channels" && (action.upsert === true || (action.cuts?.length ?? 0) > 0)) ||
-    (action.type === "add" && !action.replay);
+    (action.type === "add" && !action.replay && !action.join);
   if (!keyOnly) return undefined;
   const key = listQueryKey(pubkey);
   const cached = queryClient.getQueryData<ListData>(key);

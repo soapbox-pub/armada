@@ -1118,3 +1118,61 @@ describe("holdLocally (a key is held the moment it is decided, as Vector's local
     expect(holdLocally(p.queryClient, SELF, { type: "add", entry })!.entries[0].current.channels).toEqual([expect.objectContaining({ id: CH, epoch: 2 })]);
   });
 });
+
+describe("a join from an invite link never re-keys a membership already held", () => {
+  const CH = "cc".repeat(32);
+  const heldList = (): CommunityList => ({
+    entries: [{ ...entry("aa", "Real"), current: { ...jm("aa", "Real"), root_epoch: 3, channels: [{ id: CH, key: "44".repeat(32), epoch: 1, name: "private" }] } }],
+    tombstones: [],
+  });
+  /** What anyone holding a public link can mint: the same community, a higher epoch, their own keys. */
+  const forged = (over: Partial<JoinMaterial>): CommunityListEntry => {
+    const m = { ...jm("aa", "Real"), root_epoch: 4, community_root: "99".repeat(32), channels: [{ id: CH, key: "98".repeat(32), epoch: 2, name: "private" }], ...over };
+    return { community_id: m.community_id, seed: structuredClone(m), current: m, added_at: 1_719_900_000_000 };
+  };
+  const write = async (list: CommunityList, add: CommunityListEntry) => {
+    const { updateCommunityList } = await import("./useCommunityList");
+    const { published, nostr } = fakeNostr(fragment(list).map((f, i) => fragEvent(f, i)));
+    const queryClient = new QueryClient();
+    const result = updateCommunityList(nostr, user, queryClient, ["wss://self.example.com"], { type: "add", entry: add, join: true });
+    return { result, published };
+  };
+
+  it("refuses a higher-epoch bundle with another root, publishing nothing", async () => {
+    const { AlreadyMemberError } = await import("./useCommunityList");
+    const { result, published } = await write(heldList(), forged({}));
+    await expect(result).rejects.toBeInstanceOf(AlreadyMemberError);
+    expect(published).toEqual([]);
+  });
+
+  it("refuses a same-base bundle that only swaps a private channel's key", async () => {
+    const { AlreadyMemberError } = await import("./useCommunityList");
+    const { result, published } = await write(heldList(), forged({ root_epoch: 3, community_root: "33".repeat(32) }));
+    await expect(result).rejects.toBeInstanceOf(AlreadyMemberError);
+    expect(published).toEqual([]);
+  });
+
+  it("still joins a community not held, or one left", async () => {
+    const fresh = await write(heldList(), entry("bb", "New"));
+    expect(isLive(await fresh.result, jm("bb", "New").community_id)).toBe(true);
+    const left: CommunityList = { ...heldList(), tombstones: [{ community_id: jm("aa", "Real").community_id, removed_at: 1_719_850_000_000 }] };
+    const rejoined = await write(left, forged({}));
+    expect(isLive(await rejoined.result, jm("aa", "Real").community_id)).toBe(true);
+  });
+
+  it("is never applied locally ahead of the wire", async () => {
+    const { holdLocally, listQueryKey } = await import("./useCommunityList");
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(listQueryKey(SELF), { event: null, list: heldList() });
+    expect(holdLocally(queryClient, SELF, { type: "add", entry: forged({}), join: true })).toBeUndefined();
+  });
+
+  it("holdsJoinMaterial tells the held material from a link's", async () => {
+    const { holdsJoinMaterial } = await import("@/concord/lib/communityList");
+    const held = heldList().entries[0].current;
+    expect(holdsJoinMaterial(held, structuredClone(held))).toBe(true);
+    expect(holdsJoinMaterial(held, { ...held, channels: [] })).toBe(true);
+    expect(holdsJoinMaterial(held, forged({}).current)).toBe(false);
+    expect(holdsJoinMaterial(held, forged({ root_epoch: 3, community_root: "33".repeat(32) }).current)).toBe(false);
+  });
+});
