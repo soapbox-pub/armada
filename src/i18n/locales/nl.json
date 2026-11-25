@@ -5322,6 +5322,8 @@
   "voiceDeviceSettings.voiceServer": "Spraakserver",
   "voiceDeviceSettings.voiceServerHelp": "Gebruikt voor oproepen in privéberichten en voor community’s die geen eigen spraakservers instellen; een community die ze wel instelt, gebruikt alleen die, en dit wordt daar genegeerd. Een eigen adres vervangt de ingebouwde Armada-spraakservers op elke gesynchroniseerde client.",
   "voiceDeviceSettings.waylandHint": "Wayland vereist het Global Shortcuts-portaal van je desktop voor push-to-talk.",
+  "voicePresence.bothLinkedTransport": "Op LiveKit en peer-to-peer, hier peer-to-peer te horen",
+  "voicePresence.bothTransport": "Op LiveKit en peer-to-peer, hier te horen via LiveKit",
   "voicePresence.bridge": "Verbonden via de LiveKit-server, brengt het peer-to-peer-gesprek daarheen over",
   "voicePresence.bridgedTransport": "Peer-to-peer in het gesprek, hier te horen via een brug",
   "voicePresence.handRaised": "Hand opgestoken",

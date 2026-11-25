@@ -220,7 +220,7 @@ import { useTyping, useTypingPublisher } from "@/concord/hooks/useTyping";
 import { resolveVoiceBroker, useVoiceBroker, useVoicePresence } from "@/concord/hooks/useVoice";
 import { peerToPeerAvailable } from "@/concord/hooks/useIrohVoice";
 import { communityVoiceRelays } from "@/concord/lib/irohVoice";
-import { communityAvBrokers, voiceRowTransports } from "@/concord/lib/voice";
+import { communityAvBrokers, connectionOf, voiceRowTransports } from "@/concord/lib/voice";
 import { useRegisterChannelStreamKeys } from "@/concord/hooks/useStreamAuth";
 import { completeMemberlist, timeoutRunning } from "@/concord/lib/guestbook";
 import { badgeOf, byDisplayOrder, canActOnMember, canActOnPosition, channelPermissions, everyoneSends, isAuthorized, isAuthorizedIn, MAX_ROLES_PER_MEMBER, Permissions, staffRoleOf, stockTierOf, tierMoves } from "@/concord/lib/roles";
@@ -518,6 +518,7 @@ export const ChannelRow = memo(function ChannelRow({
   channel,
   active,
   inCall,
+  me,
   speaking,
   muted: mutedVoice,
   unread,
@@ -538,6 +539,8 @@ export const ChannelRow = memo(function ChannelRow({
   active: boolean;
   /** Whether the user's current call is THIS channel's voice room. */
   inCall: boolean;
+  /** The viewer, to tell whether their own presence is off the SFU. */
+  me?: string;
   /** Live speaker set (only passed when `inCall`), for roster voice activity. */
   speaking?: ReadonlySet<string>;
   /** Live muted set (only passed when `inCall`), for the roster mute indicator. */
@@ -599,11 +602,13 @@ export const ChannelRow = memo(function ChannelRow({
     [fold],
   );
   // In the call, the live roster holds the LiveKit room and the peer-to-peer members we're linked to.
+  // Our own presence off the SFU says this call reaches the SFU's members peer to peer.
   const voiceTransports = useMemo(() => {
     const live = inCall && voiceRoomPubkeys ? voiceRoomPubkeys : [];
     const offSfu = new Set(fold.otherTransport.map((p) => p.author));
-    return voiceRowTransports(fold, new Set(live), live.filter((pk) => !offSfu.has(pk)));
-  }, [fold, inCall, voiceRoomPubkeys]);
+    const selfOffSfu = inCall && me !== undefined && offSfu.has(me);
+    return voiceRowTransports(fold, new Set(live), live.filter((pk) => !offSfu.has(pk)), selfOffSfu);
+  }, [fold, inCall, voiceRoomPubkeys, me]);
   // A moderator acts on a call's participants from the roster too, joined or not (CORD-07 §7).
   const voiceMembers = useMemo(() => [...fold.present, ...fold.otherTransport], [fold]);
   const voiceActionsFor = useVoiceActionsFor(community, channel, voiceMembers);
@@ -630,15 +635,12 @@ export const ChannelRow = memo(function ChannelRow({
     return [...new Set([...voiceRoomPubkeys, ...fold.otherTransport.map((p) => p.author)])];
   }, [inCall, voiceRoomPubkeys, foldedParticipants, fold]);
 
-  // Per transport: the live LiveKit roster while in this call, presence otherwise.
-  // The live roster carries peer-to-peer members too; only the rest are on LiveKit.
-  const sfuCount = useMemo(() => {
-    if (!inCall || !voiceRoomPubkeys) return fold.present.length;
-    const offSfu = new Set(fold.otherTransport.map((p) => p.author));
-    return voiceRoomPubkeys.filter((pk) => !offSfu.has(pk)).length;
-  }, [inCall, voiceRoomPubkeys, fold]);
-  // Peer to peer alone: a member on LiveKit counts there, whatever else they announce.
-  const p2pCount = fold.otherTransport.length;
+  // Each member counts once, on the transport this client reaches them over.
+  const [sfuCount, p2pCount] = useMemo(() => {
+    let sfu = 0;
+    for (const pk of participants) if (connectionOf(voiceTransports.get(pk) ?? "sfu") === "sfu") sfu++;
+    return [sfu, participants.length - sfu];
+  }, [participants, voiceTransports]);
 
   const hasUnread = Boolean(unread);
   const hasMention = Boolean(unread?.mention);
@@ -3267,6 +3269,7 @@ function ConcordCommunityPage() {
         channel={c}
         active={Boolean(view === "channel" && channel && channel.idHex === c.idHex)}
         inCall={inCall}
+        me={user?.pubkey}
         speaking={inCall ? speakingPubkeys : undefined}
         muted={inCall ? mutedPubkeys : undefined}
         unread={unreadByChannel[c.idHex]}

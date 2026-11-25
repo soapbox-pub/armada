@@ -912,31 +912,40 @@ export function bridgedTransports(fold: VoicePresenceFold): Set<string> {
 
 /**
  * How a member is connected to the call, as their roster row and tile show it (CORD-07 §4
- * Transports). LiveKit wins: a member on the SFU reads `sfu` (or `bridge`, relaying another
- * transport into it) whatever else they announce. Off it, peer to peer alone: `linked` to this
- * client, heard here through a bridge (`bridged`), or out of reach (`other`).
+ * Transports). On the SFU: `sfu`, `bridge` (relaying another transport into it), or `both`
+ * when they are on iroh too — heard here over LiveKit, or peer to peer (`bothLinked`) when this
+ * client is off LiveKit and linked to them. Off it, peer to peer alone: `linked` to this client,
+ * heard here through a bridge (`bridged`), or out of reach (`other`).
  */
-export type VoiceRowTransport = "sfu" | "bridge" | "linked" | "bridged" | "other";
+export type VoiceRowTransport = "sfu" | "bridge" | "both" | "bothLinked" | "linked" | "bridged" | "other";
 
-/** The connection a marker shows: the LiveKit server, or peer to peer. */
+/** The connection a marker shows: the one this client reaches them over. */
 export function connectionOf(transport: VoiceRowTransport): "sfu" | "p2p" {
-  return transport === "sfu" || transport === "bridge" ? "sfu" : "p2p";
+  return transport === "sfu" || transport === "bridge" || transport === "both" ? "sfu" : "p2p";
+}
+
+/** The other connection a member on both transports holds, shown dimmed beside the first. */
+export function alsoConnectionOf(transport: VoiceRowTransport): "sfu" | "p2p" | undefined {
+  return transport === "both" ? "p2p" : transport === "bothLinked" ? "sfu" : undefined;
 }
 
 /**
- * Per author, the marker their roster row carries. `linked`: the members on peer to peer alone
- * this client holds a link with. `onSfu`: who the live LiveKit room holds, for a participant
- * whose presence hasn't arrived yet.
+ * Per author, the marker their roster row carries. `linked`: the members this client holds a
+ * peer-to-peer link with. `onSfu`: who the live LiveKit room holds, for a participant whose
+ * presence hasn't arrived yet. `selfOffSfu`: this client is in the call peer to peer alone.
  */
 export function voiceRowTransports(
   fold: VoicePresenceFold,
   linked: ReadonlySet<string> = new Set(),
   onSfu: Iterable<string> = [],
+  selfOffSfu = false,
 ): Map<string, VoiceRowTransport> {
   const bridged = bridgedTransports(fold);
   const out = new Map<string, VoiceRowTransport>();
   for (const p of fold.otherTransport) out.set(p.author, linked.has(p.author) ? "linked" : bridged.has(p.transport) ? "bridged" : "other");
-  for (const p of fold.present) out.set(p.author, p.alsoOn && p.bridge ? "bridge" : "sfu");
+  for (const p of fold.present) {
+    out.set(p.author, !p.alsoOn ? "sfu" : p.bridge ? "bridge" : selfOffSfu && linked.has(p.author) ? "bothLinked" : "both");
+  }
   for (const author of onSfu) if (!out.has(author)) out.set(author, "sfu");
   return out;
 }

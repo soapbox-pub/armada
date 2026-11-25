@@ -118,9 +118,9 @@ const vectorPeer: P2pPeerView = {
   sending: { camera: false, screen: false },
 };
 
-function renderWith(peers: P2pPeerView[], connections = true) {
+function renderWith(peers: P2pPeerView[], connections = true, onBoth?: ReadonlySet<string>) {
   return render(
-    <IrohPeersContext.Provider value={{ peers, connections }}>
+    <IrohPeersContext.Provider value={{ peers, connections, onBoth }}>
       <CallStage open callLabel="#lounge" />
     </IrohPeersContext.Provider>,
   );
@@ -158,6 +158,15 @@ describe("peer-to-peer members on the LiveKit call's stage", () => {
     expect(marks.sort()).toEqual(["p2p", "sfu", "sfu"]);
     expect(within(hero).getAllByLabelText("Connected over the LiveKit server")).toHaveLength(2);
     expect(within(hero).getByLabelText("Connected peer to peer")).toBeInTheDocument();
+  });
+
+  it("marks a LiveKit participant also on iroh with both, LiveKit first", () => {
+    runtime.participants = [local, remote];
+    renderWith([vectorPeer], true, new Set(["b".repeat(64)]));
+    const hero = screen.getByRole("region", { name: "Call" });
+    const both = [...hero.querySelectorAll("[data-also]")].map((el) => [el.getAttribute("data-connection"), el.getAttribute("data-also")]);
+    expect(both).toEqual([["sfu", "p2p"]]);
+    expect(within(hero).getByLabelText("On LiveKit and peer to peer, heard here over LiveKit")).toBeInTheDocument();
   });
 
   it("marks the tiles the same way, and shows no marker on a call that is LiveKit only (NIP-29, DMs)", () => {

@@ -37,4 +37,20 @@ describe("the voice roster's connection marker", () => {
     expect(screen.getByLabelText("In the call peer to peer, connected to you")).toBeInTheDocument();
     expect(screen.getByLabelText("In the call peer to peer only")).toBeInTheDocument();
   });
+
+  it("shows a member on both transports with both icons, the one heard over first", () => {
+    const transports = new Map<string, VoiceRowTransport>([
+      [pk("a"), "both"],
+      [pk("b"), "bothLinked"],
+    ]);
+    const { container } = render(
+      <TooltipProvider>
+        <VoiceParticipantList participants={[pk("a"), pk("b")]} transports={transports} />
+      </TooltipProvider>,
+    );
+    const marks = [...container.querySelectorAll("[data-connection]")].map((el) => [el.getAttribute("data-connection"), el.getAttribute("data-also")]);
+    expect(marks).toEqual([["sfu", "p2p"], ["p2p", "sfu"]]);
+    expect(screen.getByLabelText("On LiveKit and peer to peer, heard here over LiveKit")).toBeInTheDocument();
+    expect(screen.getByLabelText("On LiveKit and peer to peer, heard here peer to peer")).toBeInTheDocument();
+  });
 });

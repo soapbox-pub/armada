@@ -5322,6 +5322,8 @@
   "voiceDeviceSettings.voiceServer": "Sprachserver",
   "voiceDeviceSettings.voiceServerHelp": "Wird für Anrufe in Direktnachrichten und für Communitys verwendet, die keine eigenen Sprachserver festlegen; eine Community, die welche festlegt, nutzt nur diese, und diese Einstellung wird dort ignoriert. Eine eigene Adresse ersetzt die eingebauten Armada-Sprachserver auf jedem synchronisierten Client.",
   "voiceDeviceSettings.waylandHint": "Wayland benötigt für Push-to-Talk das Global-Shortcuts-Portal deines Desktops.",
+  "voicePresence.bothLinkedTransport": "Auf LiveKit und per Peer-to-Peer, hier per Peer-to-Peer zu hören",
+  "voicePresence.bothTransport": "Auf LiveKit und per Peer-to-Peer, hier über LiveKit zu hören",
   "voicePresence.bridge": "Über den LiveKit-Server verbunden, überträgt den Peer-to-Peer-Anruf hierher",
   "voicePresence.bridgedTransport": "Per Peer-to-Peer im Anruf, hier über eine Brücke zu hören",
   "voicePresence.handRaised": "Hand gehoben",

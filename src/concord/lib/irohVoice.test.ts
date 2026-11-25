@@ -198,14 +198,24 @@ describe("the call's topology", () => {
 });
 
 describe("a member's connection marker", () => {
-  it("reads LiveKit for anyone on the SFU, peer to peer only for members off it", async () => {
-    const { connectionOf, voiceRowTransports } = await import("@/concord/lib/voice");
+  it("reads LiveKit for anyone on the SFU, peer to peer for members off it, and both for members on both", async () => {
+    const { alsoConnectionOf, connectionOf, voiceRowTransports } = await import("@/concord/lib/voice");
     const sfuOnly = { author: pk("s") };
     const both = { author: pk("b"), alsoOn: "iroh" };
     const f = fold([sfuOnly, both], [{ author: pk("v") }, { author: pk("w") }]);
     const rows = voiceRowTransports(f, new Set([pk("v"), pk("b")]), [pk("late")]);
-    expect(Object.fromEntries(rows)).toEqual({ [pk("s")]: "sfu", [pk("b")]: "sfu", [pk("v")]: "linked", [pk("w")]: "other", [pk("late")]: "sfu" });
+    expect(Object.fromEntries(rows)).toEqual({ [pk("s")]: "sfu", [pk("b")]: "both", [pk("v")]: "linked", [pk("w")]: "other", [pk("late")]: "sfu" });
     expect([...rows.values()].map(connectionOf)).toEqual(["p2p", "p2p", "sfu", "sfu", "sfu"]);
+    expect([...rows.values()].map(alsoConnectionOf)).toEqual([undefined, undefined, undefined, "p2p", undefined]);
+  });
+
+  it("reads a member on both as reached peer to peer once this client is off LiveKit and linked to them", async () => {
+    const { alsoConnectionOf, connectionOf, voiceRowTransports } = await import("@/concord/lib/voice");
+    const both = { author: pk("b"), alsoOn: "iroh" };
+    const unlinked = { author: pk("u"), alsoOn: "iroh" };
+    const rows = voiceRowTransports(fold([both, unlinked], [{ author: pk("0") }]), new Set([pk("b")]), [], true);
+    expect([rows.get(pk("b")), rows.get(pk("u"))]).toEqual(["bothLinked", "both"]);
+    expect([connectionOf("bothLinked"), alsoConnectionOf("bothLinked")]).toEqual(["p2p", "sfu"]);
   });
 
   it("keeps the LiveKit marker for a member bridging iroh into the SFU", async () => {

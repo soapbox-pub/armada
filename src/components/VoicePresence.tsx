@@ -12,7 +12,7 @@ import { getAvatarShape } from "@/lib/avatarShape";
 import { useWearsFrame } from "@/lib/ultra";
 import { getDisplayName } from "@/lib/getDisplayName";
 import { defineMessage, defineMessages, FormattedMessage, useIntl, type MessageDescriptor } from "@/i18n";
-import { connectionOf, type VoiceRowTransport } from "@/concord/lib/voice";
+import { alsoConnectionOf, connectionOf, type VoiceRowTransport } from "@/concord/lib/voice";
 import { cn } from "@/lib/utils";
 import { HiveIcon, HubIcon } from "@/components/icons/TransportIcons";
 
@@ -205,12 +205,20 @@ const CONNECTION_LABELS = defineMessages({
   p2p: { id: "voicePresence.viaP2p", defaultMessage: "Connected peer to peer" },
 });
 
+/** A member on both transports, by the one this client reaches them over. */
+const BOTH_LABELS = defineMessages({
+  sfu: { id: "voicePresence.bothTransport", defaultMessage: "On LiveKit and peer to peer, heard here over LiveKit" },
+  p2p: { id: "voicePresence.bothLinkedTransport", defaultMessage: "On LiveKit and peer to peer, heard here peer to peer" },
+});
+
 const TRANSPORT_LABELS = {
   sfu: CONNECTION_LABELS.sfu,
   bridge: defineMessage({
     id: "voicePresence.bridge",
     defaultMessage: "Connected over the LiveKit server, bridging the peer-to-peer call into it",
   }),
+  both: BOTH_LABELS.sfu,
+  bothLinked: BOTH_LABELS.p2p,
   linked: defineMessage({
     id: "voicePresence.linkedTransport",
     defaultMessage: "In the call peer to peer, connected to you",
@@ -226,17 +234,21 @@ const TRANSPORT_LABELS = {
 } satisfies Record<VoiceRowTransport, MessageDescriptor>;
 
 /**
- * How someone is connected to the call: the LiveKit server, or peer to peer alone. The roster
- * row and the call stage show the same icon; LiveKit wins for a member on both.
+ * How someone is connected to the call: the LiveKit server, or peer to peer. The roster row and
+ * the call stage show the same icons: the connection this client reaches them over, then, dimmed,
+ * the other one for a member on both.
  */
 export function ConnectionIcon({
   via,
+  also,
   label,
   dimmed = false,
   tooltip = true,
   className,
 }: {
   via: "sfu" | "p2p";
+  /** The other transport a member on both is on, which this client doesn't reach them over. */
+  also?: "sfu" | "p2p";
   /** A fuller description than the plain "Connected over…". */
   label?: string;
   /** Peer to peer, but out of this client's reach. */
@@ -246,15 +258,23 @@ export function ConnectionIcon({
   className?: string;
 }) {
   const intl = useIntl();
-  const text = label ?? intl.formatMessage(CONNECTION_LABELS[via]);
+  const text = label ?? intl.formatMessage(also ? BOTH_LABELS[via] : CONNECTION_LABELS[via]);
   const Icon = via === "sfu" ? HubIcon : HiveIcon;
+  const AlsoIcon = also === "sfu" ? HubIcon : HiveIcon;
   return (
-    <span className="inline-flex shrink-0" title={tooltip ? text : undefined} data-connection={via}>
+    <span
+      className="inline-flex shrink-0 items-center gap-0.5"
+      title={tooltip ? text : undefined}
+      data-connection={via}
+      data-also={also}
+      role="img"
+      aria-label={text}
+    >
       <Icon
         className={cn("size-3.5 shrink-0", dimmed ? "text-muted-foreground" : via === "sfu" ? "text-warning" : "text-success", className)}
-        role="img"
-        aria-label={text}
+        aria-hidden
       />
+      {also && <AlsoIcon className={cn("size-3.5 shrink-0 text-muted-foreground opacity-60", className)} aria-hidden />}
     </span>
   );
 }
@@ -267,7 +287,13 @@ function TransportMarker({ transport }: { transport: VoiceRowTransport }) {
     <Tooltip>
       <TooltipTrigger asChild>
         <span className="inline-flex shrink-0">
-          <ConnectionIcon via={connectionOf(transport)} label={label} dimmed={transport === "other"} tooltip={false} />
+          <ConnectionIcon
+            via={connectionOf(transport)}
+            also={alsoConnectionOf(transport)}
+            label={label}
+            dimmed={transport === "other"}
+            tooltip={false}
+          />
         </span>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>

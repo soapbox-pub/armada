@@ -1217,15 +1217,20 @@ function ConcordVoiceRoom({
     gate,
     video: sfuFailed ? ownVideo.sources : sfuVideo,
   });
+  const onBoth = useMemo(
+    () => new Set(fold.present.filter((p) => p.alsoOn === "iroh").map((p) => p.author)),
+    [fold],
+  );
   const p2pView = useMemo<P2pCallView>(
     () => ({
       connections: true,
+      onBoth,
       peers: iroh.peers,
       ...(sfuFailed && me
         ? { self: { pubkey: me, speaking: iroh.selfSpeaking, muted: p2pMuted, ...ownVideo.sources } }
         : {}),
     }),
-    [iroh.peers, iroh.selfSpeaking, sfuFailed, me, p2pMuted, ownVideo.sources],
+    [onBoth, iroh.peers, iroh.selfSpeaking, sfuFailed, me, p2pMuted, ownVideo.sources],
   );
   const irohStatusRef = useRef(iroh.status);
   irohStatusRef.current = iroh.status;

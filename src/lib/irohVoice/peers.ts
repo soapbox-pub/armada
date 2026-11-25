@@ -34,6 +34,8 @@ export interface P2pSelfView {
 export interface P2pCallView {
   /** A Concord call, where members can be on either transport: tiles say which. */
   connections?: boolean;
+  /** Members whose presence puts them on LiveKit and iroh both. */
+  onBoth?: ReadonlySet<string>;
   peers: readonly P2pPeerView[];
   /** Set only while the call is peer to peer alone; on LiveKit we're a LiveKit participant. */
   self?: P2pSelfView;

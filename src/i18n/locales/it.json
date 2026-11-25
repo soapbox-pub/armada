@@ -5322,6 +5322,8 @@
   "voiceDeviceSettings.voiceServer": "Server vocale",
   "voiceDeviceSettings.voiceServerHelp": "Usato per le chiamate nei messaggi diretti e per le community che non impostano server vocali propri; una community che li imposta usa solo quelli, e qui questa impostazione viene ignorata. Un indirizzo personalizzato sostituisce i server vocali integrati di Armada su ogni client sincronizzato.",
   "voiceDeviceSettings.waylandHint": "Wayland richiede il portale Global Shortcuts del tuo desktop per il push-to-talk.",
+  "voicePresence.bothLinkedTransport": "Su LiveKit e peer-to-peer, ascoltato qui peer-to-peer",
+  "voicePresence.bothTransport": "Su LiveKit e peer-to-peer, ascoltato qui tramite LiveKit",
   "voicePresence.bridge": "Collegato tramite il server LiveKit, fa da ponte con la chiamata peer-to-peer",
   "voicePresence.bridgedTransport": "Nella chiamata peer-to-peer, ascoltato qui tramite un ponte",
   "voicePresence.handRaised": "Mano alzata",

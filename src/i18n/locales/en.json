@@ -5322,6 +5322,8 @@
   "voiceDeviceSettings.voiceServer": "Voice server",
   "voiceDeviceSettings.voiceServerHelp": "Used for direct-message calls and for communities that set no voice servers of their own; a community that sets them uses only those, and this is ignored there. A custom address replaces the built-in Armada voice servers on every synced client.",
   "voiceDeviceSettings.waylandHint": "Wayland requires your desktop's Global Shortcuts portal for push to talk.",
+  "voicePresence.bothLinkedTransport": "On LiveKit and peer to peer, heard here peer to peer",
+  "voicePresence.bothTransport": "On LiveKit and peer to peer, heard here over LiveKit",
   "voicePresence.bridge": "Connected over the LiveKit server, bridging the peer-to-peer call into it",
   "voicePresence.bridgedTransport": "In the call peer to peer, heard here through a bridge",
   "voicePresence.handRaised": "Hand raised",

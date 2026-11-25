@@ -5322,6 +5322,8 @@
   "voiceDeviceSettings.voiceServer": "音声サーバー",
   "voiceDeviceSettings.voiceServerHelp": "ダイレクトメッセージの通話と、独自の音声サーバーを設定していないコミュニティで使用されます。音声サーバーを設定しているコミュニティではそれだけが使われ、この設定は無視されます。カスタムアドレスを指定すると、同期されたすべてのクライアントで Armada 内蔵の音声サーバーが置き換えられます。",
   "voiceDeviceSettings.waylandHint": "Wayland でプッシュトゥトークを使うには、デスクトップの Global Shortcuts ポータルが必要です。",
+  "voicePresence.bothLinkedTransport": "LiveKit とピアツーピアの両方で接続中（ここではピアツーピアで聞こえます）",
+  "voicePresence.bothTransport": "LiveKit とピアツーピアの両方で接続中（ここでは LiveKit 経由で聞こえます）",
   "voicePresence.bridge": "LiveKit サーバー経由で接続中（ピアツーピア通話をブリッジ）",
   "voicePresence.bridgedTransport": "ピアツーピアで通話中（ブリッジ経由でここでも聞こえます）",
   "voicePresence.handRaised": "挙手中",

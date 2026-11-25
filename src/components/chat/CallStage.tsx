@@ -573,7 +573,7 @@ function VideoTile({
 }) {
   const participant = trackRef.participant;
   const { pubkey, displayName, verified, metadata, imeta } = useTileDisplayName(participant);
-  const { connections } = useIrohPeers();
+  const { connections, onBoth } = useIrohPeers();
   const intl = useIntl();
   const isScreenShare = trackRef.source === Track.Source.ScreenShare;
   const { enabled: endToEndEncrypted } = useCallSignals();
@@ -639,7 +639,9 @@ function VideoTile({
         {isScreenShare && "'s screen"}
         {isLocal && " (you)"}
       </span>
-      {connections && !isScreenShare && <ConnectionIcon via="sfu" className="size-3" />}
+      {connections && !isScreenShare && (
+        <ConnectionIcon via="sfu" also={verified && onBoth?.has(pubkey) ? "p2p" : undefined} className="size-3" />
+      )}
     </>
   );
 
@@ -988,7 +990,7 @@ function AvatarTile({
   onToggleFocus: () => void;
 }) {
   const { pubkey, displayName, verified, metadata, imeta } = useTileDisplayName(participant);
-  const { connections } = useIrohPeers();
+  const { connections, onBoth } = useIrohPeers();
   const shape = getAvatarShape(metadata);
   const hasCustomShape = !!shape;
   const wearsFrame = useWearsFrame(metadata);
@@ -1007,7 +1009,7 @@ function AvatarTile({
         <DisplayName pubkey={verified ? pubkey : undefined} name={displayName} />
         {isLocal && " (you)"}
       </span>
-      {connections && <ConnectionIcon via="sfu" className="size-3" />}
+      {connections && <ConnectionIcon via="sfu" also={verified && onBoth?.has(pubkey) ? "p2p" : undefined} className="size-3" />}
     </>
   );
 
@@ -1091,6 +1093,7 @@ export function P2pTile({
   const { data: author } = useAuthor(pubkey);
   const metadata = author?.metadata;
   const displayName = useScopedDisplayName(pubkey, metadata);
+  const { onBoth } = useIrohPeers();
   const shape = getAvatarShape(metadata);
   const isScreen = kind === "screen";
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1113,7 +1116,7 @@ export function P2pTile({
         {isScreen && "'s screen"}
         {self && " (you)"}
       </span>
-      {!isScreen && <ConnectionIcon via="p2p" className="size-3" />}
+      {!isScreen && <ConnectionIcon via="p2p" also={onBoth?.has(pubkey) ? "sfu" : undefined} className="size-3" />}
     </>
   );
   const tile = (
@@ -1185,6 +1188,7 @@ export function HeroP2pPerson({
   const name = useScopedDisplayName(pubkey, metadata);
   const intl = useIntl();
   const { raisedHands } = useVoiceActivity();
+  const { onBoth } = useIrohPeers();
   const view = (
     <div>
       <HeroAvatarView
@@ -1197,6 +1201,7 @@ export function HeroP2pPerson({
         handRaised={raisedHands.has(pubkey)}
         streaming={streaming}
         via="p2p"
+        also={onBoth?.has(pubkey) ? "sfu" : undefined}
         size={size}
         theater={theater}
       />
@@ -1394,6 +1399,7 @@ function HeroAvatarView({
   onWatch,
   pending,
   via,
+  also,
   size,
   theater,
 }: {
@@ -1413,6 +1419,8 @@ function HeroAvatarView({
   pending?: boolean;
   /** How they're connected, shown beside the name in a Concord call. */
   via?: "sfu" | "p2p";
+  /** The other transport, for a member on both. */
+  also?: "sfu" | "p2p";
   size: HeroSize;
   theater: boolean;
 }) {
@@ -1479,7 +1487,7 @@ function HeroAvatarView({
       </div>
       <span className={cn("flex max-w-32 items-center gap-1 text-muted-foreground", theater ? "text-sm" : "text-xs")}>
         <span className="truncate">{caption === name ? <DisplayName pubkey={pubkey} name={name} ultra="hero" /> : caption}</span>
-        {via && <ConnectionIcon via={via} />}
+        {via && <ConnectionIcon via={via} also={also} />}
       </span>
     </div>
   );
@@ -1500,7 +1508,7 @@ function HeroParticipant({
   const intl = useIntl();
   const { raisedHands, streamingPubkeys } = useVoiceActivity();
   const { watch } = useScreenShareWatch();
-  const { connections } = useIrohPeers();
+  const { connections, onBoth } = useIrohPeers();
   const recordingSignals = useCallSignals().recording;
   const streaming = verified && streamingPubkeys.has(pubkey);
   const view = (
@@ -1518,6 +1526,7 @@ function HeroParticipant({
         streaming={streaming}
         onWatch={participant.isLocal ? undefined : () => watch(pubkey)}
         via={connections ? "sfu" : undefined}
+        also={connections && verified && onBoth?.has(pubkey) ? "p2p" : undefined}
         size={size}
         theater={theater}
       />
