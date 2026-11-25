@@ -24,8 +24,10 @@ export const CONCORD2_PANES = [
   "invites",
   "banned",
   "members",
+  "overview",
   "reports",
   "roles",
+  "safety",
   "settings",
   "suspicious",
 ] as const;

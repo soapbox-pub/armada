@@ -65,10 +65,11 @@ import { InviteDialog } from "@/concord/components/InviteDialog";
 import { ShareToDiscoverDialog } from "@/concord/components/ShareToDiscoverDialog";
 import { CommunityDiscoverDialog } from "@/concord/components/CommunityDiscoverDialog";
 import { ModerationView } from "@/concord/components/ModerationView";
+import { OverviewView } from "@/concord/components/OverviewView";
 import {
   MODERATION_TABS,
   firstModerationPane,
-  isModerationPane,
+  managedPaneOf,
   type ModerationAccess,
   type ModerationPane,
 } from "@/concord/lib/moderationPanes";
@@ -257,9 +258,12 @@ const NO_MEMBER_ACTIONS: MemberActionItem[] = [];
 /** Shared empty feed, so a chat-presented channel keeps a stable reference. */
 const NO_POSTS: ForumPost[] = [];
 
-/** Header names (formatted on read) for community-wide panes that aren't moderation ones (those use `MODERATION_TABS`). */
+/** Community-wide panes outside Manage community; `banned` and `suspicious` open its Safety tab. */
+type OtherPane = Exclude<Concord2Pane, ModerationPane | "banned" | "suspicious">;
+
+/** Header names (formatted on read) for {@link OtherPane}s (Manage community's use `MODERATION_TABS`). */
 const PANE_HEADERS: Record<
-  Exclude<Concord2Pane, ModerationPane>,
+  OtherPane,
   { icon: LucideIcon; readonly label: string }
 > = {
   all: {
@@ -284,18 +288,6 @@ const PANE_HEADERS: Record<
     icon: FolderGit2,
     get label() {
       return t({ id: "concordPage.pane.projects", defaultMessage: "Projects" });
-    },
-  },
-  settings: {
-    icon: Settings,
-    get label() {
-      return t({ id: "concordPage.pane.communitySettings", defaultMessage: "Community settings" });
-    },
-  },
-  suspicious: {
-    icon: Shield,
-    get label() {
-      return t({ id: "concordPage.pane.suspiciousActivity", defaultMessage: "Suspicious activity" });
     },
   },
 };
@@ -1500,8 +1492,9 @@ function ConcordCommunityPage() {
     routeChannelId ??
     (autoSelectChannel && lastChannelKey ? lastChannels[lastChannelKey] ?? null : null);
   const view: "channel" | Concord2Pane = routePane ?? "channel";
+  const managedPane = managedPaneOf(view);
   const paneHeader =
-    view === "channel" ? null : isModerationPane(view) ? MODERATION_TABS[view] : PANE_HEADERS[view];
+    view === "channel" ? null : managedPane ? MODERATION_TABS[managedPane] : PANE_HEADERS[view as OtherPane];
   const selectChannel = useCallback(
     (idHex: string) => {
       if (!communityId) return;
@@ -1784,13 +1777,15 @@ function ConcordCommunityPage() {
   const canReact = Boolean(user && channel && reactsIn(folded, channel.idHex, user.pubkey) && reachesReaders);
   const restrictedChannel = Boolean(folded && channel && !everyoneSends(folded.roster, channel.idHex));
 
-  // Audit log and invite links are open to every member, so "Moderation" always shows.
+  // Settings, audit log and invite links are open to every member, so "Manage community" always shows.
   const moderationAccess: ModerationAccess = useMemo(
     () => ({
+      overview: canKickAny || canBanAny || canReadReports,
+      settings: true,
       members: canManageRoles || canKickAny || canBanAny || canCreateInvite,
       roles: canManageRoles && !dissolved,
       invites: true,
-      banned: canBanAny,
+      safety: canBanAny,
       reports: canReadReports,
       audit: true,
     }),
@@ -3334,11 +3329,12 @@ function ConcordCommunityPage() {
                     onClick: markAllChannelsRead,
                   },
                   {
+                    // Settings and every moderation pane, one entry; also closes the mobile drawer.
                     show: true,
                     icon: <Settings className="size-4" />,
-                    label: intl.formatMessage({ id: "concordPage.communityMenu.settings", defaultMessage: "Community settings" }),
+                    label: intl.formatMessage({ id: "concordPage.communityMenu.manage", defaultMessage: "Manage community" }),
                     onClick: () => {
-                      selectPane("settings");
+                      selectPane(firstModerationPane(moderationAccess) ?? "settings");
                       setChannelsOpen(false);
                     },
                   },
@@ -3367,17 +3363,6 @@ function ConcordCommunityPage() {
                     icon: <Plus className="size-4" />,
                     label: intl.formatMessage({ id: "concordPage.communityMenu.createChannel", defaultMessage: "Create channel" }),
                     onClick: () => setCreatingChannel(true),
-                  },
-                  {
-                    // One entry for the moderation panes; also closes the mobile drawer.
-                    show: true,
-                    icon: <Shield className="size-4" />,
-                    label: intl.formatMessage({ id: "concordPage.communityMenu.moderation", defaultMessage: "Moderation" }),
-                    onClick: () => {
-                      const pane = firstModerationPane(moderationAccess);
-                      if (pane) selectPane(pane);
-                      setChannelsOpen(false);
-                    },
                   },
                 ]
                   .filter((i) => i.show)
@@ -3468,7 +3453,7 @@ function ConcordCommunityPage() {
       preChannels={
         user && community ? (
           <>
-            <SuspiciousActivityBanner community={community} channels={channels} folded={folded} onOpen={() => selectPane("suspicious")} />
+            <SuspiciousActivityBanner community={community} channels={channels} folded={folded} onOpen={() => selectPane("safety")} />
             {offerUpgrade && <LegacyControlBanner key={community.idHex} communityIdHex={community.idHex} onUpgrade={openRotateKeys} />}
             <button
               type="button"
@@ -3928,49 +3913,63 @@ function ConcordCommunityPage() {
                     mentionsEveryone={messageMentionsEveryone}
                   />
                 </div>
-              ) : isModerationPane(view) ? (
+              ) : managedPane ? (
                 <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain scrollbar-stable pb-safe">
                   {community && (
                     <ModerationView
                       community={community}
-                      pane={view}
+                      pane={managedPane}
                       access={moderationAccess}
                       memberPubkeys={memberPubkeys}
                       canModerateMembers={canKickAny || canBanAny}
                       canManageRoles={canManageRoles && !dissolved}
                       onSelect={selectPane}
-                    />
-                  )}
-                </div>
-              ) : view === "settings" ? (
-                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-clip overscroll-contain scrollbar-stable pb-safe">
-                  {community && (
-                    <Suspense fallback={paneLoading}>
-                    <CommunitySettingsView
-                      community={community}
-                      metadata={folded?.metadata}
-                      ownerHex={ownerHex}
-                      memberCount={memberPubkeys.length}
-                      canManageMetadata={canManageMetadata}
-                      canManageChannels={canManageChannels}
-                      editorOps={editorOps}
-                      onNewChannel={canManageChannels ? () => setCreatingChannel(true) : undefined}
-                      onOpenInvites={() => selectPane("invites")}
-                    />
-                    </Suspense>
-                  )}
-                </div>
-              ) : view === "suspicious" ? (
-                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-clip overscroll-contain scrollbar-stable pb-safe">
-                  {community && (
-                    <SuspiciousActivityView
-                      community={community}
-                      channels={channels}
-                      folded={folded}
-                      ban={moderation.ban}
-                      kick={(target) => moderation.kick({ target })}
-                      canBan={moderation.canBan}
-                      canKick={moderation.canKick}
+                      overview={
+                        managedPane === "overview" && (
+                          <OverviewView
+                            community={community}
+                            channels={channels}
+                            folded={folded}
+                            memberCount={memberPubkeys.length}
+                            access={moderationAccess}
+                            onSelect={selectPane}
+                            canKick={moderation.canKick}
+                            canBan={moderation.canBan}
+                            onKick={setKickTarget}
+                            onBan={setBanTarget}
+                          />
+                        )
+                      }
+                      settings={
+                        managedPane === "settings" && (
+                          <Suspense fallback={paneLoading}>
+                            <CommunitySettingsView
+                              community={community}
+                              metadata={folded?.metadata}
+                              ownerHex={ownerHex}
+                              memberCount={memberPubkeys.length}
+                              canManageMetadata={canManageMetadata}
+                              canManageChannels={canManageChannels}
+                              editorOps={editorOps}
+                              onNewChannel={canManageChannels ? () => setCreatingChannel(true) : undefined}
+                              onOpenInvites={() => selectPane("invites")}
+                            />
+                          </Suspense>
+                        )
+                      }
+                      suspicious={
+                        managedPane === "safety" && (
+                          <SuspiciousActivityView
+                            community={community}
+                            channels={channels}
+                            folded={folded}
+                            ban={moderation.ban}
+                            kick={(target) => moderation.kick({ target })}
+                            canBan={moderation.canBan}
+                            canKick={moderation.canKick}
+                          />
+                        )
+                      }
                     />
                   )}
                 </div>

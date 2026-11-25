@@ -109,14 +109,14 @@ import { parseGitRepositoryAddress } from "@/lib/gitActivity";
 type SettingsTab = "overview" | "channels" | "integrations" | "relays";
 
 const tabLabels = defineMessages({
-  overview: { id: "communitySettingsView.tab.overview", defaultMessage: "Overview" },
+  overview: { id: "communitySettingsView.tab.general", defaultMessage: "General" },
   channels: { id: "communitySettingsView.tab.channels", defaultMessage: "Channels" },
   integrations: { id: "communitySettingsView.tab.integrations", defaultMessage: "Integrations" },
   relays: { id: "communitySettingsView.tab.network", defaultMessage: "Network" },
 });
 
 /**
- * Community settings page (Overview, Channels, Integrations, Network), shown
+ * Community settings page (General, Channels, Integrations, Network), shown
  * to everyone with inline editing per permission. Every fold re-checks
  * permissions (CORD-02/04), so UI gating is a convenience, not enforcement.
  */

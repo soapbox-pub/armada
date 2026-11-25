@@ -242,7 +242,7 @@ export function SuspiciousActivityView({
   const nothing = !alert && travelers.length === 0;
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6 p-4 pb-24">
+    <div className="mx-auto w-full max-w-2xl space-y-6 p-4">
       <div className="flex items-center gap-2">
         <Shield className="size-5 text-destructive" />
         <h2 className="text-lg font-semibold">
