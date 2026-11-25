@@ -1,4 +1,4 @@
-import { DoorOpen, Loader2, UserCheck, Users } from "lucide-react";
+import { DoorOpen, Loader2, ShieldAlert, UserCheck, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { InfoTip, SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
@@ -8,7 +8,7 @@ import { ChromeDialogContent, ChromeDialogFooter, ChromeDialogHeader, Dialog } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useApprovalGate } from "@/concord/hooks/useApprovalGate";
-import { adoptableRoles, carriedOver, GATE_BITS } from "@/concord/lib/approvalGate";
+import { adoptableRoles, carriedOver } from "@/concord/lib/approvalGate";
 import type { FoldedControl } from "@/concord/lib/control";
 import { PERMISSION_LABELS, Permissions } from "@/concord/lib/roles";
 import type { Channel, Community } from "@/concord/lib/types";
@@ -68,7 +68,7 @@ export function ApprovalGateSection({
         }
         info={intl.formatMessage({
           id: "approvalGate.descriptionRole",
-          defaultMessage: "New members can read and react, but can't post, start threads or share files until a moderator approves them. Approving gives them the role that lets members post. A banned member coming back on a new account has to be approved again.",
+          defaultMessage: "New members can read, but can't post, react, start threads, share files or join voice channels until a moderator approves them. Approving gives them the role that lets members post. A banned member coming back on a new account has to be approved again.",
         })}
       >
         <Switch
@@ -87,6 +87,9 @@ export function ApprovalGateSection({
           setWelcome={gate.setWelcome}
         />
       )}
+      {gate.leaves !== 0n && (
+        <LeavesRow leaves={gate.leaves} canChange={gate.canTighten && !gate.switching} busy={gate.switching} tighten={gate.tighten} />
+      )}
       {gate.progress && !dialog && <ProgressRow progress={gate.progress} />}
 
       {dialog === "on" && (
@@ -100,7 +103,7 @@ export function ApprovalGateSection({
           progress={gate.progress}
         />
       )}
-      {dialog === "off" && <TurnOffDialog onClose={() => setDialog(null)} turnOff={gate.turnOff} />}
+      {dialog === "off" && <TurnOffDialog restorable={gate.restorable} onClose={() => setDialog(null)} turnOff={gate.turnOff} />}
     </SettingsGroup>
   );
 }
@@ -159,6 +162,52 @@ function WelcomeRow({
           ))}
         </SelectContent>
       </Select>
+    </SettingsRow>
+  );
+}
+
+/** Shown on a gate that left `@everyone` reacting or joining calls: one step takes that and gives it to whoever posts. */
+function LeavesRow({ leaves, canChange, busy, tighten }: { leaves: bigint; canChange: boolean; busy: boolean; tighten: () => Promise<{ unreachable: string[] }> }) {
+  const intl = useIntl();
+  const open = leaves === Permissions.ADD_REACTIONS ? "reactions" : leaves === Permissions.CONNECT ? "voice" : "both";
+
+  const hold = () => {
+    tighten()
+      .then(({ unreachable }) =>
+        toast({
+          title: t({ id: "approvalGate.leavesDone", defaultMessage: "Waiting members are held back" }),
+          description: unreachable.length > 0
+            ? t(
+                { id: "approvalGate.leavesDoneUnreachable", defaultMessage: "{count, plural, one {# member who posts through another role couldn't be given the role that keeps this; someone ranked above them has to.} other {# members who post through another role couldn't be given the role that keeps this; someone ranked above them has to.}}" },
+                { count: unreachable.length },
+              )
+            : undefined,
+        }),
+      )
+      .catch((e: unknown) =>
+        toast({
+          title: t({ id: "approvalGate.leavesFailed", defaultMessage: "Couldn't hold waiting members back" }),
+          description: e instanceof Error ? e.message : undefined,
+          variant: "destructive",
+        }),
+      );
+  };
+
+  return (
+    <SettingsRow
+      icon={ShieldAlert}
+      tone="warning"
+      stack
+      label={intl.formatMessage({ id: "approvalGate.leavesLabel", defaultMessage: "Waiting members can do more than read" })}
+      description={intl.formatMessage(
+        { id: "approvalGate.leavesHint", defaultMessage: "{open, select, reactions {Members waiting for approval can still add reactions. Holding that back leaves it to members who can post.} voice {Members waiting for approval can still join voice channels. Holding that back leaves it to members who can post.} other {Members waiting for approval can still add reactions and join voice channels. Holding those back leaves them to members who can post.}}" },
+        { open },
+      )}
+    >
+      <Button type="button" variant="secondary" className="clip-corner-lg touch:h-11" disabled={!canChange} onClick={hold}>
+        {busy && <Loader2 className="size-4 animate-spin" />}
+        <FormattedMessage id="approvalGate.leavesAction" defaultMessage="Hold back" />
+      </Button>
     </SettingsRow>
   );
 }
@@ -373,13 +422,13 @@ function TurnOnDialog({
 }
 
 /** What turning off can give `@everyone` back besides Send messages, which it always does. */
-const RESTORABLE = [Permissions.SEND_IN_THREADS, Permissions.ATTACH_FILES] as const;
+const RESTORABLE = [Permissions.SEND_IN_THREADS, Permissions.ATTACH_FILES, Permissions.ADD_REACTIONS, Permissions.CONNECT] as const;
 
-function TurnOffDialog({ onClose, turnOff }: { onClose: () => void; turnOff: (restore: bigint) => Promise<void> }) {
+function TurnOffDialog({ restorable, onClose, turnOff }: { restorable: bigint; onClose: () => void; turnOff: (restore: bigint) => Promise<void> }) {
   const intl = useIntl();
   const [busy, setBusy] = useState(false);
   // Nothing records what @everyone held before approval went on, so the person turning it off says.
-  const [restore, setRestore] = useState<bigint>(GATE_BITS);
+  const [restore, setRestore] = useState<bigint>(restorable);
   const labelOf = (bit: bigint) => PERMISSION_LABELS.find((l) => l.bit === bit)?.label ?? "";
   const toggle = (bit: bigint, on: boolean) => setRestore((bits) => (on ? bits | bit : bits & ~bit));
 
@@ -421,7 +470,7 @@ function TurnOffDialog({ onClose, turnOff }: { onClose: () => void; turnOff: (re
             <Checkbox checked disabled />
             <span className="text-sm">{labelOf(Permissions.SEND_MESSAGES)}</span>
           </label>
-          {RESTORABLE.map((bit) => (
+          {RESTORABLE.filter((bit) => (restorable & bit) !== 0n).map((bit) => (
             <label key={String(bit)} className="flex cursor-pointer items-center gap-3 touch:min-h-11">
               <Checkbox checked={(restore & bit) !== 0n} disabled={busy} onCheckedChange={(c) => toggle(bit, c === true)} />
               <span className="text-sm">{labelOf(bit)}</span>

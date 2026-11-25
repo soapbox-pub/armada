@@ -8,11 +8,13 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GATE_BITS } from "@/concord/lib/approvalGate";
+import { GATE_BITS, GATE_EXTRAS, GATE_TAKES } from "@/concord/lib/approvalGate";
+import { mayConnect } from "@/concord/lib/callGate";
+import { reactionIgnored } from "@/concord/lib/channelJudges";
 import { foldControlState, type FoldedControl } from "@/concord/lib/control";
 import { bytesToHex, random32 } from "@/concord/lib/derive";
 import type { ParsedEdition } from "@/concord/lib/edition";
-import { EVERYONE_DEFAULT, Permissions, roleToJSON } from "@/concord/lib/roles";
+import { everyoneLocked, EVERYONE_DEFAULT, Permissions, roleToJSON } from "@/concord/lib/roles";
 import { overwriteLocator, overwriteToJSON } from "@/concord/lib/roster";
 import type { Community } from "@/concord/lib/types";
 import type { NostrRumor } from "@/lib/nostrRumor";
@@ -138,8 +140,37 @@ describe("turning approval on", () => {
     const { result } = renderHook(() => useApprovalGate(c), { wrapper });
     await attempt(() => result.current.turnOn({ members: [member], observed: new Map([[member, NOW]]), activeSinceMs: 0, role: { create: true } }));
     expect(env.published.map(vskOf)).toEqual(["13", "3", "13"]);
-    expect(env.folded!.roster.everyone).toBe(EVERYONE_DEFAULT & ~GATE_BITS);
+    expect(env.folded!.roster.everyone).toBe(EVERYONE_DEFAULT & ~GATE_TAKES);
     expect(result.current.on).toBe(true);
+  });
+
+  it("holds reactions and calls back with posting: a member waiting isn't counted or let in, one kept is", async () => {
+    const { community: c, member, general } = community(Permissions.MANAGE_ROLES | EVERYONE_DEFAULT);
+    const waiting = hexKey();
+    const { result } = renderHook(() => useApprovalGate(c), { wrapper });
+    await attempt(() => result.current.turnOn({ members: [member, waiting], observed: new Map([[member, NOW]]), activeSinceMs: NOW - 1, role: { create: true } }));
+    const ignored = reactionIgnored(env.folded, general)!;
+    expect(ignored(waiting)).toBe(true);
+    expect(ignored(member)).toBe(false);
+    expect(mayConnect(env.folded, general, false, waiting)).toBe(false);
+    expect(mayConnect(env.folded, general, false, member)).toBe(true);
+    // Nothing left for @everyone to write there, so the Channel is the writer key's (CORD-03 §1).
+    expect(everyoneLocked(env.folded!.roster, general)).toBe(true);
+    expect(result.current.leaves).toBe(0n);
+  });
+
+  it("gives the Role to a member whose own Role posts without all the gate takes", async () => {
+    const k = community(Permissions.MANAGE_ROLES | EVERYONE_DEFAULT);
+    const helper = hexKey();
+    const helpers = hexKey();
+    const editions = [...k.editions, k.c.role(helpers, "n", Permissions.SEND_MESSAGES, { name: "Helpers" }), k.c.grant(helper, [helpers])];
+    env.editions = [...editions];
+    env.folded = foldControlState(editions, k.c.id, k.c.owner);
+    const { result } = renderHook(() => useApprovalGate(k.community), { wrapper });
+    await attempt(() => result.current.turnOn({ members: [helper], observed: new Map(), activeSinceMs: NOW, role: { create: true } }));
+    expect(grantEditions()).toHaveLength(1);
+    expect(mayConnect(env.folded, k.general, false, helper)).toBe(true);
+    expect(reactionIgnored(env.folded, k.general)!(helper)).toBe(false);
   });
 });
 
@@ -181,7 +212,7 @@ describe("approval on a Community moved from the legacy Roster", () => {
     expect(result.current.canSwitch).toBe(true);
     const error = await attempt(() => result.current.turnOn({ members: [member], observed: new Map([[member, NOW]]), activeSinceMs: 0, role: { create: true } }));
     expect(error).toBeUndefined();
-    expect(env.folded!.roster.everyone).toBe(EVERYONE_DEFAULT & ~GATE_BITS);
+    expect(env.folded!.roster.everyone).toBe(EVERYONE_DEFAULT & ~GATE_TAKES);
   });
 
   it("doesn't offer a former access Role as the way in: approving would let every newcomer into its Private Channel", async () => {
@@ -238,6 +269,76 @@ describe("turning approval off", () => {
     const { result } = renderHook(() => useApprovalGate(k.community), { wrapper });
     await attempt(() => result.current.turnOff(Permissions.SEND_IN_THREADS));
     expect(env.folded!.roster.everyone! & GATE_BITS).toBe(Permissions.SEND_MESSAGES | Permissions.SEND_IN_THREADS);
+  });
+});
+
+describe("a gate that left @everyone reacting and joining calls", () => {
+  /** On, with a Verified Role that only posts, a member holding it, one posting through another Role and a welcome Channel. */
+  function reacting() {
+    const k = community(Permissions.MANAGE_ROLES | EVERYONE_DEFAULT);
+    const [verified, helpers, helper] = [hexKey(), hexKey(), hexKey()];
+    const welcome = bytesToHex(random32());
+    const o = { scope: welcome, target: { kind: "everyone" as const }, allow: GATE_BITS, deny: 0n };
+    const editions = [
+      ...k.editions,
+      k.c.everyone(EVERYONE_DEFAULT & ~GATE_BITS, { prev: k.everyone }),
+      k.c.role(verified, "m", GATE_BITS, { name: "Verified" }),
+      k.c.grant(k.member, [verified]),
+      // Posts, but manages messages: staff's, so not a Role the gate approves through.
+      k.c.role(helpers, "n", Permissions.SEND_MESSAGES | Permissions.MANAGE_MESSAGES, { name: "Helpers" }),
+      k.c.grant(helper, [helpers]),
+      k.c.edition({ vsk: "2", eid: welcome, author: k.c.owner, content: { name: "welcome", private: false } }),
+      k.c.edition({ vsk: "14", eid: overwriteLocator(k.c.id, o), author: k.c.owner, content: overwriteToJSON(o) }),
+    ];
+    env.editions = [...editions];
+    env.folded = foldControlState(editions, k.c.id, k.c.owner);
+    return { ...k, verified, helper, welcome, waiting: hexKey() };
+  }
+
+  it("is still on, and says what members waiting can do", () => {
+    const k = reacting();
+    const { result } = renderHook(() => useApprovalGate(k.community), { wrapper });
+    expect(result.current.on).toBe(true);
+    expect(result.current.leaves).toBe(GATE_EXTRAS);
+    expect(reactionIgnored(env.folded, k.general)!(k.waiting)).toBe(false);
+    expect(mayConnect(env.folded, k.general, false, k.waiting)).toBe(true);
+  });
+
+  it("gives the approval Role, whoever posts without it and the welcome Channel what it takes, then takes it from @everyone", async () => {
+    const k = reacting();
+    const { result } = renderHook(() => useApprovalGate(k.community), { wrapper });
+    const error = await attempt(() => result.current.tighten());
+    expect(error).toBeUndefined();
+    expect(env.published.map(vskOf)).toEqual(["13", "3", "14", "13"]);
+    expect(everyoneEditions()).toEqual([env.published[3]]);
+    expect(env.folded!.roster.everyone).toBe(EVERYONE_DEFAULT & ~GATE_TAKES);
+    expect(result.current.on).toBe(true);
+    expect(result.current.leaves).toBe(0n);
+    expect(env.folded!.roster.grants.find((g) => g.member === k.helper)?.roleIds).toContain(k.verified);
+
+    const general = reactionIgnored(env.folded, k.general)!;
+    expect(general(k.waiting)).toBe(true);
+    expect(general(k.member)).toBe(false);
+    expect(general(k.helper)).toBe(false);
+    expect(reactionIgnored(env.folded, k.welcome)!(k.waiting)).toBe(false);
+    // The welcome Channel opens posting and reacting, never its call.
+    for (const channel of [k.general, k.welcome]) {
+      expect(mayConnect(env.folded, channel, false, k.waiting)).toBe(false);
+      expect(mayConnect(env.folded, channel, false, k.member)).toBe(true);
+      expect(mayConnect(env.folded, channel, false, k.helper)).toBe(true);
+    }
+    expect(everyoneLocked(env.folded!.roster, k.general)).toBe(true);
+    expect(everyoneLocked(env.folded!.roster, k.welcome)).toBe(false);
+  });
+
+  it("publishes nothing when the approval Role isn't the switcher's to edit", async () => {
+    const k = reacting();
+    const outsider = generateSecretKey();
+    env.user = { pubkey: getPublicKey(outsider), signer: signerOf(outsider) };
+    const { result } = renderHook(() => useApprovalGate(k.community), { wrapper });
+    const error = await attempt(() => result.current.tighten());
+    expect(error).toBeInstanceOf(Error);
+    expect(env.published).toEqual([]);
   });
 });
 

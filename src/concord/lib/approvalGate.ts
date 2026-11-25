@@ -1,9 +1,10 @@
 /**
- * "Require approval to post": `@everyone` loses posting, a plain Role holds it, and
- * approving a member is a Grant of that Role (CORD-04 §3). Every Channel @everyone can't
- * post in is restricted, so the gate is the writer key's (CORD-03 §1), not a reader's
- * courtesy. Nothing here is new protocol, and nothing is stored beside the Roster: which
- * Role approves is read off the permissions, as every member's device can.
+ * "Require approval to post": `@everyone` loses posting, reacting and calls, a plain Role
+ * holds them, and approving a member is a Grant of that Role (CORD-04 §3). Every Channel
+ * `@everyone` can do none of the three in is Locked, so the gate is the writer key's
+ * (CORD-03 §1), not a reader's courtesy. Nothing here is new protocol, and nothing is
+ * stored beside the Roster: which Role approves is read off the permissions, as every
+ * member's device can.
  */
 
 import { isEntitled } from "@/concord/lib/channelAccess";
@@ -11,8 +12,20 @@ import type { FoldedControl } from "@/concord/lib/control";
 import type { CoalescedMember } from "@/concord/lib/guestbook";
 import { BENEATH_EVERY_ROLE, effectivePermissions, highestPosition, permissionsAbove, Permissions, rolesOf, STAFF_MASK, type Role } from "@/concord/lib/roles";
 
-/** What the gate takes from `@everyone` and gives the approval Role. */
+/** What `@everyone` lacks while the gate reads as on. */
 export const GATE_BITS = Permissions.SEND_MESSAGES | Permissions.SEND_IN_THREADS | Permissions.ATTACH_FILES;
+
+/** What a gate may have left `@everyone` and still read as on: an older build's, or a bot's. */
+export const GATE_EXTRAS = Permissions.ADD_REACTIONS | Permissions.CONNECT;
+
+/**
+ * What turning the gate on takes from `@everyone` and gives the approval Role: reacting
+ * and joining calls go with posting.
+ */
+export const GATE_TAKES = GATE_BITS | GATE_EXTRAS;
+
+/** What a welcome Channel gives `@everyone` back: the gate's bits but its calls. */
+export const WELCOME_OPENS = GATE_TAKES & ~Permissions.CONNECT;
 
 /** Powers over other members or the Community: a Role holding any is staff's, not the way in. */
 const MANAGEMENT_BITS =
@@ -118,15 +131,57 @@ export function welcomeChannels(folded: FoldedControl): string[] {
   return out.sort();
 }
 
-/**
- * Whether `me` may turn the gate on or off. Either way rewrites `@everyone`, which takes
- * Manage Roles and every bit it will hold (CORD-04 §2), and gives a Role the gate's bits.
- */
-export function maySwitchGate(folded: FoldedControl | undefined, me: string | undefined): boolean {
+/** Whether `me` holds Manage Roles and `bits` besides everything `@everyone` has, as rewriting it takes (CORD-04 §2). */
+function rewritesEveryone(folded: FoldedControl | undefined, me: string | undefined, bits: bigint): boolean {
   if (!folded?.rankedRoster || !me || folded.banned.has(me)) return false;
   if (me === folded.ownerHex) return true;
-  const needs = (folded.roster.everyone ?? 0n) | GATE_BITS | Permissions.MANAGE_ROLES;
+  const needs = (folded.roster.everyone ?? 0n) | bits | Permissions.MANAGE_ROLES;
   return (permissionsAbove(folded.roster, me, BENEATH_EVERY_ROLE) & needs) === needs;
+}
+
+/**
+ * Whether `me` may turn the gate on or off. Turning it on gives a Role all the gate
+ * takes; turning it off gives `@everyone` posting back, and whatever else `me` holds.
+ */
+export function maySwitchGate(folded: FoldedControl | undefined, me: string | undefined): boolean {
+  return rewritesEveryone(folded, me, gateState(folded).on ? GATE_BITS : GATE_TAKES);
+}
+
+/** The gate's bits `me` may give `@everyone` back when turning it off. */
+export function restorableBits(folded: FoldedControl | undefined, me: string | undefined): bigint {
+  if (!folded || !me) return 0n;
+  return me === folded.ownerHex ? GATE_TAKES : permissionsAbove(folded.roster, me, BENEATH_EVERY_ROLE) & GATE_TAKES;
+}
+
+/** What `@everyone` still holds of {@link GATE_EXTRAS} with the gate on: members waiting for approval react or join calls. */
+export function gateLeaves(folded: FoldedControl | undefined): bigint {
+  return gateState(folded).on ? (folded?.roster.everyone ?? 0n) & GATE_EXTRAS : 0n;
+}
+
+/** Whether `me` may take what {@link gateLeaves} names from `@everyone` and give it to the approval Roles. */
+export function mayTightenGate(folded: FoldedControl | undefined, me: string | undefined): boolean {
+  return rewritesEveryone(folded, me, gateLeaves(folded));
+}
+
+/** Whether `member`'s own Roles hold every one of `bits`, so losing `@everyone`'s costs them nothing. */
+function rolesCover(folded: FoldedControl, member: string, bits: bigint): boolean {
+  return (rolesOf(folded.roster, member).reduce((acc, r) => acc | r.permissions, 0n) & bits) === bits;
+}
+
+/**
+ * Who taking `bits` from `@everyone` on a standing gate costs something: members whose
+ * Roles post without holding all of them. `grant` get the approval Role, `unreachable`
+ * are those `me` doesn't outrank.
+ */
+export function owedOnTighten(folded: FoldedControl, me: string, bits: bigint): { grant: string[]; unreachable: string[] } {
+  const owed = [...new Set(folded.roster.grants.map((g) => g.member))]
+    .filter((pk) => pk !== folded.ownerHex && pk !== me && !folded.banned.has(pk))
+    .filter((pk) => rolesCover(folded, pk, Permissions.SEND_MESSAGES) && !rolesCover(folded, pk, bits))
+    .sort();
+  return {
+    grant: owed.filter((pk) => outranksMemberForGrant(folded, me, pk)),
+    unreachable: owed.filter((pk) => !outranksMemberForGrant(folded, me, pk)),
+  };
 }
 
 /** Joined members the gate holds back: no posting of their own, not banned, not the owner. */
@@ -158,8 +213,8 @@ export function outranksMemberForGrant(folded: FoldedControl, me: string, member
 
 /**
  * Who keeps posting when the gate goes on: members seen posting since `sinceMs`, and
- * every member already holding a Role, unless a Role of theirs already posts. Everyone
- * else waits for approval. A member already holding the approval Role posts, so a run
+ * every member already holding a Role, unless their Roles already hold all the gate
+ * takes. Everyone else waits for approval. A member already holding the approval Role posts, so a run
  * cut short picks up where it stopped; `unreachable` are those `me` can't grant to, who
  * need someone ranked above them. `role` is the approval Role as it will be, posting.
  */
@@ -172,9 +227,8 @@ export function carriedOver(
   roleId?: string,
 ): { grant: string[]; unreachable: string[]; waiting: number; holding: number } {
   const holds = (pk: string) => folded.roster.grants.find((g) => g.member === pk)?.roleIds ?? [];
-  const rolePosts = (pk: string) => rolesOf(folded.roster, pk).some((r) => (r.permissions & Permissions.SEND_MESSAGES) !== 0n);
   const eligible = members.filter((pk) => pk !== folded.ownerHex && pk !== me && !folded.banned.has(pk));
-  const posts = (pk: string) => Boolean(roleId && holds(pk).includes(roleId)) || rolePosts(pk);
+  const posts = (pk: string) => Boolean(roleId && holds(pk).includes(roleId)) || rolesCover(folded, pk, GATE_TAKES);
   const unposting = eligible.filter((pk) => !posts(pk));
   const kept = (pk: string) => (observed.get(pk) ?? 0) >= sinceMs || holds(pk).length > 0;
   const owed = unposting.filter(kept).sort();
@@ -182,7 +236,7 @@ export function carriedOver(
     grant: owed.filter((pk) => outranksMemberForGrant(folded, me, pk)),
     unreachable: owed.filter((pk) => !outranksMemberForGrant(folded, me, pk)),
     waiting: unposting.filter((pk) => !kept(pk)).length,
-    /** Already posting through a Role of theirs, so owed nothing. */
+    /** Already holding all the gate takes through their Roles, so owed nothing. */
     holding: eligible.length - unposting.length,
   };
 }

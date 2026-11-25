@@ -1,3 +1,4 @@
+import type { NostrSigner } from "@nostrify/nostrify";
 import { useNostr } from "@nostrify/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
@@ -6,7 +7,7 @@ import { settledWrite } from "@/concord/hooks/rosterSettle";
 import { citationFor, foldStoredControl, invalidateControl, publishEdition, readControlWhole, useControlFold, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
 import { controlWrapOwed, useRoles } from "@/concord/hooks/useRoles";
-import { adoptableRoles, awaitingApproval, carriedOver, GATE_BITS, gateState, keepsPosting, mayApprove, maySwitchGate, outranksMemberForGrant, welcomeChannels } from "@/concord/lib/approvalGate";
+import { adoptableRoles, awaitingApproval, carriedOver, GATE_TAKES, gateLeaves, gateState, keepsPosting, mayApprove, maySwitchGate, mayTightenGate, outranksMemberForGrant, owedOnTighten, restorableBits, WELCOME_OPENS, welcomeChannels } from "@/concord/lib/approvalGate";
 import { buildGrantEdition, type FoldedControl } from "@/concord/lib/control";
 import { bytesToHex, grantLocator, hex32 } from "@/concord/lib/derive";
 import { planCreateRole, planEditRole, planMemberRoles, planOverwrite, planSetEveryone, withRole } from "@/concord/lib/rankedWrites";
@@ -32,10 +33,10 @@ export interface GateSwitchOn {
 /**
  * "Require approval to post" (`approvalGate.ts`): its state, the switch, and approving a
  * member. Turning it on publishes, in order, the approval Role (made, or an existing one
- * given posting), a Grant of it to every member who keeps posting, the welcome Channel's
- * overwrite, and `@everyone` without posting, all planned before the first is published;
- * a run cut short is simply run again. The writer duty mints and delivers each restricted
- * Channel's keys.
+ * given what the gate takes), a Grant of it to every member who keeps posting, the welcome
+ * Channel's overwrite, and `@everyone` without posting, reacting or calls, all planned
+ * before the first is published; a run cut short is simply run again. The writer duty
+ * mints and delivers each Locked Channel's keys.
  */
 export function useApprovalGate(community: Community | undefined) {
   const { nostr } = useNostr();
@@ -57,6 +58,7 @@ export function useApprovalGate(community: Community | undefined) {
     [state.roles, folded, user?.pubkey],
   );
   const welcome = useMemo(() => (folded ? welcomeChannels(folded) : []), [folded]);
+  const leaves = useMemo(() => gateLeaves(folded), [folded]);
 
   const ready = () => {
     if (!user || !community) throw new Error(t({ id: "useRoles.notReady", defaultMessage: "Not ready." }));
@@ -95,8 +97,8 @@ export function useApprovalGate(community: Community | undefined) {
         const rumors: NostrRumor[] = [];
         if (adopted) {
           roleId = adopted.roleId;
-          if ((adopted.permissions & GATE_BITS) !== GATE_BITS) {
-            const permissions = adopted.permissions | GATE_BITS;
+          if ((adopted.permissions & GATE_TAKES) !== GATE_TAKES) {
+            const permissions = adopted.permissions | GATE_TAKES;
             rumors.push(planEditRole(view, c.id, user.pubkey, roleId, {
               name: adopted.name,
               color: adopted.color ?? 0,
@@ -108,28 +110,17 @@ export function useApprovalGate(community: Community | undefined) {
           }
         } else {
           // Colourless and not displayed: held by nearly everyone, it names nobody.
-          const made = planCreateRole(view, c.id, user.pubkey, { name: "Verified", color: 0, permissions: GATE_BITS }, authority);
+          const made = planCreateRole(view, c.id, user.pubkey, { name: "Verified", color: 0, permissions: GATE_TAKES }, authority);
           roleId = made.roleId;
           rumors.push(made.rumor);
           view = withRole(view, made.role);
         }
 
         const plan = carriedOver(view, user.pubkey, members, observed, activeSinceMs, roleId);
-        for (const member of plan.grant) {
-          const current = view.roster.grants.find((g) => g.member === member)?.roleIds ?? [];
-          const roleIds = planMemberRoles(view, c.id, user.pubkey, member, [...current, roleId], held);
-          const head = view.heads.get(bytesToHex(grantLocator(c.id, hex32(member))));
-          const controlWrap = await controlWrapOwed(c, rolesMakeStaff(view.roster, roleIds), user.signer.nip44, member);
-          rumors.push(buildGrantEdition(c.id, { member, roleIds, ...(controlWrap ? { controlWrap } : {}) }, {
-            actorPubkey: user.pubkey,
-            version: head ? head.version + 1n : 1n,
-            prevHash: head?.hash,
-            authority,
-          }));
-        }
+        for (const member of plan.grant) rumors.push(await grantOf(view, c, user, held, member, roleId, authority));
         if (welcomeChannel) rumors.push(welcomeOverwrite(view, c, user.pubkey, held, welcomeChannel, true, authority));
         // Last, so nobody kept loses a post along the way.
-        rumors.push(planSetEveryone(view, c.id, user.pubkey, everyone & ~GATE_BITS, authority));
+        rumors.push(planSetEveryone(view, c.id, user.pubkey, everyone & ~GATE_TAKES, authority));
 
         setProgress({ done: 0, total: rumors.length });
         for (const rumor of rumors) {
@@ -151,7 +142,63 @@ export function useApprovalGate(community: Community | undefined) {
         const whole = await readControlWhole(nostr, c);
         if (!whole) throw new Error(t({ id: "useApprovalGate.needsWhole", defaultMessage: "The community couldn't be read in full; try again once the relays answer." }));
         const view = whole.folded;
-        await publishEdition(nostr, c, user.signer, planSetEveryone(view, c.id, user.pubkey, readEveryone(view) | Permissions.SEND_MESSAGES | (restore & GATE_BITS), citationFor(c, view, user.pubkey)));
+        await publishEdition(nostr, c, user.signer, planSetEveryone(view, c.id, user.pubkey, readEveryone(view) | Permissions.SEND_MESSAGES | (restore & GATE_TAKES), citationFor(c, view, user.pubkey)));
+      }));
+    },
+    onSettled: done,
+  });
+
+  /**
+   * Take what a standing gate left `@everyone` (`gateLeaves`): every approval Role and
+   * welcome Channel gets it first, and so does anyone posting through a Role without it,
+   * so nobody who posts loses it along the way.
+   */
+  const tighten = useMutation<{ unreachable: string[] }, Error, void>({
+    mutationFn: () => {
+      const { user, community: c } = ready();
+      return settledWrite(c, () => withControlWrite(c.idHex, async () => {
+        const whole = await readControlWhole(nostr, c);
+        if (!whole) throw new Error(t({ id: "useApprovalGate.needsWhole", defaultMessage: "The community couldn't be read in full; try again once the relays answer." }));
+        let view = whole.folded;
+        const everyone = readEveryone(view);
+        const taken = gateLeaves(view);
+        if (taken === 0n) return { unreachable: [] };
+        const authority = citationFor(c, view, user.pubkey);
+        const held = heldKeys(c);
+        const rumors: NostrRumor[] = [];
+        const approving = gateState(view).roles;
+        for (const role of approving) {
+          if ((role.permissions & taken) === taken) continue;
+          const permissions = role.permissions | taken;
+          rumors.push(planEditRole(view, c.id, user.pubkey, role.roleId, {
+            name: role.name,
+            color: role.color ?? 0,
+            permissions,
+            display: Boolean(role.display),
+            mentionable: Boolean(role.mentionable),
+          }, authority).rumor);
+          view = withRole(view, { ...role, permissions });
+        }
+        const plan = owedOnTighten(view, user.pubkey, taken);
+        // The lowest approval Role this member may grant.
+        const through = approving.find((r) => mayApprove(view, user.pubkey, r));
+        if (through) for (const member of plan.grant) rumors.push(await grantOf(view, c, user, held, member, through.roleId, authority));
+        const opens = taken & WELCOME_OPENS;
+        for (const channel of opens === 0n ? [] : welcomeChannels(view)) {
+          const scope = channel.toLowerCase();
+          const own = view.roster.overwrites?.find((o) => o.scope === scope && o.target.kind === "everyone");
+          if (own && (own.allow & opens) === opens) continue;
+          rumors.push(planOverwrite(view, c.id, user.pubkey, held, scope, { kind: "everyone" }, (own?.allow ?? 0n) | opens, (own?.deny ?? 0n) & ~opens, authority));
+        }
+        // Last, so nobody kept loses anything along the way.
+        rumors.push(planSetEveryone(view, c.id, user.pubkey, everyone & ~taken, authority));
+
+        setProgress({ done: 0, total: rumors.length });
+        for (const rumor of rumors) {
+          await publishEdition(nostr, c, user.signer, rumor);
+          setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
+        }
+        return { unreachable: through ? plan.unreachable : [...plan.grant, ...plan.unreachable].sort() };
       }));
     },
     onSettled: done,
@@ -214,13 +261,41 @@ export function useApprovalGate(community: Community | undefined) {
     setWelcome: changeWelcome,
     turnOn: turnOn.mutateAsync,
     turnOff: turnOff.mutateAsync,
+    /** The gate's bits this viewer may give `@everyone` back when turning it off. */
+    restorable: restorableBits(folded, user?.pubkey),
+    /** What members waiting for approval can still do besides read (`gateLeaves`); 0 when nothing. */
+    leaves,
+    canTighten: mayTightenGate(folded, user?.pubkey),
+    tighten: tighten.mutateAsync,
     approve: approveMember,
-    switching: turnOn.isPending || turnOff.isPending || setWelcome.isPending,
+    switching: turnOn.isPending || turnOff.isPending || setWelcome.isPending || tighten.isPending,
     progress,
   };
 }
 
 const heldKeys = (c: Community) => new Set(c.privateChannels.map((k) => bytesToHex(k.id)));
+
+/** `member`'s Grant with `roleId` added, carrying the control wrap a newly staff member is owed. */
+async function grantOf(
+  view: FoldedControl,
+  c: Community,
+  user: { pubkey: string; signer: NostrSigner },
+  held: ReadonlySet<string>,
+  member: string,
+  roleId: string,
+  authority: ReturnType<typeof citationFor>,
+): Promise<NostrRumor> {
+  const current = view.roster.grants.find((g) => g.member === member)?.roleIds ?? [];
+  const roleIds = planMemberRoles(view, c.id, user.pubkey, member, [...current, roleId], held);
+  const head = view.heads.get(bytesToHex(grantLocator(c.id, hex32(member))));
+  const controlWrap = await controlWrapOwed(c, rolesMakeStaff(view.roster, roleIds), user.signer.nip44, member);
+  return buildGrantEdition(c.id, { member, roleIds, ...(controlWrap ? { controlWrap } : {}) }, {
+    actorPubkey: user.pubkey,
+    version: head ? head.version + 1n : 1n,
+    prevHash: head?.hash,
+    authority,
+  });
+}
 
 /** `@everyone` as read, refused when the read lost it: a rewrite built on nothing strips every member's basics. */
 function readEveryone(view: FoldedControl): bigint {
@@ -231,8 +306,8 @@ function readEveryone(view: FoldedControl): bigint {
 }
 
 /**
- * `channel`'s `@everyone` overwrite with posting allowed (a welcome Channel) or that
- * allow taken back, every other bit it holds kept as it was.
+ * `channel`'s `@everyone` overwrite with posting and reacting allowed (a welcome Channel)
+ * or that allow taken back, every other bit it holds kept as it was.
  */
 function welcomeOverwrite(
   view: FoldedControl,
@@ -248,6 +323,6 @@ function welcomeOverwrite(
   const allow = existing?.allow ?? 0n;
   const deny = existing?.deny ?? 0n;
   return open
-    ? planOverwrite(view, c.id, me, held, scope, { kind: "everyone" }, allow | GATE_BITS, deny & ~GATE_BITS, authority)
-    : planOverwrite(view, c.id, me, held, scope, { kind: "everyone" }, allow & ~GATE_BITS, deny, authority);
+    ? planOverwrite(view, c.id, me, held, scope, { kind: "everyone" }, allow | WELCOME_OPENS, deny & ~WELCOME_OPENS, authority)
+    : planOverwrite(view, c.id, me, held, scope, { kind: "everyone" }, allow & ~WELCOME_OPENS, deny, authority);
 }

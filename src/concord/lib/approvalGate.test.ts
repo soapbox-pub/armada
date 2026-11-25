@@ -5,10 +5,15 @@ import {
   awaitingApproval,
   carriedOver,
   GATE_BITS,
+  GATE_EXTRAS,
+  GATE_TAKES,
+  gateLeaves,
   gateState,
   keepsPosting,
   mayApprove,
   maySwitchGate,
+  owedOnTighten,
+  restorableBits,
   welcomeChannels,
 } from "@/concord/lib/approvalGate";
 import { foldControlState } from "@/concord/lib/control";
@@ -43,6 +48,57 @@ describe("approval gate", () => {
     const state = gateState(foldControlState(g.editions, g.c.id, g.c.owner));
     expect(state.on).toBe(true);
     expect(state.roles.map((role) => role.roleId)).toEqual([g.verified]);
+  });
+
+  it("reads as on whether or not @everyone still reacts or joins calls, and says which", () => {
+    const g = gated();
+    expect(gateLeaves(foldControlState(g.editions, g.c.id, g.c.owner))).toBe(GATE_EXTRAS);
+
+    const r = rankedCommunity(Permissions.MANAGE_ROLES);
+    const held = foldControlState(
+      [...r.base, r.c.everyone(EVERYONE_DEFAULT & ~GATE_TAKES, { prev: r.everyone }), r.c.role(hexKey(), "m", GATE_TAKES, { name: "Verified" })],
+      r.c.id,
+      r.c.owner,
+    );
+    expect(gateState(held).on).toBe(true);
+    expect(gateLeaves(held)).toBe(0n);
+    // Off: @everyone reacting there is nobody waiting.
+    expect(gateLeaves(foldControlState(r.base, r.c.id, r.c.owner))).toBe(0n);
+  });
+
+  it("owes the approval Role to whoever posts through a Role without what a standing gate still takes", () => {
+    const r = rankedCommunity(Permissions.MANAGE_ROLES | EVERYONE_DEFAULT);
+    const [verified, helpers, helper, peer, approved] = [hexKey(), hexKey(), hexKey(), hexKey(), hexKey()];
+    const folded = foldControlState(
+      [
+        ...r.base,
+        r.c.everyone(EVERYONE_DEFAULT & ~GATE_BITS, { prev: r.everyone }),
+        r.c.role(verified, "m", GATE_TAKES, { name: "Verified" }),
+        // Posts, but manages messages: staff's, so not a Role the gate approves through.
+        r.c.role(helpers, "n", Permissions.SEND_MESSAGES | Permissions.MANAGE_MESSAGES, { name: "Helpers" }),
+        r.c.grant(helper, [helpers]),
+        r.c.grant(peer, [r.adminRole]),
+        r.c.grant(approved, [verified]),
+      ],
+      r.c.id,
+      r.c.owner,
+    );
+    // The admins hold everything @everyone did; only the helper would lose reacting and calls.
+    expect(owedOnTighten(folded, r.c.owner, GATE_EXTRAS)).toEqual({ grant: [helper], unreachable: [] });
+    expect(owedOnTighten(folded, r.admin, GATE_EXTRAS)).toEqual({ grant: [helper], unreachable: [] });
+  });
+
+  it("lets a switcher give @everyone back only what their own Roles hold", () => {
+    const g = gated(Permissions.MANAGE_ROLES | (EVERYONE_DEFAULT & ~Permissions.CONNECT));
+    const folded = foldControlState(
+      [...g.editions.slice(0, -2), g.c.everyone(EVERYONE_DEFAULT & ~GATE_TAKES, { prev: g.everyone }), g.editions.at(-1)!],
+      g.c.id,
+      g.c.owner,
+    );
+    expect(gateState(folded).on).toBe(true);
+    expect(maySwitchGate(folded, g.admin)).toBe(true);
+    expect(restorableBits(folded, g.admin)).toBe(GATE_TAKES & ~Permissions.CONNECT);
+    expect(restorableBits(folded, g.c.owner)).toBe(GATE_TAKES);
   });
 
   it("lists every plain Role that posts, lowest first, and reads none as restricted rather than on", () => {

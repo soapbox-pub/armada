@@ -559,13 +559,15 @@ interface ThreadPanelProps {
   placeholder?: string;
   /** Shown instead of the composer when `canWrite` is false. */
   readOnlyNotice?: string;
+  /** Why a member who reads and reacts here can't post; shown instead of the composer. */
+  postNotice?: string;
 }
 
 /**
  * Thread side panel: root, replies and a reply composer. Transport-driven
  * (`threadRepliesFor`/`sendThreadReply`); replies never appear in the main timeline.
  */
-export function ThreadPanel({ root, rootTitle, transport, relayUrl, groupId, canWrite, mentionPubkeys, botCommands, conversationRelays, encryptAttachments = false, disappearingTimer, autoFocus = false, open = true, permalink, onClose, onExpandChange, title, rootHeader, rootReadOnly = false, documentMarkdown = false, placeholder, readOnlyNotice }: ThreadPanelProps) {
+export function ThreadPanel({ root, rootTitle, transport, relayUrl, groupId, canWrite, mentionPubkeys, botCommands, conversationRelays, encryptAttachments = false, disappearingTimer, autoFocus = false, open = true, permalink, onClose, onExpandChange, title, rootHeader, rootReadOnly = false, documentMarkdown = false, placeholder, readOnlyNotice, postNotice }: ThreadPanelProps) {
   const intl = useIntl();
   const isPost = Boolean(rootTitle);
   const threadRepliesFor = transport.threadRepliesFor;
@@ -835,7 +837,7 @@ export function ThreadPanel({ root, rootTitle, transport, relayUrl, groupId, can
         )}
       </div>
 
-      {canWrite ? (
+      {canWrite && !postNotice ? (
         <ChatComposer
           relayUrl={relayUrl}
           botCommands={botCommands}
@@ -861,7 +863,7 @@ export function ThreadPanel({ root, rootTitle, transport, relayUrl, groupId, can
       ) : (
         <div className="p-3 shrink-0 pb-safe">
           <p className="text-xs text-muted-foreground text-center py-1">
-            {readOnlyNotice ?? intl.formatMessage({ id: "threadPanel.joinToReply", defaultMessage: "Join this channel to reply." })}
+            {postNotice ?? readOnlyNotice ?? intl.formatMessage({ id: "threadPanel.joinToReply", defaultMessage: "Join this channel to reply." })}
           </p>
         </div>
       )}

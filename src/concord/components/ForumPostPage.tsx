@@ -43,6 +43,7 @@ export function ForumPostPage({
   transport,
   groupId,
   canWrite,
+  postNotice,
   mentionPubkeys,
   conversationRelays,
   disappearingTimer,
@@ -57,6 +58,8 @@ export function ForumPostPage({
   transport: ChatTransport;
   groupId: string;
   canWrite: boolean;
+  /** Why a member who reads and reacts here can't post; shown instead of the comment box. */
+  postNotice?: string;
   mentionPubkeys?: string[];
   conversationRelays?: string[];
   /** See ChatComposer's. */
@@ -257,7 +260,7 @@ export function ForumPostPage({
               </span>
             </div>
           )}
-          <ThreadMessage presentation="comment" onReply={canWrite ? setReplyingTo : undefined} {...rowProps(comment)} />
+          <ThreadMessage presentation="comment" onReply={canWrite && !postNotice ? setReplyingTo : undefined} {...rowProps(comment)} />
         </div>,
       );
       if (replyingTo?.id === comment.id) {
@@ -323,7 +326,7 @@ export function ForumPostPage({
               )}
             </article>
 
-            {canWrite ? (
+            {canWrite && !postNotice ? (
               <div className="mt-4">
                 {!commentOpen && (
                   <button
@@ -352,7 +355,7 @@ export function ForumPostPage({
               </div>
             ) : (
               <p className="mt-4 py-2 text-center text-xs text-muted-foreground">
-                <FormattedMessage id="forumPostPage.joinToComment" defaultMessage="Join this channel to comment." />
+                {postNotice ?? <FormattedMessage id="forumPostPage.joinToComment" defaultMessage="Join this channel to comment." />}
               </p>
             )}
 

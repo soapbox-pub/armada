@@ -2266,7 +2266,7 @@ function ConcordCommunityPage() {
     openThread,
     onOpenThread: onOpenThreadCb,
     closeThread,
-  } = useThreadPanel({ room: channelRoute, messages: allMessages, canWrite });
+  } = useThreadPanel({ room: channelRoute, messages: allMessages, canWrite: canWrite && canPost });
   closeThreadRef.current = closeThread;
   const [ticketThreadKey, setTicketThreadKey] = useState(threadRoot?.id);
   if (ticketThreadKey !== threadRoot?.id) {
@@ -2723,6 +2723,17 @@ function ConcordCommunityPage() {
     return transportRef.current.canSend?.() ?? null;
   }, [communityPaused, timedOut, canPost, sendDenied]);
 
+  // What stands in for a composer this member can't post through: the Channel's, a thread's, a post's.
+  const postNotice = !user || !channel
+    ? undefined
+    : timedOut
+      ? intl.formatMessage({ id: "concordPage.timedOut.cantSend", defaultMessage: "You're timed out, so you can't post here yet." })
+      : canPost
+        ? undefined
+        : sendDenied
+          ? intl.formatMessage({ id: "useChannel.cantSend", defaultMessage: "You can't send messages in this channel." })
+          : intl.formatMessage({ id: "concordPage.composer.keyPending", defaultMessage: "Your key to post here is on its way." });
+
   const [forumSort, setForumSort] = useLocalStorage<ForumSort>("armada:concord-forum-sort", "active");
   const [newPostOpen, setNewPostOpen] = useState(false);
   useEffect(() => setNewPostOpen(false), [channel?.idHex]);
@@ -3046,7 +3057,7 @@ function ConcordCommunityPage() {
         active={activeId === msg.id}
         onToggleActive={toggleActive}
         onOpenThread={onOpenThreadCb}
-        onReply={canWrite ? setReplyTo : undefined}
+        onReply={canWrite && canPost ? setReplyTo : undefined}
         replyToId={replyId}
         replyParent={replyId ? (messagesById.get(replyId) ?? olderReplyParents.get(replyId)) : undefined}
         onJumpToReply={jumpWithinChannel}
@@ -4144,6 +4155,7 @@ function ConcordCommunityPage() {
                       transport={transport}
                       groupId={channel.idHex}
                       canWrite={canWrite}
+                      postNotice={postNotice}
                       mentionPubkeys={memberPubkeys}
                       conversationRelays={community?.relays}
                       disappearingTimer={resolveMessageTimer}
@@ -4164,7 +4176,7 @@ function ConcordCommunityPage() {
                       onLoadOlder={transport.loadOlder}
                       onOpen={openPost}
                       isNew={isPostNew}
-                      onNewPost={canWrite ? () => setNewPostOpen(true) : undefined}
+                      onNewPost={canWrite && canPost ? () => setNewPostOpen(true) : undefined}
                       viewer={user?.pubkey}
                       canModerate={transport.canModerate}
                       onDelete={transport.deleteMessage}
@@ -4244,11 +4256,7 @@ function ConcordCommunityPage() {
                     // Locked, not refused on send (Vector `channelAllowsSend`, `channelAwaitsWriterKey`).
                     <div className="mx-gutter mb-[max(0.75rem,var(--bottom-chrome-pad))] sidebar:mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
                       <Lock className="size-5 shrink-0 text-muted-foreground" />
-                      <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-                        {sendDenied
-                          ? intl.formatMessage({ id: "useChannel.cantSend", defaultMessage: "You can't send messages in this channel." })
-                          : intl.formatMessage({ id: "concordPage.composer.keyPending", defaultMessage: "Your key to post here is on its way." })}
-                      </p>
+                      <p className="min-w-0 flex-1 text-sm text-muted-foreground">{postNotice}</p>
                     </div>
                   ) : stranded ? (
                     <div className="mx-gutter mb-[max(0.75rem,var(--bottom-chrome-pad))] sidebar:mb-3 mt-1 px-3 py-3 clip-corner-lg bg-muted/60 flex items-center gap-3">
@@ -4382,6 +4390,7 @@ function ConcordCommunityPage() {
                   relayUrl="dm"
                   groupId={channel.idHex}
                   canWrite={canWrite}
+                  postNotice={postNotice}
                   mentionPubkeys={memberPubkeys}
                   botCommands
                   conversationRelays={community?.relays}
