@@ -17,7 +17,7 @@ import { bytesToHex, channelGroupKey, random32, writersLocator } from "@/concord
 import type { ParsedEdition } from "@/concord/lib/edition";
 import type { CoalescedMember } from "@/concord/lib/guestbook";
 import { KIND_EDIT } from "@/concord/lib/kinds";
-import { Permissions } from "@/concord/lib/roles";
+import { channelPermissions, Permissions } from "@/concord/lib/roles";
 import { overwriteLocator } from "@/concord/lib/roster";
 import { ledgerExtends, parseLedger } from "@/concord/lib/writers";
 import { parseDelivery } from "@/concord/lib/delivery";
@@ -98,6 +98,22 @@ describe("who rings at a restricted Channel's writer address (CORD-03 §1 What s
     const { c, ch, admin, writer, folded } = closed();
     expect(restrictedWritersIn(folded, ch)).toEqual([c.owner, admin, writer].sort());
     expect(restrictedPostersIn(folded, ch)).toEqual([c.owner, admin].sort());
+  });
+
+  it("leaves out a member who may only react there, though they hold the writer key", () => {
+    const { c, base, ch, admin, writer, folded } = closed();
+    const role = hexKey();
+    const reactor = hexKey();
+    const extra = [
+      c.role(role, "n", 0n, { name: "Reactors" }),
+      c.grant(reactor, [role]),
+      c.edition({ vsk: "14", eid: overwriteLocator(c.id, { scope: ch, target: { kind: "role", id: role } } as never), author: c.owner, content: { scope: ch, target: { kind: "role", id: role }, allow: Permissions.ADD_REACTIONS.toString(), deny: "0" } }),
+    ];
+    const more = foldControlState([...base, ...folded.headEditions.values(), ...extra], c.id, c.owner);
+    expect(channelPermissions(more.roster, c.owner, reactor, ch, false) & (Permissions.ADD_REACTIONS | Permissions.SEND_MESSAGES)).toBe(Permissions.ADD_REACTIONS);
+    expect(restrictedWritersIn(more, ch)).toEqual([c.owner, admin, writer].sort());
+    const [, atWriter] = buildConcordSubs(heldCommunity(c), more).subs.filter((s) => s.channelId === ch);
+    expect(atWriter.postAuthors).not.toContain(reactor);
   });
 
   it("names nobody where @everyone may still post", () => {
