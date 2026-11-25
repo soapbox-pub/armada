@@ -72,6 +72,7 @@ function acquireGuestbookWake(
   queryClient: QueryClient,
   idHex: string,
   queryKey: readonly unknown[],
+  community: () => Community | undefined,
 ): () => void {
   let registry = guestbookWakeRegistries.get(queryClient);
   if (!registry) {
@@ -88,8 +89,11 @@ function acquireGuestbookWake(
   const scope = `c2gb:${idHex}`;
   const unsubscribe = onWireScopes((scopes) => {
     if (!scopes.has(scope)) return;
-    void queryPlane(idHex, "guestbook").then((stored) => {
-      if (stored.length === 0) return;
+    void queryPlane(idHex, "guestbook").then(async (rows) => {
+      if (rows.length === 0) return;
+      // A stored row doesn't say which epoch's address it arrived at, and the merge replaces the cached copy that does.
+      const held = community();
+      const stored = held ? await withGuestbookStreams(held, rows) : rows;
       queryClient.setQueryData<OpenedEvent[]>(queryKey, (old) => mergeOpened(old ?? [], stored));
     });
   });
@@ -332,9 +336,11 @@ export function useGuestbook(community: Community | undefined, { poll = true }: 
 
   // Refcounted store re-read on `c2gb:<idHex>` (see acquireGuestbookWake).
   const idHex = community?.idHex;
+  const communityRef = useRef(community);
+  communityRef.current = community;
   useEffect(() => {
     if (!idHex) return;
-    return acquireGuestbookWake(queryClient, idHex, queryKey);
+    return acquireGuestbookWake(queryClient, idHex, queryKey, () => communityRef.current);
   }, [idHex, queryKey, queryClient]);
 
   // Timeouts and Nicknames (CORD-04 §8, §10) are judged again as each running Timeout ends.

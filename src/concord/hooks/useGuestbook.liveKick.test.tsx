@@ -39,7 +39,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import { bytesToHex, guestbookGroupKey } from "@/concord/lib/derive";
-import { buildKickRumor, sealGuestbook } from "@/concord/lib/guestbook";
+import { buildJoinRumor, buildKickRumor, buildSnapshotRumors, sealGuestbook } from "@/concord/lib/guestbook";
 import type { FoldedControl } from "@/concord/lib/control";
 import type { Community } from "@/concord/lib/types";
 import {
@@ -266,5 +266,43 @@ describe("kick live-delivery through useGuestbook", () => {
     await waitFor(() => expect(result.current.isFetching).toBe(false), { timeout: 2_000 });
     // …and the verdict it confirms against still reads `kick`.
     expect(result.current.coalesced.get(target.pubkey)?.state).toBe("kick");
+  });
+});
+
+describe("the c2gb wake after a Refounding", () => {
+  it("keeps a member the snapshot omitted out when another Guestbook entry arrives", async () => {
+    const owner = signer();
+    const omitted = signer();
+    const newcomer = signer();
+    const root1 = new Uint8Array(32).fill(10);
+    const community = {
+      ...communityOf(213, owner.pubkey),
+      root: root1,
+      rootEpoch: 1n,
+      refounder: owner.pubkey,
+      heldRoots: [{ epoch: 1n, key: root1, refounder: owner.pubkey }, { epoch: 0n, key: root }],
+    } as unknown as Community;
+    h.folded = foldedFor(owner.pubkey);
+
+    const gb0 = guestbookGroupKey(root, community.id, 0);
+    const gb1 = guestbookGroupKey(root1, community.id, 1);
+    const cut = Date.now() - 60_000;
+    const wraps: NostrEvent[] = [];
+    for (const r of buildSnapshotRumors(owner.pubkey, [owner.pubkey], "ab".repeat(32), cut)) {
+      wraps.push((await sealGuestbook(r, gb1, owner)) as NostrEvent);
+    }
+    // Joined through a link still naming the superseded epoch: after the cut, at the old address.
+    wraps.push((await sealGuestbook(buildJoinRumor(omitted.pubkey, cut + 1000), gb0, omitted)) as NostrEvent);
+    const entry = { idHex: community.idHex, groups: [gb1, gb0] };
+    const sinks = wireSinks({ concordGbByPk: new Map(wraps.map((w) => [w.pubkey, entry])) });
+    await ingestWireEvents(sinks, wraps, { live: true, relay: "wss://relay.test" });
+
+    const { result } = renderHook(() => useGuestbook(community), { wrapper });
+    await waitFor(() => expect(result.current.coalesced.get(omitted.pubkey)?.state).toBe("refounded"));
+
+    const join = (await sealGuestbook(buildJoinRumor(newcomer.pubkey, Date.now()), gb1, newcomer)) as NostrEvent;
+    await ingestWireEvents(sinks, [join], { live: true, relay: "wss://relay.test" });
+    await waitFor(() => expect(result.current.coalesced.get(newcomer.pubkey)?.state).toBe("join"));
+    expect(result.current.coalesced.get(omitted.pubkey)?.state).toBe("refounded");
   });
 });
