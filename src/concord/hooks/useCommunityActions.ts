@@ -1191,7 +1191,8 @@ export function useCommunityManagement(community: Community | undefined) {
    * syncs. Nothing said there comes along. On the legacy Roster a private copy's readers are
    * the original's, returned with its access Role for the caller to grant.
    */
-  const duplicateChannel = useMutation<{ channelIdHex: string; accessRoleId?: string; readers: string[] }, Error, { sourceIdHex: string; name: string }>({
+  /** `partial` says what didn't reach the copy: it stands, so it answers rather than refusing, and a retry would make a second. */
+  const duplicateChannel = useMutation<{ channelIdHex: string; accessRoleId?: string; readers: string[]; partial?: string }, Error, { sourceIdHex: string; name: string }>({
     mutationFn: async ({ sourceIdHex, name }) => {
       if (!user || !community || !folded) throw new Error(t({ id: "useCommunityActions.notReady", defaultMessage: "Not ready." }));
       requireChannelManager();
@@ -1217,7 +1218,7 @@ export function useCommunityManagement(community: Community | undefined) {
         details: { ...(topic ? { topic } : {}), ...(custom ? { custom } : {}), ...(position !== undefined ? { position } : {}) },
         followCategory: false,
       });
-      // The Channel stands from here, so a failure says so: a retry would make a second.
+      let partial: string | undefined;
       if (ranked && (plan.syncedTo || plan.rules.length > 0)) {
         const c = community;
         const u = user;
@@ -1233,17 +1234,17 @@ export function useCommunityManagement(community: Community | undefined) {
             for (const rumor of rumors) await publishEdition(nostr, c, u.signer, rumor);
           });
         } catch (e) {
-          throw new Error(t(
+          partial = t(
             { id: "useCommunityActions.duplicatePartial", defaultMessage: "The channel was made, but not everything was copied onto it: {reason}" },
             { reason: e instanceof Error ? e.message : String(e) },
-          ));
+          );
         }
       }
       // On the legacy Roster a private Channel's readers hold its access Role.
       const access = ranked || !plan.isPrivate ? [] : channelRoleIds(folded.roster, src);
       const readers = folded.roster.grants.filter((g) => g.member !== user.pubkey && g.roleIds.some((r) => access.includes(r))).map((g) => g.member);
       invalidateControl(queryClient, community.idHex);
-      return { channelIdHex: made.channelIdHex, ...(made.accessRoleId ? { accessRoleId: made.accessRoleId } : {}), readers };
+      return { channelIdHex: made.channelIdHex, ...(made.accessRoleId ? { accessRoleId: made.accessRoleId } : {}), readers, ...(partial ? { partial } : {}) };
     },
   });
 

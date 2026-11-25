@@ -714,4 +714,26 @@ describe("duplicating a Channel (Vector v0.5.2 `duplicate_channel`)", () => {
     expect(rules).toHaveLength(1);
     expect(rules[0].scope ?? rules[0].channel).toBe(made!.channelIdHex);
   });
+
+  it("answers with the copy it made when its rules don't land, so nothing invites a second", async () => {
+    const { c, community, publicId, base } = setup();
+    const o = { scope: publicId, target: { kind: "everyone" as const }, allow: 0n, deny: Permissions.SEND_MESSAGES };
+    const rule = c.edition({ vsk: "14", eid: overwriteLocator(c.id, o), author: c.owner, content: overwriteToJSON(o) });
+    const held = [...env.folded!.headEditions.values(), rule];
+    env.folded = foldControlState([...base, ...held], c.id, c.owner);
+    env.user = { pubkey: c.owner, signer: {} };
+    env.onPublish = (r) => {
+      held.push(parsedOf(r));
+      env.folded = foldControlState([...base, ...held], c.id, c.owner);
+    };
+    env.failVsk = "14";
+    const { result } = renderHook(() => useCommunityManagement(community), { wrapper });
+    let made: { channelIdHex: string; partial?: string } | undefined;
+    await act(async () => {
+      made = await result.current.duplicateChannel({ sourceIdHex: publicId, name: "general-2" });
+    });
+    expect(channelEditions().filter((r) => r.content.includes("general-2"))).toHaveLength(1);
+    expect(made!.channelIdHex).not.toBe(publicId);
+    expect(made!.partial).toMatch(/no relay took it/);
+  });
 });

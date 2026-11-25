@@ -1196,6 +1196,7 @@
   "concordPage.dissolve.linksTakenDown": "招待リンクと掲載を取り下げました",
   "concordPage.dissolved.description": "現在は読み取り専用です。履歴の閲覧は引き続き可能で、リストから削除することもできます。",
   "concordPage.dissolved.title": "このコミュニティはオーナーによって解散されました。",
+  "concordPage.duplicate.readersLeft": "#{name} の{count, plural, other {# 人の閲覧者}}をコピーに追加できませんでした。",
   "concordPage.excluded.description": "モデレーターがあなたを除いて鍵をローテーションしました。これまでの履歴は読めますが、新しいメッセージは読めません。再び招待されると再表示されます。退出することもできます。",
   "concordPage.excluded.leave": "退出",
   "concordPage.excluded.title": "このコミュニティへのアクセス権がなくなりました。",

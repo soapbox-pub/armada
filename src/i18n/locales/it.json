@@ -1196,6 +1196,7 @@
   "concordPage.dissolve.linksTakenDown": "Link di invito e inserzioni rimossi",
   "concordPage.dissolved.description": "Ora è di sola lettura. Puoi ancora consultare la cronologia o rimuoverla dalla tua lista.",
   "concordPage.dissolved.title": "Questa community è stata sciolta dal suo proprietario.",
+  "concordPage.duplicate.readersLeft": "{count, plural, one {# lettore} other {# lettori}} di #{name} non {count, plural, one {è stato ammesso} other {sono stati ammessi}} nella copia.",
   "concordPage.excluded.description": "Un moderatore ha ruotato le chiavi senza di te. La tua cronologia resta leggibile, i nuovi messaggi no. Ricomparirà se vieni invitato di nuovo, oppure puoi lasciarla.",
   "concordPage.excluded.leave": "Esci",
   "concordPage.excluded.title": "Non hai più accesso a questa community.",

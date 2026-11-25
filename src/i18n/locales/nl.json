@@ -1196,6 +1196,7 @@
   "concordPage.dissolve.linksTakenDown": "Uitnodigingslinks en vermeldingen verwijderd",
   "concordPage.dissolved.description": "Ze is nu alleen-lezen. Je kunt de geschiedenis nog doorbladeren of haar uit je lijst verwijderen.",
   "concordPage.dissolved.title": "Deze community is opgeheven door de eigenaar.",
+  "concordPage.duplicate.readersLeft": "{count, plural, one {# lezer} other {# lezers}} van #{name} {count, plural, one {kon} other {konden}} niet in de kopie worden toegelaten.",
   "concordPage.excluded.description": "Een moderator heeft de sleutels zonder jou geroteerd. Je geschiedenis blijft leesbaar, nieuwe berichten niet. Ze verschijnt weer als je opnieuw wordt uitgenodigd, of je kunt haar verlaten.",
   "concordPage.excluded.leave": "Verlaten",
   "concordPage.excluded.title": "Je hebt geen toegang meer tot deze community.",

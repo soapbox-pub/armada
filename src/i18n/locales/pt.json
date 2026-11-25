@@ -1196,6 +1196,7 @@
   "concordPage.dissolve.linksTakenDown": "Links de convite e listagens retirados",
   "concordPage.dissolved.description": "Agora ela é somente leitura. Você ainda pode navegar pelo histórico ou removê-la da sua lista.",
   "concordPage.dissolved.title": "Esta comunidade foi dissolvida pelo dono.",
+  "concordPage.duplicate.readersLeft": "{count, plural, one {# leitor} other {# leitores}} de #{name} não {count, plural, one {pôde} other {puderam}} entrar na cópia.",
   "concordPage.excluded.description": "Um moderador trocou as chaves sem incluir você. Seu histórico continua legível; as novas mensagens, não. Ela reaparece se você for convidado de novo, ou você pode sair.",
   "concordPage.excluded.leave": "Sair",
   "concordPage.excluded.title": "Você não tem mais acesso a esta comunidade.",

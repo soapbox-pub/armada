@@ -2953,14 +2953,23 @@ function ConcordCommunityPage() {
     const made = await duplicateChannel({ sourceIdHex: source.idHex, name });
     // On the legacy Roster the copy's readers are the original's, let in by its access Role.
     const roleId = made.accessRoleId;
+    let left = 0;
     if (roleId) {
       for (const pk of made.readers) {
-        await setMemberRoles({ member: pk, roleIds: [...roleIntent.rolesFor(pk), roleId] }).catch((e: unknown) =>
-          logSync("control", `a reader of #${source.name} isn't let into the copy: ${e instanceof Error ? e.message : String(e)}`),
-        );
+        await setMemberRoles({ member: pk, roleIds: [...roleIntent.rolesFor(pk), roleId] }).catch((e: unknown) => {
+          left++;
+          logSync("control", `a reader of #${source.name} isn't let into the copy: ${e instanceof Error ? e.message : String(e)}`);
+        });
       }
     }
     selectChannel(made.channelIdHex);
+    // The copy stands, so the dialog closes on it and what didn't reach it is said here.
+    if (made.partial || left > 0) {
+      toast({
+        title: made.partial ?? t({ id: "concordPage.duplicate.readersLeft", defaultMessage: "{count, plural, one {# reader} other {# readers}} of #{name} couldn't be let into the copy." }, { count: left, name: source.name }),
+        variant: "destructive",
+      });
+    }
   };
 
   const publishTyping = useTypingPublisher(community, channel, allMessages);

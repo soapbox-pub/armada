@@ -1196,6 +1196,7 @@
   "concordPage.dissolve.linksTakenDown": "Liens d’invitation et annonces retirés",
   "concordPage.dissolved.description": "Elle est désormais en lecture seule. Vous pouvez toujours parcourir l’historique, ou la retirer de votre liste.",
   "concordPage.dissolved.title": "Cette communauté a été dissoute par son propriétaire.",
+  "concordPage.duplicate.readersLeft": "{count, plural, one {# lecteur de #{name} n’a pas pu être admis} other {# lecteurs de #{name} n’ont pas pu être admis}} dans la copie.",
   "concordPage.excluded.description": "Un modérateur a renouvelé ses clés sans vous. Votre historique reste lisible, mais pas les nouveaux messages. Elle réapparaîtra si vous êtes réinvité, ou vous pouvez la quitter.",
   "concordPage.excluded.leave": "Quitter",
   "concordPage.excluded.title": "Vous n’avez plus accès à cette communauté.",

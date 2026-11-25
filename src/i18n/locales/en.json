@@ -1196,6 +1196,7 @@
   "concordPage.dissolve.linksTakenDown": "Invite links and listings taken down",
   "concordPage.dissolved.description": "It's now read-only. You can still browse the history, or remove it from your list.",
   "concordPage.dissolved.title": "This community was dissolved by its owner.",
+  "concordPage.duplicate.readersLeft": "{count, plural, one {# reader} other {# readers}} of #{name} couldn't be let into the copy.",
   "concordPage.excluded.description": "A moderator rotated its keys without you. Your history stays readable; new messages won't. It reappears if you're re-invited, or you can leave.",
   "concordPage.excluded.leave": "Leave",
   "concordPage.excluded.title": "You no longer have access to this community.",

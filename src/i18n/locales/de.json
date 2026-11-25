@@ -1196,6 +1196,7 @@
   "concordPage.dissolve.linksTakenDown": "Einladungslinks und Einträge entfernt",
   "concordPage.dissolved.description": "Sie ist jetzt schreibgeschützt. Du kannst den Verlauf weiterhin durchsehen oder sie aus deiner Liste entfernen.",
   "concordPage.dissolved.title": "Diese Community wurde von ihrem Eigentümer aufgelöst.",
+  "concordPage.duplicate.readersLeft": "{count, plural, one {# Leser konnte} other {# Leser konnten}} nicht in die Kopie von #{name} aufgenommen werden.",
   "concordPage.excluded.description": "Ein Moderator hat die Schlüssel ohne dich rotiert. Dein Verlauf bleibt lesbar, neue Nachrichten nicht. Sie erscheint wieder, wenn du erneut eingeladen wirst, oder du kannst sie verlassen.",
   "concordPage.excluded.leave": "Verlassen",
   "concordPage.excluded.title": "Du hast keinen Zugriff mehr auf diese Community.",
