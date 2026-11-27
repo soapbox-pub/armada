@@ -1,6 +1,7 @@
 import { Ban, Check, ChevronDown, Flag, Link as LinkIcon, Loader2, MoreHorizontal, ShieldAlert, ShieldCheck, UserCheck, UserMinus, Users } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
+import { ProfilePreviewCard } from "@/components/chat/ProfilePreviewCard";
 import { DisplayName } from "@/components/DisplayName";
 import { SettingsGroup, SettingsRow } from "@/components/settings/SettingsSection";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -101,6 +102,36 @@ export function OverviewView({
     [approve],
   );
 
+  const { approveAll } = gate;
+  const onApproveAll = () => {
+    const role = gate.grantable[0];
+    if (!role) return;
+    const ok = confirm(t(
+      { id: "overviewView.confirmApproveAll", defaultMessage: "{count, plural, one {Approve the # member waiting? They get the {role} role and can post right away.} other {Approve all # members waiting? They get the {role} role and can post right away.}}" },
+      { count: pending.length, role: role.name },
+    ));
+    if (!ok) return;
+    approveAll(pending.map((m) => m.pubkey))
+      .then(({ approved, unreachable }) =>
+        toast({
+          title: t({ id: "overviewView.approvedAll", defaultMessage: "{count, plural, one {# member approved} other {# members approved}}" }, { count: approved }),
+          description: unreachable.length > 0
+            ? t(
+                { id: "overviewView.approvedAllUnreachable", defaultMessage: "{count, plural, one {# member ranks at or above you and is still waiting.} other {# members rank at or above you and are still waiting.}}" },
+                { count: unreachable.length },
+              )
+            : undefined,
+        }),
+      )
+      .catch((e: unknown) =>
+        toast({
+          title: t({ id: "overviewView.approveAllFailed", defaultMessage: "Couldn't approve everyone" }),
+          description: e instanceof Error ? e.message : undefined,
+          variant: "destructive",
+        }),
+      );
+  };
+
   const rowActions = { revoke, revoking: isRevoking, onKick, onBan };
 
   return (
@@ -171,6 +202,22 @@ export function OverviewView({
                 primary={gate.canApprove && gate.mayApproveMember(m.pubkey) ? { kind: "approve", onApprove, roles: gate.grantable, busy: approving.has(m.pubkey) } : undefined}
               />
             ))
+          )}
+          {gate.canApprove && pending.length > 1 && (
+            <SettingsRow
+              icon={UserCheck}
+              tone="primary"
+              stack
+              label={intl.formatMessage({ id: "overviewView.approveAllLabel", defaultMessage: "Approve everyone waiting" })}
+              description={gate.approvingAll && gate.progress
+                ? intl.formatMessage({ id: "approvalGate.progress", defaultMessage: "Publishing {done} of {total}. Keep this page open." }, gate.progress)
+                : intl.formatMessage({ id: "overviewView.approveAllHint", defaultMessage: "For when approval went on and held back people who belong here." })}
+            >
+              <Button type="button" variant="secondary" size="sm" className="clip-corner-lg h-8 touch:h-11" disabled={gate.switching} onClick={onApproveAll}>
+                {gate.approvingAll ? <Loader2 className="size-3.5 animate-spin" /> : <UserCheck className="size-3.5" />}
+                <FormattedMessage id="overviewView.approveAll" defaultMessage="Approve all ({count})" values={{ count: pending.length }} />
+              </Button>
+            </SettingsRow>
           )}
         </SettingsGroup>
       )}
@@ -263,18 +310,28 @@ function MemberReviewRow({
 
   return (
     <SettingsRow className="flex items-center gap-3">
-      <UserAvatar
-        pubkey={member.pubkey}
-        metadata={author.data?.metadata}
-        imeta={author.data?.imeta?.picture}
-        name={name}
-        className="size-8 shrink-0"
-        fallbackClassName="text-xs"
-      />
+      <ProfilePreviewCard pubkey={member.pubkey}>
+        <button
+          type="button"
+          className="shrink-0 rounded-full"
+          aria-label={intl.formatMessage({ id: "overviewView.viewProfile", defaultMessage: "View {name}'s profile" }, { name })}
+        >
+          <UserAvatar
+            pubkey={member.pubkey}
+            metadata={author.data?.metadata}
+            imeta={author.data?.imeta?.picture}
+            name={name}
+            className="size-8 touch:size-11"
+            fallbackClassName="text-xs"
+          />
+        </button>
+      </ProfilePreviewCard>
       <div className="min-w-0 flex-1 space-y-0.5">
-        <div className="truncate text-sm font-medium leading-tight">
-          <DisplayName pubkey={member.pubkey} name={name} />
-        </div>
+        <ProfilePreviewCard pubkey={member.pubkey}>
+          <button type="button" className="block max-w-full truncate text-left text-sm font-medium leading-tight hover:underline">
+            <DisplayName pubkey={member.pubkey} name={name} />
+          </button>
+        </ProfilePreviewCard>
         <div className="truncate text-xs text-muted-foreground">
           <FormattedMessage id="overviewView.joined" defaultMessage="Joined {ago}" values={{ ago: relativeTime(Math.floor(member.joinedMs / 1000)) }} />
           {member.invite && (
