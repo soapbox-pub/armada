@@ -7,7 +7,7 @@ import { settledWrite } from "@/concord/hooks/rosterSettle";
 import { citationFor, foldStoredControl, invalidateControl, publishEdition, readControlWhole, useControlFold, withControlWrite } from "@/concord/hooks/useControlPlane";
 import { useGuestbook } from "@/concord/hooks/useGuestbook";
 import { controlWrapOwed, useRoles } from "@/concord/hooks/useRoles";
-import { adoptableRoles, awaitingApproval, carriedOver, GATE_TAKES, gateLeaves, gateState, keepsPosting, mayApprove, maySwitchGate, mayTightenGate, outranksMemberForGrant, owedOnTighten, restorableBits, WELCOME_OPENS, welcomeChannels } from "@/concord/lib/approvalGate";
+import { adoptableRoles, awaitingApproval, carriedOver, GATE_TAKES, gateLeaves, gateState, keepsPosting, mayApprove, maySwitchGate, mayTightenGate, outranksMemberForGrant, owedOnTighten, postsAnywhere, restorableBits, WELCOME_OPENS, welcomeChannels } from "@/concord/lib/approvalGate";
 import { buildGrantEdition, type FoldedControl } from "@/concord/lib/control";
 import { bytesToHex, grantLocator, hex32 } from "@/concord/lib/derive";
 import { planCreateRole, planEditRole, planMemberRoles, planOverwrite, planSetEveryone, withRole } from "@/concord/lib/rankedWrites";
@@ -233,6 +233,37 @@ export function useApprovalGate(community: Community | undefined) {
     },
   });
 
+  /**
+   * Grant each of `members` the lowest approval Role this viewer may grant, as one run
+   * with progress; those the viewer doesn't outrank are left waiting and returned.
+   */
+  const approveAll = useMutation<{ approved: number; unreachable: string[] }, Error, readonly string[]>({
+    mutationFn: (members) => {
+      const { user, community: c } = ready();
+      return settledWrite(c, () => withControlWrite(c.idHex, async () => {
+        const whole = await readControlWhole(nostr, c);
+        if (!whole) throw new Error(t({ id: "useApprovalGate.needsWhole", defaultMessage: "The community couldn't be read in full; try again once the relays answer." }));
+        const view = whole.folded;
+        const through = gateState(view).roles.find((r) => mayApprove(view, user.pubkey, r));
+        if (!through) throw new Error(t({ id: "useApprovalGate.cantApprove", defaultMessage: "You can't give anyone the role that lets members post." }));
+        const waiting = members.filter((pk) => !view.banned.has(pk) && !postsAnywhere(view, pk));
+        const reachable = waiting.filter((pk) => outranksMemberForGrant(view, user.pubkey, pk));
+        const authority = citationFor(c, view, user.pubkey);
+        const held = heldKeys(c);
+        const rumors: NostrRumor[] = [];
+        for (const member of reachable) rumors.push(await grantOf(view, c, user, held, member, through.roleId, authority));
+
+        setProgress({ done: 0, total: rumors.length });
+        for (const rumor of rumors) {
+          await publishEdition(nostr, c, user.signer, rumor);
+          setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
+        }
+        return { approved: reachable.length, unreachable: waiting.filter((pk) => !reachable.includes(pk)) };
+      }));
+    },
+    onSettled: done,
+  });
+
   const me = user?.pubkey;
   // Approving changes the member's Grant, which takes outranking them too (CORD-04 §3).
   const mayApproveMember = useCallback((member: string) => Boolean(folded && me && outranksMemberForGrant(folded, me, member)), [folded, me]);
@@ -268,7 +299,9 @@ export function useApprovalGate(community: Community | undefined) {
     canTighten: mayTightenGate(folded, user?.pubkey),
     tighten: tighten.mutateAsync,
     approve: approveMember,
-    switching: turnOn.isPending || turnOff.isPending || setWelcome.isPending || tighten.isPending,
+    approveAll: approveAll.mutateAsync,
+    approvingAll: approveAll.isPending,
+    switching: turnOn.isPending || turnOff.isPending || setWelcome.isPending || tighten.isPending || approveAll.isPending,
     progress,
   };
 }

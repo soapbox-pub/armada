@@ -20,6 +20,7 @@ import { clockNowMs } from "@/lib/relayClock";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_WINDOW_DAYS = 30;
 const NO_WELCOME = "none";
+const WELCOME_NAME = /welcome|intro|lobby|newcomer|onboard|verif|screen|start/i;
 /** The role picker's "make one" choice; role ids are hex, so it can't collide. */
 const CREATE_ROLE = "create";
 
@@ -144,10 +145,12 @@ function WelcomeRow({
   return (
     <SettingsRow
       icon={DoorOpen}
-      tone="success"
+      tone={current === NO_WELCOME ? "warning" : "success"}
       stack
       label={intl.formatMessage({ id: "approvalGate.welcomeLabel", defaultMessage: "Welcome channel" })}
-      description={intl.formatMessage({ id: "approvalGate.welcomeHint", defaultMessage: "Anyone can still post there, so newcomers can ask to be approved." })}
+      description={current === NO_WELCOME
+        ? intl.formatMessage({ id: "approvalGate.welcomeNoneWarning", defaultMessage: "Without one, newcomers can't post anywhere, so they have no way to ask to be approved." })
+        : intl.formatMessage({ id: "approvalGate.welcomeHint", defaultMessage: "Anyone can still post there, so newcomers can ask to be approved." })}
     >
       <Select value={current} onValueChange={change} disabled={!canChange}>
         <SelectTrigger className="w-full clip-corner-lg sm:w-44" aria-label={intl.formatMessage({ id: "approvalGate.welcomeLabel", defaultMessage: "Welcome channel" })}>
@@ -242,8 +245,10 @@ function TurnOnDialog({
 }) {
   const intl = useIntl();
   const { user } = useCurrentUser();
-  const [keep, setKeep] = useState<"active" | "everyone">("active");
-  const [welcome, setWelcome] = useState(NO_WELCOME);
+  const [keep, setKeep] = useState<"active" | "everyone">("everyone");
+  const welcomeChoices = useMemo(() => welcomeCandidates(channels, folded), [channels, folded]);
+  // A channel named for greeting newcomers is the likely door; anything else stays the moderator's call.
+  const [welcome, setWelcome] = useState(() => welcomeChoices.find((c) => WELCOME_NAME.test(c.name))?.idHex ?? NO_WELCOME);
   const [busy, setBusy] = useState(false);
   // An existing Verified, as a gate bot or an earlier switch left, is the way in by default.
   const adoptable = useMemo(() => (user ? adoptableRoles(folded, user.pubkey) : []), [folded, user]);
@@ -252,7 +257,6 @@ function TurnOnDialog({
     return verified ? verified.roleId : CREATE_ROLE;
   });
 
-  const welcomeChoices = useMemo(() => welcomeCandidates(channels, folded), [channels, folded]);
   // Read once per open, so the counts don't shift while the reader decides.
   const [nowMs] = useState(clockNowMs);
   const activeSinceMs = keep === "everyone" ? 0 : nowMs - ACTIVE_WINDOW_DAYS * DAY_MS;
@@ -331,7 +335,7 @@ function TurnOnDialog({
             <FormattedMessage id="approvalGate.keepLabel" defaultMessage="Who keeps posting" />
           </p>
           <div className="grid grid-cols-2 gap-2" role="radiogroup">
-            {(["active", "everyone"] as const).map((choice) => (
+            {(["everyone", "active"] as const).map((choice) => (
               <Button
                 key={choice}
                 type="button"
@@ -349,9 +353,20 @@ function TurnOnDialog({
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            {keep === "active"
-              ? <FormattedMessage id="approvalGate.keepActiveHint" defaultMessage="Posted in the last {days} days, or holds a role." values={{ days: ACTIVE_WINDOW_DAYS }} />
-              : <FormattedMessage id="approvalGate.keepAllHint" defaultMessage="Every current member keeps posting; only people who join later wait." />}
+            {keep === "active" ? (
+              <>
+                <FormattedMessage id="approvalGate.keepActiveHint" defaultMessage="Posted in the last {days} days, or holds a role." values={{ days: ACTIVE_WINDOW_DAYS }} />
+                <InfoTip className="-my-1 ml-1">
+                  <FormattedMessage
+                    id="approvalGate.keepActiveInfo"
+                    defaultMessage="Only the most recent messages your device has loaded in each channel are counted. In a busy channel that can be less than {days} days, so someone who posted there may still have to wait. Choose Everyone if you're unsure."
+                    values={{ days: ACTIVE_WINDOW_DAYS }}
+                  />
+                </InfoTip>
+              </>
+            ) : (
+              <FormattedMessage id="approvalGate.keepAllHint" defaultMessage="Every current member keeps posting; only people who join later wait." />
+            )}
           </p>
         </div>
 
@@ -372,9 +387,15 @@ function TurnOnDialog({
               ))}
             </SelectContent>
           </Select>
-          <p className="text-xs text-muted-foreground">
-            <FormattedMessage id="approvalGate.welcomeHint" defaultMessage="Anyone can still post there, so newcomers can ask to be approved." />
-          </p>
+          {welcome === NO_WELCOME ? (
+            <p className="text-xs text-warning">
+              <FormattedMessage id="approvalGate.welcomeNoneWarning" defaultMessage="Without one, newcomers can't post anywhere, so they have no way to ask to be approved." />
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              <FormattedMessage id="approvalGate.welcomeHint" defaultMessage="Anyone can still post there, so newcomers can ask to be approved." />
+            </p>
+          )}
         </div>
 
         <div className="mt-5 flex items-center justify-center gap-2 text-center text-sm">

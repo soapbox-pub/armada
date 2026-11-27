@@ -383,3 +383,28 @@ describe("approving a member", () => {
     expect(JSON.parse(grant.content).role_ids.sort()).toEqual([artists, verified].sort());
   });
 });
+
+describe("approving everyone waiting", () => {
+  it("grants the approval Role to each member still waiting, and skips one who already posts", async () => {
+    const k = community(Permissions.MANAGE_ROLES | EVERYONE_DEFAULT);
+    const verified = hexKey();
+    const [first, second] = [hexKey(), hexKey()];
+    const editions = [
+      ...k.editions,
+      k.c.everyone(EVERYONE_DEFAULT & ~GATE_TAKES, { prev: k.everyone }),
+      k.c.role(verified, "m", GATE_TAKES, { name: "Verified" }),
+      k.c.grant(k.member, [verified]),
+    ];
+    env.editions = [...editions];
+    env.folded = foldControlState(editions, k.c.id, k.c.owner);
+    const { result } = renderHook(() => useApprovalGate(k.community), { wrapper });
+    let outcome: unknown;
+    const error = await attempt(async () => {
+      outcome = await result.current.approveAll([first, second, k.member]);
+    });
+    expect(error).toBeUndefined();
+    expect(outcome).toEqual({ approved: 2, unreachable: [] });
+    expect(grantEditions().map((r) => JSON.parse(r.content).member).sort()).toEqual([first, second].sort());
+    for (const pk of [first, second]) expect(reactionIgnored(env.folded, k.general)!(pk)).toBe(false);
+  });
+});
